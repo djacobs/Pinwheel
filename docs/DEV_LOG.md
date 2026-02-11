@@ -296,3 +296,137 @@
 - *Ask:* "Create an acceptance criteria doc. Err on the side of verbosity, and whether the acceptance criteria test can be automated (with Playwright) or not."
 - *Thinking:* Walked through every feature in the build plan and defined testable acceptance criteria. Each criterion tagged as `[AUTO]` (fully automatable with Playwright or pytest), `[SEMI]` (structure verifiable but quality requires human judgment), or `[MANUAL]` (subjective evaluation only). Organized by hackathon day to align with PLAN.md. Included a dedicated Metrics section validating that the measurement systems from INSTRUMENTATION.md and PRODUCT_OVERVIEW.md actually function. The criteria cover everything from "Pydantic model validates 9 attributes" to "A full governance cycle completes in under 10 minutes."
 - *Outcome:* Created `docs/ACCEPTANCE_CRITERIA.md` with 148 total criteria: 120 fully automatable (81%), 26 semi-automatable (18%), 2 manual (1%). Organized into: Day 1 Engine (38 criteria covering scaffolding, models, simulation, defense, venue, seeding, database, API, scheduler), Day 2 Governance (31 criteria covering models, tokens, AI interpretation, vote resolution, conflict resolution), Day 3 Mirrors + Loop (19 criteria covering simulation/governance/private/seasonal mirrors and game loop), Day 4 Player Experience (31 criteria covering dashboard, Arena, game view, standings, governance panel, Discord, auth), Day 5 Polish (15 criteria covering E2E flow, performance, instrumentation, security, deployment), and Metrics (14 criteria covering joy metrics, onboarding, mirror impact, amendments).
+
+### Hour 4: Documentation Consolidation
+
+**Task: Create GLOSSARY.md, INTERFACE_CONTRACTS.md, DEMO_MODE.md**
+- *Ask:* Cross-cutting information was scattered across 12 docs — event names in 4 places, demo mode config in 5, no canonical naming authority.
+- *Thinking:* A developer has to read multiple docs to answer "what event name do I use?" or "what's the ID format?" Consolidation reduces context switches. Created a plan covering 3 new docs and 4 updates.
+- *Outcome:* Created `docs/GLOSSARY.md` (25-term canonical naming authority with Term / Definition / Aliases / Never Use columns), `docs/INTERFACE_CONTRACTS.md` (SSE events, governance event store types, API endpoints, Pydantic model index, response envelope), `docs/DEMO_MODE.md` (3 environments, 4 pace modes, timing tables, demo script, env vars). Updated day1 implementation plan with critical path DAG and definition of done per phase. Updated page-designs.md with data contract tables. Updated PRODUCT_OVERVIEW.md with decision deadlines and default fallbacks. Updated CLAUDE.md and TABLE_OF_CONTENTS.md references. Commit: `20af9f8`.
+
+---
+
+## Session 3 — Day 1 Implementation
+
+### Phase 1+2: Scaffolding & Domain Models (~1 hr)
+
+**Task: Project scaffolding and Pydantic domain models**
+- *Ask:* Execute Day 1 implementation plan, Phase 1 (project scaffolding) and Phase 2 (Pydantic models).
+- *Thinking:* Phase 1 is pure plumbing — pyproject.toml, package dirs, config module, empty FastAPI app, ruff config. Phase 2 builds the shared vocabulary — every layer of the system speaks in these Pydantic models. Combined into one commit since scaffolding alone isn't testable.
+- *Files created:*
+  - `pyproject.toml` — uv-managed, all deps declared (FastAPI, SQLAlchemy, Pydantic, aiosqlite, pytest, ruff, etc.)
+  - `src/pinwheel/__init__.py`, `src/pinwheel/config.py` — pydantic-settings for env vars
+  - `src/pinwheel/main.py` — FastAPI app factory with `/health` endpoint
+  - `src/pinwheel/models/team.py` — Team, Agent, PlayerAttributes (9 attrs, budget 360), Move, Venue
+  - `src/pinwheel/models/rules.py` — RuleSet with ~30 governable parameters, DEFAULT_RULESET
+  - `src/pinwheel/models/game.py` — GameResult, BoxScore, PossessionLog, QuarterScore
+  - `tests/conftest.py`, `tests/test_models.py` — model validation tests (18 tests)
+- *Outcome:* 18 tests passing, ruff clean. Commit: `518d8cc`.
+
+### Phase 3: Simulation Engine (~3 hrs)
+
+**Task: Full simulation engine with defensive model, moves, and Elam Ending**
+- *Ask:* Build the core simulation — the heart of Pinwheel. Must be deterministic, produce basketball-like distributions, support all 4 defensive schemes, 8 moves, and the Elam Ending format.
+- *Thinking:* This is the hardest phase. The simulation is a pure function: `simulate_game(home, away, rules, seed) → GameResult`. Internally it's a loop over possessions grouped into quarters, with an Elam period triggered after Q3. Each possession resolves: scheme selection → matchup assignment → ball handler selection → turnover check → shot type selection → move check → shot resolution → foul check → free throws → rebound → stamina drain. Every step uses the RNG seeded deterministically.
+- *Files created:*
+  - `src/pinwheel/core/state.py` — AgentState (mutable per-game state wrapping immutable Agent), GameState (score, quarter, possession tracking, offense/defense views)
+  - `src/pinwheel/core/scoring.py` — Logistic curves for shot probability, stamina modifier, points-for-shot, resolve_shot
+  - `src/pinwheel/core/defense.py` — 4 schemes (man_tight, man_switch, zone, press) with contest modifiers, stamina costs, turnover bonuses. Scheme selection weighted by game context. Cost-function matchup assignment.
+  - `src/pinwheel/core/moves.py` — 8 moves (Heat Check, Lockdown Stance, Floor General, Wild Card, etc.), trigger/gate checking, modifier application
+  - `src/pinwheel/core/possession.py` — Full possession resolution: handler selection, action selection, turnover check, foul check, rebound, stamina drain, PossessionLog generation
+  - `src/pinwheel/core/simulation.py` — `simulate_game()`: quarter loop → Elam period → GameResult with box scores
+  - `tests/test_simulation.py` — 20+ tests: determinism, scoring math, defense, moves, Elam, full game, 100-game batch distributions
+- *Key decisions:*
+  - Logistic function `1 / (1 + exp(-k * (x - midpoint)))` for all probability curves. Tunable via `k` parameter.
+  - Shot probabilities: at_rim ~55%, mid_range ~42%, three_point ~33% (for median attributes).
+  - Elam target: leading score + `elam_margin` (default 13) at end of Q3. Game ends on a made basket reaching the target.
+  - Zone defense costs less stamina but contests less effectively. Press is the opposite. Man-tight is balanced. Man-switch adapts to mismatches.
+  - Moves modify shot probability directly — a +15% modifier adds 0.15 to the base probability (clamped 0.01–0.99).
+- *Outcome:* 39 tests passing total (18 model + 21 simulation), ruff clean. Commit: `924a5d5`.
+
+### Phase 4: League Seeding (~45 min)
+
+**Task: 9 archetypes, 8 Portland-inspired teams, YAML round-trip**
+- *Ask:* Build the seeding layer — generate a league with personality.
+- *Thinking:* Each of the 9 archetypes is a 360-point attribute template emphasizing one attribute. Teams get 3 starters + 1 bench, each assigned an archetype with ±5 variance per attribute (maintaining budget). Portland-inspired team names give the league immediate identity. YAML save/load enables manual editing and deterministic re-seeding.
+- *Files created:*
+  - `src/pinwheel/core/archetypes.py` — 9 archetype templates (Sharpshooter, Floor General, Lockdown, Slasher, Iron Horse, Savant, The Closer, Wildcard, Oracle), archetype→move mapping, `apply_variance()`
+  - `src/pinwheel/core/seeding.py` — `LeagueConfig` model, `generate_league()` (8 teams), `save_league_yaml()`, `load_league_yaml()`
+  - `tests/test_seeding.py` — 6 tests: league structure, budget compliance, YAML round-trip, determinism
+- *Bug fixed:* YAML round-trip failed because `Venue.location` was a `tuple[float, float]` — `yaml.safe_load` can't deserialize tuples. Changed to `list[float]`.
+- *Outcome:* 63 tests passing, ruff clean. Commit: `69b0637`.
+
+### Phase 5: Database Layer (~1 hr)
+
+**Task: Async SQLAlchemy ORM, repository pattern, round-trip tests**
+- *Thinking:* 8 ORM tables mirroring the Pydantic domain models. Repository wraps async sessions. Governance events are append-only. Game results stored directly (immutable outputs). SQLite for dev, PostgreSQL for production — SQLAlchemy async handles both.
+- *Files created:*
+  - `src/pinwheel/db/engine.py` — `create_engine()` (async), `get_session()` context manager with auto-commit/rollback
+  - `src/pinwheel/db/models.py` — 8 ORM tables: leagues, seasons, teams, agents, game_results, box_scores, governance_events, schedule
+  - `src/pinwheel/db/repository.py` — Repository class: create/get for all entities, append_event for governance, store_game_result/box_score
+  - `tests/test_db.py` — 11 tests: league/season/team/agent CRUD, game result storage, box score round-trip, event store ordering, schedule CRUD, complex queries
+- *Bugs fixed:*
+  - SQLite doesn't autoincrement non-PK columns — `GovernanceEventRow.sequence_number` couldn't use autoincrement. Moved sequence assignment to repository layer.
+  - `datetime.utcnow()` deprecated in Python 3.13. Changed to `datetime.now(UTC)` via lambda defaults on ORM columns.
+- *Outcome:* 74 tests passing, ruff clean. Commit: `7800cb5`.
+
+### Phase 6: Scheduler + Basic API (~1 hr)
+
+**Task: Round-robin scheduler, API endpoints, E2E integration test**
+- *Thinking:* The scheduler generates balanced round-robin schedules using the circle method. The API is thin — just the read endpoints needed to verify data flows from simulation through database to HTTP responses. The E2E test proves the full pipeline: seed → schedule → simulate → store → API → standings.
+- *Files created:*
+  - `src/pinwheel/core/scheduler.py` — `generate_round_robin()` via circle method, `compute_standings()` (W/L/PCT/streak/H2H)
+  - `src/pinwheel/api/deps.py` — FastAPI dependency injection: engine → session → Repository → `RepoDep`
+  - `src/pinwheel/api/games.py` — GET /api/games/{id}, GET /api/games/{id}/boxscore
+  - `src/pinwheel/api/teams.py` — GET /api/teams?season_id=, GET /api/teams/{id}
+  - `src/pinwheel/api/standings.py` — GET /api/standings?season_id=
+  - Updated `src/pinwheel/main.py` — lifespan handler (engine creation, table creation), router registration
+  - `tests/test_api/test_e2e.py` — Full E2E pipeline test + round-robin unit tests + standings tests + 404 tests
+- *Bug fixed:* Round-robin circle method had off-by-one — `rotating[n - 2 - i]` caused self-matches. Fixed to `rotating[n - 1 - i]`.
+- *Outcome:* 84 tests passing, ruff clean. Commit: `f6dd0bb`.
+
+### Phase 7: Run and Observe (~30 min)
+
+**Task: 1000-game batch observation tests and distribution validation**
+- *Ask:* Run many games, verify basketball-like distributions, identify tuning needs.
+- *Thinking:* Ran 1000 games with default attributes and 200 games per archetype to verify: score ranges, possession counts, home/away balance, Elam activation rate, box score integrity, FG%/3P% ranges, and archetype advantages.
+- *Files created:*
+  - `tests/test_observe.py` — 8 tests: score distribution (30–200 combined), possessions (45–200), win balance (35–65% home), Elam activation (>80%), box score sum == team total (100%), FG% (15–60%), 3P% (8–50%), archetype scoring advantage (sharpshooters outscore lockdowns)
+- *Tuning note:* FG% range is wider than NBA because 3v3 with diverse archetypes (Oracle has 20 scoring) creates legitimately low shooting percentages. The 15–60% range is correct for the game, not a bug.
+- *Outcome:* 91 tests passing, 96% code coverage, ruff clean. Commit: `77a46a3`.
+
+**Day 1 complete.** All 7 phases of the implementation plan executed. 91 tests, 96% coverage. The simulation engine produces basketball-like outcomes: average combined scores ~100, ~80 possessions per game, balanced home/away, Elam activates consistently, box scores sum correctly, archetypes create meaningful differentiation.
+
+### Code Review & Fixes
+
+**Task: Address 6 findings from code review (2 P0, 2 P1, 2 P2)**
+
+The implementation was reviewed against the design docs. Six issues found:
+
+**P0 — Move modifier math wrong.** The original implementation applied move modifiers as a second roll *after* an initial miss — meaning even negative modifiers helped (they gave a second chance to make). The fix: compute base probability, apply modifier to get `modified_prob`, then make a single roll against `modified_prob`. A negative modifier now genuinely reduces the chance of scoring.
+- *Files changed:* `src/pinwheel/core/possession.py` (lines 222–239), new tests in `tests/test_simulation.py`
+
+**P0 — Play-by-play dropped from simulation output.** `resolve_possession()` returned `PossessionLog` entries in `PossessionResult.log`, but `_run_quarter()` and `_run_elam()` discarded them. The GameResult had an empty `possession_log`. The fix: thread a `possession_log: list[PossessionLog]` accumulator through both functions and pass it to the GameResult constructor.
+- *Files changed:* `src/pinwheel/core/simulation.py`, new test `test_possession_log_populated`
+
+**P1 — Event-store sequence race condition.** The original code computed `max(sequence_number) + 1` in Python — two concurrent writes could get the same number. The fix: `SELECT FOR UPDATE` locks the row during the read, preventing concurrent writers on PostgreSQL. SQLite is inherently safe (single-writer) and ignores `FOR UPDATE`.
+- *Files changed:* `src/pinwheel/db/repository.py` (append_event method)
+
+**P1 — Missing greenlet dependency.** SQLAlchemy's async mode requires greenlet at runtime. It was installed transitively but not declared. Added explicit `"greenlet>=3.0"` to pyproject.toml.
+- *Files changed:* `pyproject.toml`
+
+**P2 — Mutable default for Venue.location.** `Field(default=[45.5152, -122.6784])` shares one list instance across all Venue objects. Changed to `Field(default_factory=lambda: [45.5152, -122.6784])`.
+- *Files changed:* `src/pinwheel/models/team.py`
+
+**P2 — GET /api/teams returns empty without season_id.** The endpoint accepted `season_id` as optional and returned an empty list when omitted. Made it a required query parameter — the endpoint makes no sense without it.
+- *Files changed:* `src/pinwheel/api/teams.py`
+
+- *Outcome:* All 6 fixes applied. 94 tests passing. Commit: `af30a64`.
+
+### Developer QoL Notes
+
+**PYTHONPATH workaround.** The project lives under a path with a space (`Manual Library`). Python's `.pth` file mechanism (used by `pip install -e .`) breaks on paths with spaces — a long-standing CPython bug. The workaround: all test/run commands require `export PYTHONPATH="/Users/djacobs/Desktop/Manual Library/00-anthropic-hackathon/Pinwheel/src"`. This is fragile and easy to forget. Options: (1) move the project to a space-free path, (2) use a wrapper script/Makefile that sets PYTHONPATH, (3) wait for the CPython fix.
+
+**greenlet now declared.** Was installed transitively by SQLAlchemy but could disappear on a clean install. Now explicit in pyproject.toml.
+
+**uv.lock untracked.** Generated by uv but not committed. Should be committed for reproducible installs (equivalent to poetry.lock).
