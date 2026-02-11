@@ -522,3 +522,127 @@ The implementation was reviewed against the design docs. Six issues found:
 - *Action:* None needed.
 
 **Outcome:** All four flagged issues were already addressed in prior commits. The review was generated from an earlier snapshot of the codebase. No code changes required. The current state is clean: 142 tests passing, zero lint errors, all known correctness issues resolved.
+
+---
+
+## Session 5 — Day 3 Implementation (Mirrors + Game Loop)
+
+### EventBus — In-Memory Async Pub/Sub
+
+**Task: Build the event bus for SSE streaming**
+- *Ask:* Day 3 starts with the EventBus — the infrastructure that connects the game loop to SSE clients.
+- *Thinking:* Needed a lightweight async pub/sub that: (1) supports typed subscriptions (e.g., only `game.completed` events) and wildcard subscriptions (all events), (2) handles backpressure (slow SSE clients don't block the game loop), (3) cleans up automatically when clients disconnect, (4) has zero external dependencies. Designed around `asyncio.Queue` per subscriber — fire-and-forget from the publisher side. If a subscriber's queue is full, the event is dropped with a warning. The `Subscription` class is both an async context manager (for cleanup) and an async iterator (for SSE streaming).
+- *File created:* `src/pinwheel/core/event_bus.py`
+- *Key design:*
+  - `EventBus.publish(event_type, data)` → returns count of subscribers that received the event
+  - `EventBus.subscribe(event_type)` → returns `Subscription` (use as `async with bus.subscribe("game.completed") as sub:`)
+  - `subscribe(None)` = wildcard, receives all events
+  - Backpressure: `asyncio.Queue(maxsize=100)` per subscriber, `put_nowait()` drops on full
+  - Cleanup: `_unregister()` via `contextlib.suppress(ValueError)` on context exit
+
+### Mirror DB Model + Repository Extensions
+
+**Task: Add MirrorRow to database and extend repository with mirror CRUD**
+- *Thinking:* Mirrors are the first new table since Day 1. Following the existing ORM pattern — `MirrorRow` mirrors the `Mirror` Pydantic model. Added 3 indexes: `(season_id, round_number)` for round-based queries, `mirror_type` for type filtering, `governor_id` for private mirror access control.
+- *Files modified:*
+  - `src/pinwheel/db/models.py` — Added `MirrorRow` (id, season_id, mirror_type, round_number, team_id, governor_id, content, metadata_json, created_at) with 3 indexes
+  - `src/pinwheel/db/repository.py` — Added `MirrorRow` import + 5 new methods:
+    - `store_mirror()` — create a mirror record
+    - `get_mirrors_for_round()` — all mirrors for a season/round, optional type filter
+    - `get_private_mirrors()` — mirrors for a specific governor (access-controlled query)
+    - `get_latest_mirror()` — most recent mirror of a given type for a season
+    - `get_all_game_results_for_season()` — all game results for a season (needed by game loop for mirror context)
+  - `tests/test_db.py` — Added "mirrors" to the expected tables set in `test_all_tables_created`
+
+### AI Mirror Generation
+
+**Task: Build Claude-powered mirror generation with mock fallbacks**
+- *Ask:* Implement the three Day 3 mirror types: simulation, governance, and private.
+- *Thinking:* Each mirror type has a distinct system prompt that enforces the "describe, never prescribe" constraint. The prompts give Claude specific instructions about what to observe (simulation mirrors: statistical anomalies, streaks, Elam effects; governance mirrors: proposal themes, voting patterns, rule evolution; private mirrors: individual behavior patterns, token usage, consistency). Mock implementations use simple string templates with data extraction for testing without API calls.
+- *File created:* `src/pinwheel/ai/mirror.py`
+- *Architecture:*
+  - 3 Claude-powered functions: `generate_simulation_mirror()`, `generate_governance_mirror()`, `generate_private_mirror()` — each takes structured data + API key, returns a `Mirror` Pydantic model
+  - 3 mock functions: `generate_simulation_mirror_mock()`, `generate_governance_mirror_mock()`, `generate_private_mirror_mock()` — deterministic, no API calls, for testing
+  - Shared `_call_claude()` helper: Sonnet 4.5, 800 max tokens, error handling returns placeholder text on API failure
+  - All prompts follow the same pattern: role declaration → rules (always starts with "You DESCRIBE. You never PRESCRIBE.") → data payload
+- *Prompt design decisions:*
+  - Simulation mirror: "Channel a sports journalist who sees the deeper story" — vivid, 2-4 paragraphs, notes statistical anomalies and Elam effects
+  - Governance mirror: Reflects on voting patterns and proposal themes, connects rule changes to community values
+  - Private mirror: "Reflect, don't rank" — never compares to other governors, notes absence without judgment
+  - All prompts explicitly forbid prescriptive language ("players should", "the league needs to")
+
+### Game Loop — Autonomous Round Cycle
+
+**Task: Build `step_round()` — the heartbeat of Pinwheel Fates**
+- *Ask:* Implement the game loop that ties simulation, governance, and mirrors into a single round step.
+- *Thinking:* The game loop is the orchestration layer. Each call to `step_round()` executes one complete round: simulate all scheduled games → store results → close governance windows and enact rules → generate mirrors → publish events. It needs to be callable by APScheduler (production), by a test fixture (testing), or by a manual trigger (demo mode). The function is stateless — all state lives in the database and is passed through `Repository`.
+- *File created:* `src/pinwheel/core/game_loop.py`
+- *Key components:*
+  - `_row_to_team()` — converts ORM `TeamRow` + `AgentRow`s into domain `Team` + `Agent` Pydantic models for the simulation engine. Handles attribute dict → `PlayerAttributes` conversion, venue reconstruction, and agent list building.
+  - `step_round(repo, season_id, round_number, event_bus?, api_key?)` — the main function:
+    1. Load season and ruleset from DB
+    2. Get schedule for this round
+    3. Load teams (with agent data) into a cache
+    4. Simulate each game via `simulate_game()` (pure function)
+    5. Store game results and box scores
+    6. Check for open governance windows — if one exists and is from a prior round, close it, tally votes, enact passed rules
+    7. Generate simulation mirror (from game summaries)
+    8. Generate governance mirror (from governance activity — even silence is reflected)
+    9. Generate private mirrors for each active governor (based on their event history)
+    10. Store all mirrors in DB
+    11. Publish events to EventBus at each stage (game.completed, governance.window_closed, mirror.generated, round.completed)
+  - `RoundResult` — return type with round_number, games (summaries), mirrors, and tallies
+- *Design decisions:*
+  - Game seeds are `uuid.uuid4().int % (2**31)` — random per game, deterministic replay if stored
+  - Governance window close: only closes windows from prior rounds (not the current round — govs need time to vote)
+  - Private mirrors generated for ALL governors who have ever submitted a proposal or cast a vote in the season (not just this round's participants)
+  - Mock vs real AI: controlled by `api_key` parameter — empty string = mock, non-empty = real Claude call
+  - Play-by-play stored truncated to first 50 possessions (DB storage optimization; full log available from re-simulation)
+  - EventBus is optional (`event_bus=None` is valid) — the game loop works standalone without SSE consumers
+
+### SSE Endpoint + Mirror API
+
+**Task: Build the SSE streaming endpoint and mirror retrieval API**
+- *Thinking:* Two new API routers. The SSE endpoint wraps the EventBus in an HTTP response stream. The mirror API provides retrieval with access control — public mirrors are open, private mirrors are gated by governor_id.
+- *Files created:*
+  - `src/pinwheel/api/events.py` — SSE router at `/api/events/`:
+    - `GET /api/events/stream?event_type=` — SSE stream. Optional `event_type` filter (e.g., `game.completed`). Without filter, receives all events. Proper SSE format (`event: type\ndata: json\n\n`). Headers: Cache-Control no-cache, Connection keep-alive, X-Accel-Buffering no. Checks `request.is_disconnected()` in the generator loop.
+    - `GET /api/events/health` — subscriber count for monitoring
+  - `src/pinwheel/api/mirrors.py` — Mirror router at `/api/mirrors/`:
+    - `GET /api/mirrors/round/{season_id}/{round_number}` — all public mirrors for a round (private mirrors excluded). Optional `mirror_type` filter.
+    - `GET /api/mirrors/private/{season_id}/{governor_id}` — private mirrors for a governor. Optional `round_number` filter. Access control note: in production this would verify the requester IS the governor; for hackathon, governor_id parameter is trusted.
+    - `GET /api/mirrors/latest/{season_id}` — most recent simulation + governance mirrors (quick dashboard endpoint)
+- *File modified:* `src/pinwheel/main.py` — Added `events_router`, `mirrors_router`, and `EventBus` initialization in lifespan:
+  - EventBus created during startup (`app.state.event_bus = EventBus()`)
+  - 6 routers now registered: games, teams, standings, governance, mirrors, events
+
+### Tests
+
+**Task: Write comprehensive tests for all Day 3 components**
+- *Files created:*
+  - `tests/test_event_bus.py` — 11 tests across 4 classes:
+    - `TestEventBusPublish` (4): no subscribers → 0 count, typed subscriber receives, wildcard receives all, typed subscriber filters correctly
+    - `TestEventBusSubscription` (4): subscriber count tracking, wildcard count, unsubscribe cleanup, multiple subscribers same type
+    - `TestEventBusBackpressure` (1): full queue drops events (max_size=2, third publish returns 0)
+    - `TestSubscriptionGet` (2): timeout returns None, event returned on time
+  - `tests/test_mirrors.py` — 14 tests across 4 classes:
+    - `TestSimulationMirrorMock` (4): basic generation, Elam mention, no games, multiple games highest score
+    - `TestGovernanceMirrorMock` (4): with proposals/votes, no activity, with rule changes, ID format
+    - `TestPrivateMirrorMock` (3): active governor, inactive governor, private mirror ID format
+    - `TestMirrorModels` (3): mirror defaults, private mirror, mirror update
+  - `tests/test_game_loop.py` — 10 tests across 2 classes:
+    - `TestStepRound` (8): simulates games (4 teams → 2 games/round), stores game results in DB, generates simulation mirror, generates governance mirror, stores mirrors in DB (≥2 per round), publishes events to bus (game.completed + mirror.generated + round.completed verified), empty round doesn't crash, bad season_id raises ValueError
+    - `TestMultipleRounds` (2): two consecutive rounds produce independent results, mirrors stored and retrievable per round (latest mirror tracks correctly)
+  - Game loop tests use a full integration setup: in-memory SQLite, 4 teams with 3 agents each, round-robin schedule generated and stored. Each test runs `step_round()` and verifies end-to-end: schedule → simulation → storage → mirror generation → DB persistence → EventBus publication.
+
+### Lint Fixes
+
+- Removed unused `asyncio` and `pytest` imports from test files
+- Replaced `try/except ValueError: pass` with `contextlib.suppress(ValueError)` in event_bus.py (SIM105)
+- Fixed 5 line-too-long (E501) violations: broke long f-strings and dict literals across multiple lines
+
+### Summary
+
+**Day 3 complete.** 7 new files, 4 modified files. 177 total tests (35 new), zero lint errors. The core loop is functional: `step_round()` simulates games, closes governance windows, enacts rule changes, generates AI mirrors (mock for testing, Claude for production), stores everything in the database, and publishes events for SSE clients. The EventBus enables real-time streaming. The mirror API provides retrieval with access control. The system can now run autonomously — call `step_round()` in a loop or on a cron schedule and Pinwheel Fates plays itself.
+
+**Deferred to Day 4+:** Presenter pacing (the 20-30 min game experience), commentary generation, seasonal mirrors (tiebreaker/series/season/state-of-the-league), Discord delivery, frontend templates, APScheduler integration for automatic round advancement.

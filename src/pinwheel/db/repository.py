@@ -16,6 +16,7 @@ from pinwheel.db.models import (
     GameResultRow,
     GovernanceEventRow,
     LeagueRow,
+    MirrorRow,
     ScheduleRow,
     SeasonRow,
     TeamRow,
@@ -313,6 +314,93 @@ class Repository:
                 ScheduleRow.round_number == round_number,
             )
             .order_by(ScheduleRow.matchup_index)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    # --- Mirrors ---
+
+    async def store_mirror(
+        self,
+        season_id: str,
+        mirror_type: str,
+        round_number: int,
+        content: str,
+        team_id: str = "",
+        governor_id: str = "",
+        metadata_json: dict | None = None,
+    ) -> MirrorRow:
+        row = MirrorRow(
+            season_id=season_id,
+            mirror_type=mirror_type,
+            round_number=round_number,
+            content=content,
+            team_id=team_id,
+            governor_id=governor_id,
+            metadata_json=metadata_json,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
+
+    async def get_mirrors_for_round(
+        self,
+        season_id: str,
+        round_number: int,
+        mirror_type: str | None = None,
+    ) -> list[MirrorRow]:
+        stmt = select(MirrorRow).where(
+            MirrorRow.season_id == season_id,
+            MirrorRow.round_number == round_number,
+        )
+        if mirror_type:
+            stmt = stmt.where(MirrorRow.mirror_type == mirror_type)
+        stmt = stmt.order_by(MirrorRow.created_at)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_private_mirrors(
+        self,
+        season_id: str,
+        governor_id: str,
+        round_number: int | None = None,
+    ) -> list[MirrorRow]:
+        """Get private mirrors for a specific governor."""
+        stmt = select(MirrorRow).where(
+            MirrorRow.season_id == season_id,
+            MirrorRow.governor_id == governor_id,
+            MirrorRow.mirror_type == "private",
+        )
+        if round_number is not None:
+            stmt = stmt.where(MirrorRow.round_number == round_number)
+        stmt = stmt.order_by(MirrorRow.created_at.desc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_latest_mirror(
+        self,
+        season_id: str,
+        mirror_type: str,
+    ) -> MirrorRow | None:
+        stmt = (
+            select(MirrorRow)
+            .where(
+                MirrorRow.season_id == season_id,
+                MirrorRow.mirror_type == mirror_type,
+            )
+            .order_by(MirrorRow.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_all_game_results_for_season(self, season_id: str) -> list[GameResultRow]:
+        """Get all game results for a season, ordered by round."""
+        stmt = (
+            select(GameResultRow)
+            .where(GameResultRow.season_id == season_id)
+            .options(selectinload(GameResultRow.box_scores))
+            .order_by(GameResultRow.round_number, GameResultRow.matchup_index)
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

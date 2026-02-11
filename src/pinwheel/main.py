@@ -6,11 +6,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from pinwheel.api.events import router as events_router
 from pinwheel.api.games import router as games_router
 from pinwheel.api.governance import router as governance_router
+from pinwheel.api.mirrors import router as mirrors_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
 from pinwheel.config import Settings
+from pinwheel.core.event_bus import EventBus
 from pinwheel.db.engine import create_engine
 from pinwheel.db.models import Base
 
@@ -23,6 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     app.state.engine = engine
+    app.state.event_bus = EventBus()
     yield
     await engine.dispose()
 
@@ -50,6 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(teams_router)
     app.include_router(standings_router)
     app.include_router(governance_router)
+    app.include_router(mirrors_router)
+    app.include_router(events_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

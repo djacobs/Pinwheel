@@ -175,6 +175,28 @@ class GovernanceEventRow(Base):
     )
 
 
+class MirrorRow(Base):
+    """Stored AI-generated mirror reflections."""
+
+    __tablename__ = "mirrors"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    season_id: Mapped[str] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    mirror_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    round_number: Mapped[int] = mapped_column(Integer, default=0)
+    team_id: Mapped[str] = mapped_column(String(36), default="")
+    governor_id: Mapped[str] = mapped_column(String(36), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("ix_mirrors_season_round", "season_id", "round_number"),
+        Index("ix_mirrors_type", "mirror_type"),
+        Index("ix_mirrors_governor", "governor_id"),
+    )
+
+
 class ScheduleRow(Base):
     __tablename__ = "schedule"
 

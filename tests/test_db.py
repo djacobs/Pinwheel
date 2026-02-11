@@ -40,6 +40,7 @@ class TestTableCreation:
             "box_scores",
             "governance_events",
             "schedule",
+            "mirrors",
         }
         assert expected.issubset(set(tables))
 
