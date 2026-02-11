@@ -310,7 +310,7 @@ The SQLAlchemy models in `db/models.py` map to the tables above. The Pydantic mo
 
 - Alembic `env.py` configured for async (uses `run_async` wrapper).
 - `fly.toml` release command: `alembic upgrade head` runs before each deploy.
-- Local dev: `alembic upgrade head` after `pip install -e ".[dev]"`.
+- Local dev: `alembic upgrade head` after `uv sync`.
 - Initial migration creates all tables. Subsequent migrations are incremental.
 
 ## SQLite Compatibility

@@ -19,12 +19,8 @@ Built for the Anthropic hackathon track: **Amplify Human Judgment**.
 git clone <repo-url>
 cd Pinwheel
 
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Install with dev dependencies (creates .venv automatically)
+uv sync
 ```
 
 ### Configure

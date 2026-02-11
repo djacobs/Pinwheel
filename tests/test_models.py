@@ -220,7 +220,7 @@ class TestGovernanceModels:
 
     def test_amendment(self):
         a = Amendment(proposal_id="p-1", governor_id="gov-2", amendment_text="Make it 5 instead")
-        assert a.new_interpretation == ""
+        assert a.new_interpretation is None
 
 
 # --- Tokens ---
@@ -229,18 +229,18 @@ class TestGovernanceModels:
 class TestTokenModels:
     def test_token_balance_defaults(self):
         tb = TokenBalance(governor_id="gov-1")
-        assert tb.propose == 1
+        assert tb.propose == 2
         assert tb.amend == 2
-        assert tb.boost == 3
+        assert tb.boost == 2
 
     def test_trade(self):
         t = Trade(
             id="tr-1",
             from_governor="gov-1",
             to_governor="gov-2",
-            offered_type="PROPOSE",
+            offered_type="propose",
             offered_amount=1,
-            requested_type="BOOST",
+            requested_type="boost",
             requested_amount=2,
         )
         assert t.status == "offered"
@@ -251,9 +251,9 @@ class TestTokenModels:
                 id="tr-1",
                 from_governor="gov-1",
                 to_governor="gov-2",
-                offered_type="PROPOSE",
+                offered_type="propose",
                 offered_amount=0,
-                requested_type="BOOST",
+                requested_type="boost",
                 requested_amount=1,
             )
 

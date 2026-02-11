@@ -16,7 +16,7 @@ Criteria are organized by hackathon day to align with the build plan.
 
 | # | Criterion | Auto |
 |---|-----------|------|
-| 1.1.1 | `pip install -e ".[dev]"` completes without errors | `[AUTO]` pytest: run install command, assert exit code 0 |
+| 1.1.1 | `uv sync` completes without errors | `[AUTO]` pytest: run install command, assert exit code 0 |
 | 1.1.2 | `ruff check .` produces no errors on the initial codebase | `[AUTO]` pytest: run ruff, assert exit code 0 |
 | 1.1.3 | `ruff format --check .` produces no changes needed | `[AUTO]` pytest: run ruff format check, assert exit code 0 |
 | 1.1.4 | `pytest` discovers and runs at least 1 test successfully | `[AUTO]` pytest: meta-test that the test suite itself is functional |

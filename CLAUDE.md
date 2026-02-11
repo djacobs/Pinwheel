@@ -234,7 +234,7 @@ PINWHEEL_GOV_WINDOW=900     # Seconds per governance window
 
 ```bash
 # Install dependencies
-pip install -e ".[dev]"
+uv sync
 
 # Run tests (DO THIS BEFORE EVERY COMMIT)
 pytest

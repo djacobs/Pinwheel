@@ -239,6 +239,49 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_events_by_type_and_governor(
+        self,
+        season_id: str,
+        governor_id: str,
+        event_types: list[str],
+    ) -> list[GovernanceEventRow]:
+        """Get events of specific types for a governor in a season."""
+        stmt = (
+            select(GovernanceEventRow)
+            .where(
+                GovernanceEventRow.season_id == season_id,
+                GovernanceEventRow.governor_id == governor_id,
+                GovernanceEventRow.event_type.in_(event_types),
+            )
+            .order_by(GovernanceEventRow.sequence_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_events_by_type(
+        self,
+        season_id: str,
+        event_types: list[str],
+    ) -> list[GovernanceEventRow]:
+        """Get all events of specific types in a season."""
+        stmt = (
+            select(GovernanceEventRow)
+            .where(
+                GovernanceEventRow.season_id == season_id,
+                GovernanceEventRow.event_type.in_(event_types),
+            )
+            .order_by(GovernanceEventRow.sequence_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_season_ruleset(self, season_id: str, ruleset_data: dict) -> None:
+        """Update the cached current_ruleset on a season."""
+        season = await self.get_season(season_id)
+        if season:
+            season.current_ruleset = ruleset_data
+            await self.session.flush()
+
     # --- Schedule ---
 
     async def create_schedule_entry(

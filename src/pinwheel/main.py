@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from pinwheel.api.games import router as games_router
+from pinwheel.api.governance import router as governance_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
 from pinwheel.config import Settings
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(games_router)
     app.include_router(teams_router)
     app.include_router(standings_router)
+    app.include_router(governance_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
