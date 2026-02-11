@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     discord_bot_token: str = ""
     discord_guild_id: str = ""
+    discord_channel_id: str = ""
+    discord_enabled: bool = False
+
+    # Discord OAuth2
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_redirect_uri: str = "http://localhost:8000/auth/callback"
+    session_secret_key: str = "pinwheel-dev-secret-change-in-production"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///pinwheel.db"

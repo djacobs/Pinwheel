@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }} — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<div class="team-header">
+  <div class="team-color-dot" style="background-color: {{ team.color }};"></div>
+  <div class="team-info">
+    <h1>{{ team.name }}</h1>
+    {% if team.motto %}
+    <div class="team-motto">"{{ team.motto }}"</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if team.venue %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Venue</h3>
+  </div>
+  <div class="card-body">
+    <div class="flex gap-2">
+      <div>
+        <span class="text-muted text-xs">NAME</span><br>
+        <strong>{{ team.venue.name if team.venue.name is defined else team.venue.get('name', 'Unknown') }}</strong>
+      </div>
+      {% if team.venue.capacity is defined or team.venue.get is defined %}
+      <div>
+        <span class="text-muted text-xs">CAPACITY</span><br>
+        <strong class="mono">{{ team.venue.capacity if team.venue.capacity is defined else team.venue.get('capacity', '?') }}</strong>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="section-title">Roster</div>
+<div class="roster-grid mb-2">
+  {% for agent in agents %}
+  <div class="agent-card">
+    <div class="agent-name">{{ agent.name }}</div>
+    <div class="agent-archetype">{{ agent.archetype }}</div>
+    {% if agent.attributes %}
+    <div style="margin-top: 0.5rem;">
+      {% for attr_name in ['scoring', 'passing', 'defense', 'speed', 'stamina', 'iq', 'ego', 'chaotic_alignment', 'fate'] %}
+        {% set val = agent.attributes[attr_name] if attr_name in agent.attributes else agent.attributes.get(attr_name, 0) %}
+        <div class="attr-bar">
+          <span class="attr-label">{{ attr_name[:3]|upper }}</span>
+          <div class="attr-track">
+            <div class="attr-fill {{ attr_name }}" style="width: {{ val }}%;"></div>
+          </div>
+          <span class="attr-value">{{ val }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if team_standings %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Record</h3>
+  </div>
+  <div class="card-body">
+    <div class="flex gap-2">
+      <div>
+        <span class="text-muted text-xs">WINS</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ team_standings.wins }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">LOSSES</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ team_standings.losses }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">DIFF</span><br>
+        <strong class="mono {% if team_standings.point_diff > 0 %}diff-positive{% elif team_standings.point_diff < 0 %}diff-negative{% endif %}" style="font-size:1.5rem;">
+          {% if team_standings.point_diff > 0 %}+{% endif %}{{ team_standings.point_diff }}
+        </strong>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<a href="/standings" class="nav-link">&larr; Back to Standings</a>
+{% endblock %}

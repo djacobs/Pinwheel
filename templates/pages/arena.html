@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Arena — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h2 class="mb-2">The Arena</h2>
+
+{% if games %}
+<div class="arena-grid" hx-ext="sse" sse-connect="/api/events/stream">
+  {% for game in games %}
+  <a href="/games/{{ game.id }}" class="game-panel {% if game.elam_target %}elam{% endif %}" style="text-decoration:none; color:inherit;">
+    {% if game.elam_target %}
+    <div class="elam-banner">ELAM ENDING &mdash; TARGET: {{ game.elam_target }}</div>
+    {% endif %}
+    <div class="game-panel-header">
+      <span class="game-meta">Round {{ game.round_number }} &middot; Game {{ game.matchup_index + 1 }}</span>
+      <span class="game-meta">{{ game.total_possessions }} poss</span>
+    </div>
+    <div class="game-panel-teams">
+      <div class="team-score-block">
+        <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}">
+          {{ game.home_name }}
+        </div>
+        <div class="score score-sm {% if game.winner_team_id == game.home_team_id %}score-winner{% else %}score-loser{% endif %}">
+          {{ game.home_score }}
+        </div>
+      </div>
+      <div class="vs-divider">FINAL</div>
+      <div class="team-score-block">
+        <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}">
+          {{ game.away_name }}
+        </div>
+        <div class="score score-sm {% if game.winner_team_id == game.away_team_id %}score-winner{% else %}score-loser{% endif %}">
+          {{ game.away_score }}
+        </div>
+      </div>
+    </div>
+    {% if game.quarter_scores %}
+    <div class="quarter-scores" style="border-top: 1px solid var(--border); padding: 0.4rem 1rem;">
+      <span class="qs-cell qs-header">Q1</span>
+      <span class="qs-cell qs-header">Q2</span>
+      <span class="qs-cell qs-header">Q3</span>
+      <span class="qs-cell qs-header">Q4</span>
+      {% for qs in game.quarter_scores %}
+      <span class="qs-cell">{{ qs.home_score }}-{{ qs.away_score }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+{% if mirror %}
+<div class="mirror-card mt-2">
+  <div class="mirror-type">Simulation Mirror &mdash; Round {{ mirror.round_number }}</div>
+  <div class="mirror-content">{{ mirror.content }}</div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <h3>No Games Yet</h3>
+  <p>The season hasn't started. Games will appear here once the first round is simulated.</p>
+</div>
+{% endif %}
+{% endblock %}

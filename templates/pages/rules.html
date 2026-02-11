@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Rules — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h2 class="mb-2">Current Ruleset</h2>
+
+{% if changes_from_default %}
+<div class="section-title">Modified Rules</div>
+<div class="card mb-2">
+  <div class="card-body">
+    {% for param, info in changes_from_default.items() %}
+    <div class="rule-item">
+      <span class="rule-name">{{ param }}</span>
+      <span>
+        <span class="text-muted text-xs">was {{ info.default }} &rarr;</span>
+        <span class="rule-value changed">{{ info.current }}</span>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="section-title">All Rules</div>
+<div class="card">
+  <div class="card-body">
+    <div class="rules-grid">
+      {% for param, value in ruleset.items() %}
+      <div class="rule-item">
+        <span class="rule-name">{{ param }}</span>
+        <span class="rule-value {% if param in changes_from_default %}changed{% else %}default{% endif %}">
+          {{ value }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if rule_history %}
+<div class="section-title mt-2">Rule Change History</div>
+{% for rc in rule_history %}
+<div class="card mb-1">
+  <div class="card-body">
+    <code>{{ rc.parameter }}</code>:
+    {{ rc.old_value }} &rarr;
+    <strong style="color: var(--accent-highlight);">{{ rc.new_value }}</strong>
+    <span class="text-xs text-muted">&middot; Round {{ rc.round_enacted }}</span>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

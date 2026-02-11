@@ -192,6 +192,356 @@ Extend `/admin/perf` with:
 
 **Day 5:** Cost analysis. With real play data from stress testing, calculate actual cost-per-player and identify the highest-ROI optimization.
 
+## D) Evals Loop: Measuring Human/AI Interaction Effectiveness
+
+The question: **Does the AI mirror system actually improve human governance? And how do we know?**
+
+Traditional AI evals measure model performance in isolation — accuracy, fluency, faithfulness. Pinwheel needs to evaluate a **sociotechnical system**: the coupled loop where the AI generates reflections, humans perceive them, behavior changes (or doesn't), and governance outcomes shift. This is a four-link causal chain, and each link can break independently:
+
+```
+AI generates a pattern  →  Human perceives the pattern  →  Human changes behavior  →  Governance improves
+     (Quality)                  (Communication)               (Impact)                (Outcome)
+```
+
+The evals loop is not a one-time measurement. It's a continuous cycle:
+
+```
+Generate mirrors → Evaluate quality → Measure behavioral impact → Feed insights back into prompts → Repeat
+```
+
+Three proposals follow, tiered by investment. Pick one.
+
+---
+
+### Proposal S: Lightweight Evals (Hackathon-Appropriate)
+
+**Investment:** ~4 hours of engineering. Runs within existing infrastructure. No new dependencies.
+
+**Philosophy:** Measure what we can measure automatically. Spot-check what we can't. Ship the demo with confidence that the mirrors are doing *something*, even if we can't prove *what*.
+
+#### S.1 Mirror Quality Rubric (Manual, Sampled)
+
+After each play session or demo run, a human reviewer scores a sample of 5 mirrors (2 simulation, 2 governance, 1 private) on a 1-5 scale across four dimensions:
+
+| Dimension | 1 (Failing) | 3 (Adequate) | 5 (Excellent) |
+|-----------|-------------|---------------|---------------|
+| **Grounded** | References events that didn't happen | References real events but loosely | Every claim maps to specific data |
+| **Novel** | Restates what's already visible in the box score | Combines stats in non-obvious ways | Surfaces a pattern no player could see from their position |
+| **Concise** | Rambling, >4 paragraphs | Appropriate length, some filler | Every sentence earns its place |
+| **Observational** | Prescribes actions ("you should...") | Mostly observational, occasional slip | Purely descriptive, never prescriptive |
+
+Scores are logged in a simple CSV: `round, mirror_type, grounded, novel, concise, observational, reviewer, notes`. This takes ~10 minutes per review session.
+
+**Threshold:** Average score ≥3.0 across all dimensions means mirrors are "good enough for demo." Below 3.0 on any dimension triggers a prompt revision.
+
+#### S.2 Automated Behavioral Signals
+
+Implement three automated checks that run after every governance window close:
+
+1. **Behavioral Shift Detector:** For each governor who received a private mirror, compare their actions in the window *after* the mirror to their running baseline (average of last 3 windows). Track:
+   - Did they vote differently from their usual pattern? (yes/no)
+   - Did they propose in a different tier than usual? (yes/no)
+   - Did they trade with a new partner? (yes/no)
+
+   Store as `eval.behavioral_shift` events. Compute **Mirror Impact Rate** = governors_who_shifted / governors_who_received_mirrors. No causal claim — just correlation.
+
+2. **Mirror Grounding Check:** Automated structural validation that each mirror references at least one entity (team name, governor ID, rule parameter) that actually exists in the round's data. A mirror that hallucinates team names or invents statistics is failing at the most basic level.
+
+3. **Prescriptive Language Detector:** Regex/keyword scan for prescriptive phrases in mirror output: "should", "needs to", "must", "ought to", "it would be wise to", "the league needs". Flag any mirror that contains >2 prescriptive phrases. The constraint is "describe, never prescribe" — this is the most automatable quality check.
+
+#### S.3 Eval Cadence
+
+- **During hackathon:** Manual rubric review once per play session (before/after major prompt changes). Automated signals run continuously.
+- **Demo day:** Pull the Mirror Impact Rate and grounding check results for the pitch. "In our play sessions, X% of governors changed their behavior after receiving a private mirror. Zero mirrors contained hallucinated data."
+
+#### S.4 What This Doesn't Cover
+
+- No causal inference (can't distinguish mirror-driven change from organic learning)
+- No quality comparison across prompt versions (would need A/B testing)
+- No inter-rater reliability (single reviewer)
+- No longitudinal tracking (sessions too short during hackathon)
+
+---
+
+### Proposal M: Structured Eval Framework (Post-Hackathon V1)
+
+**Investment:** ~2-3 days of engineering. Adds eval infrastructure, a golden dataset, and A/B capability. Requires a play session with 6+ real governors.
+
+**Philosophy:** Move from "are mirrors OK?" to "are mirrors *improving*?" Introduce controlled comparison, structured datasets, and a dashboard. This is what you'd run for the first real season to validate the thesis.
+
+#### M.1 Golden Dataset for Mirror Quality
+
+Create a curated eval dataset of 20 game states with known-correct mirror content. Each entry contains:
+
+```python
+@dataclass
+class MirrorEvalCase:
+    """A test case for mirror quality evaluation."""
+    case_id: str                    # e.g., "sim-coalition-formation"
+    mirror_type: str                # simulation | governance | private
+    input_data: dict                # The round data / governance data / governor data
+    expected_patterns: list[str]    # Patterns the mirror MUST surface
+    forbidden_patterns: list[str]   # Patterns the mirror MUST NOT contain
+    minimum_entities: list[str]     # Entity names that must appear
+    difficulty: str                 # easy | medium | hard
+    notes: str                     # Why this case matters
+```
+
+**Example cases:**
+
+| Case | Type | What It Tests |
+|------|------|---------------|
+| `sim-blowout` | Simulation | A game ending 45-12. Mirror should note the disparity and connect it to a rule change. |
+| `gov-unanimous` | Governance | All teams vote YES on a proposal. Mirror should note the rare consensus. |
+| `gov-coalition` | Governance | Teams 1+4 vote identically on 5 proposals while 2+3 vote opposite. Mirror should identify both blocs. |
+| `priv-inactive` | Private | A governor who took zero actions in 3 windows. Mirror should note absence without judgment. |
+| `priv-self-serving` | Private | A governor whose proposals all benefit their team. Mirror should surface the pattern. |
+| `sim-rule-backfire` | Simulation | A team proposed a rule change, it passed, and their win rate dropped. Mirror should connect proposal to outcome. |
+| `gov-power-concentration` | Governance | One governor passed 4 of the last 5 proposals. Mirror should surface the concentration. |
+
+Run the golden dataset against every prompt revision. Track scores over time. A prompt change that improves simulation mirrors but degrades governance mirrors gets caught.
+
+#### M.2 A/B Mirror Comparison
+
+For a subset of governors during a play session, run **two** versions of the private mirror prompt simultaneously (the current prompt and a candidate revision). Don't deliver both — deliver one randomly, but generate and store both.
+
+A human reviewer (or a secondary Claude call acting as a judge) scores both versions blind:
+
+- Which mirror is more grounded in the data?
+- Which surfaces a more novel pattern?
+- Which would be more useful to the governor?
+
+Track win rates by prompt version. A new prompt version must achieve ≥60% win rate against the current version across 20 comparisons before it replaces the production prompt.
+
+#### M.3 Behavioral Change Attribution
+
+Extend the Proposal S behavioral shift detector with a **control group**:
+
+- **Treatment group:** Governors who receive their private mirror before the next governance window opens.
+- **Control group:** Governors whose private mirror is delayed until *after* they've taken their governance actions (they still receive it, just later).
+
+Compare behavioral shift rates between groups. If the treatment group shifts more, the mirror is causing the change, not just correlating with it. This is a basic randomized experiment embedded in gameplay.
+
+**Implementation:** The mirror delivery system randomly assigns each governor to treatment or control for each window. Treatment = mirror delivered immediately. Control = mirror queued for delivery after the window closes. The governor doesn't know their assignment.
+
+**Ethics note:** All governors receive all mirrors. Control governors receive theirs slightly later, not never. No one is deprived of the experience — timing is shifted, not content.
+
+#### M.4 Governance Quality Index
+
+Define a composite metric for "governance quality" that the evals loop tracks over time:
+
+```
+Governance Quality Index (GQI) = weighted average of:
+  - Proposal Diversity (30%): How many unique rule parameters have been proposed on?
+    Shannon entropy of the parameter distribution.
+  - Participation Breadth (25%): What fraction of governors have successfully passed
+    at least 1 proposal? Gini coefficient inverted.
+  - Consequence Awareness (25%): After a rule change, do subsequent proposals reference
+    its effects? Measured by keyword overlap between mirror content and next-window proposals.
+  - Vote Deliberation (20%): Average time-to-vote. Longer deliberation = more thoughtful
+    (up to a point; capped at window duration).
+```
+
+Track GQI per governance window. Plot it over time. The hypothesis: GQI trends upward over a season as the mirror system makes governance dynamics visible. If GQI is flat or declining, the mirror system isn't working.
+
+#### M.5 Eval Dashboard
+
+Add an `/admin/evals` page (not player-facing) that displays:
+
+- Golden dataset scores by mirror type and case difficulty (bar chart)
+- Mirror Impact Rate over time (line chart)
+- A/B comparison win rates for active prompt experiments
+- GQI trend line
+- Prescriptive language flag count per window
+- Grounding check pass rate
+
+This dashboard is the builder's mirror — the instrumentation system instrumenting itself.
+
+#### M.6 Eval Cadence
+
+- **Per governance window:** Automated signals (behavioral shift, grounding check, prescriptive scan) run automatically.
+- **Per play session:** Golden dataset eval against any prompt changes (automated, ~5 min).
+- **Weekly (during active season):** Human review of 10 mirror samples using the rubric. A/B comparison review. GQI trend analysis.
+- **Per prompt revision:** Must pass golden dataset regression (no score decreases >0.5 on any dimension) and A/B win rate ≥60% before deployment.
+
+#### M.7 What This Doesn't Cover
+
+- No long-term longitudinal analysis (requires multiple seasons)
+- No cross-league comparison (single instance)
+- No player self-reported satisfaction (surveys not implemented)
+- No formal statistical power analysis on the A/B experiments
+
+---
+
+### Proposal L: Research-Grade Evaluation (Publication-Ready)
+
+**Investment:** ~2 weeks of engineering + experimental design. Requires IRB-style ethical review if publishing. Designed for a multi-season deployment with 24+ governors across 3+ leagues.
+
+**Philosophy:** Produce evidence that would satisfy a peer reviewer at CHI, FAccT, or CSCW. Pre-registered hypotheses. Controlled experiments with statistical power. Mixed-methods (quantitative + qualitative). This is how you'd answer "does AI-mediated visibility actually improve collective governance?" with rigor.
+
+#### L.1 Pre-Registered Hypotheses
+
+Before the first evaluation season, register these hypotheses publicly (e.g., on OSF):
+
+**H1 (Mirror Impact):** Governors who receive private mirrors before governance windows will exhibit higher behavioral diversity (measured by entropy of governance actions) than governors in the delayed-mirror control condition. Effect size: Cohen's d ≥ 0.3.
+
+**H2 (Governance Quality):** Leagues with the full mirror system active will achieve higher Governance Quality Index scores than leagues running with mirrors disabled (simulation-only, no governance or private mirrors). Measured at season end.
+
+**H3 (Power Distribution):** In mirror-active leagues, the Gini coefficient of proposal pass rates across governors will be lower (more equal) than in mirror-disabled leagues. The governance mirror's visibility of power concentration should self-correct the concentration.
+
+**H4 (Consequence Learning):** The rate of "rule-referencing proposals" (proposals that explicitly address the effects of a previous rule change, as classified by the AI interpreter) will be higher in mirror-active leagues than mirror-disabled leagues. Mirrors accelerate the feedback loop.
+
+**H5 (Self-Awareness):** Governors in the mirror-active condition will demonstrate higher self-awareness scores on a post-season questionnaire assessing their understanding of their own governance patterns, compared to mirror-disabled governors.
+
+#### L.2 Multi-League Experimental Design
+
+Run 3 leagues simultaneously with different mirror conditions:
+
+| League | Simulation Mirror | Governance Mirror | Private Mirror | Control Type |
+|--------|:-:|:-:|:-:|---|
+| **Full Mirror** | Yes | Yes | Yes | Treatment |
+| **Shared Only** | Yes | Yes | No | Partial treatment |
+| **No Mirror** | No | No | No | Control |
+
+Each league has 8 teams, 3 governors per team (24 governors per league, 72 total). Governors are randomly assigned to leagues. All leagues play the same schedule with the same starting ruleset and the same initial team compositions (seeded identically).
+
+**Why three conditions?** The Shared Only league isolates the effect of *private* mirrors. If H2 holds for Full Mirror but not Shared Only, private mirrors are the key differentiator. If both hold, shared visibility alone drives improvement.
+
+#### L.3 Quantitative Measures
+
+Everything from Proposals S and M, plus:
+
+**Mirror Quality — Automated Scoring:**
+
+Use a secondary Claude instance (different from the mirror generator) as an automated evaluator. For each mirror, the evaluator scores it on the rubric dimensions (grounded, novel, concise, observational) using the game state as ground truth. Validate the automated scorer against human scores on a calibration set of 50 mirrors — require Pearson r ≥ 0.80 on each dimension before trusting automated scores.
+
+**Behavioral Complexity:**
+
+Beyond simple behavioral shift detection, compute the **Shannon entropy** of each governor's action distribution per window:
+
+```
+H(actions) = -Σ p(a) log p(a) for a ∈ {vote_yes, vote_no, propose_t1, propose_t2,
+                                         propose_t3, propose_t4, amend, boost,
+                                         trade_propose, trade_amend, trade_boost,
+                                         no_action}
+```
+
+Higher entropy = more diverse governance behavior. Plot entropy over time per condition. Hypothesis: entropy increases faster in mirror-active conditions.
+
+**Social Network Analysis:**
+
+From token trading data, construct a directed graph of governor interactions per window. Compute:
+- **Density:** fraction of possible trading pairs that actually trade (higher = more politically active)
+- **Betweenness centrality:** identifies political brokers
+- **Modularity:** detects coalition structure (teams that trade internally vs. cross-team)
+
+Track network metrics over time. Hypothesis: mirror-active leagues develop richer, more cross-team trading networks (lower modularity, higher density) because the governance mirror makes insularity visible.
+
+**Rule Space Coverage:**
+
+Track which parameters of the RuleSet have been proposed on, enacted, and reversed over the season. Compute the fraction of the total rule space that has been "explored" (at least one proposal touching that parameter). Hypothesis: mirror-active leagues explore more of the rule space because simulation mirrors highlight underexplored parameters.
+
+#### L.4 Qualitative Measures
+
+**Post-Window Micro-Surveys (30 seconds):**
+
+After each governance window, present governors with 3 quick questions (Likert 1-5):
+1. "I understood the consequences of my votes this window."
+2. "I noticed a pattern in the league I hadn't seen before."
+3. "I changed my approach based on something I learned."
+
+Responses are anonymous and stored as events. Correlate with mirror condition. These are subjective self-reports that complement the behavioral data.
+
+**Post-Season Interview Protocol:**
+
+After each season, conduct 20-minute semi-structured interviews with 6 governors per league (18 total, stratified by engagement level). Interview protocol:
+
+1. "Describe a moment where you changed your governance strategy. What prompted the change?"
+2. "Did you ever feel like the league had dynamics you couldn't see? What helped you understand them?"
+3. (Mirror-active only) "Can you describe a mirror reflection that stuck with you? Why?"
+4. "If you could change one thing about the governance experience, what would it be?"
+
+Code interviews using thematic analysis. Two independent coders; compute inter-rater reliability (Cohen's kappa ≥ 0.70).
+
+**Governor Self-Models:**
+
+At the start and end of each season, ask each governor to write a 2-3 sentence description of their own governance style. Use semantic similarity (embedding distance) to compare self-descriptions against the AI's private mirror descriptions of the same governor. Hypothesis: in mirror-active leagues, self-descriptions converge toward mirror descriptions over the season (governors internalize the mirror's perspective). In mirror-disabled leagues, self-descriptions remain stable or diverge from what an AI observer would say.
+
+#### L.5 Longitudinal Tracking
+
+**Cross-Season Analysis:**
+
+If a governor plays multiple seasons, track their "governance maturity" trajectory:
+- First season: exploration, learning the mechanics
+- Second season: strategic play, coalition building
+- Third season: meta-governance, institutional design
+
+The mirror system should accelerate this trajectory. Compare time-to-first-Tier-4-proposal for governors in mirror-active vs. mirror-disabled conditions across seasons.
+
+**Rule Evolution Archaeology:**
+
+For each season, reconstruct the full rule evolution timeline:
+```
+Round 1: defaults → Round 3: three_point_value 3→5 → Round 7: reverted to 3 →
+Round 12: quarter_possessions 15→20 → ...
+```
+
+Classify each rule change as:
+- **Exploratory:** No stated connection to previous outcomes
+- **Reactive:** Explicitly responding to game results
+- **Strategic:** Part of a multi-step governance plan
+- **Corrective:** Reverting or modifying a previous change
+
+Hypothesis: mirror-active leagues have a higher proportion of reactive and corrective changes (the feedback loop is working).
+
+#### L.6 Statistical Analysis Plan
+
+- **Primary analysis:** Two-sample t-tests (or Mann-Whitney U for non-normal distributions) comparing mirror-active vs. mirror-disabled leagues on GQI, behavioral entropy, and power distribution (Gini). Bonferroni correction for multiple comparisons.
+- **Effect sizes:** Report Cohen's d for all comparisons. The minimum interesting effect size is d = 0.3 (small-to-medium).
+- **Power analysis:** With 24 governors per condition and within-subject repeated measures (21 governance windows per season), we have >80% power to detect d = 0.3 effects at α = 0.05.
+- **Mixed-effects models:** For longitudinal data, use linear mixed-effects models with governor as random effect and condition as fixed effect. This accounts for individual differences in baseline governance style.
+- **Mediation analysis:** Test whether Mirror Impact Rate mediates the relationship between mirror condition and GQI. Does the mirror → behavior change → governance quality causal chain hold?
+
+#### L.7 Eval Infrastructure
+
+- **Eval Runner:** A `pinwheel eval` CLI command that runs the golden dataset, scores mirrors, computes all metrics, and generates a report. Can run against historical data or live.
+- **Eval Database:** Separate SQLite database storing all eval scores, comparisons, and reviewer annotations. Never co-mingled with game state.
+- **Eval Dashboard:** Extended `/admin/evals` with: hypothesis tracking (green/yellow/red by H1-H5), cross-league comparison charts, network visualizations, rule evolution timelines, and survey response distributions.
+- **Automated Nightly Report:** After each day of play, generate a summary: which hypotheses are trending toward significance, which mirrors scored lowest, which governors showed the most behavioral shift. Email to the research team.
+
+#### L.8 Eval Cadence
+
+- **Per governance window:** All automated signals run. Micro-survey collected.
+- **Daily:** Automated nightly report. Golden dataset regression if prompts changed.
+- **Weekly:** Human mirror quality review (10 mirrors, 2 reviewers). Network analysis snapshot. GQI trend review.
+- **Per season:** Full statistical analysis. Post-season interviews. Self-model comparison. Publish results.
+- **Per prompt revision:** Golden dataset regression + A/B test (≥60% win rate, N≥20 comparisons) before deployment.
+
+#### L.9 Ethical Considerations
+
+- **Informed consent:** All governors consent to data collection and behavioral analysis. They know the AI observes their governance actions. This is part of the game's design, not hidden research.
+- **Debrief:** Governors in the delayed-mirror control condition are debriefed after the study. They receive their full mirror history.
+- **No deception:** The mirror system is transparent. Governors know mirrors exist and what they do. The only experimental manipulation is *timing* of delivery, not content.
+- **Data handling:** All behavioral data is pseudonymized (governor IDs, not real names). Interview transcripts are anonymized. Data is stored securely and not shared beyond the research team without explicit consent.
+- **Right to withdraw:** Any governor can opt out of the evaluation (their data is excluded) without leaving the game.
+
+---
+
+### Choosing a Proposal
+
+| | Proposal S (Lightweight) | Proposal M (Structured) | Proposal L (Research-Grade) |
+|---|---|---|---|
+| **Build time** | ~4 hours | ~2-3 days | ~2 weeks |
+| **When to use** | Hackathon demo, early play sessions | First real season, post-hackathon V1 | Multi-season deployment, publication |
+| **Answers** | "Are mirrors basically working?" | "Are mirrors *improving* governance?" | "Does AI visibility *cause* better governance?" |
+| **Confidence level** | Anecdotal + automated signals | Correlational + structured comparison | Causal (RCT) + mixed-methods |
+| **Dependencies** | Nothing new | Golden dataset curation, prompt A/B infra | Multiple leagues, 72+ governors, IRB |
+| **Best for** | Proving the concept works at all | Proving it works well enough to invest in | Proving it works well enough to publish about |
+
+**Recommendation for the hackathon:** Ship Proposal S now. Design Proposal M's golden dataset and data model now (it's cheap to design, expensive to implement). Reference Proposal L in the pitch: "We've designed a research-grade evaluation framework for multi-season deployment" — judges will notice the rigor even if you haven't run the study.
+
+---
+
 ## What This Enables Post-Hackathon
 
 The instrumentation system is designed to answer questions that emerge only after real players touch the game:
@@ -202,4 +552,4 @@ The instrumentation system is designed to answer questions that emerge only afte
 - Where do players churn? (Funnel analysis on governance participation)
 - Does power concentration reduce engagement for the excluded? (Cross-reference governance mirror observations with player return rates)
 
-The game's thesis is that visibility improves governance. The instrumentation layer applies that same thesis to the game itself: by making the game's own dynamics visible to its builders, we can govern its development with the same rigor we're asking of players.
+The game's thesis is that visibility improves governance. The instrumentation layer applies that same thesis to the game itself: by making the game's own dynamics visible to its builders, we can govern its development with the same rigor we're asking of players. The evals loop is the ultimate expression of this principle: the AI system that helps governors see their own patterns is itself made visible through structured evaluation — and improved through the same observe → reflect → adjust cycle it offers to players.

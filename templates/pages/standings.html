@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Standings — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h2 class="mb-2">Standings</h2>
+
+{% if standings %}
+<div class="card">
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th style="width:2rem">#</th>
+        <th>Team</th>
+        <th class="num">W</th>
+        <th class="num">L</th>
+        <th class="num">PCT</th>
+        <th class="num">PF</th>
+        <th class="num">PA</th>
+        <th class="num">DIFF</th>
+      </tr>
+    </thead>
+    <tbody hx-get="/standings" hx-trigger="every 30s" hx-select="tbody" hx-swap="outerHTML">
+      {% for team in standings %}
+      <tr>
+        <td class="rank rank-{{ loop.index }}">{{ loop.index }}</td>
+        <td>
+          <a href="/teams/{{ team.team_id }}" class="team-link">{{ team.team_name }}</a>
+        </td>
+        <td class="num record">{{ team.wins }}</td>
+        <td class="num record">{{ team.losses }}</td>
+        <td class="num pct">
+          {% if team.wins + team.losses > 0 %}
+            {{ "%.3f"|format(team.wins / (team.wins + team.losses)) }}
+          {% else %}
+            .000
+          {% endif %}
+        </td>
+        <td class="num">{{ team.points_for }}</td>
+        <td class="num">{{ team.points_against }}</td>
+        <td class="num {% if team.point_diff > 0 %}diff-positive{% elif team.point_diff < 0 %}diff-negative{% endif %}">
+          {% if team.point_diff > 0 %}+{% endif %}{{ team.point_diff }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No Standings Yet</h3>
+  <p>Standings will appear once games have been played.</p>
+</div>
+{% endif %}
+{% endblock %}

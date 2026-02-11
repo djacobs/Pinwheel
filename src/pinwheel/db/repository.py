@@ -17,6 +17,7 @@ from pinwheel.db.models import (
     GovernanceEventRow,
     LeagueRow,
     MirrorRow,
+    PlayerRow,
     ScheduleRow,
     SeasonRow,
     TeamRow,
@@ -404,3 +405,41 @@ class Repository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    # --- Players (Discord OAuth) ---
+
+    async def get_player_by_discord_id(self, discord_id: str) -> PlayerRow | None:
+        """Look up a player by their Discord user ID."""
+        stmt = select(PlayerRow).where(PlayerRow.discord_id == discord_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_or_create_player(
+        self,
+        discord_id: str,
+        username: str,
+        avatar_url: str = "",
+    ) -> PlayerRow:
+        """Find an existing player by Discord ID, or create a new one.
+
+        If the player already exists, update their username, avatar, and
+        last_login timestamp.
+        """
+        from datetime import UTC, datetime
+
+        player = await self.get_player_by_discord_id(discord_id)
+        if player is not None:
+            player.username = username
+            player.avatar_url = avatar_url
+            player.last_login = datetime.now(UTC)
+            await self.session.flush()
+            return player
+
+        player = PlayerRow(
+            discord_id=discord_id,
+            username=username,
+            avatar_url=avatar_url,
+        )
+        self.session.add(player)
+        await self.session.flush()
+        return player

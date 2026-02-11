@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{{ home_name }} vs {{ away_name }} — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<div class="game-header card mb-2">
+  <div class="game-matchup">
+    <div class="game-team">
+      <div class="game-team-name {% if game.winner_team_id == game.home_team_id %}score-winner{% endif %}">
+        {{ home_name }}
+      </div>
+      <div class="game-team-score">{{ game.home_score }}</div>
+    </div>
+    <div style="text-align:center;">
+      <div class="game-status final">FINAL</div>
+      {% if game.elam_target %}
+      <div class="text-xs mt-1" style="color: var(--accent-elam);">
+        ELAM TARGET: {{ game.elam_target }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="game-team">
+      <div class="game-team-name {% if game.winner_team_id == game.away_team_id %}score-winner{% endif %}">
+        {{ away_name }}
+      </div>
+      <div class="game-team-score">{{ game.away_score }}</div>
+    </div>
+  </div>
+
+  {% if game.quarter_scores %}
+  <div class="flex justify-between mt-1" style="max-width:400px; margin-left:auto; margin-right:auto;">
+    <table class="box-score-table" style="font-size:0.75rem;">
+      <thead>
+        <tr>
+          <th></th>
+          {% for qs in game.quarter_scores %}
+          <th>Q{{ loop.index }}</th>
+          {% endfor %}
+          <th>T</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:700;">{{ home_name[:3]|upper }}</td>
+          {% for qs in game.quarter_scores %}
+          <td>{{ qs.home_score if qs.home_score is defined else qs['home_score'] }}</td>
+          {% endfor %}
+          <td style="font-weight:900; color:var(--accent-score);">{{ game.home_score }}</td>
+        </tr>
+        <tr>
+          <td style="font-weight:700;">{{ away_name[:3]|upper }}</td>
+          {% for qs in game.quarter_scores %}
+          <td>{{ qs.away_score if qs.away_score is defined else qs['away_score'] }}</td>
+          {% endfor %}
+          <td style="font-weight:900; color:var(--accent-score);">{{ game.away_score }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div class="game-detail-grid">
+  <!-- Box Score -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Box Score</h3>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <table class="box-score-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>PTS</th>
+            <th>FG</th>
+            <th>3P</th>
+            <th>AST</th>
+            <th>STL</th>
+            <th>TO</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for team_name, team_id, players in box_score_groups %}
+          <tr class="team-header">
+            <td colspan="7">{{ team_name }}</td>
+          </tr>
+          {% for p in players %}
+          <tr>
+            <td>{{ p.agent_name }}</td>
+            <td>{{ p.points }}</td>
+            <td>{{ p.field_goals_made }}-{{ p.field_goals_attempted }}</td>
+            <td>{{ p.three_pointers_made }}-{{ p.three_pointers_attempted }}</td>
+            <td>{{ p.assists }}</td>
+            <td>{{ p.steals }}</td>
+            <td>{{ p.turnovers }}</td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Play-by-Play -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Play-by-Play</h3>
+      <span class="text-xs text-muted">{{ game.total_possessions }} possessions</span>
+    </div>
+    <div class="card-body" style="padding:0; max-height:500px; overflow-y:auto;">
+      {% if play_by_play %}
+      <ul class="pbp-list">
+        {% for play in play_by_play %}
+        <li class="pbp-item">
+          <span class="pbp-quarter">Q{{ play.quarter }}</span>
+          <span class="pbp-action">
+            {{ play.action|replace("_", " ")|title }}
+            {% if play.result == "made" %}&mdash; {{ play.result|upper }}{% endif %}
+            {% if play.result == "missed" %}&mdash; miss{% endif %}
+          </span>
+          {% if play.points_scored > 0 %}
+          <span class="pbp-points">+{{ play.points_scored }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty-state" style="padding:1.5rem;">
+        <p class="text-muted">Play-by-play data not available.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if mirror %}
+<div class="mirror-card mt-2">
+  <div class="mirror-type">Simulation Mirror</div>
+  <div class="mirror-content">{{ mirror.content }}</div>
+</div>
+{% endif %}
+
+<div class="mt-2">
+  <a href="/arena" class="nav-link">&larr; Back to Arena</a>
+</div>
+{% endblock %}

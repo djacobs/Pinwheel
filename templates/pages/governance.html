@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Governance — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h2 class="mb-2">Governance</h2>
+
+{% if proposals %}
+<div class="section-title">Proposals</div>
+{% for p in proposals %}
+<div class="proposal-card {{ p.status }}">
+  <div class="flex justify-between items-center mb-1">
+    <span class="status-badge status-{{ p.status }}">{{ p.status }}</span>
+    <span class="text-xs text-muted">{{ p.governor_id[:8] }} &middot; Tier {{ p.tier }}</span>
+  </div>
+  <div class="proposal-text">"{{ p.raw_text }}"</div>
+  {% if p.interpretation %}
+  <div class="proposal-interpretation">
+    <strong>AI Interpretation:</strong>
+    {% if p.interpretation.parameter %}
+      Change <code>{{ p.interpretation.parameter }}</code>
+      {% if p.interpretation.old_value is not none %}from {{ p.interpretation.old_value }}{% endif %}
+      {% if p.interpretation.new_value is not none %}to {{ p.interpretation.new_value }}{% endif %}
+    {% endif %}
+    {% if p.interpretation.impact_analysis %}
+    <br>{{ p.interpretation.impact_analysis }}
+    {% endif %}
+    {% if p.interpretation.confidence %}
+    <br><span class="text-xs text-muted">Confidence: {{ "%.0f"|format(p.interpretation.confidence * 100) }}%</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+  <h3>No Proposals Yet</h3>
+  <p>Governance proposals will appear here when governors submit them.</p>
+</div>
+{% endif %}
+
+{% if rules_changed %}
+<div class="section-title mt-2">Rule Changes Enacted</div>
+{% for rc in rules_changed %}
+<div class="card mb-1">
+  <div class="card-body">
+    <code>{{ rc.parameter }}</code>:
+    <span class="text-muted">{{ rc.old_value }}</span> &rarr;
+    <span style="color: var(--accent-highlight); font-weight:700;">{{ rc.new_value }}</span>
+    <span class="text-xs text-muted">&middot; Round {{ rc.round_enacted }}</span>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

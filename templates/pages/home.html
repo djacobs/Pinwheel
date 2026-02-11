@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Pinwheel Fates{% endblock %}
+
+{% block content %}
+<div style="text-align:center; padding: 3rem 0 2rem;">
+  <h1 style="font-size:2.5rem; color: var(--accent-score); margin-bottom:0.25rem;">
+    PINWHEEL <span style="color: var(--accent-highlight);">FATES</span>
+  </h1>
+  <p class="text-muted" style="font-size:1.1rem; max-width:500px; margin:0 auto;">
+    Auto-simulated 3v3 basketball. AI-interpreted governance.<br>
+    The rules belong to you.
+  </p>
+</div>
+
+<div class="arena-grid mb-2">
+  <a href="/arena" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
+    <h3 style="color: var(--accent-highlight); margin-bottom:0.5rem;">The Arena</h3>
+    <p class="text-muted text-sm">Watch live games. See every possession.</p>
+  </a>
+  <a href="/standings" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
+    <h3 style="color: var(--accent-score); margin-bottom:0.5rem;">Standings</h3>
+    <p class="text-muted text-sm">League table. Records. Differentials.</p>
+  </a>
+  <a href="/governance" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
+    <h3 style="color: var(--accent-governance); margin-bottom:0.5rem;">Governance</h3>
+    <p class="text-muted text-sm">Proposals. Votes. The rules are yours to change.</p>
+  </a>
+  <a href="/mirrors" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
+    <h3 style="color: var(--accent-mirror); margin-bottom:0.5rem;">Mirrors</h3>
+    <p class="text-muted text-sm">AI reflections on what's happening. Patterns you can't see.</p>
+  </a>
+</div>
+
+{% if latest_mirror %}
+<div class="mirror-card">
+  <div class="mirror-type">Latest Mirror</div>
+  <div class="mirror-content">{{ latest_mirror.content }}</div>
+</div>
+{% endif %}
+{% endblock %}

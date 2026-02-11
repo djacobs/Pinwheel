@@ -197,6 +197,21 @@ class MirrorRow(Base):
     )
 
 
+class PlayerRow(Base):
+    """Discord-authenticated player (governor) identity."""
+
+    __tablename__ = "players"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    discord_id: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
+    avatar_url: Mapped[str] = mapped_column(String(512), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    last_login: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (Index("ix_players_discord_id", "discord_id"),)
+
+
 class ScheduleRow(Base):
     __tablename__ = "schedule"
 

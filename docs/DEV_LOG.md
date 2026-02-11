@@ -646,3 +646,100 @@ The implementation was reviewed against the design docs. Six issues found:
 **Day 3 complete.** 7 new files, 4 modified files. 177 total tests (35 new), zero lint errors. The core loop is functional: `step_round()` simulates games, closes governance windows, enacts rule changes, generates AI mirrors (mock for testing, Claude for production), stores everything in the database, and publishes events for SSE clients. The EventBus enables real-time streaming. The mirror API provides retrieval with access control. The system can now run autonomously — call `step_round()` in a loop or on a cron schedule and Pinwheel Fates plays itself.
 
 **Deferred to Day 4+:** Presenter pacing (the 20-30 min game experience), commentary generation, seasonal mirrors (tiebreaker/series/season/state-of-the-league), Discord delivery, frontend templates, APScheduler integration for automatic round advancement.
+
+---
+
+## Session 4 — 2026-02-11 (Day 4: Player Experience)
+
+### Web Dashboard: Blaseball-Inspired Frontend
+
+**Task: Build the full web dashboard with HTMX + Jinja2 templates.**
+
+- *Ask:* Day 4 — the player experience. Build the frontend.
+- *Thinking:* The game needs to be FUN. Blaseball aesthetic is the north star: dark backgrounds, gold scores, hot pink highlights, cyan governance, purple mirrors. No JS build step — HTMX + SSE + Jinja2 gives live updates with server-rendered HTML. Downloaded htmx.min.js and sse.js to static/js/ rather than using a CDN (self-contained for hackathon).
+
+**Files created:**
+- `static/css/pinwheel.css` — Complete design system. CSS variables: `--bg-primary: #0d0d1a`, `--accent-score: #f0c040`, `--accent-highlight: #e94560`, `--accent-governance: #53d8fb`, `--accent-mirror: #b794f4`. Components: nav, cards, arena grid, game panels, Elam ending (pulsing border animation), standings table, box score table, play-by-play, governance proposals with status badges, mirror cards, team pages with attribute bars (9 attrs with distinct colors), rules grid. Responsive breakpoints for arena grid.
+- `static/js/htmx.min.js` — HTMX 2.0, downloaded from unpkg.
+- `static/js/sse.js` — HTMX SSE extension for real-time updates.
+- `templates/base.html` — Base layout with nav bar (PINWHEEL FATES brand, 5 nav links + auth). `hx-boost="true"` on body for SPA-like navigation without full page reloads.
+- `templates/pages/home.html` — Landing page with 4 navigation cards (Arena, Standings, Governance, Mirrors) + latest mirror display.
+- `templates/pages/arena.html` — 2x2 game grid with SSE connection for live updates. Elam banner, quarter scores, simulation mirror sidebar.
+- `templates/pages/standings.html` — League table with HTMX polling every 30s. Columns: W/L/PCT/PF/PA/DIFF.
+- `templates/pages/game.html` — Game detail: matchup header, quarter score table, box score by team, play-by-play list, simulation mirror.
+- `templates/pages/team.html` — Team profile: color dot, venue info, roster grid with attribute bars (each of the 9 attributes gets a distinct color), team record.
+- `templates/pages/governance.html` — Proposals with status badges (submitted/confirmed/enacted/failed), AI interpretation display, rule change history.
+- `templates/pages/rules.html` — Modified rules highlighted in accent color, full rules grid, rule change history timeline.
+- `templates/pages/mirrors.html` — Mirror archive with type/round labels, timestamp display.
+- `src/pinwheel/api/pages.py` — 8 page route handlers. Helper functions: `_get_active_season_id()` (hackathon shortcut for first season), `_get_standings()` (compute with team names). All use new Starlette `TemplateResponse(request, "name", context)` API.
+- `src/pinwheel/main.py` — Added `StaticFiles` mount, `pages_router` (after API routers to prevent path shadowing), `PROJECT_ROOT` for path resolution.
+- `tests/test_pages.py` — 16 tests: 6 empty-state tests (each page renders without data), 10 populated tests (seeded league with 4 teams, 3 agents each, 1 round of games).
+
+**Bug fix:** Starlette deprecated the old `TemplateResponse("name", {"request": request, ...})` API. All 8 handlers rewritten to use `TemplateResponse(request, "name", context)` — eliminated deprecation warnings.
+
+### Discord Bot Integration
+
+**Task: Build the Discord bot that runs in-process with FastAPI.**
+
+- *Ask:* Discord integration for real-time game updates, slash commands, and governance participation.
+- *Thinking:* Bot runs in the same event loop as FastAPI (Option A from GAME_LOOP.md). Subscribes to EventBus for real-time events. Optional — if no DISCORD_BOT_TOKEN is set, the app runs without Discord. All Discord imports guarded behind the enabled check.
+
+**Files created:**
+- `src/pinwheel/discord/__init__.py` — Package docstring.
+- `src/pinwheel/discord/bot.py` — `PinwheelBot` class (extends `commands.Bot`). Features:
+  - Runs alongside FastAPI via `asyncio.create_task()`.
+  - Subscribes to EventBus on `on_ready()`, forwards events to configured channel.
+  - Event dispatch: `game.completed` → game result embed, `round.completed` → round summary, `mirror.generated` → mirror embed (public only, private skipped), `governance.window_closed` → governance summary.
+  - 4 slash commands: `/standings`, `/propose <text>`, `/schedule`, `/mirrors`.
+  - Clean shutdown: cancels event listener task, closes bot.
+  - `is_discord_enabled(settings)` — checks both `discord_enabled` flag and `discord_bot_token`.
+  - `start_discord_bot(settings, event_bus)` — creates bot and starts as background task.
+- `src/pinwheel/discord/embeds.py` — 7 embed builders with brand colors (red=game, blue=governance, purple=mirror, green=schedule, gold=standings). Builders for: game result, standings, proposal, vote tally, mirror, schedule, round summary.
+- `tests/test_discord.py` — 31 tests across 7 classes: `is_discord_enabled` (4), bot init (3), slash commands (5), event dispatch (7), `start_discord_bot` (1), embed builders (11).
+
+**Config additions:** `discord_bot_token`, `discord_guild_id`, `discord_channel_id`, `discord_enabled` in Settings.
+**Main.py changes:** Discord bot starts in lifespan if configured, shuts down on app shutdown.
+
+### Discord OAuth2 Authentication
+
+**Task: Build Discord OAuth so players can log in via the web dashboard.**
+
+- *Ask:* Discord OAuth2 for web login. Optional — dashboard works without login.
+- *Thinking:* Signed cookies via itsdangerous — no server-side session store needed for the hackathon. CSRF protection via state parameter in a short-lived cookie. Graceful degradation: when `DISCORD_CLIENT_ID` is empty, auth routes redirect home and login buttons disappear.
+
+**Files created:**
+- `src/pinwheel/auth/__init__.py` — Package docstring.
+- `src/pinwheel/auth/oauth.py` — Three routes: `/auth/login` (redirect to Discord), `/auth/callback` (exchange code, fetch profile, create player, set cookie), `/auth/logout` (clear cookie). Internal helpers `_exchange_code()` and `_fetch_user()` use httpx.
+- `src/pinwheel/auth/deps.py` — `SessionUser` model, `get_current_user()` dependency (returns None if not logged in), `OptionalUser` type alias.
+- `tests/test_auth.py` — 14 tests: login redirect, callback flow with mocked Discord API, CSRF validation, player creation/update, logout, session cookie validation, tampered cookie handling, OAuth disabled behavior.
+
+**DB additions:** `PlayerRow` in models.py (discord_id unique+indexed, username, avatar_url, created_at, last_login). Repository methods: `get_player_by_discord_id()`, `get_or_create_player()` (upsert).
+**Template changes:** `base.html` nav shows username+avatar+logout when logged in, "Login with Discord" when OAuth configured but not logged in, nothing when OAuth disabled.
+**Pages update:** All 8 page routes now accept `OptionalUser` dependency, inject `current_user` and `oauth_enabled` into template context via `_auth_context()` helper.
+
+### Evals Loop: Measuring Human/AI Interaction Effectiveness
+
+**Task: Design an evaluation framework for the mirror system's effectiveness.**
+
+- *Ask:* Go deep. Three proposals (Small/Medium/Large) for gauging effectiveness of human/AI interactions.
+- *Thinking:* Traditional AI evals measure model performance in isolation. Pinwheel needs to evaluate a sociotechnical system — the coupled loop where AI generates reflections, humans perceive them, behavior changes (or doesn't), and governance outcomes shift. This is a four-link causal chain: Quality → Communication → Impact → Outcome. Each link can break independently.
+
+**Added to `docs/INSTRUMENTATION.md` as Section D:**
+
+- **Proposal S (Lightweight, ~4 hours):** Manual mirror quality rubric (grounded/novel/concise/observational scored 1-5), automated behavioral shift detector, grounding check (mirror references real entities), prescriptive language detector. Hackathon-appropriate.
+- **Proposal M (Structured, ~2-3 days):** Golden dataset of 20 eval cases, A/B mirror comparison infrastructure, behavioral change attribution via randomized delayed-mirror control group, Governance Quality Index (composite: proposal diversity + participation breadth + consequence awareness + vote deliberation), eval dashboard at `/admin/evals`.
+- **Proposal L (Research-Grade, ~2 weeks):** 5 pre-registered hypotheses, 3-league experimental design (Full Mirror / Shared Only / No Mirror, 72+ governors), automated mirror scoring via secondary Claude instance, social network analysis, post-season interviews with thematic analysis, governor self-model comparison, full statistical analysis plan (mixed-effects models, mediation analysis). Publication-ready for CHI/FAccT/CSCW.
+
+### Lint Fixes
+
+- Removed unused `datetime.UTC` and `datetime.datetime` imports from test_discord.py (F401)
+- Fixed import sorting in test_discord.py (I001)
+- Replaced `try/except asyncio.CancelledError: pass` with `contextlib.suppress(asyncio.CancelledError)` in discord/bot.py (SIM105)
+- Removed unused `RuleInterpretation` import from pages.py (F401)
+- Combined nested if statements in mirrors_page (SIM102)
+
+### Summary
+
+**Day 4 complete.** 22 new files, 7 modified files. 240 total tests (47 new from Day 4), zero lint errors. The full player experience is functional: Blaseball-aesthetic web dashboard with 8 pages, HTMX live updates, Discord bot with slash commands and EventBus integration, Discord OAuth2 login, and a three-tier evals framework designed for measuring whether the mirror system actually improves governance. The game is now playable in a browser.
+
+**Deferred to Day 5:** Presenter pacing, AI commentary engine, APScheduler integration, demo script, polish pass, deployment to Fly.io. Discord app creation (bot token + OAuth credentials needed for live Discord features).
