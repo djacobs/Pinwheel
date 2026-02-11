@@ -485,3 +485,40 @@ The implementation was reviewed against the design docs. Six issues found:
 - Full lifecycle: submit (token spent), confirm, cancel (token refunded), full cycle (submit → confirm → vote → close → rule enacted), failed proposal (ruleset unchanged)
 
 **Outcome:** 142 tests passing (48 new + 94 existing). Zero lint errors. The governance layer is functional end-to-end: a governor can submit a natural language proposal, the AI interprets it, other governors vote, and passed proposals modify the ruleset that feeds into the next simulation round.
+
+### Post-Build: Codebase Audit
+
+**Task: Review 4 flagged correctness/reliability issues**
+- *Ask:* An external review flagged four concerns across the codebase: (1) move application double-roll bug, (2) possession logs dropped from GameResult, (3) governance event sequence race condition, (4) dev/test environment friction from greenlet and package path setup. Review each against the current code and determine if action is needed.
+- *Thinking:* All four issues were familiar — they matched the six findings from the Session 3 code review and the Session 4 environment fix. Needed to verify each against the current code to confirm the fixes landed and weren't reverted.
+
+**Issue 1: Move application logic — double-roll problem**
+- *Claim:* `src/pinwheel/core/possession.py` does an initial shot roll and then a second modified re-roll after misses, which can unintentionally boost make probability even for negative modifiers.
+- *Current code (lines 222–239):* When a move triggers, the code computes `base_prob` via `compute_shot_probability()`, applies the move modifier to get `modified_prob` via `apply_move_modifier()`, then makes a **single** `rng.random() < modified_prob` roll. When no move triggers, it calls `resolve_shot()` which also makes a single roll internally. There is no second roll, no re-roll after miss.
+- *Status:* **Already fixed.** This was the P0 finding from Session 3's code review (commit `af30a64`). The original implementation had a two-roll pattern where the move modifier gave a second chance after an initial miss — meaning even a negative modifier helped by providing an extra attempt. The fix replaced this with a single roll against the modified probability. A negative modifier now genuinely reduces the chance of scoring.
+- *Action:* None needed. The fix is correct and tested (`test_simulation.py` includes move modifier tests that verify negative modifiers reduce scoring).
+
+**Issue 2: Possession logs not accumulated into GameResult**
+- *Claim:* Possession logs are built in `resolve_possession()` but not accumulated into `GameResult` in `src/pinwheel/core/simulation.py`, which weakens downstream presenter/SSE/replay features.
+- *Current code:* Both `_run_quarter()` (line 34) and `_run_elam()` (line 68) accept a `possession_log: list[PossessionLog]` parameter. Inside each function, after calling `resolve_possession()`, the result's log entry is appended (`if result.log: possession_log.append(result.log)` at lines 48–49 and 85–86). The accumulator is created at line 174 (`possession_log: list[PossessionLog] = []`), threaded through all quarter and Elam calls, and passed to the `GameResult` constructor at line 235 (`possession_log=possession_log`).
+- *Status:* **Already fixed.** This was the second P0 finding from Session 3's code review (commit `af30a64`). The original code discarded the log entries — `_run_quarter()` and `_run_elam()` didn't accept or return the log. The fix threaded the accumulator through both functions. A dedicated test (`test_possession_log_populated`) verifies that `GameResult.possession_log` is non-empty after simulation.
+- *Action:* None needed.
+
+**Issue 3: Governance event sequence allocation race condition**
+- *Claim:* `src/pinwheel/db/repository.py`'s `append_event()` method computes `max(sequence_number) + 1` in Python, which is race-prone under concurrent writers.
+- *Current code (lines 207–211):* The query uses `select(func.coalesce(func.max(GovernanceEventRow.sequence_number), 0)).with_for_update()`. The `.with_for_update()` clause acquires a row-level lock on PostgreSQL, preventing concurrent writers from reading the same max value. SQLite is inherently single-writer and ignores `FOR UPDATE`.
+- *Status:* **Already fixed.** This was the P1 finding from Session 3's code review (commit `af30a64`). The original code did the `max + 1` without locking.
+- *Residual concern:* `SELECT FOR UPDATE` on a `max()` aggregation is somewhat awkward — on PostgreSQL it locks all rows scanned by the aggregate, which could become a bottleneck at high write concurrency. A dedicated sequence table (single row with a counter) or PostgreSQL's `GENERATED ALWAYS AS IDENTITY` would be more conventional. However, for hackathon scale (< 100 governors, < 1000 events per season), this is a non-issue. If the project scales post-hackathon, this should be revisited.
+- *Action:* None needed for now. Noted as a post-hackathon optimization.
+
+**Issue 4: Dev/test reliability — greenlet dependency and package path**
+- *Claim:* DB/API tests require runtime deps (greenlet) and package-path setup; that friction will slow CI/local onboarding if not normalized.
+- *Current state:*
+  - `greenlet>=3.0` is explicitly declared in `pyproject.toml` dependencies (commit `af30a64`). It was previously only installed transitively by SQLAlchemy, which meant it could disappear on a clean install.
+  - `pythonpath = ["src"]` is set in `[tool.pytest.ini_options]` in `pyproject.toml` (commit `5b64a85`). This is pytest's built-in support for src-layout projects and bypasses the broken `.pth` file mechanism entirely.
+  - The root cause of the `.pth` breakage: Python 3.13 skips `.pth` files with names starting with underscores. The editable install's `__editable__.pinwheel-0.1.0.pth` was silently ignored. The verbose import trace showed `Skipping hidden .pth file` for all three `.pth` files in the venv's site-packages.
+  - Tests now run cleanly with `.venv/bin/python -m pytest` after `uv sync --extra dev`. No `PYTHONPATH` hack, no activation required.
+- *Status:* **Already fixed.** Both fixes landed and are working.
+- *Action:* None needed.
+
+**Outcome:** All four flagged issues were already addressed in prior commits. The review was generated from an earlier snapshot of the codebase. No code changes required. The current state is clean: 142 tests passing, zero lint errors, all known correctness issues resolved.
