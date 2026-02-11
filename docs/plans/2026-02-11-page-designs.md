@@ -10,6 +10,98 @@ Every page described below. Wireframes in ASCII. Implementation notes for HTMX/S
 
 ---
 
+## Data Contracts
+
+Each page's data dependencies mapped to endpoints, models, and SSE events. Full schemas in `docs/INTERFACE_CONTRACTS.md`.
+
+### Summary
+
+| Page | Endpoints | Models | SSE Events |
+|------|-----------|--------|------------|
+| Game Preview | 5 | 5 | 0 |
+| Live Game | 1 initial + SSE stream | 6 | 7 (`game.*`, `game.commentary`) |
+| Game Summary | 3 | 5 | 0 |
+| Team Page | 4 | 5 | 1 optional (`standings.update`) |
+| Agent Page | 3 | 4 | 0 |
+| Season Page (during) | 5 | 6 | 2 (`standings.update`, `governance.*`) |
+| Season Page (archive) | 5 | 6 | 0 |
+
+### Game Preview
+
+| Component | Endpoint | Models |
+|-----------|----------|--------|
+| Teams & standings | `GET /api/teams/{team_id}` (x2) | `Team`, `TeamStanding` |
+| Matchup preview (agents) | `GET /api/agents/{agent_id}/stats` (x8) | `Agent`, `AgentSeasonStats` |
+| Head-to-head history | `GET /api/matchups/{team_a}/{team_b}` | `MatchupHistory` |
+| Rules in effect | `GET /api/rules/current` | `RuleSet` |
+| Mirror quote | `GET /api/mirrors/latest` | `Mirror` |
+
+### Live Game
+
+| Component | Endpoint / SSE | Models |
+|-----------|---------------|--------|
+| Initial state (late join) | `GET /api/games/{id}/state` | `GameState` |
+| Scoreboard updates | SSE: `game.possession`, `game.quarter_end`, `game.elam_start` | `PossessionEvent`, `QuarterEndEvent`, `ElamStartEvent` |
+| Play-by-play | SSE: `game.possession` | `PossessionEvent` |
+| Box score | SSE: `game.boxscore` | `BoxScoreEvent` |
+| Commentary | SSE: `game.commentary` | `CommentaryEvent` |
+| Highlights / moves | SSE: `game.highlight`, `game.move` | `HighlightEvent`, `MoveEvent` |
+| Final result | SSE: `game.result` | `GameResultEvent` |
+
+SSE connection: `GET /api/events/stream?game_id={id}&games=true&commentary=true`
+
+### Game Summary
+
+| Component | Endpoint | Models |
+|-----------|----------|--------|
+| Full result + game story | `GET /api/games/{game_id}` | `GameResult` |
+| Box score | `GET /api/games/{game_id}/boxscore` | `list[AgentBoxScore]` |
+| Play-by-play archive | `GET /api/games/{game_id}/play-by-play` (lazy per quarter) | `list[PossessionLog]` |
+| Rules in effect | embedded in `GameResult.governance_context` | `RuleSet` |
+| Commentary | `GET /api/games/{game_id}/commentary` | `list[CommentaryLine]` |
+
+### Team Page
+
+| Component | Endpoint | Models |
+|-----------|----------|--------|
+| Team identity + roster | `GET /api/teams/{team_id}` | `Team`, `Agent` |
+| Schedule & results | `GET /api/teams/{team_id}/schedule` | `list[ScheduleEntry]` |
+| Team stats | `GET /api/teams/{team_id}/stats` | `TeamStats` |
+| Governance footprint | `GET /api/governance/proposals?team_id={id}` | `list[Proposal]` |
+| Standings (optional SSE) | SSE: `standings.update` | `StandingsEvent` |
+
+### Agent Page
+
+| Component | Endpoint | Models |
+|-----------|----------|--------|
+| Profile + attributes + moves | `GET /api/agents/{agent_id}` | `Agent`, `PlayerAttributes`, `Move` |
+| Season stats + shooting zones | `GET /api/agents/{agent_id}/stats` | `AgentSeasonStats` |
+| Game log | `GET /api/agents/{agent_id}/gamelog` | `list[AgentGameLine]` |
+
+### Season Page (during)
+
+| Component | Endpoint / SSE | Models |
+|-----------|---------------|--------|
+| Standings | `GET /api/standings` | `list[TeamStanding]` |
+| Rule evolution | `GET /api/rules/history` | `list[RuleChange]` |
+| Current ruleset vs defaults | `GET /api/rules/current` | `RuleSet` |
+| Stat leaders | `GET /api/stats/leaders` | `StatLeaders` |
+| Season narrative | `GET /api/mirrors/latest` | `Mirror` |
+| Standings update | SSE: `standings.update` | `StandingsEvent` |
+| Governance updates | SSE: `governance.open`, `governance.close` | `WindowOpenEvent`, `WindowCloseEvent` |
+
+### Season Page (archive)
+
+| Component | Endpoint | Models |
+|-----------|----------|--------|
+| Final standings | `GET /api/standings` | `list[TeamStanding]` |
+| Playoff bracket | `GET /api/playoffs/bracket` | `PlayoffBracket` |
+| Rule evolution (final) | `GET /api/rules/history` | `list[RuleChange]` |
+| Season stat leaders | `GET /api/stats/leaders` | `StatLeaders` |
+| Season mirror + awards | `GET /api/mirrors/season/{season_id}` | `Mirror` |
+
+---
+
 ## 1. Game Preview
 
 **URL:** `/games/{game_id}/preview`

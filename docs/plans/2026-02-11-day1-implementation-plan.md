@@ -578,6 +578,123 @@ If scoring is too high/low, adjust logistic curve midpoints. If home advantage i
 
 > You can hit an API and get box scores from auto-simulated 3v3 basketball games with full defensive schemes, agent moves, venue modifiers, and Elam Endings. Agent narratives are AI-generated. The simulation is deterministic, tested, and ready for governance on Day 2.
 
+---
+
+## Critical Path & Dependency Graph
+
+```
+Phase 1 (Scaffolding)
+  │
+  ▼
+Phase 2 (Models)
+  │
+  ├──────────────────────┬──────────────────────┐
+  ▼                      ▼                      ▼
+Phase 3 (Simulation)   Phase 4 (Seeding)     Phase 5 (Database)
+  │                      │                      │
+  └──────────────────────┴──────────────────────┘
+  │
+  ▼
+Phase 6 (Scheduler + API)
+  │
+  ▼
+Phase 7 (Run & Observe)
+```
+
+**CRITICAL PATH:** 1 → 2 → 3 → 6 → 7
+
+**PARALLELIZABLE:** Phases 3, 4, and 5 can run concurrently after Phase 2. Phase 3 is on the critical path; Phases 4 and 5 are not blocking unless Phase 6 needs their output.
+
+**Phase 3 Internal DAG:**
+
+```
+state.py
+  │
+  ▼
+hooks.py
+  │
+  ├────────────┬──────────────┬──────────────┐
+  ▼            ▼              ▼              ▼
+scoring.py   defense.py    moves.py     possession.py
+  │            │              │              │
+  └────────────┴──────────────┴──────────────┘
+  │
+  ▼
+simulation.py
+```
+
+`state.py` and `hooks.py` must come first. Then `scoring.py`, `defense.py`, `moves.py`, and `possession.py` can be built in parallel (they depend on state/hooks but not on each other). `simulation.py` ties them all together and comes last.
+
+---
+
+## Definition of Done (per phase)
+
+### Phase 1: Project Scaffolding
+- [ ] `pyproject.toml` exists with all dependencies and passes `pip install -e ".[dev]"`
+- [ ] All directories created (`src/pinwheel/{api,core,ai,models,db}`, `tests/`, `templates/`, `static/`)
+- [ ] `config.py` loads settings from environment and `.env`
+- [ ] `main.py` creates a FastAPI app that starts with `uvicorn`
+- [ ] `ruff check . && ruff format --check .` passes clean
+
+### Phase 2: Pydantic Models
+- [ ] All models defined: `RuleSet`, `Team`, `Agent`, `PlayerAttributes`, `Move`, `Venue`, `GameResult`, `AgentBoxScore`, `PossessionLog`, `Proposal`, `Vote`, `GovernanceEvent`, `TokenBalance`, `Trade`, `Mirror`
+- [ ] All validators pass (attribute ranges, budget constraints, field types)
+- [ ] No circular imports between model modules
+- [ ] Example instantiation of every model succeeds with valid data
+- [ ] `pytest tests/test_models.py` passes
+
+### Phase 3: Simulation Engine
+- [ ] `simulate_game(home, away, rules, seed)` returns a complete `GameResult`
+- [ ] Determinism: same inputs + same seed = identical output (tested)
+- [ ] All 4 defensive schemes (man-tight, man-switch, zone, press) implemented and tested
+- [ ] Move system: all 8 moves trigger correctly and modify outcomes
+- [ ] Elam Ending: activates after Q3, target score set, game ends on made basket
+- [ ] 1000-game batch: avg score 80-120, avg possessions 60-80, home win % 52-58%
+- [ ] 20+ tests pass covering determinism, scoring bounds, schemes, moves, Elam, stamina, fouls, quarters
+
+### Phase 4: League Seeding
+- [ ] AI generates a valid league YAML with 8 teams, 32 agents
+- [ ] YAML loads into `LeagueConfig` via Pydantic validation
+- [ ] All 9 archetypes produce valid agents within the 360-point budget
+- [ ] Seed CLI works: `python -m pinwheel.seed --generate --output league.yaml`
+
+### Phase 5: Database Layer
+- [ ] SQLAlchemy ORM models defined for teams, agents, games, box scores
+- [ ] Alembic migration runs: `alembic upgrade head` creates all tables
+- [ ] Round-trip test: create team → store → retrieve → identical model
+- [ ] `pytest tests/test_db.py` passes
+
+### Phase 6: Scheduler + Basic API
+- [ ] Round-robin generates valid schedule (8 teams → 7 rounds, 4 games/round, every team plays every other)
+- [ ] All API endpoints return 200: `/api/games/{id}`, `/api/games/{id}/boxscore`, `/api/teams`, `/api/standings`, `/health`
+- [ ] End-to-end test passes: seed → schedule → simulate all games → compute standings → verify
+- [ ] `pytest tests/test_api/` passes
+
+### Phase 7: Run and Observe
+- [ ] 1000-game distributions are basketball-like (see Phase 3 targets)
+- [ ] Parameters tuned if distributions are off (evidence in DEV_LOG.md)
+- [ ] Full test suite green with >80% coverage on `core/` and `api/`
+
+---
+
+## Observability Checkpoints
+
+### Phase 3: Simulation Observability
+- **Structured log per game:** `game_id`, `duration_ms`, `total_possessions`, `home_score`, `away_score`, `winner`, `elam_activated`, `seed`
+- **Move trigger logs:** Each move activation logged with `agent_id`, `move_name`, `trigger_condition`, `outcome_delta`
+- **Scheme selection logs:** Each possession logs the defensive scheme chosen and why (lineup attributes, game state factors)
+
+### Phase 6: API Observability
+- **Request middleware:** Log every API request with `endpoint`, `method`, `duration_ms`, `status_code`
+- **Health endpoint:** Returns `{"status": "ok", "games_simulated": N, "uptime_seconds": N}`
+
+### Phase 7: Aggregate Observability
+- **Batch stats logged:** After 1000-game run, log distribution summary (mean, stddev, min, max for score, possessions, home win %)
+- **Distribution checks:** Assert distributions are within expected ranges; log warnings if not
+- **Tuning evidence:** Any parameter adjustments documented in `docs/DEV_LOG.md` with before/after distributions
+
+---
+
 ## File Inventory (End of Day 1)
 
 ```

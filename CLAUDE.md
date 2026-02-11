@@ -130,6 +130,9 @@ pinwheel/
 │       └── test_teams_api.py
 ├── docs/
 │   ├── TABLE_OF_CONTENTS.md     # Master index of all docs and plans (start here)
+│   ├── GLOSSARY.md              # Canonical naming authority — terms, aliases, forbidden names
+│   ├── INTERFACE_CONTRACTS.md   # SSE events, API endpoints, Pydantic model index, event store types
+│   ├── DEMO_MODE.md             # Environment config, pace modes, demo script, feature flags
 │   ├── VISION.md
 │   ├── PRODUCT_OVERVIEW.md      # User journey, PM analysis, gap register, metrics matrix
 │   ├── RUN_OF_PLAY.md

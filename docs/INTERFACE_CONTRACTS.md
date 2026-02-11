@@ -1,0 +1,371 @@
+# Pinwheel Fates: Interface Contracts
+
+Single canonical source for everything shared across backend, frontend, presenter, and Discord. If it crosses a boundary, it's defined here.
+
+See `docs/GLOSSARY.md` for canonical naming. This document uses those terms exclusively.
+
+---
+
+## 1. ID Formats
+
+| Entity | Format | Example | Notes |
+|--------|--------|---------|-------|
+| Game | `g-{round}-{matchup}` | `g-14-1` | Round number, matchup index within round |
+| Team | UUID v4 | `a1b2c3d4-...` | Generated at seed time |
+| Agent | UUID v4 | `e5f6g7h8-...` | Generated at seed time |
+| Season | UUID v4 | `i9j0k1l2-...` | One per season |
+| Proposal | UUID v4 | `m3n4o5p6-...` | Created on submission |
+| Governor | Discord snowflake (str) | `"123456789012345678"` | Discord user ID, stored as string |
+| Window | UUID v4 | `q7r8s9t0-...` | One per governance window |
+| Trade | UUID v4 | `u1v2w3x4-...` | Created on offer |
+| Mirror | UUID v4 | `y5z6a7b8-...` | One per mirror instance |
+
+**Pydantic validator example:**
+
+```python
+from pydantic import field_validator
+
+class GameId(BaseModel):
+    game_id: str
+
+    @field_validator("game_id")
+    @classmethod
+    def validate_game_id(cls, v: str) -> str:
+        if not v.startswith("g-"):
+            raise ValueError("game_id must start with 'g-'")
+        parts = v.split("-")
+        if len(parts) != 3:
+            raise ValueError("game_id must be 'g-{round}-{matchup}'")
+        return v
+```
+
+---
+
+## 2. SSE Events
+
+All events are delivered via `GET /api/events/stream`. Clients filter by query parameter.
+
+### Connection
+
+```
+GET /api/events/stream?games=true&commentary=true&governance=true&mirrors=true
+GET /api/events/stream?game_id={id}          # single game
+GET /api/events/stream?team_id={id}          # team-specific events
+```
+
+### Game Events (`?games=true` or `?game_id={id}`)
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `game.possession` | `PossessionEvent` | One possession resolved. Contains updated score, box score delta, play description. |
+| `game.move` | `MoveEvent` | An Agent's Move activated during a possession. Includes move name, agent, effect. |
+| `game.highlight` | `HighlightEvent` | A dramatic moment (lead change, run, clutch play). Triggers visual treatment. |
+| `game.commentary` | `CommentaryEvent` | AI commentary line. Includes `energy` field (low/medium/high/peak) and `tags`. |
+| `game.quarter_end` | `QuarterEndEvent` | Quarter completed. Contains quarter scores. |
+| `game.elam_start` | `ElamStartEvent` | Elam Ending activated. Contains target score. Triggers scoreboard transformation. |
+| `game.boxscore` | `BoxScoreEvent` | Full box score snapshot. Sent periodically and at game end. |
+| `game.result` | `GameResultEvent` | Game finished. Final score, winner, link to full box score. |
+
+### Governance Events (`?governance=true`)
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `governance.open` | `WindowOpenEvent` | Governance window opened. Contains window_id, round_number. |
+| `governance.close` | `WindowCloseEvent` | Window closed. Results available. Contains proposals resolved. |
+| `governance.proposal` | `ProposalEvent` | New proposal submitted. Contains proposal summary (not full text until confirmed). |
+| `governance.vote` | `VoteEvent` | Vote cast (anonymized until window close). |
+
+### Mirror Events (`?mirrors=true`)
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `mirror.simulation` | `MirrorEvent` | New simulation mirror available for the completed round. |
+| `mirror.governance` | `MirrorEvent` | Governance mirror after window close. |
+| `mirror.private` | `PrivateMirrorEvent` | Private mirror updated (filtered per-governor via auth). |
+| `mirror.series` | `MirrorEvent` | Playoff series mirror after a series game. |
+| `mirror.season` | `MirrorEvent` | Full-season narrative mirror (post-championship). |
+| `mirror.league` | `MirrorEvent` | State of the League periodic mirror. |
+
+### Season Events (always delivered)
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `season.round` | `RoundEvent` | Round completed, standings updated. |
+| `season.tiebreaker` | `TiebreakerEvent` | Tiebreaker game scheduled. |
+| `season.playoffs` | `PlayoffsEvent` | Playoff bracket set. |
+| `season.series` | `SeriesEvent` | Series update (game result within a series). |
+| `season.champion` | `ChampionEvent` | Championship decided. |
+| `season.awards` | `AwardsEvent` | Season awards announced. |
+| `season.offseason` | `OffseasonEvent` | Offseason governance window opened. |
+
+### Standings Events (always delivered)
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `standings.update` | `StandingsEvent` | Standings changed (after game result or tiebreaker). |
+
+**Total: 22 SSE event types** across 5 categories.
+
+---
+
+## 3. Governance Event Store Types
+
+Append-only event log. These are the source of truth for all governance state. Token balances, current ruleset, and proposal status are all derived from this log.
+
+| Event Type | Aggregate | Payload |
+|-----------|-----------|---------|
+| `proposal.submitted` | proposal | raw_text, sanitized_text, ai_interpretation, tier, token_cost, governor_id |
+| `proposal.confirmed` | proposal | governor confirmed the AI interpretation |
+| `proposal.cancelled` | proposal | governor or system cancelled; reason |
+| `proposal.amended` | proposal | amendment_text, new_interpretation, amending_governor_id, token_cost |
+| `vote.cast` | proposal | vote (yes/no), weight, boost_used, governor_id |
+| `vote.revealed` | proposal | all votes for this proposal (on window close) |
+| `proposal.passed` | proposal | final_vote_tally, weighted_yes, weighted_no |
+| `proposal.failed` | proposal | final_vote_tally, weighted_yes, weighted_no |
+| `rule.enacted` | rule_change | parameter, old_value, new_value, source_proposal_id |
+| `rule.rolled_back` | rule_change | parameter, rolled_back_value, reason |
+| `token.regenerated` | token | governor_id, token_type, amount, new_balance |
+| `token.spent` | token | governor_id, token_type, amount, reason (propose/amend/boost) |
+| `trade.offered` | trade | from_governor, to_governor, offered_tokens, requested_tokens |
+| `trade.accepted` | trade | trade_id (transfer complete) |
+| `trade.rejected` | trade | trade_id (offer rejected) |
+| `trade.expired` | trade | trade_id (offer expired, window closed) |
+| `window.opened` | governance_window | window_id, round_number, opens_at |
+| `window.closed` | governance_window | window_id, proposals_resolved, closes_at |
+
+**Total: 18 event types** across 5 aggregates (proposal, rule_change, token, trade, governance_window).
+
+Source: `docs/plans/2026-02-11-database-schema-plan.md`
+
+---
+
+## 4. API Response Envelope
+
+All REST responses use this shape:
+
+```json
+{
+  "data": { ... },
+  "meta": {
+    "round": 14,
+    "timestamp": "2026-02-10T18:30:00Z",
+    "links": {
+      "boxscore": "/api/games/g-14-1/boxscore",
+      "commentary": "/api/games/g-14-1/commentary"
+    }
+  },
+  "governance_context": [
+    {
+      "parameter": "three_point_value",
+      "value": 4,
+      "default": 3,
+      "changed_by": "proposal-12",
+      "round_enacted": 8
+    }
+  ]
+}
+```
+
+- **`data`** — The primary response payload. Shape varies per endpoint.
+- **`meta`** — Request metadata: current round, timestamp, HATEOAS links to related resources.
+- **`governance_context`** — Non-default rule parameters currently in effect. Included on game and team responses so the frontend can always show which rules shaped the outcome. Omit when empty (all defaults).
+
+---
+
+## 5. API Endpoints
+
+### Real-Time (SSE)
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/api/events/stream` | SSE event stream. Filter via query params: `games`, `commentary`, `governance`, `mirrors`, `game_id`, `team_id`. | None |
+
+### Game Data
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/games/live` | `list[GameSummary]` | None |
+| GET | `/api/games/{game_id}` | `GameResult` | None |
+| GET | `/api/games/{game_id}/boxscore` | `list[AgentBoxScore]` | None |
+| GET | `/api/games/{game_id}/play-by-play` | `list[PossessionLog]` | None |
+| GET | `/api/games/{game_id}/commentary` | `list[CommentaryLine]` | None |
+| GET | `/api/games/{game_id}/state` | `GameState` | None |
+
+### Round Data
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/rounds/current` | `RoundInfo` | None |
+| GET | `/api/rounds/{round_number}` | `RoundResult` | None |
+| GET | `/api/rounds/{round_number}/games` | `list[GameSummary]` | None |
+
+### Season & Standings
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/standings` | `list[TeamStanding]` | None |
+| GET | `/api/stats/leaders` | `StatLeaders` | None |
+| GET | `/api/stats/leaders/{stat}` | `list[AgentStatLine]` | None |
+| GET | `/api/stats/teams` | `list[TeamStats]` | None |
+| GET | `/api/playoffs/bracket` | `PlayoffBracket` | None |
+
+### Team Data
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/teams` | `list[Team]` | None |
+| GET | `/api/teams/{team_id}` | `Team` | None |
+| GET | `/api/teams/{team_id}/schedule` | `list[ScheduleEntry]` | None |
+| GET | `/api/teams/{team_id}/stats` | `TeamStats` | None |
+
+### Agent Data
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/agents/{agent_id}` | `Agent` | None |
+| GET | `/api/agents/{agent_id}/stats` | `AgentSeasonStats` | None |
+| GET | `/api/agents/{agent_id}/gamelog` | `list[AgentGameLine]` | None |
+
+### Head-to-Head
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/matchups/{team_a}/{team_b}` | `MatchupHistory` | None |
+
+### Governance (Public)
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/rules/current` | `RuleSet` | None |
+| GET | `/api/rules/history` | `list[RuleChange]` | None |
+| GET | `/api/governance/proposals` | `list[Proposal]` | None |
+| GET | `/api/governance/proposals/{id}` | `ProposalDetail` | None |
+
+### Mirrors (Public)
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/mirrors/latest` | `dict[str, Mirror]` | None |
+| GET | `/api/mirrors/{type}/{round}` | `Mirror` | None |
+
+### System
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/health` | `HealthStatus` | None |
+| POST | `/admin/seasons/{id}/start` | `SeasonInfo` | Admin |
+| GET | `/admin/perf` | `PerfDashboard` | Admin |
+
+**Total: ~30 endpoints** (28 GET, 1 POST, 1 SSE stream).
+
+Source: `docs/VIEWER.md`
+
+---
+
+## 6. Pydantic Model Index
+
+Registry of shared Pydantic models. Definitions live in code (`src/pinwheel/models/`). This table maps each model to its source file and consumers.
+
+| Model | File | Consumers |
+|-------|------|-----------|
+| `RuleSet` | `models/rules.py` | simulation, governance, API, AI interpreter |
+| `RuleChange` | `models/rules.py` | governance, API, season page |
+| `GameEffect` | `models/rules.py` | simulation (hooks), governance |
+| `PlayerAttributes` | `models/team.py` | simulation, seeding, API |
+| `Move` | `models/team.py` | simulation, API, agent page |
+| `Venue` | `models/team.py` | simulation, API, team page |
+| `Agent` | `models/team.py` | simulation, API, seeding |
+| `Team` | `models/team.py` | simulation, API, seeding, scheduler |
+| `GameResult` | `models/game.py` | simulation output, API, presenter, DB |
+| `AgentBoxScore` | `models/game.py` | simulation output, API, live game SSE |
+| `PossessionLog` | `models/game.py` | simulation output, API, presenter |
+| `QuarterScore` | `models/game.py` | simulation output, API |
+| `CommentaryEvent` | `models/game.py` | presenter, AI commentary, API |
+| `Proposal` | `models/governance.py` | governance, API, Discord bot |
+| `Amendment` | `models/governance.py` | governance, API, Discord bot |
+| `Vote` | `models/governance.py` | governance, API |
+| `GovernanceEvent` | `models/governance.py` | event store, governance, mirrors |
+| `TokenBalance` | `models/tokens.py` | token economy, API, Discord bot |
+| `Trade` | `models/tokens.py` | token economy, API, Discord bot |
+| `Mirror` | `models/mirror.py` | AI mirror generation, API, Discord delivery |
+| `MirrorUpdate` | `models/mirror.py` | SSE, Discord delivery |
+| `TeamStanding` | `models/game.py` | standings computation, API |
+| `GameState` | `core/state.py` | simulation (internal), late-join API |
+| `AgentState` | `core/state.py` | simulation (internal) |
+| `PossessionState` | `core/state.py` | simulation (internal) |
+
+---
+
+## 7. Behavioral Tracking Events
+
+Analytics events for gameplay health metrics. Each event fires at the described moment. All events include `timestamp` and `session_id`.
+
+### Governance Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `governance.proposal.submit` | governor_id, proposal_text, token_spent | Governor submits a proposal |
+| `governance.proposal.abandon` | governor_id, draft_text, time_spent_drafting | Governor cancels during AI interpretation |
+| `governance.amendment.submit` | governor_id, proposal_id, amendment_text | Governor submits an amendment |
+| `governance.vote.cast` | governor_id, proposal_id, vote, boost_used, time_to_vote | Governor casts a vote |
+| `governance.vote.skip` | governor_id, proposal_id, window_id | Governor eligible but did not vote before window close |
+
+### Token Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `token.trade.offer` | from_governor, to_governor, offered_tokens, requested_tokens | Governor offers a trade |
+| `token.trade.accept` | trade_id, time_to_accept | Trade accepted |
+| `token.trade.reject` | trade_id, time_to_reject | Trade rejected |
+
+### Mirror Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `mirror.private.view` | governor_id, mirror_id, time_spent_reading | Governor opens their private mirror |
+| `mirror.private.dismiss` | governor_id, mirror_id, time_before_dismiss | Governor dismisses without reading (< threshold) |
+| `mirror.shared.view` | governor_id, mirror_id, mirror_type | Governor views a shared mirror |
+| `mirror.shared.dwell_time` | governor_id, mirror_id, seconds | Time spent on shared mirror |
+
+### Viewing Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `game.result.view` | governor_id, game_id, time_spent | Governor views a game result |
+| `game.commentary.expand` | governor_id, game_id | Governor expands AI commentary |
+| `game.rule_context.interact` | governor_id, game_id | Governor clicks/hovers on rule context panel |
+| `game.replay.start` | governor_id, game_id | Governor starts a replay |
+| `game.view.completion` | governor_id, game_id, watched_from_start | Governor watched start to finish vs. skipped |
+
+### Session Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `session.start` | governor_id, platform (web/discord) | Session begins |
+| `session.end` | governor_id, duration, pages_visited | Session ends |
+| `feed.scroll_depth` | governor_id, session_id, max_depth | Scroll depth in feed (web) |
+
+### Onboarding Events
+
+| Event | Additional Payload | When It Fires |
+|-------|-------------------|---------------|
+| `governor.onboard.server_join` | discord_user_id | New user joins Discord server |
+| `governor.onboard.team_select` | governor_id, team_id | Governor picks a team |
+| `governor.onboard.first_action` | governor_id, action_type | First governance action taken |
+
+**Total: ~22 behavioral events** across 6 categories.
+
+Source: `docs/INSTRUMENTATION.md`, `docs/PRODUCT_OVERVIEW.md`
+
+---
+
+## 8. Cross-References
+
+- **Instrumentation targets and alarms:** `docs/INSTRUMENTATION.md`
+- **Demo mode and environment config:** `docs/DEMO_MODE.md`
+- **Page-level data contracts (which page uses which endpoint):** `docs/plans/2026-02-11-page-designs.md`
+- **Governance event store schema:** `docs/plans/2026-02-11-database-schema-plan.md`
+- **Presenter pacing and SSE delivery:** `docs/plans/2026-02-11-presenter-plan.md`
+- **Full simulation model definitions:** `docs/SIMULATION.md`
+- **Discord bot commands (governance surface):** `docs/PLAYER.md`
+- **AI commentary engine:** `docs/VIEWER.md`

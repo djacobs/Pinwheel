@@ -319,18 +319,33 @@ The operator. Sets up the league, seeds teams, manages the Discord server, monit
 
 ## Summary: Gap Register
 
-| # | Gap | Severity | Phase | Recommendation |
-|---|-----|----------|-------|----------------|
-| 1 | **Mirror → action bridge** | Critical | 3 | Design and measure whether mirrors change governor behavior. This is the thesis-validating metric. |
-| 2 | **Onboarding funnel** | High | 0 | Add onboarding events. Write a player-facing "what is this" explanation. |
-| 3 | **Amendment instrumentation** | Medium | 1 | Add `governance.amendment.*` events. Measure amendment impact on proposal pass rates. |
-| 4 | **Eliminated-team retention** | High | 5 | Design the post-elimination governor role. Measure engagement by team standing. |
-| 5 | **Success criteria on goals** | High | All | Convert the five VISION.md goals from aspirations to the measurable thresholds defined in this document. |
-| 6 | **Rule context panel interaction model** | Medium | 2 | Define whether the panel passively lists rules or actively highlights rule-to-outcome connections. |
-| 7 | **Viewing engagement depth** | Medium | 2 | Add `game.commentary.expand`, `game.rule_context.interact`, `game.replay.start` events. |
-| 8 | **Spectator journey** | Medium | 6 | Design the spectator value proposition, team-following, and conversion path. |
-| 9 | **Governance sophistication metrics** | Low | 4 | Track proposal tier trends, cross-team trade ratio, strategy adoption. |
-| 10 | **Player progression surfacing** | Low | 4 | Use the mirror system to reflect governance growth, not just governance patterns. |
+| # | Gap | Severity | Phase | Recommendation | Decision Deadline | Default Fallback |
+|---|-----|----------|-------|----------------|-------------------|------------------|
+| 1 | **Mirror → action bridge** | Critical | 3 | Design and measure whether mirrors change governor behavior. This is the thesis-validating metric. | Before Day 3 (mirror delivery) | Mirror displays only — no action bridge. Measure read rate and dwell time as proxy. |
+| 2 | **Onboarding funnel** | High | 0 | Add onboarding events. Write a player-facing "what is this" explanation. | Before Discord bot (Day 2-3) | Bot greeting with team list only. No funnel metrics. |
+| 3 | **Amendment instrumentation** | Medium | 1 | Add `governance.amendment.*` events. Measure amendment impact on proposal pass rates. | Before Day 3 (governance polish) | Amendments work but are not instrumented separately from proposals. |
+| 4 | **Eliminated-team retention** | High | 5 | Design the post-elimination governor role. Measure engagement by team standing. | Post-hackathon | Eliminated governors can still vote on league-wide proposals. No special engagement design. |
+| 5 | **Success criteria on goals** | High | All | Convert the five VISION.md goals from aspirations to the measurable thresholds defined in this document. | Before Day 2 (thresholds inform instrumentation) | Use thresholds defined in this doc's Goals table as-is. |
+| 6 | **Rule context panel interaction model** | Medium | 2 | Define whether the panel passively lists rules or actively highlights rule-to-outcome connections. | Before frontend (Day 4) | Active highlighting: rule context panel highlights when a specific rule affected a specific possession outcome. |
+| 7 | **Viewing engagement depth** | Medium | 2 | Add `game.commentary.expand`, `game.rule_context.interact`, `game.replay.start` events. | Before frontend (Day 4) | Events defined but not wired to alarms until post-hackathon. |
+| 8 | **Spectator journey** | Medium | 6 | Design the spectator value proposition, team-following, and conversion path. | Post-hackathon | Spectators have read-only web access and #trash-talk. No team-following or conversion tracking. |
+| 9 | **Governance sophistication metrics** | Low | 4 | Track proposal tier trends, cross-team trade ratio, strategy adoption. | Post-hackathon | Not tracked during hackathon. Mirror content may reference patterns qualitatively. |
+| 10 | **Player progression surfacing** | Low | 4 | Use the mirror system to reflect governance growth, not just governance patterns. | Post-hackathon | Mirrors reflect current patterns only. No longitudinal progression analysis. |
+
+---
+
+## Open Questions — Decision Table
+
+Consolidated from open questions in VIEWER.md, GAME_LOOP.md, PLAYER.md, and SIMULATION.md.
+
+| # | Question | Options | Recommendation | Deadline | Default if Not Decided |
+|---|----------|---------|----------------|----------|----------------------|
+| 1 | **Mirror → action bridge:** How should mirrors connect insight to governance action? | (a) Mirror includes contextual action buttons (e.g., "Propose a rule about this") (b) Mirror links to relevant governance page sections (c) Mirror is read-only; action is implicit | **(b) Link to governance.** Buttons are too prescriptive (violates "never tells governors what to do"). Links preserve agency while reducing friction. | Before Day 3 (mirror delivery) | Mirror is read-only. Governors navigate to governance independently. |
+| 2 | **Rule context panel interaction:** Does the panel passively list rules or actively highlight rule-to-outcome connections? | (a) Passive list of non-default rules (b) Active highlighting: pulse/color when a rule affects the current possession (c) Both — list always visible, highlights on relevant possessions | **(c) Both.** List is always visible. Highlights pulse when a rule affected the outcome. This is the key judgment-amplifier UX. | Before frontend (Day 4) | Active highlighting only (no persistent list). |
+| 3 | **Commentary model tier:** Which Claude model generates live commentary? | (a) Opus 4.6 — highest quality, highest cost (~$0.15/game) (b) Sonnet 4.5 — good quality, moderate cost (~$0.03/game) (c) Haiku 4.5 — fast and cheap (~$0.005/game), lower narrative quality | **(b) Sonnet 4.5.** Commentary is high-volume (batches per game). Opus for mirrors (low-volume, high-stakes). Sonnet for commentary (high-volume, moderate-stakes). | Before commentary engine (Day 3) | Sonnet 4.5. Switch to Haiku if costs spike. |
+| 4 | **Governance window timing:** How are windows opened and closed? | (a) Pure cron — windows open on schedule, close on schedule (b) Cron + admin override — scheduled but admins can extend/close early (c) Dynamic — window stays open until quorum reached | **(b) Cron + admin override.** Predictable for governors, flexible for demos and edge cases. | Before scheduler (Day 2) | Pure cron. Windows open and close on `PINWHEEL_GOV_WINDOW` schedule. |
+| 5 | **Concurrent simulation blocks:** What happens if a new round triggers while the presenter is still pacing the previous round? | (a) Queue — new round waits until current presentation finishes (b) Overlap — multiple rounds present simultaneously (c) Fast-forward — current round finishes instantly, new round starts pacing | **(a) Queue.** Overlap is confusing for viewers. Fast-forward loses dramatic pacing. Queue is simplest and preserves the viewing experience. | Before game loop (Day 2) | Queue for next block. Presenter finishes current round before starting next. |
+| 6 | **Mirror priority:** When multiple mirrors are ready (simulation + governance + private), what order are they delivered? | (a) Private first, then shared (b) Shared first, then private (c) Interleaved (shared → private → shared) | **(a) Private first.** The private mirror is the product's differentiator. Deliver it while the governance mirror is generating. Shared mirrors land in channels where they persist; private mirrors land in DMs where timeliness matters. | Before mirror delivery (Day 3) | Private first. Shared mirrors post to channels within 60s. |
 
 ## Metrics Coverage Matrix
 

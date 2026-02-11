@@ -16,8 +16,11 @@ These define *what* Pinwheel Fates is and how it works. They are the specificati
 
 | Document | Purpose | Key Contents |
 |----------|---------|-------------|
+| [GLOSSARY.md](GLOSSARY.md) | Canonical naming authority — the definitive term list for code, docs, API, and Discord | ~25 terms with definitions, acceptable aliases, and forbidden alternatives. Use Term column for code, Aliases for player-facing text. |
+| [INTERFACE_CONTRACTS.md](INTERFACE_CONTRACTS.md) | Single source for everything shared across backend, frontend, presenter, and Discord | ID formats, 22 SSE event types, 18 governance event store types, API response envelope, ~30 API endpoints, Pydantic model index, ~22 behavioral tracking events |
+| [DEMO_MODE.md](DEMO_MODE.md) | All environment-specific behavior in one place | 3 environments, timing table, 4 pace modes, dev season config, seed data strategy, feature flags by env, hackathon demo script, environment variables |
 | [VISION.md](VISION.md) | Philosophy, goals, resonant computing alignment, hackathon track justification | 5 goals, 5 resonant computing principles, the David Lynch diving bell metaphor, "the game where AI doesn't play — it helps you see" |
-| [PRODUCT_OVERVIEW.md](PRODUCT_OVERVIEW.md) | User journey walkthrough, PM analysis, gap register, metrics coverage matrix | 7 user journey phases (Discovery → Spectator), 10 identified gaps, success criteria for each goal, function-to-purpose mapping |
+| [PRODUCT_OVERVIEW.md](PRODUCT_OVERVIEW.md) | User journey walkthrough, PM analysis, gap register, metrics coverage matrix | 7 user journey phases (Discovery → Spectator), 10 identified gaps with decision deadlines and fallbacks, open questions decision table, success criteria for each goal |
 | [RUN_OF_PLAY.md](RUN_OF_PLAY.md) | The gameplay loop from a player's perspective — what happens each day | Governance pipeline (7 steps), token economy, 4-tier rule space, AI interpretation pipeline, amendment mechanic, three-layer feed topology, conflict resolution, "What Makes This Fun" |
 | [SIMULATION.md](SIMULATION.md) | The basketball simulation engine specification | 9 attributes, 9 archetypes (360-point budget), possession model, defensive model (4 schemes), scoring resolution, Moves system, Elam Ending, venue/home court, rule expressiveness (3-layer: Parameters, Game Effects, League Effects), safety boundaries, 21 decisions log |
 | [GAME_LOOP.md](GAME_LOOP.md) | Game loop, scheduler, season structure | Three clocks model (game, governance, mirror), state machine, game presenter architecture, SSE event taxonomy (~25 types), seed generation, season structure (21 rounds + playoffs + offseason), dev/staging vs. production mode |
@@ -56,8 +59,10 @@ These define *how* we build each component. Created via the `/workflows:plan` cy
 Understanding which docs feed into others helps when updating decisions:
 
 ```
+GLOSSARY.md (canonical naming — everything references this)
+
 VISION.md (philosophy, goals)
-  └──► PRODUCT_OVERVIEW.md (user journey, measurable success criteria)
+  └──► PRODUCT_OVERVIEW.md (user journey, measurable success criteria, decision table)
         └──► ACCEPTANCE_CRITERIA.md (testable feature criteria)
               └──► PLAN.md (daily build plan)
 
@@ -72,16 +77,22 @@ CLAUDE.md (architecture, code standards)
   │     └──► plans/discord-bot (implementation)
   ├──► VIEWER.md (dashboard, API, Arena)
   │     └──► plans/frontend (HTMX patterns)
-  │     └──► plans/page-designs (wireframes)
+  │     └──► plans/page-designs (wireframes + data contracts)
   ├──► SECURITY.md (prompt injection defense)
   ├──► INSTRUMENTATION.md (metrics, costs)
   └──► OPS.md (deployment, Fly.io)
         └──► fly.toml (deployment config)
 
+INTERFACE_CONTRACTS.md (SSE events, API endpoints, models, event store)
+  └──► consolidates from VIEWER.md, GAME_LOOP.md, INSTRUMENTATION.md, database-schema-plan
+
+DEMO_MODE.md (environments, pacing, demo script)
+  └──► consolidates from OPS.md, GAME_LOOP.md, season-lifecycle-plan, day1-implementation-plan
+
 RUN_OF_PLAY.md (gameplay loop)
   └──► references SIMULATION.md, PLAYER.md, VIEWER.md, GAME_LOOP.md
 
-plans/day1-implementation (concrete build plan)
+plans/day1-implementation (concrete build plan, critical path, DoD)
   └──► references plans/database-schema, SIMULATION.md, plans/league-configuration
 ```
 
