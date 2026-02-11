@@ -190,11 +190,6 @@ class Repository:
 
     # --- Governance Events (append-only) ---
 
-    async def _next_sequence_number(self) -> int:
-        stmt = select(func.coalesce(func.max(GovernanceEventRow.sequence_number), 0))
-        result = await self.session.execute(stmt)
-        return result.scalar_one() + 1
-
     async def append_event(
         self,
         event_type: str,
@@ -206,7 +201,15 @@ class Repository:
         governor_id: str | None = None,
         team_id: str | None = None,
     ) -> GovernanceEventRow:
-        seq = await self._next_sequence_number()
+        # Atomic sequence assignment: SELECT FOR UPDATE prevents concurrent
+        # writers from getting the same sequence number on PostgreSQL.
+        # SQLite ignores FOR UPDATE (single-writer is inherently safe).
+        stmt = select(
+            func.coalesce(func.max(GovernanceEventRow.sequence_number), 0)
+        ).with_for_update()
+        result = await self.session.execute(stmt)
+        seq = result.scalar_one() + 1
+
         row = GovernanceEventRow(
             event_type=event_type,
             aggregate_id=aggregate_id,

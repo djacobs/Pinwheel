@@ -14,7 +14,7 @@ import time
 from pinwheel.core.hooks import GameEffect, HookPoint, fire_hooks
 from pinwheel.core.possession import resolve_possession
 from pinwheel.core.state import AgentState, GameState
-from pinwheel.models.game import AgentBoxScore, GameResult, QuarterScore
+from pinwheel.models.game import AgentBoxScore, GameResult, PossessionLog, QuarterScore
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team
 
@@ -31,6 +31,7 @@ def _run_quarter(
     rules: RuleSet,
     rng: random.Random,
     effects: list[GameEffect],
+    possession_log: list[PossessionLog],
 ) -> None:
     """Run one quarter of possessions."""
     last_three = False
@@ -44,6 +45,8 @@ def _run_quarter(
         fire_hooks(HookPoint.PRE_POSSESSION, game_state, effects)
 
         result = resolve_possession(game_state, rules, rng, last_three)
+        if result.log:
+            possession_log.append(result.log)
 
         # Track whether last possession was a made three
         last_three = result.shot_made and result.shot_type == "three_point"
@@ -62,6 +65,7 @@ def _run_elam(
     rules: RuleSet,
     rng: random.Random,
     effects: list[GameEffect],
+    possession_log: list[PossessionLog],
 ) -> None:
     """Run the Elam Ending period."""
     leading_score = max(game_state.home_score, game_state.away_score)
@@ -78,6 +82,8 @@ def _run_elam(
         game_state.total_possessions += 1
 
         result = resolve_possession(game_state, rules, rng, last_three)
+        if result.log:
+            possession_log.append(result.log)
         last_three = result.shot_made and result.shot_type == "three_point"
 
         # Check if target reached
@@ -165,6 +171,7 @@ def simulate_game(
     )
 
     quarter_scores: list[QuarterScore] = []
+    possession_log: list[PossessionLog] = []
 
     # Quarters 1 through elam_trigger_quarter
     num_quarters = rules.elam_trigger_quarter + 1  # e.g., Q1-Q3 then Elam
@@ -173,7 +180,7 @@ def simulate_game(
         home_before = game_state.home_score
         away_before = game_state.away_score
 
-        _run_quarter(game_state, rules, rng, _effects)
+        _run_quarter(game_state, rules, rng, _effects, possession_log)
 
         fire_hooks(HookPoint.QUARTER_END, game_state, _effects)
 
@@ -195,7 +202,7 @@ def simulate_game(
         home_before = game_state.home_score
         away_before = game_state.away_score
 
-        _run_elam(game_state, rules, rng, _effects)
+        _run_elam(game_state, rules, rng, _effects, possession_log)
 
         quarter_scores.append(
             QuarterScore(
@@ -225,6 +232,7 @@ def simulate_game(
         elam_target_score=game_state.elam_target_score,
         quarter_scores=quarter_scores,
         box_scores=_build_box_scores(game_state),
+        possession_log=possession_log,
         duration_ms=elapsed_ms,
     )
 

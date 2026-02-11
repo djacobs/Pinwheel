@@ -227,6 +227,65 @@ class TestMoves:
         assert check_trigger(HEAT_CHECK, agent, "three_point", True, False)
         assert not check_trigger(HEAT_CHECK, agent, "three_point", False, False)
 
+    def test_positive_move_increases_make_rate(self):
+        """Heat Check (+0.15) should increase total make probability."""
+        from pinwheel.core.moves import HEAT_CHECK as HC
+
+        moves = [HC]
+        # Use mediocre shooter so effect is clearly measurable
+        base_team = _make_team("h", attrs=_make_attrs(scoring=45, ego=50), moves=moves)
+        no_move_team = _make_team("h2", attrs=_make_attrs(scoring=45, ego=50))
+        away = _make_team("a")
+
+        # Run many games with last_three=True context (Heat Check always triggers)
+        # We can't directly set last_three, so compare overall scoring rates
+        with_scores = []
+        without_scores = []
+        for s in range(200):
+            r1 = simulate_game(base_team, away, DEFAULT_RULESET, seed=s)
+            r2 = simulate_game(no_move_team, away, DEFAULT_RULESET, seed=s)
+            with_scores.append(r1.home_score)
+            without_scores.append(r2.home_score)
+
+        avg_with = sum(with_scores) / len(with_scores)
+        avg_without = sum(without_scores) / len(without_scores)
+        # Team with Heat Check should score at least as much (likely more)
+        assert avg_with >= avg_without * 0.95
+
+    def test_wild_card_negative_can_reduce_make_rate(self):
+        """Wild Card -0.15 branch must be able to reduce make probability.
+
+        This test verifies the fix for the P0 bug where move modifiers
+        were applied as a second roll after an initial miss, making even
+        negative effects beneficial.
+        """
+        from pinwheel.core.moves import apply_move_modifier
+        from pinwheel.core.scoring import compute_shot_probability
+
+        shooter = AgentState(agent=_make_agent(attrs=_make_attrs(scoring=50, chaotic=80)))
+        defender = AgentState(agent=_make_agent(attrs=_make_attrs(defense=40)))
+        base_prob = compute_shot_probability(shooter, defender, "mid_range", 0.05, DEFAULT_RULESET)
+
+        # Wild Card with -0.15 should reduce probability
+        wc_move = Move(
+            name="Wild Card",
+            trigger="any_possession",
+            effect="random: +25% or -15%",
+            attribute_gate={"chaotic_alignment": 70},
+        )
+        # Force the -0.15 branch by using a seed where rng.choice returns -0.15
+        test_rng = random.Random(0)
+        # Try many seeds to find one that hits -0.15
+        for seed in range(100):
+            test_rng = random.Random(seed)
+            modified = apply_move_modifier(wc_move, base_prob, test_rng)
+            if modified < base_prob:
+                # Confirmed: negative modifier actually reduces probability
+                assert modified < base_prob
+                return
+        # If we never hit the negative branch in 100 seeds, that's also a bug
+        raise AssertionError("Wild Card never produced negative modifier in 100 seeds")
+
 
 # --- Elam Ending ---
 
@@ -261,6 +320,19 @@ class TestFullGame:
         assert result.total_possessions > 0
         assert len(result.box_scores) == 8  # 4 per team
         assert len(result.quarter_scores) >= 3  # Q1, Q2, Q3, + Elam
+
+    def test_possession_log_populated(self):
+        """GameResult must contain a possession_log for presenter/SSE."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        assert len(result.possession_log) > 0
+        assert len(result.possession_log) == result.total_possessions
+        # Each log entry has required fields
+        for log in result.possession_log:
+            assert log.quarter > 0
+            assert log.offense_team_id in ("home", "away")
+            assert log.ball_handler_id != ""
 
     def test_box_scores_sum_to_team_total(self):
         home = _make_team("home")

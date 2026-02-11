@@ -10,10 +10,8 @@ router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
 @router.get("")
-async def list_teams(repo: RepoDep, season_id: str | None = None) -> dict:
-    """List all teams, optionally filtered by season."""
-    if not season_id:
-        return {"data": []}
+async def list_teams(season_id: str, repo: RepoDep) -> dict:
+    """List all teams for a season."""
     teams = await repo.get_teams_for_season(season_id)
     return {
         "data": [

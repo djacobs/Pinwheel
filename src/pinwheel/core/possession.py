@@ -219,30 +219,24 @@ def resolve_possession(
     # 6. Find primary defender
     primary_defender = get_primary_defender(handler, matchups, defense)
 
-    # 7. Resolve shot
-    made, pts = resolve_shot(handler, primary_defender, shot_type, scheme_mod, rules, rng)
-
-    # Apply move modifiers if any
+    # 7. Apply move modifier to probability, then resolve single shot
     move_name = ""
-    if triggered and not made:
-        # Re-roll with move modifier for first triggered move
+    if triggered:
         move = triggered[0]
         move_name = move.name
-        from pinwheel.core.scoring import compute_shot_probability
+        handler.moves_activated.append(move_name)
+        # Compute base probability so move can modify it
+        from pinwheel.core.scoring import compute_shot_probability, points_for_shot
 
         base_prob = compute_shot_probability(
             handler, primary_defender, shot_type, scheme_mod, rules
         )
         modified_prob = apply_move_modifier(move, base_prob, rng)
+        # Single roll with modified probability
         made = rng.random() < modified_prob
-        if made:
-            from pinwheel.core.scoring import points_for_shot
-
-            pts = points_for_shot(shot_type, rules)
-        handler.moves_activated.append(move_name)
-    elif triggered:
-        move_name = triggered[0].name
-        handler.moves_activated.append(move_name)
+        pts = points_for_shot(shot_type, rules) if made else 0
+    else:
+        made, pts = resolve_shot(handler, primary_defender, shot_type, scheme_mod, rules, rng)
 
     # 8. Update shooter stats
     handler.field_goals_attempted += 1

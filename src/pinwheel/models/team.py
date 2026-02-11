@@ -45,7 +45,7 @@ class Venue(BaseModel):
     capacity: int = Field(ge=500, le=50000)
     altitude_ft: int = Field(ge=0, le=10000, default=0)
     surface: str = "hardwood"
-    location: list[float] = Field(default=[45.5152, -122.6784])  # [lat, lon] Portland default
+    location: list[float] = Field(default_factory=lambda: [45.5152, -122.6784])  # [lat, lon]
 
 
 class Agent(BaseModel):

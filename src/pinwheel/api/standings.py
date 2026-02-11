@@ -21,13 +21,15 @@ async def get_standings(season_id: str, repo: RepoDep) -> dict:
         if not games:
             break
         for g in games:
-            all_results.append({
-                "home_team_id": g.home_team_id,
-                "away_team_id": g.away_team_id,
-                "home_score": g.home_score,
-                "away_score": g.away_score,
-                "winner_team_id": g.winner_team_id,
-            })
+            all_results.append(
+                {
+                    "home_team_id": g.home_team_id,
+                    "away_team_id": g.away_team_id,
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                }
+            )
 
     standings = compute_standings(all_results)
 
