@@ -111,7 +111,7 @@
       <ul class="pbp-list">
         {% for play in play_by_play %}
         <li class="pbp-item">
-          <span class="pbp-quarter">Q{{ play.quarter }}</span>
+          <span class="pbp-quarter">Q{{ play.quarter }}{% if play.game_clock %} {{ play.game_clock }}{% endif %}</span>
           <span class="pbp-action">{{ play.narration }}</span>
           {% if play.points_scored > 0 %}
           <span class="pbp-points">+{{ play.points_scored }}</span>

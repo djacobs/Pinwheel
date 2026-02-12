@@ -307,6 +307,41 @@ class TestElamEnding:
             assert winning_score >= result.elam_target_score
 
 
+# --- Game Clock ---
+
+
+class TestGameClock:
+    def test_timed_quarters_have_game_clock(self):
+        """Possession logs from timed quarters must have non-empty M:SS game_clock."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        elam_quarter = DEFAULT_RULESET.elam_trigger_quarter + 1
+        timed_logs = [p for p in result.possession_log if p.quarter < elam_quarter]
+        assert len(timed_logs) > 0
+        import re
+
+        clock_pattern = re.compile(r"^\d+:\d{2}$")
+        for log in timed_logs:
+            assert log.game_clock != "", f"Timed quarter log missing game_clock: Q{log.quarter}"
+            assert clock_pattern.match(log.game_clock), (
+                f"game_clock '{log.game_clock}' doesn't match M:SS format"
+            )
+
+    def test_elam_possessions_have_empty_game_clock(self):
+        """Elam ending possessions (untimed) must have empty game_clock."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        elam_quarter = DEFAULT_RULESET.elam_trigger_quarter + 1
+        elam_logs = [p for p in result.possession_log if p.quarter == elam_quarter]
+        assert len(elam_logs) > 0
+        for log in elam_logs:
+            assert log.game_clock == "", (
+                f"Elam possession should have empty game_clock, got '{log.game_clock}'"
+            )
+
+
 # --- Full Game ---
 
 

@@ -27,6 +27,7 @@ class PossessionLog(BaseModel):
     defensive_scheme: str = ""
     home_score: int = 0
     away_score: int = 0
+    game_clock: str = ""
 
 
 class AgentBoxScore(BaseModel):
