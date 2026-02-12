@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **435 tests**, zero lint errors
+- **467 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 23 ("How to Play" onboarding page)
+- **Latest commit:** Session 26 (game clock display in play-by-play)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -46,12 +46,16 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] `discord_invite_url` config setting for Discord join link (Session 23)
 
 ### Governance refinements
-- [ ] Player trades: only the two teams' governors vote on trades
+- [x] Player trades: only the two teams' governors vote on trades (Session 24)
 
 ### Discord server infrastructure
-- [ ] `/join` command — team enrollment with season-lock
-- [ ] Channel setup on bot ready
-- [ ] Event routing — game results to channels
+- [x] `/join` command — team enrollment with season-lock, autocomplete, welcome DM (Session 24)
+- [x] Channel setup on bot ready — idempotent, persisted via BotStateRow (Session 24)
+- [x] Event routing — game results to team channels with win/loss framing (Session 24)
+
+### Safety & rules
+- [x] Rules page "propose anything" rewrite — wild card section (Session 24)
+- [x] Haiku injection classifier — fail-open pre-flight on proposals (Session 24)
 
 ---
 
@@ -240,3 +244,113 @@ Fixed all taglines:
 **Files modified (6):** `config.py`, `api/pages.py`, `templates/base.html`, `templates/pages/home.html`, `templates/pages/rules.html`, `static/css/pinwheel.css` (~250 lines new styles), `tests/test_pages.py` (+3 tests)
 
 **435 tests, zero lint errors.**
+
+---
+
+## Session 24 — Discord Infrastructure + Safety
+
+**What was asked:** Implement the remaining Discord infrastructure: player trades (scoped voting), `/join` hardening, channel setup idempotency, event routing to team channels. Also: rules page needs to make clear players can propose *anything*, and add Haiku injection classifier. Finally, create a `/post-commit` Claude Code skill for session-end housekeeping.
+
+**What was built:**
+
+### Channel setup idempotency (Step 3 of plan)
+- `_setup_server()` rewritten to check for existing channels/roles by name before creating
+- `BotStateRow` table for persisting channel IDs across restarts
+- `_load_persisted_channel_ids()` loads from DB on startup
+- Channel permissions hardened: team channels deny `@everyone`, grant team role
+
+### `/join` hardening (Step 2)
+- Team parameter made optional — no arg shows team list with governor counts
+- `_team_autocomplete` with `@app_commands.autocomplete`
+- Welcome DM after enrollment (team name, roster, quick-start commands)
+- "Ride or die" season-lock messaging
+- `get_governor_counts_by_team()` repository method
+- `build_welcome_embed()` and `build_team_list_embed()` embed builders
+
+### Event routing (Step 4)
+- Game results now post to both team channels with win/loss framing
+- `build_team_game_result_embed()` — team-specific "Victory!"/"Defeat." embeds
+- `_get_team_channel()` and `_send_to_team_channel()` helpers
+- `home_team_id`/`away_team_id` added to game.completed event payload
+- Governance window closed events post to all team channels
+
+### Agent trades (Step 1)
+- `AgentTrade` model with scoped voting (both teams' governors must approve)
+- `/trade-agent` command with autocomplete for agent names on both teams
+- `AgentTradeView` — approve/reject buttons, auth-scoped to `required_voters`
+- Domain functions: `propose_agent_trade()`, `vote_agent_trade()`, `tally_agent_trade()`, `execute_agent_trade()`
+- `swap_agent_team()` and `get_governors_for_team()` repository methods
+- `build_agent_trade_embed()` embed builder
+
+### Rules page "propose anything" (Step 5)
+- "Beyond the Numbers" wild card section with 6 example proposals ("Make the floor lava", "Maximum height rule", "Switch to baseball")
+- Flow strip: You propose → AI interprets → Your team votes → The game changes
+- Bridge text reframing parameter tiers as "starting point"
+
+### Haiku injection classifier (Step 6)
+- `ai/classifier.py` — `classify_injection()` using `claude-haiku-4-5-20251001`
+- Fail-open design: any error returns `legitimate` with confidence 0.0
+- Wired into `api_submit_proposal()` — blocks high-confidence injections, annotates suspicious ones
+- 16 tests covering all classification paths and failure modes
+
+### `/post-commit` skill
+- Created `.claude/skills/post-commit/SKILL.md` for session-end housekeeping
+- Steps: run tests, run Rodney/Showboat, update dev log (one per day), update UX notes
+
+**Files created (3):** `ai/classifier.py`, `tests/test_classifier.py`, `.claude/skills/post-commit/SKILL.md`
+
+**Files modified (12):** `discord/bot.py`, `discord/views.py`, `discord/embeds.py`, `models/tokens.py`, `core/tokens.py`, `core/game_loop.py`, `db/models.py`, `db/repository.py`, `api/governance.py`, `templates/pages/rules.html`, `static/css/pinwheel.css`, `tests/test_discord.py`
+
+**465 tests, zero lint errors.**
+
+**What could have gone better:** Hit the hourly rate limit mid-session with 3 background agents running simultaneously. Two agents had already written their code but couldn't self-correct lint/test issues. Manual cleanup of 3 lint errors and 4 test failures from agent-written code. Lesson: run fewer parallel agents, or use API key from the start.
+
+---
+
+## Session 25 — Clock-Based Quarters
+
+**What was asked:** Replace possession-count quarters with game-clock quarters. Each quarter is `quarter_minutes` (default 10) on a game clock. Each possession consumes `play_time + dead_time` seconds. The `shot_clock_seconds` parameter now drives actual clock consumption.
+
+**What was built:**
+
+### Clock-based quarter model
+- **`models/rules.py`:** Replaced `quarter_possessions: int = Field(default=25, ge=5, le=50)` with `quarter_minutes: int = Field(default=10, ge=3, le=20)`
+- **`core/state.py`:** Added `game_clock_seconds: float = 0.0` to `GameState`
+- **`core/possession.py`:** Added `DEAD_TIME_SECONDS = 9.0` module constant, `time_used: float` field on `PossessionResult`, and `compute_possession_duration(rules, rng)` function. Clock RNG draw happens at the start of `resolve_possession()` for consistent RNG position. All return paths carry `time_used`.
+- **`core/simulation.py`:** `_run_quarter()` now sets `game_clock_seconds = quarter_minutes * 60` at start and loops `while game_clock_seconds > 0` instead of counting possessions. Each possession decrements the clock and accumulates `minutes` on all on-court agents. `_build_box_scores()` now wires `agent_state.minutes` into `AgentBoxScore`.
+
+### Governance + AI integration
+- **`core/governance.py`:** Updated tier1 parameter set: `quarter_possessions` → `quarter_minutes`
+- **`ai/interpreter.py`:** Replaced `"quarter possessions"` keyword with `"quarter length"` and `"quarter minutes"` mappings
+- **`api/pages.py`:** Updated `_GAME_MECHANICS_RULES` display entry from "Possessions per Quarter" to "Quarter Length"
+
+### Evals
+- **`evals/rule_evaluator.py`:** Updated mock evaluation text to reference `quarter_minutes`
+
+### Time model
+Each possession costs: `play_time = shot_clock_seconds * rng.uniform(0.4, 1.0)` (6–15s, avg ~10.5s) + `DEAD_TIME_SECONDS = 9.0` (inbound, transitions) ≈ 15–24s per possession (avg ~19.5s). With defaults (10 min quarter, 15s shot clock): ~30 possessions/quarter, ~90 regulation.
+
+**Files modified (14):** `models/rules.py`, `core/state.py`, `core/possession.py`, `core/simulation.py`, `api/pages.py`, `core/governance.py`, `ai/interpreter.py`, `evals/rule_evaluator.py`, `tests/test_models.py`, `tests/test_game_loop.py`, `tests/test_pages.py`, `tests/test_scheduler_runner.py`, `tests/test_commentary.py`, `tests/test_evals/test_rule_evaluator.py`
+
+**465 tests, zero lint errors.**
+
+**What could have gone better:** Clean implementation — no issues.
+
+---
+
+## Session 26 — Game Clock Display in Play-by-Play
+
+**What was asked:** Show the game clock in play-by-play display. Each possession now consumes real clock time (from Session 25's clock-based quarters), but the play-by-play only shows "Q1", "Q2", etc. It should show the time remaining like real basketball: "Q1 9:32". Elam ending (Q4) is untimed, so no clock there.
+
+**What was built:**
+- Added `game_clock: str = ""` field to `PossessionLog` model — empty default means Elam possessions naturally display no clock
+- In `_run_quarter()`, after decrementing `game_clock_seconds`, format remaining time as `M:SS` and set on `result.log.game_clock` before appending to the log
+- Updated `game.html` template to conditionally show clock: `Q1 9:32` for timed quarters, just `Q4` for Elam
+- Widened `.pbp-quarter` CSS from `min-width: 2rem` to `min-width: 5rem` to fit clock text
+- Added 2 tests: timed quarters have non-empty M:SS game_clock, Elam possessions have empty game_clock
+
+**Files modified (5):** `models/game.py`, `core/simulation.py`, `templates/pages/game.html`, `static/css/pinwheel.css`, `tests/test_simulation.py`
+
+**467 tests, zero lint errors.**
+
+**What could have gone better:** Clean implementation — no issues.

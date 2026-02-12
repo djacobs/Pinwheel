@@ -296,3 +296,35 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** No way to configure a Discord server invite link. The join buttons need somewhere to point.
 
 **Fix:** Added `discord_invite_url` setting to `Settings` (empty default, configured via `DISCORD_INVITE_URL` env var). Passed to all templates via `_auth_context()`. When set, Discord join buttons appear on the play page and home page CTA. When empty, the CTA gracefully degrades to showing explore links instead.
+
+---
+
+## Completed — Session 24 (Discord Infrastructure + Safety)
+
+### 30. [DONE] Rules page "propose anything" wild card section
+**Problem:** The rules page made it seem like players are just tweaking config values — change shot clock from 15 to 12, etc. It didn't communicate the game's real promise: you can propose *anything*. Make the floor lava. Introduce a maximum height rule. Switch to baseball. The AI interprets whatever you write.
+
+**Fix:** Added "Beyond the Numbers" section below the tiered rule cards:
+- 6 example wild proposals in a 2-column responsive grid (e.g., "Make the floor lava", "Add a maximum height rule", "Switch to baseball", "Players can only score with their off hand")
+- Flow strip showing the 4-step process as horizontal pills: "You propose → AI interprets → Your team votes → The game changes"
+- Bridge text: "The parameters above are the starting point. But proposals aren't limited to what's already on the board."
+- New CSS: `.rules-wildcard`, `.wildcard-inner`, `.wildcard-examples` (2-col grid), `.wildcard-flow` (horizontal pill steps)
+
+### 31. [DONE] Discord bot UX — team-specific game result framing
+**Problem:** Game results posted to `#play-by-play` used neutral framing ("Team A 58 - Team B 48"). In team channels, results should feel personal — your team won or lost.
+
+**Fix:** Added `build_team_game_result_embed()` — win/loss framing per team. Victory embeds are green with "Victory! [Team] wins!", defeat embeds are red with "Defeat. [Team] falls." Score always shows your team first. Posted to both team channels after every game via `_send_to_team_channel()`.
+
+### 32. [DONE] Discord bot UX — `/join` shows team list when no argument given
+**Problem:** `/join` with no team name gave an error. New players don't know what teams exist.
+
+**Fix:** Made the team parameter optional. No argument shows an embed listing all teams with governor counts and "needs players!" markers for teams below capacity. Added autocomplete for team names so players can tab-complete.
+
+---
+
+## Completed — Session 26 (Game Clock Display)
+
+### 33. [DONE] Game clock shown in play-by-play
+**Problem:** Play-by-play display showed only "Q1", "Q2", etc. With clock-based quarters now implemented, each possession consumes real game time — but the viewer couldn't see it. Real basketball broadcasts always show the clock.
+
+**Fix:** Added `game_clock` field to `PossessionLog`. Timed quarter possessions display as "Q1 9:32" (minutes:seconds remaining). Elam ending (Q4) is untimed, so those possessions show just "Q4" with no clock. Widened `.pbp-quarter` from `min-width: 2rem` to `min-width: 5rem` to fit the clock text. Template uses `{% if play.game_clock %}` conditional to only render the clock when present.
