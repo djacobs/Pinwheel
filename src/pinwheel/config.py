@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import pathlib
 import secrets
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+
+def _find_project_root() -> pathlib.Path:
+    """Find the project root containing templates/ and static/ directories.
+
+    In development: src/pinwheel/config.py → up 3 levels → project root.
+    In Docker: installed package is in site-packages, but templates/ is at /app/.
+    """
+    source_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    if (source_root / "templates").exists():
+        return source_root
+    docker_root = pathlib.Path("/app")
+    if (docker_root / "templates").exists():
+        return docker_root
+    return source_root
+
+
+PROJECT_ROOT = _find_project_root()
 
 # Default cron expression — used to detect whether the user explicitly overrode it.
 _DEFAULT_GAME_CRON = "*/2 * * * *"

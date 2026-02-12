@@ -1,7 +1,6 @@
 """FastAPI application factory."""
 
 import logging
-import pathlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -18,14 +17,12 @@ from pinwheel.api.pages import router as pages_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
 from pinwheel.auth.oauth import router as auth_router
-from pinwheel.config import Settings
+from pinwheel.config import PROJECT_ROOT, Settings
 from pinwheel.core.event_bus import EventBus
 from pinwheel.db.engine import create_engine
 from pinwheel.db.models import Base
 
 logger = logging.getLogger(__name__)
-
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 
 @asynccontextmanager

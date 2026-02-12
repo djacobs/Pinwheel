@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import pathlib
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
+from pinwheel.config import PROJECT_ROOT
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
 from pinwheel.models.rules import RuleSet
 
 router = APIRouter(tags=["pages"])
 
-TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 def _auth_context(request: Request, current_user: SessionUser | None) -> dict:

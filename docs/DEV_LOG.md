@@ -6,8 +6,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Day
 
 - **401 tests**, zero lint errors
 - **Days 1-5 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary engine
-- **Day 6 starting:** P1/P2 fixes, Discord server infrastructure, deploy, playtest, pitch
-- **Latest commit:** `9c17bce` (P1/P2 priority list)
+- **Day 6 in progress:** P1/P2 fixes done, deployed to Fly.io, Discord server infrastructure ready
+- **Live at:** https://pinwheel.fly.dev
+- **Latest commit:** `7c453b4` (P1/P2 security hardening)
 
 ## Today's Agenda (Day 6: Harden + Deploy + Pitch)
 
@@ -26,8 +27,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Day
 - [ ] Event routing — game results to `#play-by-play`, highlights to `#big-plays`
 
 ### Polish + Deploy
-- [ ] CLAUDE.md accuracy pass (stale project structure, env vars, commands) ← done Session 11
-- [ ] Fly.io deployment
+- [x] CLAUDE.md accuracy pass (stale project structure, env vars, commands) ← done Session 11
+- [x] Fly.io deployment — https://pinwheel.fly.dev (Session 13)
 - [ ] End-to-end playtest (Discord + web, full govern→simulate→observe→reflect cycle)
 - [ ] Sharpen pitch narrative + demo script
 
@@ -206,6 +207,37 @@ Rewrote/added 5 governance commands in `src/pinwheel/discord/bot.py`:
 **Files created (5):** `core/scheduler_runner.py`, `api/pace.py`, `ai/commentary.py`, `tests/test_scheduler_runner.py`, `tests/test_pace.py`, `tests/test_commentary.py`
 
 **43 new tests (401 total), zero lint errors.**
+
+---
+
+## Session 13 — Fly.io Deployment
+
+**What was asked:** Deploy to Fly.io.
+
+**What was built:**
+
+- **Dockerfile** — Multi-stage build: Python 3.12-slim, uv for dependency resolution, installs package into venv, copies templates/static/scripts to runtime stage. 63MB image.
+- **`.dockerignore`** — Excludes `.venv`, `__pycache__`, `.git`, `.env`, `demo/`, `docs/`, `tests/`, `*.db`.
+- **`fly.toml` fixes:**
+  - Removed stale `release_command = "python -m alembic upgrade head"` (we don't use Alembic)
+  - Fixed `PINWHEEL_PRESENTATION_PACE = "production"` → `"normal"` (valid value)
+  - Changed region from `sea` (doesn't exist) to `sjc` (San Jose)
+  - Added `[mounts]` for SQLite persistence at `/data`
+- **`config.py`** — Moved `PROJECT_ROOT` here (was in `main.py`) with Docker-aware path resolution: checks source layout first, falls back to `/app` for Docker containers.
+- **`pages.py`**, **`eval_dashboard.py`** — Import `PROJECT_ROOT` from `config` instead of computing own path (was broken in Docker — resolved to `site-packages/...` instead of `/app`).
+- **Fly secrets set:** `SESSION_SECRET_KEY`, `DATABASE_URL` (SQLite on volume), Discord bot + OAuth credentials, `DISCORD_REDIRECT_URI=https://pinwheel.fly.dev/auth/callback`.
+- **Volume created:** `pinwheel_data` (1GB, SJC region, encrypted).
+
+**Live at: https://pinwheel.fly.dev**
+
+All pages return 200: `/`, `/arena`, `/standings`, `/rules`, `/mirrors`, `/health`.
+
+**Issues resolved:**
+- Docker template path: `pathlib.Path(__file__).resolve().parent.parent.parent.parent / "templates"` resolves to `site-packages/.../templates` in Docker (doesn't exist). Fixed with `_find_project_root()` that checks both source layout and `/app`.
+- Fly region `sea` doesn't exist — changed to `sjc`.
+- `PINWHEEL_PRESENTATION_PACE = "production"` is not a valid pace — changed to `"normal"`.
+
+**408 tests (unchanged), zero lint errors.**
 
 ---
 
