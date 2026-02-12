@@ -139,3 +139,90 @@ Added `.page-header` with team count and league name subtitle.
 **Problem:** `white-space: pre-wrap` made long AI reflections hard to read.
 
 **Fix:** Changed `.mirror-content` to `white-space: normal` with `word-wrap: break-word` and `max-width: 720px` for comfortable reading width.
+
+---
+
+## Completed — Session 18 (Spider Charts + Agent Pages)
+
+### 16. [DONE] Spider charts replace bar charts on team pages
+**Problem:** Team pages showed agents with horizontal attribute bars — functional but flat. Bars don't communicate the *shape* of a player. A sharpshooter and an enforcer both have 9 colored bars, but they look the same at a glance.
+
+**Fix:** Created SVG nonagon spider charts rendered server-side in Python (no JS dependency). 9 axes at 40° intervals: scoring, passing, defense, speed, stamina, iq, ego, chaotic_alignment, fate. Each agent gets a distinctive silhouette — sharpshooters are spiked toward scoring/speed, enforcers bulge at defense/stamina.
+
+**Implementation:** `api/charts.py` computes geometry (angle = `i * 40 - 90`, point = `center + r*cos(angle), center + r*sin(angle)` where `r = value/100 * max_radius`). Jinja2 macro in `templates/components/spider_chart.html` renders inline SVG. League-average shadow polygon (dashed, `rgba(255,255,255,0.04)`) sits behind the agent's colored polygon. Color-coded vertex dots and 3-char labels with values. Horizontal legend below.
+
+**Team page:** 220px spider charts per agent. Agent names are now clickable links to individual agent pages.
+
+### 17. [DONE] Individual agent pages (`/agents/{agent_id}`)
+**Problem:** No way to see an individual player's full profile — stats, game history, or backstory.
+
+**Fix:** Full agent profile page with sections:
+1. **Header** — Name, archetype badge, team link with color dot
+2. **Bio** — Backstory text (italic, secondary color). HTMX edit button appears for team governors.
+3. **Two-column** — Full-size spider chart (280px, with league-average shadow) + season averages card (PPG, APG, SPG, TOPG, FG%, 3P%, FT%, games played)
+4. **Game log** — Table: RD, OPP, PTS, FG, 3P, FT, AST, STL, TO. Each row links to the game detail page.
+5. **Moves** — Agent's special moves (name, trigger, effect)
+
+**Bio editing:** HTMX form replaces bio text inline. `POST /agents/{agent_id}/bio` updates `AgentRow.backstory`. Auth-gated: logged-in user must be governor on agent's team (via `get_player_enrollment()`).
+
+### 18. [DONE] Season averages computation
+**Problem:** No way to see aggregated performance across games.
+
+**Fix:** `compute_season_averages()` in `charts.py` takes a list of box score dicts and returns PPG, APG, SPG, TOPG, FG%, 3P%, FT%, games_played. Handles zero-division for shooting percentages. Displayed in a `.stats-grid` on the agent page with mono font accent color values.
+
+---
+
+## Completed — Session 19 (Simulation Tuning)
+
+### 19. [DONE] Shot clock violation mechanic
+**Problem:** The shot clock was cosmetic — `shot_clock_seconds=15` existed in RuleSet but was never enforced. Zero shot clock turnovers in any game.
+
+**Fix:** Added `check_shot_clock_violation()` in `possession.py`. Probability based on defensive scheme pressure (press 2×, man_tight 1.5×, zone 0.5×), handler fatigue, and IQ. Base rate 2%, capped at 0.5%–12%. Wired into `resolve_possession()` after the turnover check. Added 4 narration templates for shot clock violations in `narrate.py`.
+
+### 20. [DONE] Scoring rebalance to match Unrivaled range
+**Problem:** Games scoring 34-33 instead of the 64-90 range seen in Unrivaled 3v3. Root cause: stamina collapsed to 0.1 floor by mid-game, destroying points-per-possession. The Elam period then ground through 100+ possessions at ~0.39 PPP.
+
+**Fix:**
+- **Stamina:** Reduced base drain 0.012→0.007, offense drain 0.005→0.003, raised floor 0.1→0.15, improved recovery rate
+- **Inter-quarter recovery:** Added `quarter_break_stamina_recovery=0.15` for Q1/Q3 breaks
+- **Rule defaults:** quarter_possessions 15→25, halftime_recovery 0.25→0.40, elam_margin 13→25
+- **Safety cap:** 200→300 possessions
+- **Result:** 20-game verification → avg 65-67 pts/team, ~124 possessions. Natural variance 40-90.
+
+### 21. [DONE] Elam quarter label fix
+**Problem:** Quarter score headers read "Q1 / Q2 / Q3 / Elam" — confusing for viewers who expect 4 quarters.
+
+**Fix:** Changed to "Q1 / Q2 / Q3 / Q4" in both `arena.html` and `game.html`. The Elam mechanism (first to target score) still applies in Q4 — it's just not called out in the header since it always activates.
+
+---
+
+## Completed — Session 20 (Home Page Redesign)
+
+### 22. [DONE] Home page redesigned as living league dashboard
+**Problem:** Home page was a centered title, one-line snapshot, four nav cards, and an optional mirror. It felt like a giant nav menu — no sense that this is a living game with active competition, evolving rules, and AI observation.
+
+**Fix:** Complete redesign as a dashboard that tells the story of the league:
+
+1. **Hero** — "PINWHEEL FATES" with a radial glow accent. Below: descriptive tagline ("A living 3-on-3 basketball league where the players govern the rules. Every game is auto-simulated. Every rule can be changed. The AI watches everything."). Animated green pulse dot showing "Season 1 · Round 3 · 6 games played" in a pill badge.
+
+2. **Latest Results** — Score cards for the most recent round. Each card shows team color dots, team names (winner bolded), final scores (winner in gold), the game-winning play narrated ("Briar Ashwood buries the three from deep — ballgame"), and an Elam target badge. Cards link to full game detail.
+
+3. **Two-column layout** — Left: mini standings table (rank, color dot, team name, W-L record, +/- differential, each row links to team page). Right: "The AI Sees" — latest simulation mirror in a purple-bordered card.
+
+4. **Coming Up** — Next round's scheduled matchups with team color dots. Appears only when there are unplayed rounds in the schedule.
+
+5. **How Pinwheel Works** — 4-card explainer grid (numbered 01-04): "Games Simulate" (highlight), "You Govern" (cyan), "AI Reflects" (purple), "Rules Evolve" (gold). Each with a short description. Helps new visitors understand the game.
+
+6. **Explore** — Compact icon grid: Arena, Governance, Rules, Mirrors. Each with a unicode icon, label, and one-line description. Replaces the old oversized nav cards.
+
+**CSS additions (~300 lines):**
+- `.home-hero` with `.hero-glow` (radial gradient accent)
+- `.hero-pulse` pill with animated `.pulse-dot` (green blink)
+- `.section-title-bar` with colored `.section-title-badge` variants
+- `.score-card` with `.sc-team`, `.sc-dot`, `.sc-score`, `.sc-play` (game-winning play narration), `.sc-elam` (Elam target pill)
+- `.home-columns` two-column grid (stacks on mobile)
+- `.mini-standings` with `.ms-row`, `.ms-rank`, `.ms-dot`, `.ms-name`, `.ms-record`, `.ms-diff`
+- `.home-mirror` with purple left border accent
+- `.upcoming-strip` with `.upcoming-card`, `.uc-team`, `.uc-vs`
+- `.how-grid` (4-col, 2-col on tablet, 1-col on mobile) with `.how-card`, `.how-number`, `.how-title`, `.how-desc`
+- `.explore-grid` (4-col) with `.explore-card`, `.explore-icon`, `.explore-label`, `.explore-desc`
