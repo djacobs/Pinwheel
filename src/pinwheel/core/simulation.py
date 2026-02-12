@@ -33,20 +33,37 @@ def _run_quarter(
     effects: list[GameEffect],
     possession_log: list[PossessionLog],
 ) -> None:
-    """Run one quarter of possessions."""
+    """Run one quarter using the game clock."""
+    game_state.game_clock_seconds = rules.quarter_minutes * 60.0
     last_three = False
-    for poss_num in range(1, rules.quarter_possessions + 1):
+    poss_num = 0
+    while game_state.game_clock_seconds > 0:
         if game_state.game_over:
             break
 
+        poss_num += 1
         game_state.possession_number = poss_num
         game_state.total_possessions += 1
 
         fire_hooks(HookPoint.PRE_POSSESSION, game_state, effects)
 
         result = resolve_possession(game_state, rules, rng, last_three)
+
+        # Decrement game clock
+        game_state.game_clock_seconds -= result.time_used
+
+        # Format remaining time as M:SS on the possession log
         if result.log:
+            remaining = max(0.0, game_state.game_clock_seconds)
+            minutes = int(remaining // 60)
+            seconds = int(remaining % 60)
+            result.log.game_clock = f"{minutes}:{seconds:02d}"
             possession_log.append(result.log)
+
+        # Track agent minutes
+        minutes_used = result.time_used / 60.0
+        for a in game_state.home_starters + game_state.away_starters:
+            a.minutes += minutes_used
 
         # Track whether last possession was a made three
         last_three = result.shot_made and result.shot_type == "three_point"
@@ -136,6 +153,7 @@ def _build_box_scores(game_state: GameState) -> list[AgentBoxScore]:
                 agent_id=agent_state.agent.id,
                 agent_name=agent_state.agent.name,
                 team_id=agent_state.agent.team_id,
+                minutes=round(agent_state.minutes, 1),
                 points=agent_state.points,
                 field_goals_made=agent_state.field_goals_made,
                 field_goals_attempted=agent_state.field_goals_attempted,

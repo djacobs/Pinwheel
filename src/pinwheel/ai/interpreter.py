@@ -140,7 +140,8 @@ def interpret_proposal_mock(
         "foul limit": ("personal_foul_limit", int),
         "elam margin": ("elam_margin", int),
         "vote threshold": ("vote_threshold", float),
-        "quarter possessions": ("quarter_possessions", int),
+        "quarter length": ("quarter_minutes", int),
+        "quarter minutes": ("quarter_minutes", int),
     }
 
     for keyword, (param, typ) in param_keywords.items():

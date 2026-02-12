@@ -60,7 +60,7 @@ async def _seed_season(engine):
         season = await repo.create_season(
             league.id,
             "Season 1",
-            starting_ruleset={"quarter_possessions": 8},
+            starting_ruleset={"quarter_minutes": 3},
         )
 
         team_ids = []

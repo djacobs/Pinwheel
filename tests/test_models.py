@@ -21,7 +21,7 @@ from pinwheel.models.tokens import TokenBalance, Trade
 class TestRuleSet:
     def test_defaults(self):
         rules = RuleSet()
-        assert rules.quarter_possessions == 25
+        assert rules.quarter_minutes == 10
         assert rules.shot_clock_seconds == 15
         assert rules.three_point_value == 3
         assert rules.elam_margin == 25
@@ -33,10 +33,10 @@ class TestRuleSet:
 
     def test_validation_rejects_out_of_range(self):
         with pytest.raises(ValidationError):
-            RuleSet(quarter_possessions=100)
+            RuleSet(quarter_minutes=100)
 
     def test_default_ruleset_singleton(self):
-        assert DEFAULT_RULESET.quarter_possessions == 25
+        assert DEFAULT_RULESET.quarter_minutes == 10
 
     def test_rule_change(self):
         rc = RuleChange(

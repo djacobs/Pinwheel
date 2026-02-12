@@ -23,7 +23,7 @@ def test_parse_evaluation():
     text = """
 ## Suggested Experiments
 - Increase elam_margin to 15
-- Reduce quarter_possessions to 12
+- Reduce quarter_minutes to 8
 
 ## Stale Parameters
 - three_point_distance

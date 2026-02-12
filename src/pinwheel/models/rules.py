@@ -20,7 +20,7 @@ class RuleSet(BaseModel):
     """
 
     # Tier 1: Game Mechanics
-    quarter_possessions: int = Field(default=25, ge=5, le=50)
+    quarter_minutes: int = Field(default=10, ge=3, le=20)
     shot_clock_seconds: int = Field(default=15, ge=10, le=60)
     three_point_value: int = Field(default=3, ge=1, le=10)
     two_point_value: int = Field(default=2, ge=1, le=10)

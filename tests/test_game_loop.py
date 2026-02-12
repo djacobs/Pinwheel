@@ -46,7 +46,7 @@ async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
     season = await repo.create_season(
         league.id,
         "Season 1",
-        starting_ruleset={"quarter_possessions": 10},
+        starting_ruleset={"quarter_minutes": 3},
     )
 
     team_ids = []

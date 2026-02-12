@@ -835,8 +835,8 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
 # Human-readable rule display metadata, grouped by tier.
 # Each rule: (param_key, display_label, description)
 _GAME_MECHANICS_RULES = [
-    ("quarter_possessions", "Possessions per Quarter",
-     "Possessions per team per quarter."),
+    ("quarter_minutes", "Quarter Length",
+     "Minutes per quarter."),
     ("shot_clock_seconds", "Shot Clock",
      "Seconds to get a shot off."),
     ("three_point_value", "Three-Pointer Value",

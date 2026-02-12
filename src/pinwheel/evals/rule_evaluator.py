@@ -224,7 +224,7 @@ def _mock_evaluation(season_id: str, round_number: int) -> RuleEvaluation:
         round_number=round_number,
         suggested_experiments=[
             "Try increasing elam_margin to 15 to extend close games",
-            "Consider reducing quarter_possessions to 12 for faster rounds",
+            "Consider reducing quarter_minutes to 8 for faster rounds",
         ],
         stale_parameters=["three_point_distance", "altitude_stamina_penalty"],
         equilibrium_notes="The current meta appears balanced with no dominant strategy.",

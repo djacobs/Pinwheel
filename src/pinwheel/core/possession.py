@@ -24,6 +24,8 @@ from pinwheel.core.state import AgentState, GameState
 from pinwheel.models.game import PossessionLog
 from pinwheel.models.rules import RuleSet
 
+DEAD_TIME_SECONDS = 9.0
+
 
 @dataclass
 class PossessionResult:
@@ -41,6 +43,7 @@ class PossessionResult:
     shot_made: bool = False
     move_activated: str = ""
     defensive_scheme: str = ""
+    time_used: float = 0.0
     log: PossessionLog | None = None
 
 
@@ -178,6 +181,12 @@ def drain_stamina(
         agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
 
+def compute_possession_duration(rules: RuleSet, rng: random.Random) -> float:
+    """Compute clock time consumed by one possession (seconds)."""
+    play_time = rules.shot_clock_seconds * rng.uniform(0.4, 1.0)
+    return play_time + DEAD_TIME_SECONDS
+
+
 def resolve_possession(
     game_state: GameState,
     rules: RuleSet,
@@ -185,11 +194,14 @@ def resolve_possession(
     last_possession_three: bool = False,
 ) -> PossessionResult:
     """Resolve one complete possession."""
+    # Consume clock time first (consistent RNG position)
+    time_used = compute_possession_duration(rules, rng)
+
     offense = game_state.offense
     defense = game_state.defense
 
     if not offense or not defense:
-        return PossessionResult()
+        return PossessionResult(time_used=time_used)
 
     # 1. Select scheme and matchups
     scheme = select_scheme(offense, defense, game_state, rules, rng)
@@ -226,6 +238,7 @@ def resolve_possession(
             turnover=True,
             scoring_team_home=game_state.home_has_ball,
             defensive_scheme=scheme,
+            time_used=time_used,
             log=log,
         )
 
@@ -254,6 +267,7 @@ def resolve_possession(
             turnover=True,
             scoring_team_home=game_state.home_has_ball,
             defensive_scheme=scheme,
+            time_used=time_used,
             log=log,
         )
 
@@ -387,5 +401,6 @@ def resolve_possession(
         shot_made=made,
         move_activated=move_name,
         defensive_scheme=scheme,
+        time_used=time_used,
         log=log,
     )

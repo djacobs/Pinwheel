@@ -63,6 +63,7 @@ class GameState:
     quarter: int = 1
     possession_number: int = 0
     total_possessions: int = 0
+    game_clock_seconds: float = 0.0
     home_has_ball: bool = True
     elam_activated: bool = False
     elam_target_score: int | None = None
