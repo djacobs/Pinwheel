@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **432 tests**, zero lint errors
+- **435 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 20 (home page living dashboard redesign)
+- **Latest commit:** Session 23 ("How to Play" onboarding page)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -33,6 +33,17 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ### Home page redesign
 - [x] Living dashboard with hero, latest scores, standings, mirror, upcoming (Session 20)
 - [x] Production re-seed with tuned simulation parameters (Session 20)
+
+### Governance & rules UX
+- [x] Governance page — removed auth gate, now publicly viewable (Session 21)
+- [x] Rules page — redesigned from config dump to tiered card layout (Session 21)
+- [x] Copy rewrite — player-centric language across home, rules, governance (Session 21)
+
+### Onboarding
+- [x] "How to Play" page — full onboarding: rhythm, what you do, Discord commands, FAQ (Session 23)
+- [x] "Play" nav link — highlighted in cyan, first position in nav (Session 23)
+- [x] Home page join CTA — gradient-topped card with Discord link + learn more (Session 23)
+- [x] `discord_invite_url` config setting for Discord join link (Session 23)
 
 ### Governance refinements
 - [ ] Player trades: only the two teams' governors vote on trades
@@ -160,3 +171,72 @@ Replaced static nav-card layout with a living league dashboard:
 **Files modified (4):** `api/pages.py` (enriched home_page route), `templates/pages/home.html` (full rewrite), `static/css/pinwheel.css` (~300 lines new styles), `tests/test_pages.py` (+1 test)
 
 **432 tests, zero lint errors.** Deployed to https://pinwheel.fly.dev.
+
+---
+
+## Session 21 — Governance Fix + Rules Redesign + Copy Rewrite
+
+**What was asked:** (1) `/governance` page doesn't work (was auth-gated, redirecting all visitors). (2) Rules page lost its design — showing a raw config dump instead of meaningful content. (3) Copy across the site was "terrible" — needed player-centric language.
+
+**What was built:**
+
+### Governance page made public
+- Removed auth gate that redirected unauthenticated visitors to Discord OAuth login
+- Proposing and voting still require Discord auth (via bot slash commands)
+- Page now loads for everyone, showing the audit trail of proposals and votes
+
+### Rules page redesigned
+- Replaced raw `ruleset.items()` config dump with `RULE_TIERS` metadata
+- 29 rules organized into 4 tiers: Game Mechanics (13), Agent Behavior (9), League Structure (5), Meta-Governance (2)
+- Each rule has human-readable label, description, current value, valid range, and changed-by-community flag
+- "Changed by the Community" highlight strip at top when rules differ from defaults
+- Change history timeline at bottom
+- Hero section with player-empowering tagline
+
+### Copy rewrite (critical user feedback)
+User feedback: "This copy is terrible!!!! The players rewrite the rules."
+
+Fixed all taglines:
+- **Home hero:** "3-on-3 basketball where the players rewrite the rules. Propose changes. Vote with your team. Shape the game. The AI is your mirror — but the fates are yours."
+- **Rules hero:** "Every number below shapes how this league plays. Between rounds, you propose changes in plain English and vote with your team."
+- **Governance hero:** "Every rule change starts with a proposal from a player. Write it in plain English. The AI translates it. Your team votes. Pass it, and you've rewritten the game."
+- **How It Works cards:** Rewritten to center the player as protagonist
+
+**Files modified (5):** `api/pages.py`, `templates/pages/home.html`, `templates/pages/rules.html`, `templates/pages/governance.html`, `static/css/pinwheel.css` (~180 lines new rules styles), `tests/test_pages.py` (updated assertions)
+
+**432 tests, zero lint errors.** Deployed to https://pinwheel.fly.dev.
+
+---
+
+## Session 23 — "How to Play" Onboarding Page
+
+**What was asked:** "If someone says 'This is cool, how do I play?' What do we tell them? When are the games? What should they expect? These are the most important UX_Notes yet."
+
+**What was built:**
+
+### New `/play` page — full onboarding experience
+- **Hero:** "Join the League" with Discord join button (when `discord_invite_url` is configured)
+- **League status bar:** Current round, teams, agents, games played (live from DB)
+- **The Rhythm:** 4-step cycle with detailed descriptions — Games Play Out → Governance Window Opens → Mirror Reflects → Rules Change. Shows current pace and governance window duration.
+- **What You Do:** 4-card grid — Watch, Propose, Vote, Reflect
+- **Discord Commands:** Reference list of `/join`, `/propose`, `/vote`, `/strategy`, `/tokens`, `/trade`
+- **FAQ:** 5 questions — What's the Elam Ending? What happens when a proposal passes? Can I break the game? What does the AI actually do? Is this free?
+- **Bottom CTA:** Discord join button + contextual message
+
+### Navigation update
+- "Play" link added as first item in nav bar, styled in cyan to stand out
+- Links to `/play` from home page "How It Works" section
+
+### Home page join CTA
+- New card below "How It Works" with gradient top border (highlight → governance → score)
+- "Want to play?" heading with Discord join link and "Learn how to play" link
+- Appears for all visitors
+
+### Config update
+- Added `discord_invite_url` setting (empty default, configurable via env var)
+- Passed to all page templates via `_auth_context()`
+
+**Files created (1):** `templates/pages/play.html`
+**Files modified (6):** `config.py`, `api/pages.py`, `templates/base.html`, `templates/pages/home.html`, `templates/pages/rules.html`, `static/css/pinwheel.css` (~250 lines new styles), `tests/test_pages.py` (+3 tests)
+
+**435 tests, zero lint errors.**

@@ -139,6 +139,16 @@ class TestEmptyPages:
         assert r.status_code == 200
         assert "No Mirrors Yet" in r.text
 
+    async def test_play_page(self, app_client):
+        """Play page renders with onboarding content."""
+        client, _ = app_client
+        r = await client.get("/play")
+        assert r.status_code == 200
+        assert "Join the League" in r.text
+        assert "The Rhythm" in r.text
+        assert "What You Do" in r.text
+        assert "Discord Commands" in r.text
+
 
 class TestPopulatedPages:
     """Pages with seeded data should render game results."""
@@ -151,7 +161,7 @@ class TestPopulatedPages:
         assert r.status_code == 200
         assert "Latest Results" in r.text
         assert "Standings" in r.text
-        assert "How Pinwheel Works" in r.text
+        assert "How It Works" in r.text
 
     async def test_arena_with_games(self, app_client):
         client, engine = app_client
@@ -233,9 +243,29 @@ class TestPopulatedPages:
         # Should have simulation mirror from step_round
         assert "Simulation" in r.text or "simulation" in r.text
 
+    async def test_play_page_with_data(self, app_client):
+        """Play page shows league stats when data exists."""
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/play")
+        assert r.status_code == 200
+        assert "Rounds Played" in r.text
+        assert "Teams" in r.text
+        assert "Agents" in r.text
+
+    async def test_home_has_join_cta(self, app_client):
+        """Home page should have a join/play CTA."""
+        client, _ = app_client
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert "Want to play?" in r.text
+        assert "/play" in r.text
+
     async def test_nav_present(self, app_client):
         client, _ = app_client
         r = await client.get("/")
+        assert "Play" in r.text
         assert "Arena" in r.text
         assert "Standings" in r.text
         assert "Governance" in r.text

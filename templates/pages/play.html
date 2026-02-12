@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}How to Play — Pinwheel Fates{% endblock %}
+
+{% block content %}
+{# ===== HERO ===== #}
+<div class="play-hero">
+  <h1>Join the League</h1>
+  <p class="play-hero-sub">
+    Pinwheel Fates is a basketball league where the players write the rules.
+    Games run automatically. Between rounds, you propose changes in plain English,
+    vote with your team, and reshape the game. The AI watches and reflects &mdash;
+    but every decision is yours.
+  </p>
+  {% if discord_invite_url %}
+  <a href="{{ discord_invite_url }}" class="play-join-btn" target="_blank" rel="noopener">
+    Join the Discord
+  </a>
+  {% endif %}
+</div>
+
+{# ===== LEAGUE STATUS ===== #}
+{% if current_round > 0 %}
+<div class="play-status">
+  <div class="play-status-item">
+    <span class="play-status-value">{{ current_round }}</span>
+    <span class="play-status-label">Rounds Played</span>
+  </div>
+  <div class="play-status-item">
+    <span class="play-status-value">{{ total_teams }}</span>
+    <span class="play-status-label">Teams</span>
+  </div>
+  <div class="play-status-item">
+    <span class="play-status-value">{{ total_agents }}</span>
+    <span class="play-status-label">Agents</span>
+  </div>
+  <div class="play-status-item">
+    <span class="play-status-value">{{ total_games }}</span>
+    <span class="play-status-label">Games Played</span>
+  </div>
+</div>
+{% endif %}
+
+{# ===== THE RHYTHM ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">The Rhythm</span>
+  </div>
+  <p class="play-intro">
+    Every round follows the same cycle. Rounds advance {{ pace_desc }}.
+  </p>
+  <div class="play-rhythm">
+    <div class="rhythm-step">
+      <div class="rhythm-num" style="color:var(--accent-highlight);">1</div>
+      <div class="rhythm-content">
+        <h3 class="rhythm-title">Games Play Out</h3>
+        <p class="rhythm-desc">
+          3-on-3 basketball, fully simulated. Each team has three agents with
+          unique attributes, archetypes, and special moves. Every game ends with
+          an Elam Ending &mdash; first to the target score wins. No clock, no
+          garbage time. You can follow every possession, every shot, every steal.
+        </p>
+      </div>
+    </div>
+    <div class="rhythm-step">
+      <div class="rhythm-num" style="color:var(--accent-governance);">2</div>
+      <div class="rhythm-content">
+        <h3 class="rhythm-title">The Governance Window Opens</h3>
+        <p class="rhythm-desc">
+          Between rounds, you have {{ gov_window_minutes }} minutes to
+          propose rule changes and vote. Write proposals in plain English:
+          <em>"Make three-pointers worth 4 points"</em> or
+          <em>"Reduce the shot clock to 15 seconds."</em>
+          The AI interprets your words into specific parameter changes.
+          Your team votes. Majority wins.
+        </p>
+      </div>
+    </div>
+    <div class="rhythm-step">
+      <div class="rhythm-num" style="color:var(--accent-mirror);">3</div>
+      <div class="rhythm-content">
+        <h3 class="rhythm-title">The Mirror Reflects</h3>
+        <p class="rhythm-desc">
+          After each round, the AI writes a public mirror &mdash; an analysis of
+          what happened. Power shifts. Emerging patterns. Dynamics you can't see
+          from inside the game. The mirror doesn't tell you what to do.
+          It shows you what's happening so you can decide for yourself.
+        </p>
+      </div>
+    </div>
+    <div class="rhythm-step">
+      <div class="rhythm-num" style="color:var(--accent-score);">4</div>
+      <div class="rhythm-content">
+        <h3 class="rhythm-title">The Rules Change</h3>
+        <p class="rhythm-desc">
+          Passed proposals take effect immediately. The next round plays under
+          the rules you wrote. Three-pointers worth 4? A 20-second shot clock?
+          Bonus free throws after 3 team fouls? The league becomes whatever its
+          players decide it should be.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== WHAT YOU DO ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">What You Do</span>
+  </div>
+  <div class="play-roles-grid">
+    <div class="play-role-card">
+      <div class="play-role-icon" style="color:var(--accent-highlight);">&#9654;</div>
+      <h4 class="play-role-title">Watch</h4>
+      <p class="play-role-desc">
+        Follow your team's games. Read the play-by-play. Study the box scores.
+        Know your agents &mdash; their strengths, their tendencies, their
+        special moves.
+      </p>
+    </div>
+    <div class="play-role-card">
+      <div class="play-role-icon" style="color:var(--accent-governance);">&#9998;</div>
+      <h4 class="play-role-title">Propose</h4>
+      <p class="play-role-desc">
+        See something you want to change? Use <code>/propose</code> in
+        Discord. Write it in plain English. The AI interprets it into a
+        parameter change and presents it to your team.
+      </p>
+    </div>
+    <div class="play-role-card">
+      <div class="play-role-icon" style="color:var(--accent-score);">&#9745;</div>
+      <h4 class="play-role-title">Vote</h4>
+      <p class="play-role-desc">
+        Your team votes on proposals together. Think strategically &mdash;
+        the rules you pass shape the game your agents play.
+        A rule that helps your team might also help your rivals.
+      </p>
+    </div>
+    <div class="play-role-card">
+      <div class="play-role-icon" style="color:var(--accent-mirror);">&#10070;</div>
+      <h4 class="play-role-title">Reflect</h4>
+      <p class="play-role-desc">
+        Read the mirrors. The AI surfaces what the data shows &mdash;
+        not opinions, not instructions, just patterns. What you do with
+        that information is up to you.
+      </p>
+    </div>
+  </div>
+</div>
+
+{# ===== DISCORD COMMANDS ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Discord Commands</span>
+  </div>
+  <p class="play-intro">
+    All governance happens in Discord. Here are the commands you'll use.
+  </p>
+  <div class="play-commands">
+    <div class="play-cmd">
+      <code class="play-cmd-name">/join</code>
+      <span class="play-cmd-desc">Get assigned to a team and become a governor</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/propose</code>
+      <span class="play-cmd-desc">Submit a rule change proposal in plain English</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/vote</code>
+      <span class="play-cmd-desc">Vote yes or no on an active proposal</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/strategy</code>
+      <span class="play-cmd-desc">Set your team's game plan and offensive focus</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/tokens</code>
+      <span class="play-cmd-desc">Check your governance token balance</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/trade</code>
+      <span class="play-cmd-desc">Trade tokens with another player</span>
+    </div>
+  </div>
+</div>
+
+{# ===== FAQ ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Questions</span>
+  </div>
+  <div class="play-faq">
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">What's the Elam Ending?</h4>
+      <p class="play-faq-a">
+        After the {{ "3rd" }} quarter, the leading team's score plus a target
+        margin becomes the number to hit. From that point, the first team to
+        reach the target wins. No clock &mdash; every possession is sudden death.
+        It's borrowed from real basketball (the NBA All-Star Game uses it) and
+        it means every game ends on a made basket.
+      </p>
+    </div>
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">What happens when a proposal passes?</h4>
+      <p class="play-faq-a">
+        The rule changes immediately. The next round of games plays under the
+        new rules. You can see every rule that's been changed by the community
+        on the <a href="/rules">Rules page</a>. The change history is permanent
+        &mdash; nothing gets erased.
+      </p>
+    </div>
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">Can I break the game?</h4>
+      <p class="play-faq-a">
+        Every rule has a valid range (the AI won't let you set the shot clock
+        to negative infinity). But within those ranges, you can push things
+        pretty far. That's the point. The game is a sandbox for collective
+        self-governance &mdash; you learn what works by trying things.
+      </p>
+    </div>
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">What does the AI actually do?</h4>
+      <p class="play-faq-a">
+        Three things. First, it interprets your plain-English proposals into
+        specific parameter changes. Second, it writes mirrors &mdash; public
+        reflections on what's happening in the league. Third, it provides
+        game commentary. It never makes decisions for you. It never votes.
+        It never proposes rules. It's a mirror, not a player.
+      </p>
+    </div>
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">Is this free?</h4>
+      <p class="play-faq-a">
+        Yes. Pinwheel Fates is open source and free to play.
+      </p>
+    </div>
+  </div>
+</div>
+
+{# ===== JOIN CTA ===== #}
+<div class="play-cta">
+  {% if discord_invite_url %}
+  <a href="{{ discord_invite_url }}" class="play-join-btn" target="_blank" rel="noopener">
+    Join the Discord
+  </a>
+  <p class="play-cta-sub">
+    Use <code>/join</code> once you're in. You'll be assigned to a team
+    and the next governance window is your first chance to shape the game.
+  </p>
+  {% else %}
+  <p class="play-cta-sub">
+    The league is live. Explore the <a href="/arena">Arena</a>,
+    check the <a href="/standings">Standings</a>, or read
+    the <a href="/rules">Rules</a> to see the game as it stands.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

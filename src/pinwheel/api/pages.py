@@ -35,6 +35,7 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
         "oauth_enabled": oauth_enabled,
         "pinwheel_env": settings.pinwheel_env,
         "app_version": APP_VERSION,
+        "discord_invite_url": settings.discord_invite_url,
     }
 
 
@@ -192,6 +193,61 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         request,
         "pages/home.html",
         {**ctx, **_auth_context(request, current_user)},
+    )
+
+
+@router.get("/play", response_class=HTMLResponse)
+async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """How to Play — onboarding page for new players."""
+    settings = request.app.state.settings
+    season_id = await _get_active_season_id(repo)
+
+    # Current league state for context
+    current_round = 0
+    total_teams = 0
+    total_agents = 0
+    total_games = 0
+
+    if season_id:
+        standings = await _get_standings(repo, season_id)
+        total_teams = len(standings)
+        total_games = sum(s["wins"] for s in standings)
+        for rn in range(1, 100):
+            games = await repo.get_games_for_round(season_id, rn)
+            if games:
+                current_round = rn
+            else:
+                break
+        # Count agents
+        for s in standings:
+            team = await repo.get_team(s["team_id"])
+            if team:
+                total_agents += len(team.agents)
+
+    # Pace description
+    pace = settings.pinwheel_presentation_pace
+    pace_desc = {
+        "fast": "every minute",
+        "normal": "every 5 minutes",
+        "slow": "every 15 minutes",
+        "manual": "when the commissioner advances them",
+    }.get(pace, f"on a {pace} schedule")
+
+    gov_window_minutes = settings.pinwheel_gov_window // 60
+
+    return templates.TemplateResponse(
+        request,
+        "pages/play.html",
+        {
+            "active_page": "play",
+            "current_round": current_round,
+            "total_teams": total_teams,
+            "total_agents": total_agents,
+            "total_games": total_games,
+            "pace_desc": pace_desc,
+            "gov_window_minutes": gov_window_minutes,
+            **_auth_context(request, current_user),
+        },
     )
 
 

@@ -226,3 +226,73 @@ Added `.page-header` with team count and league name subtitle.
 - `.upcoming-strip` with `.upcoming-card`, `.uc-team`, `.uc-vs`
 - `.how-grid` (4-col, 2-col on tablet, 1-col on mobile) with `.how-card`, `.how-number`, `.how-title`, `.how-desc`
 - `.explore-grid` (4-col) with `.explore-card`, `.explore-icon`, `.explore-label`, `.explore-desc`
+
+---
+
+## Completed — Session 21 (Governance + Rules + Copy)
+
+### 23. [DONE] Governance page auth gate removed
+**Problem:** `/governance` redirected all unauthenticated visitors to Discord OAuth login. The governance audit trail — proposals, votes, outcomes — was invisible to anyone not logged in. This contradicts the transparency principle: the whole point is that governance is visible.
+
+**Fix:** Removed the auth gate (`if current_user is None and oauth_enabled: return RedirectResponse`). Page is now publicly viewable. Proposing and voting still require Discord auth via bot slash commands. Added a hero section explaining the governance flow.
+
+### 24. [DONE] Rules page redesigned from config dump to tiered card layout
+**Problem:** Rules page was iterating `ruleset.items()` and displaying raw snake_case parameter names (e.g., `quarter_possessions: 25`). No context, no descriptions, no sense of what's changeable or what the ranges are. This is the raison d'etre of the project — the rules players can change — and it looked like a config file.
+
+**Fix:** Created `RULE_TIERS` metadata mapping all 29 RuleSet parameters to human-readable labels, descriptions, and 4 tiers:
+1. **Game Mechanics** (13 rules) — "The core numbers that define how basketball works"
+2. **Agent Behavior** (9 rules) — "How players interact with the court and crowd"
+3. **League Structure** (5 rules) — "Season format, scheduling, and playoffs"
+4. **Meta-Governance** (2 rules) — "The rules about rules"
+
+Each rule card shows: label, current value (mono font, accent color), description, valid range (extracted from Pydantic field metadata at runtime). Changed rules get a highlighted border and accent. "Changed by the Community" strip at top when any rules differ from defaults. Change history timeline at bottom. CTA linking to the play page.
+
+### 25. [DONE] Player-centric copy across all pages
+**Problem:** Copy was AI-centric and passive. User feedback: "This copy is terrible!!!! The players rewrite the rules." The taglines positioned the AI as the protagonist instead of the players.
+
+**Fix:** Rewrote all taglines and explanatory text to center the player:
+- **Home:** "3-on-3 basketball where the players rewrite the rules. Propose changes. Vote with your team. Shape the game. The AI is your mirror — but the fates are yours."
+- **Rules:** "Every number below shapes how this league plays. Between rounds, you propose changes in plain English and vote with your team."
+- **Governance:** "Every rule change starts with a proposal from a player."
+- **How It Works cards:** Player as subject of every sentence.
+
+---
+
+## Completed — Session 23 ("How to Play" Onboarding)
+
+### 26. [DONE] "How to Play" page — the most important page for conversion
+**Problem:** A visitor who thinks "This is cool, how do I play?" has nowhere to go. The site explains *what* Pinwheel is but never explains *how to participate*, *when games happen*, or *what to expect*. No onboarding path exists.
+
+**Fix:** Created `/play` page with comprehensive onboarding:
+
+**The Rhythm** — 4-step cycle explaining the round structure: Games Play Out → Governance Window Opens → Mirror Reflects → Rules Change. Each step gets a numbered card with a detailed description. Shows current pace ("Rounds advance every 5 minutes") and governance window duration.
+
+**What You Do** — 4-card grid answering "what's my job?": Watch (follow games, study agents), Propose (use /propose in Discord), Vote (team votes, strategy matters), Reflect (read the mirrors).
+
+**Discord Commands** — Reference list: `/join`, `/propose`, `/vote`, `/strategy`, `/tokens`, `/trade`. Each with one-line description. This is the practical "how do I actually do things" section.
+
+**FAQ** — 5 questions that real visitors would ask: What's the Elam Ending? What happens when a proposal passes? Can I break the game? What does the AI actually do? Is this free?
+
+**League status bar** — Live stats (rounds played, teams, agents, games) pulled from the database. Makes it feel alive.
+
+**Discord join buttons** — Appear when `discord_invite_url` is configured. Top and bottom of page.
+
+### 27. [DONE] "Play" link in navigation
+**Problem:** No way to find the onboarding page from the nav.
+
+**Fix:** Added "Play" as the first nav link, styled in cyan (`var(--accent-governance)`) to visually distinguish it from other nav items. Hover gets a subtle cyan background.
+
+### 28. [DONE] Home page join CTA
+**Problem:** Home page had a "How Pinwheel Works" explainer and an "Explore" grid but no call to action. A visitor who understands the game but wants to join has to figure it out themselves.
+
+**Fix:** Added a join CTA card between "How It Works" and "Explore":
+- Gradient top border (highlight → governance → score) for visual prominence
+- "Want to play?" heading
+- Brief description: "Join the Discord, pick a team, and start rewriting the rules."
+- Discord join button (when configured) + "Learn how to play" link
+- "How It Works" section now links to `/play` via "How to play →"
+
+### 29. [DONE] `discord_invite_url` configuration
+**Problem:** No way to configure a Discord server invite link. The join buttons need somewhere to point.
+
+**Fix:** Added `discord_invite_url` setting to `Settings` (empty default, configured via `DISCORD_INVITE_URL` env var). Passed to all templates via `_auth_context()`. When set, Discord join buttons appear on the play page and home page CTA. When empty, the CTA gracefully degrades to showing explore links instead.

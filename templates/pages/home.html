@@ -137,7 +137,7 @@
 {# ===== HOW IT WORKS ===== #}
 <div class="home-section">
   <div class="section-title-bar">
-    <span class="section-title-text">How Pinwheel Works</span>
+    <span class="section-title-text">How It Works</span>
   </div>
   <div class="how-grid">
     <div class="how-card">
@@ -148,17 +148,40 @@
     <div class="how-card">
       <div class="how-number" style="color:var(--accent-governance);">02</div>
       <h4 class="how-title">You Rewrite the Rules</h4>
-      <p class="how-desc">Propose changes in plain English. Vote with your team. Passed proposals reshape the game &mdash; your words become mechanics.</p>
+      <p class="how-desc">Propose changes in plain English. Vote with your team. Passed proposals reshape the game.</p>
     </div>
     <div class="how-card">
       <div class="how-number" style="color:var(--accent-mirror);">03</div>
       <h4 class="how-title">The Mirror Reflects</h4>
-      <p class="how-desc">After every round, the AI surfaces patterns, power shifts, and dynamics you can't see from inside the system.</p>
+      <p class="how-desc">After every round, the AI surfaces patterns and dynamics you can't see from inside the system.</p>
     </div>
     <div class="how-card">
       <div class="how-number" style="color:var(--accent-score);">04</div>
       <h4 class="how-title">The Game Evolves</h4>
-      <p class="how-desc">Three-pointers worth 4? 20-second shot clock? The league becomes whatever its players decide it should be.</p>
+      <p class="how-desc">The league becomes whatever its players decide it should be.</p>
+    </div>
+  </div>
+  <div class="section-more">
+    <a href="/play" class="more-link">How to play &rarr;</a>
+  </div>
+</div>
+
+{# ===== JOIN CTA ===== #}
+<div class="home-join-cta">
+  <div class="home-join-inner">
+    <h3 class="home-join-title">Want to play?</h3>
+    <p class="home-join-desc">
+      Join the Discord, pick a team, and start rewriting the rules.
+      Games run automatically &mdash; the next governance window is your
+      chance to shape the league.
+    </p>
+    <div class="home-join-actions">
+      {% if discord_invite_url %}
+      <a href="{{ discord_invite_url }}" class="play-join-btn" target="_blank" rel="noopener">
+        Join the Discord
+      </a>
+      {% endif %}
+      <a href="/play" class="home-join-learn">Learn how to play &rarr;</a>
     </div>
   </div>
 </div>
