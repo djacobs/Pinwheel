@@ -77,12 +77,84 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
 
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Home page with navigation links and league snapshot."""
+    """Home page — living dashboard for the league."""
     season_id = await _get_active_season_id(repo)
     latest_mirror = None
-    standings_leader = None
+    standings = []
+    latest_round_games: list[dict] = []
+    current_round = 0
     total_games = 0
+    upcoming_games: list[dict] = []
+    team_colors: dict[str, str] = {}
+
     if season_id:
+        # Build standings
+        standings = await _get_standings(repo, season_id)
+        total_games = sum(s["wins"] for s in standings)
+
+        # Team color + name cache
+        team_names: dict[str, str] = {}
+        agent_names: dict[str, str] = {}
+        for s in standings:
+            t = await repo.get_team(s["team_id"])
+            if t:
+                team_colors[s["team_id"]] = t.color or "#888"
+                team_names[s["team_id"]] = t.name
+                s["color"] = t.color or "#888"
+
+        # Find current round
+        for rn in range(1, 100):
+            round_games = await repo.get_games_for_round(season_id, rn)
+            if round_games:
+                current_round = rn
+            else:
+                break
+
+        # Latest round's games — the headline scores
+        if current_round > 0:
+            round_games = await repo.get_games_for_round(season_id, current_round)
+            for g in round_games:
+                # Cache team names
+                for tid in (g.home_team_id, g.away_team_id):
+                    if tid not in team_names:
+                        t = await repo.get_team(tid)
+                        team_names[tid] = t.name if t else tid
+                        team_colors[tid] = t.color if t else "#888"
+
+                # Extract game-winning play
+                winning_play = None
+                if g.play_by_play:
+                    for play in reversed(g.play_by_play):
+                        if play.get("result") == "made" and play.get("points_scored", 0) > 0:
+                            handler_id = play.get("ball_handler_id", "")
+                            if handler_id and handler_id not in agent_names:
+                                agent = await repo.get_agent(handler_id)
+                                agent_names[handler_id] = agent.name if agent else handler_id
+                            winning_play = narrate_winner(
+                                agent_names.get(handler_id, "Unknown"),
+                                play.get("action", ""),
+                                move=play.get("move_activated", ""),
+                                seed=hash(g.id),
+                            )
+                            break
+
+                latest_round_games.append({
+                    "id": g.id,
+                    "home_name": team_names.get(g.home_team_id, "?"),
+                    "away_name": team_names.get(g.away_team_id, "?"),
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                    "home_team_id": g.home_team_id,
+                    "away_team_id": g.away_team_id,
+                    "home_color": team_colors.get(g.home_team_id, "#888"),
+                    "away_color": team_colors.get(g.away_team_id, "#888"),
+                    "elam_target": g.elam_target,
+                    "total_possessions": g.total_possessions,
+                    "winning_play": winning_play,
+                })
+
+        # Latest mirror
         m = await repo.get_latest_mirror(season_id, "simulation")
         if m:
             latest_mirror = {
@@ -90,21 +162,31 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 "round_number": m.round_number,
             }
 
-        standings = await _get_standings(repo, season_id)
-        if standings:
-            leader = standings[0]
-            standings_leader = {
-                "team_name": leader.get("team_name", "Unknown"),
-                "wins": leader["wins"],
-                "losses": leader["losses"],
-            }
-            total_games = sum(s["wins"] for s in standings)
+        # Upcoming games (next unplayed round)
+        next_round = current_round + 1
+        schedule = await repo.get_schedule_for_round(season_id, next_round)
+        for entry in schedule:
+            for tid in (entry.home_team_id, entry.away_team_id):
+                if tid not in team_names:
+                    t = await repo.get_team(tid)
+                    team_names[tid] = t.name if t else tid
+                    team_colors[tid] = t.color if t else "#888"
+            upcoming_games.append({
+                "home_name": team_names.get(entry.home_team_id, "?"),
+                "away_name": team_names.get(entry.away_team_id, "?"),
+                "home_color": team_colors.get(entry.home_team_id, "#888"),
+                "away_color": team_colors.get(entry.away_team_id, "#888"),
+            })
 
     ctx = {
         "active_page": "home",
         "latest_mirror": latest_mirror,
-        "standings_leader": standings_leader,
+        "standings": standings,
+        "latest_round_games": latest_round_games,
+        "current_round": current_round,
         "total_games": total_games,
+        "upcoming_games": upcoming_games,
+        "team_colors": team_colors,
     }
     return templates.TemplateResponse(
         request,

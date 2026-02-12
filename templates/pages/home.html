@@ -2,49 +2,200 @@
 {% block title %}Pinwheel Fates{% endblock %}
 
 {% block content %}
-<div style="text-align:center; padding: 3rem 0 2rem;">
-  <h1 style="font-size:2.5rem; color: var(--accent-score); margin-bottom:0.25rem;">
-    PINWHEEL <span style="color: var(--accent-highlight);">FATES</span>
+{# ===== HERO ===== #}
+<div class="home-hero">
+  <div class="hero-glow"></div>
+  <h1 class="hero-title">
+    PINWHEEL <span class="hero-accent">FATES</span>
   </h1>
-  <p class="text-muted" style="font-size:1.1rem; max-width:500px; margin:0 auto;">
-    Auto-simulated 3v3 basketball. AI-interpreted governance.<br>
-    The rules belong to you.
+  <p class="hero-tagline">
+    A living 3-on-3 basketball league where the players govern the rules.
+    Every game is auto-simulated. Every rule can be changed. The AI watches everything.
   </p>
+  {% if current_round > 0 %}
+  <div class="hero-pulse">
+    <span class="pulse-dot"></span>
+    <span class="pulse-label">Season 1</span>
+    <span class="pulse-sep">&middot;</span>
+    <span class="pulse-label">Round {{ current_round }}</span>
+    <span class="pulse-sep">&middot;</span>
+    <span class="pulse-label">{{ total_games }} game{{ 's' if total_games != 1 else '' }} played</span>
+  </div>
+  {% endif %}
 </div>
 
-{% if standings_leader %}
-<div class="league-snapshot text-center mb-2" style="max-width:500px; margin:0 auto;">
-  <p class="text-muted text-sm mono">
-    <strong style="color: var(--accent-score);">{{ standings_leader.team_name }}</strong>
-    lead at {{ standings_leader.wins }}-{{ standings_leader.losses }}
-    &middot; {{ total_games }} game{{ 's' if total_games != 1 else '' }} played
-  </p>
+{# ===== LATEST SCORES ===== #}
+{% if latest_round_games %}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Latest Results</span>
+    <span class="section-title-badge">Round {{ current_round }}</span>
+  </div>
+  <div class="scores-strip">
+    {% for game in latest_round_games %}
+    <a href="/games/{{ game.id }}" class="score-card">
+      <div class="sc-teams">
+        <div class="sc-team">
+          <span class="sc-dot" style="background:{{ game.home_color }};"></span>
+          <span class="sc-name {% if game.winner_team_id == game.home_team_id %}sc-winner{% endif %}">{{ game.home_name }}</span>
+          <span class="sc-score {% if game.winner_team_id == game.home_team_id %}sc-score-win{% endif %}">{{ game.home_score }}</span>
+        </div>
+        <div class="sc-team">
+          <span class="sc-dot" style="background:{{ game.away_color }};"></span>
+          <span class="sc-name {% if game.winner_team_id == game.away_team_id %}sc-winner{% endif %}">{{ game.away_name }}</span>
+          <span class="sc-score {% if game.winner_team_id == game.away_team_id %}sc-score-win{% endif %}">{{ game.away_score }}</span>
+        </div>
+      </div>
+      {% if game.winning_play %}
+      <div class="sc-play">{{ game.winning_play }}</div>
+      {% endif %}
+      {% if game.elam_target %}
+      <div class="sc-elam">Elam {{ game.elam_target }}</div>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <div class="section-more">
+    <a href="/arena" class="more-link">All games &rarr;</a>
+  </div>
 </div>
 {% endif %}
 
-<div class="arena-grid mb-2">
-  <a href="/arena" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
-    <h3 style="color: var(--accent-highlight); margin-bottom:0.5rem;">The Arena</h3>
-    <p class="text-muted text-sm">Watch live games. See every possession.</p>
-  </a>
-  <a href="/standings" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
-    <h3 style="color: var(--accent-score); margin-bottom:0.5rem;">Standings</h3>
-    <p class="text-muted text-sm">League table. Records. Differentials.</p>
-  </a>
-  <a href="/governance" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
-    <h3 style="color: var(--accent-governance); margin-bottom:0.5rem;">Governance</h3>
-    <p class="text-muted text-sm">Proposals. Votes. The rules are yours to change.</p>
-  </a>
-  <a href="/mirrors" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
-    <h3 style="color: var(--accent-mirror); margin-bottom:0.5rem;">Mirrors</h3>
-    <p class="text-muted text-sm">AI reflections on what's happening. Patterns you can't see.</p>
-  </a>
+{# ===== STANDINGS + MIRROR (Two columns) ===== #}
+{% if standings or latest_mirror %}
+<div class="home-columns">
+  {# Standings #}
+  {% if standings %}
+  <div class="home-section">
+    <div class="section-title-bar">
+      <span class="section-title-text">Standings</span>
+    </div>
+    <div class="mini-standings">
+      {% for s in standings %}
+      <a href="/teams/{{ s.team_id }}" class="ms-row">
+        <span class="ms-rank">{{ loop.index }}</span>
+        <span class="ms-dot" style="background:{{ s.color|default('#888') }};"></span>
+        <span class="ms-name">{{ s.team_name }}</span>
+        <span class="ms-record mono">{{ s.wins }}-{{ s.losses }}</span>
+        {% set diff = s.points_for - s.points_against %}
+        <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
+          {{ '+' if diff > 0 else '' }}{{ diff }}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="section-more">
+      <a href="/standings" class="more-link">Full standings &rarr;</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {# AI Mirror #}
+  {% if latest_mirror %}
+  <div class="home-section">
+    <div class="section-title-bar">
+      <span class="section-title-text">The AI Sees</span>
+      <span class="section-title-badge mirror-badge">Round {{ latest_mirror.round_number }}</span>
+    </div>
+    <div class="home-mirror">
+      <div class="home-mirror-content">{{ latest_mirror.content }}</div>
+    </div>
+    <div class="section-more">
+      <a href="/mirrors" class="more-link">All mirrors &rarr;</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ===== UPCOMING ===== #}
+{% if upcoming_games %}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Coming Up</span>
+    <span class="section-title-badge upcoming-badge">Round {{ current_round + 1 }}</span>
+  </div>
+  <div class="upcoming-strip">
+    {% for game in upcoming_games %}
+    <div class="upcoming-card">
+      <div class="uc-team">
+        <span class="sc-dot" style="background:{{ game.home_color }};"></span>
+        <span>{{ game.home_name }}</span>
+      </div>
+      <span class="uc-vs">vs</span>
+      <div class="uc-team">
+        <span class="sc-dot" style="background:{{ game.away_color }};"></span>
+        <span>{{ game.away_name }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ===== HOW IT WORKS ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">How Pinwheel Works</span>
+  </div>
+  <div class="how-grid">
+    <div class="how-card">
+      <div class="how-number" style="color:var(--accent-highlight);">01</div>
+      <h4 class="how-title">Games Simulate</h4>
+      <p class="how-desc">3v3 basketball with unique player agents, special moves, stamina, and an Elam Ending. No human input needed.</p>
+    </div>
+    <div class="how-card">
+      <div class="how-number" style="color:var(--accent-governance);">02</div>
+      <h4 class="how-title">You Govern</h4>
+      <p class="how-desc">Propose rule changes in plain English. Vote with your team. The AI interprets your proposals into game mechanics.</p>
+    </div>
+    <div class="how-card">
+      <div class="how-number" style="color:var(--accent-mirror);">03</div>
+      <h4 class="how-title">AI Reflects</h4>
+      <p class="how-desc">After every round, Claude analyzes what happened &mdash; patterns, power shifts, and things you can't see from inside.</p>
+    </div>
+    <div class="how-card">
+      <div class="how-number" style="color:var(--accent-score);">04</div>
+      <h4 class="how-title">Rules Evolve</h4>
+      <p class="how-desc">Passed proposals change the game. Three-pointers worth 4? 20-second shot clock? The league is yours to shape.</p>
+    </div>
+  </div>
 </div>
 
-{% if latest_mirror %}
-<div class="mirror-card">
-  <div class="mirror-type">Latest Mirror</div>
-  <div class="mirror-content">{{ latest_mirror.content }}</div>
+{# ===== EXPLORE ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Explore</span>
+  </div>
+  <div class="explore-grid">
+    <a href="/arena" class="explore-card">
+      <span class="explore-icon" style="color:var(--accent-highlight);">&#9654;</span>
+      <span class="explore-label">Arena</span>
+      <span class="explore-desc">Every game, every play</span>
+    </a>
+    <a href="/governance" class="explore-card">
+      <span class="explore-icon" style="color:var(--accent-governance);">&#9878;</span>
+      <span class="explore-label">Governance</span>
+      <span class="explore-desc">Proposals &amp; votes</span>
+    </a>
+    <a href="/rules" class="explore-card">
+      <span class="explore-icon" style="color:var(--accent-elam);">&#9881;</span>
+      <span class="explore-label">Rules</span>
+      <span class="explore-desc">Current parameters</span>
+    </a>
+    <a href="/mirrors" class="explore-card">
+      <span class="explore-icon" style="color:var(--accent-mirror);">&#10070;</span>
+      <span class="explore-label">Mirrors</span>
+      <span class="explore-desc">AI reflections</span>
+    </a>
+  </div>
+</div>
+
+{% if not standings and not latest_round_games %}
+{# Empty state for brand-new league #}
+<div class="empty-state">
+  <h3>The season hasn't started yet.</h3>
+  <p>Games will appear here once the first round is simulated.</p>
 </div>
 {% endif %}
 {% endblock %}

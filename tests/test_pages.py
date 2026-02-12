@@ -150,6 +150,16 @@ class TestEmptyPages:
 class TestPopulatedPages:
     """Pages with seeded data should render game results."""
 
+    async def test_home_with_data(self, app_client):
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert "Latest Results" in r.text
+        assert "Standings" in r.text
+        assert "How Pinwheel Works" in r.text
+
     async def test_arena_with_games(self, app_client):
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
