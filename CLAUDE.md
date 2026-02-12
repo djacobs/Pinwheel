@@ -225,6 +225,16 @@ Every governance action (propose, amend, vote, trade, enact) is an immutable eve
 ### Rules are parameterized, not arbitrary
 The rule space is a defined set of parameters with types, ranges, and validation. Players propose changes in natural language, but what actually changes are typed parameters: `shot_clock_seconds: int (range: 10-60)`, `three_point_value: int (range: 1-10)`, etc. This prevents the simulation from entering undefined states.
 
+## Known Issues — Priority Fix List
+
+### P1 (fix before any public exposure)
+- [ ] **`session_secret_key` hardcoded default** — `config.py:39` ships with `"pinwheel-dev-secret-change-in-production"`. Must reject this value in production or auto-generate.
+- [ ] **`/admin/evals` has no auth gate** — `api/eval_dashboard.py` hides the nav link but doesn't restrict the route. Add the same auth redirect pattern as `/governance`.
+
+### P2 (fix before broader exposure)
+- [ ] **OAuth cookies lack `secure` flag** — `auth/oauth.py:76`, `:146`. Should be `secure=True, samesite="lax"` in production.
+- [ ] **OAuth callback hard-fails** — `auth/oauth.py:105`, `:189`, `:201`. Discord API errors during token exchange yield raw 500s. Wrap in try/except with graceful redirect.
+
 ## Resolved Design Questions
 
 - [x] **Event sourcing + repository pattern:** The repository pattern wraps an event store. Governance events are the source of truth (append-only, immutable). The repository provides read projections derived from the event log — current token balances, current ruleset, standings, etc. `db/repository.py` reads from and appends to the event store; it never mutates past events. Game results are stored directly (not event-sourced) since they're already immutable outputs of a pure function.

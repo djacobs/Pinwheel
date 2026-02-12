@@ -197,3 +197,23 @@ Rewrote/added 5 governance commands in `src/pinwheel/discord/bot.py`:
 **43 new tests (401 total), zero lint errors.**
 
 ---
+
+## Tomorrow's Priority List
+
+### P1 — Must fix before broader/public exposure
+
+1. **`session_secret_key` default is hardcoded** (`src/pinwheel/config.py:39`). If `.env` doesn't set `SESSION_SECRET_KEY`, the app runs with `"pinwheel-dev-secret-change-in-production"`. Fix: raise on startup in production if secret matches the default, or generate a random one.
+
+2. **`/admin/evals` lacks authorization** (`src/pinwheel/api/eval_dashboard.py`). The nav link is hidden in production via template check, but the route itself has no auth gate. Fix: add the same auth redirect pattern used on `/governance`.
+
+### P2 — Should fix before broader exposure
+
+3. **OAuth cookies not marked `secure`** (`src/pinwheel/auth/oauth.py:76`, `:146`). In production behind HTTPS, cookies should have `secure=True` and `samesite="lax"`. Fix: gate on `pinwheel_env == "production"`.
+
+4. **OAuth callback can hard-fail** (`src/pinwheel/auth/oauth.py:105`, `:189`, `:201`). Discord API errors during token exchange or user info fetch return raw 500s. Fix: try/except with redirect to an error page or `/` with a flash message.
+
+### Demo readiness verdict
+
+**Yellow-to-green for internal demo** — feature complete, good momentum. Before broader/public exposure: tighten the two P1 auth/admin controls first.
+
+---
