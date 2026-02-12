@@ -24,7 +24,11 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
     """Build auth-related template context available on every page."""
     settings = request.app.state.settings
     oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    return {"current_user": current_user, "oauth_enabled": oauth_enabled}
+    return {
+        "current_user": current_user,
+        "oauth_enabled": oauth_enabled,
+        "pinwheel_env": settings.pinwheel_env,
+    }
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
@@ -283,33 +287,92 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
 
 @router.get("/governance", response_class=HTMLResponse)
 async def governance_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Governance page — proposals and rule changes."""
+    """Governance audit trail — proposals, outcomes, vote totals.
+
+    Auth-gated: redirects to login if OAuth is enabled and user is not
+    authenticated. In dev mode without OAuth credentials the page is
+    accessible to support local testing.
+    """
+    from fastapi.responses import RedirectResponse
+
+    settings = request.app.state.settings
+    oauth_enabled = bool(
+        settings.discord_client_id and settings.discord_client_secret,
+    )
+    if current_user is None and oauth_enabled:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
     season_id = await _get_active_season_id(repo)
     proposals = []
     rules_changed = []
 
     if season_id:
-        events = await repo.get_events_by_type(
+        # Gather all governance events we need
+        submitted = await repo.get_events_by_type(
             season_id=season_id,
             event_types=["proposal.submitted"],
         )
-        for e in events:
+        outcome_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.confirmed", "proposal.passed", "proposal.failed"],
+        )
+        vote_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["vote.cast"],
+        )
+
+        # Index outcomes and votes by proposal_id
+        confirmed_ids: set[str] = set()
+        outcomes: dict[str, dict] = {}
+        for e in outcome_events:
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            if e.event_type == "proposal.confirmed":
+                confirmed_ids.add(pid)
+            elif e.event_type in ("proposal.passed", "proposal.failed"):
+                outcomes[pid] = e.payload
+
+        votes_by_proposal: dict[str, dict] = {}
+        for e in vote_events:
+            pid = e.payload.get("proposal_id", "")
+            if not pid:
+                continue
+            bucket = votes_by_proposal.setdefault(
+                pid, {"yes": 0.0, "no": 0.0, "count": 0},
+            )
+            weight = float(e.payload.get("weight", 1.0))
+            if e.payload.get("vote") == "yes":
+                bucket["yes"] += weight
+            else:
+                bucket["no"] += weight
+            bucket["count"] += 1
+
+        for e in submitted:
             p_data = e.payload
-            if "id" in p_data and "raw_text" in p_data:
-                p = Proposal(**p_data)
-                interp = None
-                if p.interpretation:
-                    interp = p.interpretation
-                proposals.append(
-                    {
-                        "id": p.id,
-                        "governor_id": p.governor_id,
-                        "raw_text": p.raw_text,
-                        "status": p.status,
-                        "tier": p.tier,
-                        "interpretation": interp,
-                    }
-                )
+            if "id" not in p_data or "raw_text" not in p_data:
+                continue
+            p = Proposal(**p_data)
+            interp = p.interpretation if p.interpretation else None
+
+            # Determine latest status from events
+            pid = p.id
+            status = p.status
+            if pid in outcomes:
+                status = "passed" if outcomes[pid].get("passed") else "failed"
+            elif pid in confirmed_ids:
+                status = "confirmed"
+
+            # Vote tally (totals only — no individual votes)
+            tally = votes_by_proposal.get(pid)
+
+            proposals.append({
+                "id": pid,
+                "governor_id": p.governor_id,
+                "raw_text": p.raw_text,
+                "status": status,
+                "tier": p.tier,
+                "interpretation": interp,
+                "vote_tally": tally,
+            })
 
         rc_events = await repo.get_events_by_type(
             season_id=season_id,
@@ -400,4 +463,24 @@ async def mirrors_page(request: Request, repo: RepoDep, current_user: OptionalUs
         request,
         "pages/mirrors.html",
         {"active_page": "mirrors", "mirrors": mirrors, **_auth_context(request, current_user)},
+    )
+
+
+@router.get("/terms", response_class=HTMLResponse)
+async def terms_page(request: Request, current_user: OptionalUser):
+    """Terms of Service."""
+    return templates.TemplateResponse(
+        request,
+        "pages/terms.html",
+        {"active_page": "terms", **_auth_context(request, current_user)},
+    )
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request, current_user: OptionalUser):
+    """Privacy Policy."""
+    return templates.TemplateResponse(
+        request,
+        "pages/privacy.html",
+        {"active_page": "privacy", **_auth_context(request, current_user)},
     )

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<article class="legal-page">
+<h1>Privacy Policy</h1>
+<p class="legal-updated">Last updated: February 11, 2026</p>
+
+<p>Pinwheel Fates is built on the principle that <strong>whoever controls the context holds the
+power</strong>. In Pinwheel, players steward their own context. This policy explains what data
+we collect, how we use it, and what we never do.</p>
+
+<h2>1. What We Collect</h2>
+
+<h3>Account Data (via Discord OAuth)</h3>
+<ul>
+  <li><strong>Discord user ID</strong> — to identify your account</li>
+  <li><strong>Username</strong> — displayed in the game interface</li>
+  <li><strong>Avatar URL</strong> — displayed in the navigation bar</li>
+</ul>
+<p>We request only the <code>identify</code> scope. We do not access your Discord messages,
+friends list, server memberships, or any other Discord data.</p>
+
+<h3>Gameplay Data</h3>
+<ul>
+  <li><strong>Governance actions</strong> — proposals you submit, votes you cast, tokens you spend</li>
+  <li><strong>Session metadata</strong> — when you log in, basic request timing for performance monitoring</li>
+</ul>
+<p>All governance actions are stored as immutable events in an append-only log. This is a feature,
+not a bug — it provides full auditability of the governance process.</p>
+
+<h2>2. Private Mirrors</h2>
+<p>This is the most important section of this policy.</p>
+<p>The AI generates <strong>private mirrors</strong> — reflections on your individual governance
+behavior. These mirrors are:</p>
+<ul>
+  <li><strong>Visible only to you.</strong> No other player, administrator, or developer can see
+    your private mirror content.</li>
+  <li><strong>Never used for evaluation.</strong> Our automated eval framework measures mirror
+    quality using only aggregate statistics (counts, rates, scores) — never the text of private
+    mirrors. The manual rubric system rejects private mirrors at the type level.</li>
+  <li><strong>Never used for training.</strong> Mirror content is not sent to any AI training
+    pipeline.</li>
+  <li><strong>Deletable.</strong> You may request deletion of your private mirrors at any time.</li>
+</ul>
+<p>Public mirrors (simulation and governance mirrors visible to all players) are not subject to
+these restrictions — they are part of the shared game experience.</p>
+
+<h2>3. What We Never Do</h2>
+<ul>
+  <li>We never <strong>sell your data</strong> to third parties.</li>
+  <li>We never use your data for <strong>advertising or engagement optimization</strong>.</li>
+  <li>We never access <strong>private mirror content</strong> for development or debugging.</li>
+  <li>We never share <strong>individual player behavior data</strong> with other players
+    (aggregate standings and public governance actions are visible by design).</li>
+</ul>
+
+<h2>4. AI Processing</h2>
+<p>Your governance actions and game data are processed by Claude (Anthropic) to generate mirrors
+and interpret rule proposals. This data is sent to Anthropic's API under their
+<a href="https://www.anthropic.com/policies/privacy">privacy policy</a>, which prohibits using
+API inputs for model training.</p>
+
+<h2>5. Security</h2>
+<p>We make best-effort attempts to maintain the security of your data:</p>
+<ul>
+  <li>Session cookies are signed, HTTP-only, and SameSite=Lax</li>
+  <li>CSRF protection on OAuth flows</li>
+  <li>All production traffic is HTTPS-only</li>
+  <li>Database access follows the principle of least privilege</li>
+</ul>
+<p>However, Pinwheel Fates is an experimental project. We cannot guarantee the security of your
+data against all threats. Do not submit sensitive personal information through governance
+proposals or other game inputs.</p>
+
+<h2>6. Data Retention</h2>
+<p>Gameplay data is retained for the duration of the season. Between seasons, data may be archived
+or reset. Account data (Discord ID, username, avatar) is retained until you request deletion or
+revoke the Discord OAuth connection.</p>
+
+<h2>7. Your Rights</h2>
+<p>You may at any time:</p>
+<ul>
+  <li><strong>Request your data</strong> — we will provide an export of your governance actions
+    and mirror history</li>
+  <li><strong>Request deletion</strong> — we will remove your account and associated data</li>
+  <li><strong>Revoke access</strong> — disconnect via Discord's Authorized Apps settings</li>
+</ul>
+
+<h2>8. Open Source Transparency</h2>
+<p>The complete source code is available under the MIT license. You can verify every claim in this
+policy by reading the code. The privacy boundaries described here are enforced at the code level,
+not just the policy level.</p>
+
+<h2>9. Changes</h2>
+<p>Material changes to this policy will be announced in the Discord server. The current version
+is always available at this URL.</p>
+
+<h2>10. Contact</h2>
+<p>Privacy questions? Reach out via the project's GitHub repository or Discord server.</p>
+</article>
+{% endblock %}

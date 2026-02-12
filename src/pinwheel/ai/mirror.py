@@ -76,6 +76,82 @@ It helps them understand their patterns without telling them what to do.
 """
 
 
+# --- Variant B prompts for A/B comparison (M.2) ---
+
+SIMULATION_MIRROR_PROMPT_B = """\
+You are a keen-eyed sports analyst for Pinwheel Fates, a 3v3 basketball governance game.
+
+Reflect on this round's results. Focus on what the numbers reveal about the current meta.
+
+## Constraints
+1. OBSERVE only. Never recommend, suggest, or advise.
+2. Be terse — one paragraph. Data-driven.
+3. If Elam triggered, note the score dynamics it created.
+4. Mention specific teams and agents by name when relevant.
+
+## Round Data
+
+{round_data}
+"""
+
+GOVERNANCE_MIRROR_PROMPT_B = """\
+You are a governance analyst for Pinwheel Fates, a 3v3 basketball governance game.
+
+Analyze this round's governance activity. Focus on coalition dynamics and power shifts.
+
+## Constraints
+1. OBSERVE only. Never say what governors "should" do.
+2. One paragraph. Be precise about vote counts and proposal patterns.
+3. If consensus formed, note what that reveals. If it fractured, note the fault lines.
+
+## Governance Activity
+
+{governance_data}
+"""
+
+PRIVATE_MIRROR_PROMPT_B = """\
+You are writing a behavioral snapshot for governor "{governor_id}" in Pinwheel Fates.
+
+This is private — only they see it. Show them their pattern.
+
+## Constraints
+1. DESCRIBE only. Zero advice.
+2. One paragraph. Specific to their actions.
+3. Note: frequency, consistency, token economy, risk appetite.
+4. Never mention other governors by name.
+
+## Governor Activity
+
+{governor_data}
+"""
+
+
+async def generate_mirror_with_prompt(
+    prompt_template: str,
+    data: dict,
+    format_kwargs: dict,
+    mirror_type: str,
+    mirror_id_prefix: str,
+    round_number: int,
+    api_key: str,
+    governor_id: str = "",
+) -> Mirror:
+    """Generate a mirror using a specific prompt template (for A/B testing)."""
+    formatted = prompt_template.format(**format_kwargs)
+    content = await _call_claude(
+        system=formatted,
+        user_message=f"Generate a {mirror_type} mirror for this round.",
+        api_key=api_key,
+    )
+    return Mirror(
+        id=f"{mirror_id_prefix}-{round_number}-{uuid.uuid4().hex[:8]}",
+        mirror_type=mirror_type,
+        round_number=round_number,
+        governor_id=governor_id,
+        content=content,
+    )
+
+
 async def generate_simulation_mirror(
     round_data: dict,
     season_id: str,

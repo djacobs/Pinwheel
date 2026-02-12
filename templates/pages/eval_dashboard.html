@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}Evals Dashboard — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Evals Dashboard</h1>
+<p class="eval-subtitle">Aggregate mirror quality & governance health metrics. No individual mirror text.</p>
+
+{% if not has_data %}
+<div class="eval-empty">
+  <p>No eval data yet. Run some rounds first.</p>
+</div>
+{% else %}
+
+<!-- Signal Cards -->
+<div class="eval-cards">
+  <div class="eval-card">
+    <h3>Grounding Rate</h3>
+    <div class="eval-metric">{{ "%.0f"|format(grounding_rate * 100) }}%</div>
+    <div class="eval-bar-container">
+      <div class="eval-bar" style="width: {{ grounding_rate * 100 }}%; background: {% if grounding_rate >= 0.7 %}#4caf50{% elif grounding_rate >= 0.4 %}#ff9800{% else %}#f44336{% endif %};"></div>
+    </div>
+    <p class="eval-detail">{{ grounding_total }} mirrors checked</p>
+  </div>
+
+  <div class="eval-card">
+    <h3>Prescriptive Flags</h3>
+    <div class="eval-metric {% if prescriptive_flagged > 0 %}eval-warn{% endif %}">{{ prescriptive_flagged }}</div>
+    <p class="eval-detail">{{ prescriptive_count }} total directive phrases in {{ prescriptive_total }} mirrors</p>
+  </div>
+
+  <div class="eval-card">
+    <h3>Mirror Impact Rate</h3>
+    <div class="eval-metric">{{ "%.0f"|format(mirror_impact_rate * 100) }}%</div>
+    <div class="eval-bar-container">
+      <div class="eval-bar" style="width: {{ mirror_impact_rate * 100 }}%; background: #2196f3;"></div>
+    </div>
+    <p class="eval-detail">Governors who shifted after private mirror</p>
+  </div>
+
+  <div class="eval-card">
+    <h3>Rubric Scores</h3>
+    {% if rubric_summary.count > 0 %}
+    <div class="eval-metric">{{ "%.1f"|format(rubric_summary.pass_rate * 100) }}% pass</div>
+    <p class="eval-detail">{{ rubric_summary.count }} scored, threshold &ge; 3.0</p>
+    {% if rubric_summary.averages %}
+    <table class="eval-mini-table">
+      {% for dim, avg in rubric_summary.averages.items() %}
+      <tr><td>{{ dim }}</td><td>{{ "%.1f"|format(avg) }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% else %}
+    <div class="eval-metric eval-muted">—</div>
+    <p class="eval-detail">No rubric scores yet</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Second Row -->
+<div class="eval-cards">
+  <div class="eval-card">
+    <h3>Golden Dataset</h3>
+    <div class="eval-metric">{{ "%.0f"|format(golden_pass_rate * 100) }}%</div>
+    <p class="eval-detail">Pass rate (20 cases)</p>
+  </div>
+
+  <div class="eval-card">
+    <h3>A/B Win Rates</h3>
+    {% if ab_rates.total > 0 %}
+    <table class="eval-mini-table">
+      <tr><td>Variant A wins</td><td>{{ ab_rates.a_wins }}</td></tr>
+      <tr><td>Variant B wins</td><td>{{ ab_rates.b_wins }}</td></tr>
+      <tr><td>Ties</td><td>{{ ab_rates.ties }}</td></tr>
+      <tr><td>Total</td><td>{{ ab_rates.total }}</td></tr>
+    </table>
+    {% else %}
+    <div class="eval-metric eval-muted">—</div>
+    <p class="eval-detail">No A/B comparisons yet</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- GQI Trend -->
+{% if gqi_trend %}
+<div class="eval-section">
+  <h2>Governance Quality Index (GQI) Trend</h2>
+  <table class="eval-table">
+    <thead>
+      <tr>
+        <th>Round</th>
+        <th>Composite</th>
+        <th>Diversity</th>
+        <th>Breadth</th>
+        <th>Awareness</th>
+        <th>Deliberation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in gqi_trend %}
+      <tr>
+        <td>{{ row.round }}</td>
+        <td>{{ "%.2f"|format(row.composite) }}</td>
+        <td>{{ "%.2f"|format(row.diversity) }}</td>
+        <td>{{ "%.2f"|format(row.breadth) }}</td>
+        <td>{{ "%.2f"|format(row.awareness) }}</td>
+        <td>{{ "%.2f"|format(row.deliberation) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Scenario Flags -->
+{% if active_flags %}
+<div class="eval-section">
+  <h2>Active Scenario Flags</h2>
+  <table class="eval-table">
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Severity</th>
+        <th>Round</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for flag in active_flags %}
+      <tr class="eval-flag-{{ flag.severity }}">
+        <td>{{ flag.type }}</td>
+        <td><span class="eval-severity eval-severity-{{ flag.severity }}">{{ flag.severity }}</span></td>
+        <td>{{ flag.round }}</td>
+        <td>
+          {% for k, v in flag.details.items() %}
+            <span class="eval-detail-kv">{{ k }}: {{ v }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Rule Evaluation -->
+{% if latest_rule_eval %}
+<div class="eval-section">
+  <h2>AI Rule Evaluation (Round {{ latest_rule_eval.round }})</h2>
+
+  {% if latest_rule_eval.experiments %}
+  <h3>Suggested Experiments</h3>
+  <ul>
+    {% for exp in latest_rule_eval.experiments %}
+    <li>{{ exp }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if latest_rule_eval.stale_params %}
+  <h3>Stale Parameters</h3>
+  <ul>
+    {% for param in latest_rule_eval.stale_params %}
+    <li><code>{{ param }}</code></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if latest_rule_eval.equilibrium %}
+  <h3>Equilibrium Analysis</h3>
+  <p>{{ latest_rule_eval.equilibrium }}</p>
+  {% endif %}
+
+  {% if latest_rule_eval.concerns %}
+  <h3>Flagged Concerns</h3>
+  <ul>
+    {% for concern in latest_rule_eval.concerns %}
+    <li>{{ concern }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endif %}
+
+<style>
+.eval-subtitle { color: #888; margin-bottom: 1.5rem; }
+.eval-empty { padding: 2rem; text-align: center; color: #666; }
+.eval-cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.eval-card { flex: 1; min-width: 200px; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1rem; }
+.eval-card h3 { margin: 0 0 0.5rem; font-size: 0.85rem; text-transform: uppercase; color: #888; }
+.eval-metric { font-size: 2rem; font-weight: bold; color: #eee; }
+.eval-metric.eval-warn { color: #ff9800; }
+.eval-metric.eval-muted { color: #555; }
+.eval-detail { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+.eval-bar-container { width: 100%; height: 6px; background: #333; border-radius: 3px; margin-top: 0.5rem; }
+.eval-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.eval-section { margin-bottom: 2rem; }
+.eval-section h2 { border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+.eval-table { width: 100%; border-collapse: collapse; }
+.eval-table th, .eval-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #222; }
+.eval-table th { color: #888; font-size: 0.8rem; text-transform: uppercase; }
+.eval-mini-table { width: 100%; font-size: 0.8rem; margin-top: 0.5rem; }
+.eval-mini-table td { padding: 0.15rem 0; }
+.eval-mini-table td:last-child { text-align: right; font-weight: bold; }
+.eval-severity { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+.eval-severity-info { background: #1a3a5c; color: #64b5f6; }
+.eval-severity-warning { background: #5c3a1a; color: #ffb74d; }
+.eval-severity-critical { background: #5c1a1a; color: #ef5350; }
+.eval-flag-critical { background: rgba(244,67,54,0.05); }
+.eval-flag-warning { background: rgba(255,152,0,0.05); }
+.eval-detail-kv { display: inline-block; margin-right: 0.75rem; font-size: 0.8rem; }
+</style>
+{% endblock %}

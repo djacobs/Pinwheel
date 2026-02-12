@@ -176,7 +176,8 @@ Commit when you have a complete, valuable unit of change — not "WIP." If you c
 
 ### Keeping docs alive
 
-- **`docs/DEV_LOG.md`** — Update after each major task or decision. Include: what was asked, what was considered, what was decided. This is the project's memory.
+- **`docs/DEV_LOG.md`** — Update after each session. Each entry follows the format: **What was asked**, **What was built**, **Issues resolved**, **test count + lint status**. When a session adds new features, update the "Today's Agenda" checkboxes and note the session number. The dev log is the project's memory — future sessions read it to understand where we are.
+- **`scripts/run_demo.sh`** — When a feature adds a new page or route, add a corresponding demo step with a Rodney screenshot. Update the test count in the verification step. The demo script is the project's proof — it must reflect the current state of the application.
 - **Design docs** (`SIMULATION.md`, `GAME_LOOP.md`, etc.) — When a design question is resolved, update the doc. Replace TODOs with decisions. Design docs should reflect the current state of the system, not the state when they were first written.
 - **`CLAUDE.md`** — When a design decision is made that affects architecture, code standards, or project structure, capture it here. This file is the single source of truth for how we build.
 - **Plan files** (`docs/plans/`) — Check off items as they're completed during `/workflows:work`. Plans are living documents, not write-once specs.
@@ -251,3 +252,23 @@ uvicorn pinwheel.main:app --reload
 # Run a single simulation (for testing)
 python -m pinwheel.core.simulation
 ```
+
+## Demo Pipeline
+
+[Showboat](https://github.com/simonw/showboat) (executable markdown demo builder) and [Rodney](https://github.com/simonw/rodney) (Chrome automation) produce a self-documenting demo artifact with screenshots proving the full govern→simulate→observe→reflect cycle works end-to-end. Both are Simon Willison tools, invoked via `uvx` (no install needed).
+
+```bash
+# Run the full demo (seeds league, starts server, captures 10 screenshots)
+bash scripts/run_demo.sh
+# Output: demo/pinwheel_demo.md — Markdown with embedded screenshots
+
+# Manual seeding for local dev (no Showboat/Rodney needed)
+python scripts/demo_seed.py seed            # Create 4 teams + round-robin schedule
+python scripts/demo_seed.py step 3          # Advance 3 rounds (sim + gov + mirrors + evals)
+python scripts/demo_seed.py status          # Show current standings
+python scripts/demo_seed.py propose TEXT    # Submit a governance proposal
+```
+
+**`run_demo.sh`** is a 15-step script: seed the league, start the server, capture each major page (home, arena, standings, game detail, mirrors, governance, rules, team profile, evals dashboard), then run the test suite as verification. When adding a new page or route, add a corresponding step with `uvx rodney screenshot`.
+
+**`demo_seed.py`** uses `step_round()` from the game loop directly, so all hooks (mirrors, evals, event bus) run automatically — no separate seeding needed for new features that integrate into the game loop.

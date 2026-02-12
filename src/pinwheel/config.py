@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     pinwheel_gov_window: int = 120
     pinwheel_presentation_pace: str = "fast"
 
+    # Evals
+    pinwheel_evals_enabled: bool = True
+
     # Logging
     pinwheel_log_level: str = "INFO"
 

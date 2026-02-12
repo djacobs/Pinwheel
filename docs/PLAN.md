@@ -166,3 +166,12 @@ The project succeeds if a judge watches the demo and:
 2. Sees a full governance cycle play out with real consequences
 3. Reads a private mirror reflection and thinks "I'd want to know that about myself"
 4. Leaves wanting to play
+
+## Post-Demo Steps
+
+- [ ] **Reset Discord bot token** — token was shared in plaintext during setup. Go to [Developer Portal](https://discord.com/developers/applications) → Bot → Reset Token. Update `.env` and `fly secrets set DISCORD_BOT_TOKEN=<new>`.
+- [ ] **Reset Discord client secret** — same reason. OAuth2 → Reset Secret. Update `.env` and `fly secrets set DISCORD_CLIENT_SECRET=<new>`.
+- [ ] **Rotate session secret key** — replace the dev default (`pinwheel-dev-secret-change-in-production`) with a cryptographically random value for production. `fly secrets set SESSION_SECRET_KEY=$(openssl rand -hex 32)`.
+- [ ] **Set production redirect URI** — ensure `DISCORD_REDIRECT_URI=https://pinwheel.fly.dev/auth/callback` in Fly secrets.
+- [ ] **Disable Public Bot** — in Developer Portal → Bot, uncheck "Public Bot" so only you can add it to servers.
+- [ ] **Review OAuth2 redirect URIs** — remove `http://localhost:8000/auth/callback` from the Developer Portal if no longer needed for local dev.

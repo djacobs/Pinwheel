@@ -2,15 +2,23 @@
 {% block title %}Governance — Pinwheel Fates{% endblock %}
 
 {% block content %}
-<h2 class="mb-2">Governance</h2>
+<h2 class="mb-2">Governance Audit Trail</h2>
 
 {% if proposals %}
 <div class="section-title">Proposals</div>
 {% for p in proposals %}
 <div class="proposal-card {{ p.status }}">
   <div class="flex justify-between items-center mb-1">
-    <span class="status-badge status-{{ p.status }}">{{ p.status }}</span>
-    <span class="text-xs text-muted">{{ p.governor_id[:8] }} &middot; Tier {{ p.tier }}</span>
+    {% if p.status == 'passed' %}
+    <span class="status-badge status-passed">PASSED</span>
+    {% elif p.status == 'failed' %}
+    <span class="status-badge status-failed">FAILED</span>
+    {% elif p.status == 'confirmed' %}
+    <span class="status-badge status-confirmed">OPEN FOR VOTING</span>
+    {% else %}
+    <span class="status-badge status-{{ p.status }}">{{ p.status|upper }}</span>
+    {% endif %}
+    <span class="text-xs text-muted">Tier {{ p.tier }}</span>
   </div>
   <div class="proposal-text">"{{ p.raw_text }}"</div>
   {% if p.interpretation %}
@@ -29,12 +37,30 @@
     {% endif %}
   </div>
   {% endif %}
+  {% if p.vote_tally %}
+  <div class="vote-tally mt-1">
+    {% set total = p.vote_tally.yes + p.vote_tally.no %}
+    {% if total > 0 %}
+    {% set pct = (p.vote_tally.yes / total * 100)|round(0)|int %}
+    <div class="tally-bar">
+      <div class="tally-yes" style="width: {{ pct }}%"></div>
+    </div>
+    <div class="tally-numbers">
+      <span class="tally-yes-label">{{ "%.1f"|format(p.vote_tally.yes) }} Yes</span>
+      <span class="text-xs text-muted">{{ p.vote_tally.count }} vote{{ 's' if p.vote_tally.count != 1 else '' }} &middot; {{ pct }}% approval</span>
+      <span class="tally-no-label">{{ "%.1f"|format(p.vote_tally.no) }} No</span>
+    </div>
+    {% else %}
+    <span class="text-xs text-muted">No votes cast yet</span>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endfor %}
 {% else %}
 <div class="empty-state">
   <h3>No Proposals Yet</h3>
-  <p>Governance proposals will appear here when governors submit them.</p>
+  <p>Governance proposals will appear here when governors submit them via Discord.</p>
 </div>
 {% endif %}
 

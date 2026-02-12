@@ -206,6 +206,8 @@ class PlayerRow(Base):
     discord_id: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[str] = mapped_column(String(512), default="")
+    team_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    enrolled_season_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     last_login: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
@@ -229,4 +231,24 @@ class ScheduleRow(Base):
     __table_args__ = (
         Index("ix_schedule_season_round", "season_id", "round_number"),
         UniqueConstraint("season_id", "round_number", "matchup_index", name="uq_schedule_matchup"),
+    )
+
+
+class EvalResultRow(Base):
+    """Stored eval results. Never contains private mirror content."""
+
+    __tablename__ = "eval_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    season_id: Mapped[str] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    round_number: Mapped[int] = mapped_column(Integer, default=0)
+    eval_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    eval_subtype: Mapped[str] = mapped_column(String(50), default="")
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    details_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("ix_eval_results_season_round", "season_id", "round_number"),
+        Index("ix_eval_results_type", "eval_type"),
     )

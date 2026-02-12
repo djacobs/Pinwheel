@@ -566,7 +566,43 @@ h3 { font-size: 1.125rem; }
 .status-passed { background: rgba(72, 187, 120, 0.2); color: var(--accent-success); }
 .status-failed { background: rgba(252, 92, 101, 0.2); color: var(--accent-danger); }
 .status-voting { background: rgba(83, 216, 251, 0.2); color: var(--accent-governance); }
+.status-confirmed { background: rgba(83, 216, 251, 0.2); color: var(--accent-governance); }
+.status-submitted { background: rgba(136, 136, 170, 0.2); color: var(--text-secondary); }
 .status-draft { background: rgba(136, 136, 170, 0.2); color: var(--text-secondary); }
+
+.proposal-card.confirmed {
+  border-left: 3px solid var(--accent-governance);
+}
+
+/* Vote tally bar */
+.vote-tally {
+  margin-top: 0.5rem;
+}
+
+.tally-bar {
+  height: 6px;
+  background: rgba(252, 92, 101, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.tally-yes {
+  height: 100%;
+  background: var(--accent-success);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.tally-numbers {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.tally-yes-label { color: var(--accent-success); font-weight: 600; }
+.tally-no-label { color: var(--accent-danger); font-weight: 600; }
 
 /* ===== Mirrors ===== */
 .mirror-card {
@@ -784,3 +820,20 @@ h3 { font-size: 1.125rem; }
 .text-sm { font-size: 0.875rem; }
 .text-xs { font-size: 0.75rem; }
 .mono { font-family: var(--font-mono); }
+
+/* ===== Legal Pages ===== */
+.legal-page { max-width: 720px; margin: 0 auto; line-height: 1.7; }
+.legal-page h1 { font-size: 2rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+.legal-page h2 { font-size: 1.25rem; margin-top: 2rem; margin-bottom: 0.75rem; color: var(--accent-governance); }
+.legal-page h3 { font-size: 1rem; margin-top: 1.25rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+.legal-page p { margin-bottom: 0.75rem; color: var(--text-secondary); }
+.legal-page ul { margin: 0.5rem 0 1rem 1.5rem; color: var(--text-secondary); }
+.legal-page li { margin-bottom: 0.4rem; }
+.legal-page a { color: var(--accent-governance); text-decoration: underline; }
+.legal-page code { font-family: var(--font-mono); background: var(--bg-card); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+.legal-updated { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem; }
+
+/* ===== Footer ===== */
+.site-footer { text-align: center; padding: 2rem 1rem; margin-top: 3rem; border-top: 1px solid var(--border); font-size: 0.85rem; }
+.site-footer a { color: var(--text-muted); text-decoration: none; margin: 0 0.75rem; }
+.site-footer a:hover { color: var(--text-secondary); }

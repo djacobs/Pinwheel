@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <clipPath id="circle-clip">
+      <circle cx="200" cy="200" r="182"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer dark ring -->
+  <circle cx="200" cy="200" r="195" fill="#0f0f1a"/>
+
+  <!-- White field — gaps between stripes show this -->
+  <circle cx="200" cy="200" r="182" fill="#FFFFFF"/>
+
+  <!-- 12 pinwheel stripes: 4 CMYK colors × 3 stripes each -->
+  <g clip-path="url(#circle-clip)">
+    <!-- Cyan (0°–85°) -->
+    <path d="M 200 200 Q 294 266 380 200 A 180 180 0 0 1 363 276 Q 258 300 200 200 Z" fill="#00AEEF"/>
+    <path d="M 200 200 Q 249 304 356 290 A 180 180 0 0 1 303 347 Q 200 315 200 200 Z" fill="#00AEEF"/>
+    <path d="M 200 200 Q 190 315 290 356 A 180 180 0 0 1 216 379 Q 143 300 200 200 Z" fill="#00AEEF"/>
+
+    <!-- Magenta (90°–175°) -->
+    <path d="M 200 200 Q 134 294 200 380 A 180 180 0 0 1 124 363 Q 100 258 200 200 Z" fill="#EC008C"/>
+    <path d="M 200 200 Q 96 249 110 356 A 180 180 0 0 1 53 303 Q 85 200 200 200 Z" fill="#EC008C"/>
+    <path d="M 200 200 Q 85 190 44 290 A 180 180 0 0 1 21 216 Q 100 142 200 200 Z" fill="#EC008C"/>
+
+    <!-- Yellow (180°–265°) -->
+    <path d="M 200 200 Q 106 134 20 200 A 180 180 0 0 1 37 124 Q 142 100 200 200 Z" fill="#FFF200"/>
+    <path d="M 200 200 Q 151 96 44 110 A 180 180 0 0 1 97 53 Q 200 85 200 200 Z" fill="#FFF200"/>
+    <path d="M 200 200 Q 210 85 110 44 A 180 180 0 0 1 184 21 Q 258 100 200 200 Z" fill="#FFF200"/>
+
+    <!-- Key/Black (270°–355°) -->
+    <path d="M 200 200 Q 266 106 200 20 A 180 180 0 0 1 276 37 Q 300 142 200 200 Z" fill="#231F20"/>
+    <path d="M 200 200 Q 304 151 290 44 A 180 180 0 0 1 347 97 Q 315 200 200 200 Z" fill="#231F20"/>
+    <path d="M 200 200 Q 315 210 356 110 A 180 180 0 0 1 379 184 Q 300 258 200 200 Z" fill="#231F20"/>
+  </g>
+
+  <!-- Center hub -->
+  <circle cx="200" cy="200" r="16" fill="#FFFFFF"/>
+  <circle cx="200" cy="200" r="12" fill="#0f0f1a"/>
+
+  <!-- Outer ring -->
+  <circle cx="200" cy="200" r="185" fill="none" stroke="#0f0f1a" stroke-width="6"/>
+</svg>

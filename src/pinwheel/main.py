@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from pinwheel.api.eval_dashboard import router as eval_dashboard_router
 from pinwheel.api.events import router as events_router
 from pinwheel.api.games import router as games_router
 from pinwheel.api.governance import router as governance_router
@@ -43,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if is_discord_enabled(settings):
         from pinwheel.discord.bot import start_discord_bot
 
-        discord_bot = await start_discord_bot(settings, app.state.event_bus)
+        discord_bot = await start_discord_bot(settings, app.state.event_bus, engine)
         app.state.discord_bot = discord_bot
         logger.info("discord_bot_integration_started")
     else:
@@ -92,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(governance_router)
     app.include_router(mirrors_router)
     app.include_router(events_router)
+    app.include_router(eval_dashboard_router)
 
     # Page routes (must come after API routes so /api/ paths match first)
     app.include_router(pages_router)

@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 import discord
 
 if TYPE_CHECKING:
-    from pinwheel.models.governance import Proposal, VoteTally
+    from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
     from pinwheel.models.mirror import Mirror
+    from pinwheel.models.tokens import TokenBalance, Trade
 
 # Brand colors
 COLOR_GAME = 0xE74C3C  # Red — game results
@@ -204,6 +205,130 @@ def build_schedule_embed(
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_interpretation_embed(
+    raw_text: str,
+    interpretation: RuleInterpretation,
+    tier: int,
+    token_cost: int,
+    tokens_remaining: int,
+    governor_name: str = "",
+) -> discord.Embed:
+    """Build an embed showing AI interpretation of a proposal.
+
+    Displayed ephemeral with confirm/revise/cancel buttons.
+    """
+    embed = discord.Embed(
+        title="Proposal Interpretation",
+        color=COLOR_GOVERNANCE,
+    )
+
+    embed.description = f'"{raw_text}"'
+
+    if interpretation.parameter:
+        embed.add_field(
+            name="Parameter Change",
+            value=(
+                f"`{interpretation.parameter}`: "
+                f"{interpretation.old_value} -> {interpretation.new_value}"
+            ),
+            inline=False,
+        )
+    elif interpretation.clarification_needed:
+        embed.add_field(
+            name="Needs Clarification",
+            value="Could not map to a game parameter.",
+            inline=False,
+        )
+
+    if interpretation.impact_analysis:
+        embed.add_field(
+            name="Impact Analysis",
+            value=interpretation.impact_analysis[:1024],
+            inline=False,
+        )
+
+    embed.add_field(name="Tier", value=str(tier), inline=True)
+    embed.add_field(
+        name="Cost",
+        value=f"{token_cost} PROPOSE token",
+        inline=True,
+    )
+    embed.add_field(
+        name="Remaining",
+        value=f"{tokens_remaining} PROPOSE",
+        inline=True,
+    )
+    confidence_pct = f"{interpretation.confidence:.0%}"
+    embed.add_field(
+        name="Confidence", value=confidence_pct, inline=True,
+    )
+
+    if governor_name:
+        embed.set_author(name=governor_name)
+    embed.set_footer(text="Pinwheel Fates -- Confirm, Revise, or Cancel")
+    return embed
+
+
+def build_token_balance_embed(
+    balance: TokenBalance,
+    governor_name: str = "",
+) -> discord.Embed:
+    """Build an embed showing a governor's token balances."""
+    embed = discord.Embed(
+        title="Governance Tokens",
+        color=COLOR_GOVERNANCE,
+    )
+    embed.description = (
+        f"**PROPOSE:** {balance.propose}\n"
+        f"**AMEND:** {balance.amend}\n"
+        f"**BOOST:** {balance.boost}"
+    )
+    if governor_name:
+        embed.set_author(name=governor_name)
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_trade_offer_embed(
+    trade: Trade,
+    from_name: str,
+    to_name: str,
+) -> discord.Embed:
+    """Build an embed for a trade offer between governors."""
+    embed = discord.Embed(
+        title="Trade Offer",
+        color=COLOR_GOVERNANCE,
+    )
+    embed.description = (
+        f"**{from_name}** offers "
+        f"**{trade.offered_amount} {trade.offered_type.upper()}** "
+        f"token{'s' if trade.offered_amount > 1 else ''}\n"
+        f"in exchange for "
+        f"**{trade.requested_amount} "
+        f"{trade.requested_type.upper()}** "
+        f"token{'s' if trade.requested_amount > 1 else ''}\n"
+        f"from **{to_name}**"
+    )
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_strategy_embed(
+    raw_text: str,
+    team_name: str,
+) -> discord.Embed:
+    """Build an embed for a team strategy submission."""
+    embed = discord.Embed(
+        title=f"Strategy -- {team_name}",
+        description=f'"{raw_text}"',
+        color=COLOR_GOVERNANCE,
+    )
+    embed.set_footer(
+        text="Pinwheel Fates -- Strategy active until changed",
+    )
     return embed
 
 

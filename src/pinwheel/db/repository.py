@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from pinwheel.db.models import (
     AgentRow,
     BoxScoreRow,
+    EvalResultRow,
     GameResultRow,
     GovernanceEventRow,
     LeagueRow,
@@ -443,3 +444,95 @@ class Repository:
         self.session.add(player)
         await self.session.flush()
         return player
+
+    # --- Player Enrollment ---
+
+    async def enroll_player(
+        self, player_id: str, team_id: str, season_id: str
+    ) -> PlayerRow:
+        """Set a player's team enrollment for a season.
+
+        Raises ValueError if the player is already enrolled on a different
+        team this season (season-lock).
+        """
+        player = await self.session.get(PlayerRow, player_id)
+        if player is None:
+            msg = f"Player {player_id} not found"
+            raise ValueError(msg)
+
+        if (
+            player.enrolled_season_id == season_id
+            and player.team_id is not None
+            and player.team_id != team_id
+        ):
+            msg = f"Player already enrolled on team {player.team_id} for season {season_id}"
+            raise ValueError(msg)
+
+        player.team_id = team_id
+        player.enrolled_season_id = season_id
+        await self.session.flush()
+        return player
+
+    async def get_players_for_team(self, team_id: str) -> list[PlayerRow]:
+        """Return all players enrolled on a team."""
+        stmt = select(PlayerRow).where(PlayerRow.team_id == team_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_player_enrollment(
+        self, discord_id: str, season_id: str
+    ) -> tuple[str, str] | None:
+        """Return (team_id, team_name) if the player is enrolled this season, else None."""
+        stmt = select(PlayerRow).where(
+            PlayerRow.discord_id == discord_id,
+            PlayerRow.enrolled_season_id == season_id,
+            PlayerRow.team_id.isnot(None),
+        )
+        result = await self.session.execute(stmt)
+        player = result.scalar_one_or_none()
+        if player is None or player.team_id is None:
+            return None
+
+        team = await self.get_team(player.team_id)
+        team_name = team.name if team else player.team_id
+        return (player.team_id, team_name)
+
+    # --- Eval Results ---
+
+    async def store_eval_result(
+        self,
+        season_id: str,
+        round_number: int,
+        eval_type: str,
+        score: float = 0.0,
+        eval_subtype: str = "",
+        details_json: dict | None = None,
+    ) -> EvalResultRow:
+        """Store an eval result. Never stores private mirror content."""
+        row = EvalResultRow(
+            season_id=season_id,
+            round_number=round_number,
+            eval_type=eval_type,
+            eval_subtype=eval_subtype,
+            score=score,
+            details_json=details_json,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
+
+    async def get_eval_results(
+        self,
+        season_id: str,
+        eval_type: str | None = None,
+        round_number: int | None = None,
+    ) -> list[EvalResultRow]:
+        """Get eval results, optionally filtered by type and round."""
+        stmt = select(EvalResultRow).where(EvalResultRow.season_id == season_id)
+        if eval_type:
+            stmt = stmt.where(EvalResultRow.eval_type == eval_type)
+        if round_number is not None:
+            stmt = stmt.where(EvalResultRow.round_number == round_number)
+        stmt = stmt.order_by(EvalResultRow.created_at.desc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

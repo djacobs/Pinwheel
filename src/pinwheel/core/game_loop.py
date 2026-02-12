@@ -65,6 +65,98 @@ def _row_to_team(team_row: object) -> Team:
     )
 
 
+async def _run_evals(
+    repo: Repository,
+    season_id: str,
+    round_number: int,
+    mirrors: list[Mirror],
+    game_summaries: list[dict],
+    teams_cache: dict,
+) -> None:
+    """Run automated evals after mirror generation. Non-blocking."""
+    from pinwheel.evals.behavioral import compute_mirror_impact_rate
+    from pinwheel.evals.grounding import GroundingContext, check_grounding
+    from pinwheel.evals.prescriptive import scan_prescriptive
+
+    # Build grounding context
+    team_data = [{"name": t.name} for t in teams_cache.values()]
+    agent_data = []
+    for t in teams_cache.values():
+        for a in t.agents:
+            agent_data.append({"name": a.name})
+    season = await repo.get_season(season_id)
+    ruleset_dict = season.current_ruleset if season else {}
+    context = GroundingContext(
+        team_names=[d["name"] for d in team_data],
+        agent_names=[d["name"] for d in agent_data],
+        rule_params=list((ruleset_dict or {}).keys()),
+    )
+
+    for mirror in mirrors:
+        # Prescriptive scan
+        presc = scan_prescriptive(mirror.content, mirror.id, mirror.mirror_type)
+        await repo.store_eval_result(
+            season_id=season_id,
+            round_number=round_number,
+            eval_type="prescriptive",
+            eval_subtype=mirror.mirror_type,
+            score=float(presc.prescriptive_count),
+            details_json={
+                "mirror_id": mirror.id,
+                "mirror_type": mirror.mirror_type,
+                "count": presc.prescriptive_count,
+                "flagged": presc.flagged,
+            },
+        )
+
+        # Grounding check
+        grounding = check_grounding(mirror.content, context, mirror.id, mirror.mirror_type)
+        await repo.store_eval_result(
+            season_id=season_id,
+            round_number=round_number,
+            eval_type="grounding",
+            eval_subtype=mirror.mirror_type,
+            score=float(grounding.entities_found),
+            details_json={
+                "mirror_id": mirror.id,
+                "mirror_type": mirror.mirror_type,
+                "entities_expected": grounding.entities_expected,
+                "entities_found": grounding.entities_found,
+                "grounded": grounding.grounded,
+            },
+        )
+
+    # Behavioral shift (Mirror Impact Rate)
+    impact_rate = await compute_mirror_impact_rate(repo, season_id, round_number)
+    await repo.store_eval_result(
+        season_id=season_id,
+        round_number=round_number,
+        eval_type="behavioral",
+        eval_subtype="mirror_impact_rate",
+        score=impact_rate,
+        details_json={"mirror_impact_rate": impact_rate},
+    )
+
+    # Scenario flags
+    try:
+        from pinwheel.evals.flags import detect_all_flags
+
+        flags = await detect_all_flags(repo, season_id, round_number, game_summaries)
+        for flag in flags:
+            await repo.store_eval_result(
+                season_id=season_id,
+                round_number=round_number,
+                eval_type="flag",
+                eval_subtype=flag.flag_type,
+                score=1.0 if flag.severity == "critical" else 0.5,
+                details_json=flag.model_dump(mode="json"),
+            )
+    except Exception:
+        logger.exception("flag_detection_failed season=%s round=%d", season_id, round_number)
+
+    logger.info("evals_complete season=%s round=%d", season_id, round_number)
+
+
 async def step_round(
     repo: Repository,
     season_id: str,
@@ -330,7 +422,7 @@ async def step_round(
                 governor_data, gov_id, season_id, round_number
             )
 
-        await repo.store_mirror(
+        mirror_row = await repo.store_mirror(
             season_id=season_id,
             mirror_type="private",
             round_number=round_number,
@@ -339,7 +431,29 @@ async def step_round(
         )
         mirrors.append(priv_mirror)
 
-    # 7. Publish round complete
+        if event_bus:
+            await event_bus.publish(
+                "mirror.generated",
+                {
+                    "mirror_type": "private",
+                    "round": round_number,
+                    "governor_id": gov_id,
+                    "mirror_id": mirror_row.id,
+                    "excerpt": priv_mirror.content[:200],
+                },
+            )
+
+    # 7. Run evals (non-blocking — failures here never break the game loop)
+    try:
+        from pinwheel.config import Settings
+
+        eval_settings = Settings()
+        if eval_settings.pinwheel_evals_enabled:
+            await _run_evals(repo, season_id, round_number, mirrors, game_summaries, teams_cache)
+    except Exception:
+        logger.exception("eval_step_failed season=%s round=%d", season_id, round_number)
+
+    # 8. Publish round complete
     elapsed = time.monotonic() - start
     logger.info(
         "round_complete season=%s round=%d games=%d mirrors=%d elapsed_ms=%.1f",
