@@ -209,13 +209,14 @@ pinwheel/
 
 ### Session discipline — NON-NEGOTIABLE
 
-Every work session must end with these steps, in order:
+Every work session must end by running `/post-commit`. This skill automates the session-end checklist:
 
 1. **Tests pass.** Run `uv run pytest -x -q` and confirm green. Every new feature needs tests. Coverage should be as broad as logically possible — not just happy paths, but auth failures, empty states, edge cases. If you added code, you added tests for it.
-2. **Dev log updated.** Update `docs/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
-3. **UX notes updated.** If any visual or interaction changes were made, update `docs/UX_NOTES.md` with numbered entries describing the problem, fix, and implementation.
-4. **Code committed.** Stage the specific files you changed and commit with a conventional commit message. Never leave passing code uncommitted. Never commit failing tests.
-5. **Demo artifacts.** After significant visual changes, run Rodney (`uvx rodney screenshot`) and Showboat (`bash scripts/run_demo.sh`) to capture updated screenshots for `demo/`.
+2. **Demo artifacts.** After significant visual changes, run Rodney (`uvx rodney screenshot`) and Showboat (`bash scripts/run_demo.sh`) to capture updated screenshots for `demo/`.
+3. **Dev log updated.** Update `docs/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
+4. **Plans archived.** Copy any Claude Code plan files from `~/.claude/plans/` into `docs/plans/` with descriptive filenames. Plans are project artifacts — they belong in the repo, not just in Claude's local state.
+5. **UX notes updated.** If any visual or interaction changes were made, update `docs/UX_NOTES.md` with numbered entries describing the problem, fix, and implementation.
+6. **Code committed and pushed.** Stage the specific files you changed and commit with a conventional commit message. Push to GitHub. Never leave passing code uncommitted. Never commit failing tests.
 
 If you're unsure whether to commit, the answer is yes — commit the passing state. Uncommitted work is lost work.
 

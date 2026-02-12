@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **467 tests**, zero lint errors
+- **473 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 26 (game clock display in play-by-play)
+- **Latest commit:** Session 27 (UX polish, richer mirrors, presentation cycle)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -354,3 +354,45 @@ Each possession costs: `play_time = shot_clock_seconds * rng.uniform(0.4, 1.0)` 
 **467 tests, zero lint errors.**
 
 **What could have gone better:** Clean implementation — no issues.
+
+---
+
+## Session 27 — UX Polish, Richer Mirrors, Presentation Cycle
+
+**What was asked:** Three interconnected changes: (1) Remove "Rules" from nav, remove AI sentence from play hero, migrate wild card copy + key game params to play page. (2) Make mirrors more verbose — mention specific rule changes with old/new values, governance outcomes, next governance window timing. (3) Build real-time presentation cycle — new presenter module that replays pre-computed game results over wall-clock time via EventBus.
+
+**What was built:**
+
+### UX fixes
+- Removed "Rules" nav link (page still accessible via URL)
+- Removed "The AI watches and reflects — but every decision is yours." from play page hero
+- Migrated "Beyond the Numbers" wild card section from rules page to play page
+- Added "Current Game Parameters" section to play page — 6 key rules in card grid (shot clock, three-point value, quarter length, Elam margin, free throw value, foul limit)
+- Loaded RuleSet in `play_page()`, community change count passed to template
+
+### Richer mirrors
+- Updated all 3 prompt templates: simulation (3-5 paragraphs), governance (3-5 paragraphs), private (2-3 paragraphs)
+- Added prompt rules for referencing specific parameter changes, governance window outcomes, and next window timing
+- Increased `max_tokens` from 800 to 1500
+- Enriched `governance_data["rules_changed"]` in game_loop.py with `rule.enacted` event data (parameter, old_value, new_value)
+- Added `governance_window_minutes` to governance data
+- Updated mock generators: governance mock shows "Param Label moved from X to Y", simulation mock notes rule changes
+
+### Real-time presentation cycle
+- Added 3 config fields: `presentation_mode` (instant/replay), `game_interval_seconds` (1800), `quarter_replay_seconds` (300)
+- Created `core/presenter.py`: `PresentationState` dataclass + `present_round()` async function
+  - Groups possessions by quarter, drips events with calculated delays
+  - Re-entry guard prevents double-presentation
+  - Cancellation via `asyncio.Event` for clean shutdown
+- Added `game_results` list to `RoundResult` so GameResult objects flow through
+- Wired presenter into `scheduler_runner.py` — replay mode creates background task after `step_round()`
+- Initialized `PresentationState` on `app.state` in `main.py`
+- 6 new tests: event ordering, cancellation, re-entry guard, empty results, state reset, multi-game
+
+**Files created (2):** `core/presenter.py`, `tests/test_presenter.py`
+
+**Files modified (10):** `templates/base.html`, `templates/pages/play.html`, `api/pages.py`, `ai/mirror.py`, `core/game_loop.py`, `core/scheduler_runner.py`, `main.py`, `config.py`, `tests/test_mirrors.py`
+
+**473 tests, zero lint errors.**
+
+**What could have gone better:** Background agents couldn't write files due to permission denials — had to implement all 3 work items directly. The agents did valuable research (correct field names on GameResult/PossessionLog) even though they couldn't write code.

@@ -19,7 +19,7 @@ from pinwheel.config import APP_VERSION, PROJECT_ROOT
 from pinwheel.core.narrate import narrate_play, narrate_winner
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
-from pinwheel.models.rules import RuleSet
+from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 
 router = APIRouter(tags=["pages"])
 
@@ -235,6 +235,57 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
 
     gov_window_minutes = settings.pinwheel_gov_window // 60
 
+    # Load current ruleset for key game parameters
+    ruleset = DEFAULT_RULESET
+    community_changes = 0
+    if season_id:
+        season = await repo.get_season(season_id)
+        if season and season.current_ruleset:
+            ruleset = RuleSet(**season.current_ruleset)
+        for field_name in RuleSet.model_fields:
+            if getattr(ruleset, field_name) != getattr(DEFAULT_RULESET, field_name):
+                community_changes += 1
+
+    d = DEFAULT_RULESET
+    key_params = [
+        {
+            "label": "Shot Clock",
+            "value": f"{ruleset.shot_clock_seconds}s",
+            "desc": "Seconds per possession",
+            "changed": ruleset.shot_clock_seconds != d.shot_clock_seconds,
+        },
+        {
+            "label": "Three-Point Value",
+            "value": ruleset.three_point_value,
+            "desc": "Points for a three-pointer",
+            "changed": ruleset.three_point_value != d.three_point_value,
+        },
+        {
+            "label": "Quarter Length",
+            "value": f"{ruleset.quarter_minutes} min",
+            "desc": "Minutes per quarter (Q1-Q3)",
+            "changed": ruleset.quarter_minutes != d.quarter_minutes,
+        },
+        {
+            "label": "Elam Margin",
+            "value": f"+{ruleset.elam_margin}",
+            "desc": "Points added to leader's score for Elam target",
+            "changed": ruleset.elam_margin != d.elam_margin,
+        },
+        {
+            "label": "Free Throw Value",
+            "value": ruleset.free_throw_value,
+            "desc": "Points per free throw",
+            "changed": ruleset.free_throw_value != d.free_throw_value,
+        },
+        {
+            "label": "Foul Limit",
+            "value": ruleset.personal_foul_limit,
+            "desc": "Fouls before fouling out",
+            "changed": ruleset.personal_foul_limit != d.personal_foul_limit,
+        },
+    ]
+
     return templates.TemplateResponse(
         request,
         "pages/play.html",
@@ -246,6 +297,8 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             "total_games": total_games,
             "pace_desc": pace_desc,
             "gov_window_minutes": gov_window_minutes,
+            "key_params": key_params,
+            "community_changes": community_changes,
             **_auth_context(request, current_user),
         },
     )

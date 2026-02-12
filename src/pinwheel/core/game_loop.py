@@ -36,6 +36,7 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import close_governance_window
 from pinwheel.core.simulation import simulate_game
 from pinwheel.db.repository import Repository
+from pinwheel.models.game import GameResult
 from pinwheel.models.governance import GovernanceWindow, Proposal, Vote, VoteTally
 from pinwheel.models.mirror import Mirror
 from pinwheel.models.rules import RuleSet
@@ -200,6 +201,7 @@ async def step_round(
 
     # 4. Simulate games
     game_summaries = []
+    game_results: list[GameResult] = []
     for entry in schedule:
         home = teams_cache.get(entry.home_team_id)
         away = teams_cache.get(entry.away_team_id)
@@ -250,6 +252,8 @@ async def step_round(
                 steals=bs.steals,
                 turnovers=bs.turnovers,
             )
+
+        game_results.append(result)
 
         summary = {
             "game_id": game_id,
@@ -366,6 +370,27 @@ async def step_round(
         governance_data["rules_changed"] = [
             t.model_dump(mode="json") for t in tallies if t.passed
         ]
+
+        # Enrich rules_changed with actual parameter change details
+        rule_enacted_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["rule.enacted"],
+        )
+        # Filter to this round's changes and merge into governance_data
+        for rc_event in rule_enacted_events:
+            if rc_event.payload.get("round_enacted") == round_number:
+                # Find matching tally entry and enrich it
+                for rc in governance_data["rules_changed"]:
+                    if rc.get("proposal_id") == rc_event.payload.get("source_proposal_id"):
+                        rc["parameter"] = rc_event.payload.get("parameter")
+                        rc["old_value"] = rc_event.payload.get("old_value")
+                        rc["new_value"] = rc_event.payload.get("new_value")
+
+        # Add governance window timing info
+        from pinwheel.config import Settings as _Settings
+
+        _gov_settings = _Settings()
+        governance_data["governance_window_minutes"] = _gov_settings.pinwheel_gov_window // 60
 
         if event_bus:
             await event_bus.publish(
@@ -523,6 +548,7 @@ async def step_round(
         games=game_summaries,
         mirrors=mirrors,
         tallies=tallies,
+        game_results=game_results,
     )
 
 
@@ -535,8 +561,10 @@ class RoundResult:
         games: list[dict],
         mirrors: list[Mirror],
         tallies: list[VoteTally],
+        game_results: list[GameResult] | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
         self.mirrors = mirrors
         self.tallies = tallies
+        self.game_results = game_results or []

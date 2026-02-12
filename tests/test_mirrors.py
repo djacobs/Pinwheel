@@ -113,10 +113,17 @@ class TestGovernanceMirrorMock:
         data = {
             "proposals": [{"id": "p-1"}],
             "votes": [],
-            "rules_changed": [{"parameter": "three_point_value"}],
+            "rules_changed": [{
+                "parameter": "three_point_value",
+                "old_value": 3,
+                "new_value": 4,
+                "proposal_id": "p-1",
+            }],
         }
         mirror = generate_governance_mirror_mock(data, "s-1", 5)
-        assert "three_point_value" in mirror.content
+        assert "Three Point Value" in mirror.content
+        assert "3" in mirror.content
+        assert "4" in mirror.content
 
     def test_id_format(self):
         data = {"proposals": [], "votes": [], "rules_changed": []}

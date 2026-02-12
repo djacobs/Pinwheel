@@ -19,6 +19,7 @@ from pinwheel.api.teams import router as teams_router
 from pinwheel.auth.oauth import router as auth_router
 from pinwheel.config import PROJECT_ROOT, Settings
 from pinwheel.core.event_bus import EventBus
+from pinwheel.core.presenter import PresentationState
 from pinwheel.db.engine import create_engine
 from pinwheel.db.models import Base
 
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await conn.run_sync(Base.metadata.create_all)
     app.state.engine = engine
     app.state.event_bus = EventBus()
+    app.state.presentation_state = PresentationState()
 
     # Start Discord bot if configured
     discord_bot = None
@@ -66,6 +68,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "engine": engine,
                 "event_bus": app.state.event_bus,
                 "api_key": settings.anthropic_api_key,
+                "presentation_state": app.state.presentation_state,
+                "presentation_mode": settings.pinwheel_presentation_mode,
+                "game_interval_seconds": settings.pinwheel_game_interval_seconds,
+                "quarter_replay_seconds": settings.pinwheel_quarter_replay_seconds,
             },
             id="tick_round",
             name="Advance game round",

@@ -8,8 +8,7 @@
   <p class="play-hero-sub">
     Pinwheel Fates is a basketball league where the players write the rules.
     Games run automatically. Between rounds, you propose changes in plain English,
-    vote with your team, and reshape the game. The AI watches and reflects &mdash;
-    but every decision is yours.
+    vote with your team, and reshape the game.
   </p>
   {% if discord_invite_url %}
   <a href="{{ discord_invite_url }}" class="play-join-btn" target="_blank" rel="noopener">
@@ -101,6 +100,85 @@
     </div>
   </div>
 </div>
+
+{# ===== THE WILD CARD ===== #}
+<div class="rules-wildcard">
+  <div class="wildcard-inner">
+    <div class="wildcard-label">Beyond the Numbers</div>
+    <h2 class="wildcard-headline">
+      You are not limited to tweaking config values.
+      <span class="wc-accent">You can propose anything.</span>
+    </h2>
+    <p class="wildcard-body">
+      Want to make the floor lava? Introduce a maximum height rule? Switch to
+      baseball? Require all players to hop on one foot? <strong>Write it in
+      plain English.</strong> The AI interprets your proposal into mechanics.
+      Your team votes. If it passes, it reshapes the game. The simulation
+      engine evolves to match.
+    </p>
+
+    <div class="wildcard-examples">
+      <div class="wildcard-example">
+        &ldquo;Make three-pointers worth 10 points when scored in the last minute.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;If a team scores 5 times in a row, the other team gets a free possession.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;Switch to baseball for one round.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;All agents must have at least 30 Speed.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;If the score is tied at halftime, play the second half with 4 players per team.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;Add a weather system &mdash; rain reduces three-point accuracy by 20%.&rdquo;
+      </div>
+    </div>
+
+    <div class="wildcard-flow">
+      <span class="wildcard-flow-step">You propose</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">AI interprets</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">Your team votes</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">The game changes</span>
+    </div>
+  </div>
+</div>
+
+{# ===== KEY GAME PARAMETERS ===== #}
+{% if key_params %}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Current Game Parameters</span>
+  </div>
+  <p class="play-intro">
+    These are the numbers that define the game right now. Governors can change any of them.
+  </p>
+  <div class="rules-tier-grid">
+    {% for param in key_params %}
+    <div class="rule-card {% if param.changed %}rule-card-changed{% endif %}">
+      <div class="rule-card-header">
+        <span class="rule-card-label">{{ param.label }}</span>
+        <span class="rule-card-value {% if param.changed %}rule-card-value-changed{% endif %}">{{ param.value }}</span>
+      </div>
+      <div class="rule-card-desc">{{ param.desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if community_changes > 0 %}
+  <p class="play-intro" style="margin-top:1rem;">
+    <span style="color:var(--accent-highlight); font-weight:700;">{{ community_changes }}</span>
+    rule{{ 's' if community_changes != 1 else '' }} changed by the community so far.
+    <a href="/rules">See all rules &rarr;</a>
+  </p>
+  {% endif %}
+</div>
+{% endif %}
 
 {# ===== WHAT YOU DO ===== #}
 <div class="home-section">

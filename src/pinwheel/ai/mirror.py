@@ -31,9 +31,12 @@ Your job: reflect on the round's game results. Describe patterns, surprises, and
 1. You DESCRIBE. You never PRESCRIBE. Never say "players should" or "the league needs to."
 2. You are observing a simulated basketball league. The games are auto-simulated; no humans play.
 3. Human "governors" control the RULES of the game. Your job is to make patterns visible.
-4. Be concise (2-4 paragraphs). Be vivid. Channel a sports journalist who sees the deeper story.
+4. Be vivid and thorough (3-5 paragraphs). Channel a sports journalist who sees the deeper story.
 5. Note any statistical anomalies, streaks, or effects of recent rule changes.
 6. If the Elam Ending activated, comment on how it shaped the game's outcome.
+7. If rules changed recently, analyze how the new parameters affected this round's outcomes. \
+Reference specific changes (e.g., "With three-pointers now worth 4, perimeter shooting dominated").
+8. Mention the next governance window — what patterns should governors pay attention to?
 
 ## Current Round Data
 
@@ -48,9 +51,13 @@ and how the rule space is evolving.
 
 ## Rules
 1. You DESCRIBE. You never PRESCRIBE. Never say "governors should" or "the league needs to."
-2. Be concise (2-3 paragraphs). Note trends — are proposals getting bolder? Is consensus forming?
+2. Be thorough (3-5 paragraphs). Note trends — are proposals getting bolder? Is consensus forming?
 3. If rules changed this round, reflect on what the change reveals about the community's values.
 4. If proposals failed, note what that tells us about disagreement or shared priorities.
+5. For each rule that changed, state the parameter name, old value, and new value \
+explicitly (e.g., "three_point_value changed from 3 to 4").
+6. Summarize the governance window outcome: how many proposals filed, passed, and failed.
+7. If governance window timing is available, mention when the next window opens.
 
 ## Governance Activity
 
@@ -65,7 +72,7 @@ It helps them understand their patterns without telling them what to do.
 
 ## Rules
 1. You DESCRIBE their behavior patterns. You never PRESCRIBE actions.
-2. Be concise (1-2 paragraphs). Be specific to THIS governor's actions.
+2. Write 2-3 paragraphs. Be specific to THIS governor's actions.
 3. Note: voting patterns, proposal themes, token usage, consistency of philosophy.
 4. Never compare them to other specific governors. Reflect, don't rank.
 5. If they haven't been active, note the absence without judgment.
@@ -225,7 +232,7 @@ async def _call_claude(system: str, user_message: str, api_key: str) -> str:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
             model="claude-sonnet-4-5-20250929",
-            max_tokens=800,
+            max_tokens=1500,
             system=system,
             messages=[{"role": "user", "content": user_message}],
         )
@@ -345,6 +352,21 @@ def generate_simulation_mirror_mock(
             "A round of extremes: blowouts and nail-biters sharing the same scorecard."
         )
 
+    # Note rule changes if present in round data
+    rule_changes = round_data.get("rule_changes", [])
+    if rule_changes:
+        change_notes = []
+        for rc in rule_changes:
+            param = rc.get("parameter", "")
+            if param:
+                change_notes.append(f"{param.replace('_', ' ')}")
+        if change_notes:
+            lines.append(
+                f"This round marked the first games under new rules — "
+                f"{', '.join(change_notes)} {'was' if len(change_notes) == 1 else 'were'} "
+                f"adjusted heading into the round. The effects are starting to show."
+            )
+
     return Mirror(
         id=f"m-sim-{round_number}-mock",
         mirror_type="simulation",
@@ -379,8 +401,17 @@ def generate_governance_mirror_mock(
         lines.append(f"Governors cast {len(votes)} votes ({yes_count} yes, {no_count} no).")
 
     if rules_changed:
-        params = [rc.get("parameter", "?") for rc in rules_changed]
-        lines.append(f"Rule changes enacted: {', '.join(params)}.")
+        lines.append(f"{len(rules_changed)} rule(s) changed this round:")
+        for rc in rules_changed:
+            param = rc.get("parameter", "unknown")
+            old_val = rc.get("old_value", "?")
+            new_val = rc.get("new_value", "?")
+            if param != "unknown" and old_val != "?" and new_val != "?":
+                param_label = param.replace("_", " ").title()
+                lines.append(f"  {param_label} moved from {old_val} to {new_val}.")
+            else:
+                lines.append(f"  A rule was changed (proposal {rc.get('proposal_id', '?')}).")
+        lines.append("The next round plays under these new conditions.")
 
     return Mirror(
         id=f"m-gov-{round_number}-mock",

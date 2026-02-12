@@ -9,6 +9,7 @@ Errors are logged but never propagated so the scheduler keeps running.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy import func, select
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import step_round
+from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
 from pinwheel.db.models import GameResultRow, SeasonRow
 from pinwheel.db.repository import Repository
@@ -27,6 +29,10 @@ async def tick_round(
     engine: AsyncEngine,
     event_bus: EventBus,
     api_key: str = "",
+    presentation_state: PresentationState | None = None,
+    presentation_mode: str = "instant",
+    game_interval_seconds: int = 1800,
+    quarter_replay_seconds: int = 300,
 ) -> None:
     """Advance the active season by one round.
 
@@ -67,13 +73,37 @@ async def tick_round(
                 next_round,
             )
 
-            await step_round(
+            round_result = await step_round(
                 repo,
                 season_id,
                 round_number=next_round,
                 event_bus=event_bus,
                 api_key=api_key,
             )
+
+            # If replay mode, start presenting results over real time
+            if (
+                presentation_mode == "replay"
+                and presentation_state is not None
+                and round_result.game_results
+                and not presentation_state.is_active
+            ):
+                presentation_state.current_round = next_round
+                asyncio.create_task(
+                    present_round(
+                        game_results=round_result.game_results,
+                        event_bus=event_bus,
+                        state=presentation_state,
+                        game_interval_seconds=game_interval_seconds,
+                        quarter_replay_seconds=quarter_replay_seconds,
+                    )
+                )
+                logger.info(
+                    "presentation_started season=%s round=%d games=%d",
+                    season_id,
+                    next_round,
+                    len(round_result.game_results),
+                )
 
             logger.info(
                 "tick_round_done season=%s round=%d",

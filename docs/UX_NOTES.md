@@ -328,3 +328,18 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** Play-by-play display showed only "Q1", "Q2", etc. With clock-based quarters now implemented, each possession consumes real game time — but the viewer couldn't see it. Real basketball broadcasts always show the clock.
 
 **Fix:** Added `game_clock` field to `PossessionLog`. Timed quarter possessions display as "Q1 9:32" (minutes:seconds remaining). Elam ending (Q4) is untimed, so those possessions show just "Q4" with no clock. Widened `.pbp-quarter` from `min-width: 2rem` to `min-width: 5rem` to fit the clock text. Template uses `{% if play.game_clock %}` conditional to only render the clock when present.
+
+### 34. [DONE] Remove "Rules" from nav
+**Problem:** Rules page was a nav item, but its content was dense parameter tables — not something players need in the main navigation. Better to surface the interesting parts (wild card proposals, key parameters) on the Play page and keep the full rules accessible via direct URL.
+
+**Fix:** Removed the Rules link from `base.html` nav. The `/rules` route still works — FAQ and other pages still link to it. The nav is now: Play, Arena, Standings, Governance, Mirrors.
+
+### 35. [DONE] Play page hero cleanup + wild card + key params
+**Problem:** Play page hero had "The AI watches and reflects — but every decision is yours." — centering the AI when the page should center the player. Also, the best copy about proposing anything was buried on the rules page.
+
+**Fix:** Removed the AI sentence. Migrated the "Beyond the Numbers" wild card section (6 example proposals + flow strip) from rules page to play page. Added a "Current Game Parameters" section showing 6 key rules (shot clock, three-point value, quarter length, Elam margin, free throw value, foul limit) in the existing `rule-card` grid. Shows community change count when rules have been modified. `play_page()` now loads the current RuleSet and passes `key_params` to the template.
+
+### 36. [DONE] Richer mirror output
+**Problem:** Mirrors were too brief (2-3 paragraphs) and didn't mention specific rule changes, governance outcomes, or timing of next governance window. Governors couldn't easily see what changed and what it meant.
+
+**Fix:** Updated all 3 mirror prompt templates: simulation (3-5 paragraphs), governance (3-5 paragraphs), private (2-3 paragraphs). Added prompt rules for referencing specific parameter changes with old/new values, summarizing governance window outcomes, and mentioning next window timing. Increased `max_tokens` from 800 to 1500. Enriched `governance_data["rules_changed"]` with actual `RuleChange` data from `rule.enacted` events. Updated mock generators to show detailed parameter changes.
