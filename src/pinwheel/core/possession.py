@@ -138,18 +138,44 @@ def attempt_rebound(
     return rebounder, is_offensive
 
 
+def check_shot_clock_violation(
+    handler: AgentState,
+    scheme: DefensiveScheme,
+    rng: random.Random,
+) -> bool:
+    """Check if the offense commits a shot clock violation.
+
+    Strong defense + low IQ + fatigue → higher chance of not getting a shot off.
+    """
+    base_rate = 0.02
+    # Aggressive schemes make it harder to get a shot off
+    scheme_factor: dict[DefensiveScheme, float] = {
+        "press": 2.0,
+        "man_tight": 1.5,
+        "man_switch": 1.0,
+        "zone": 0.5,
+    }
+    # Fatigue makes it harder to create a shot
+    fatigue_factor = 1.0 + (1.0 - handler.current_stamina) * 0.8
+    # High IQ handlers manage the clock better
+    iq_factor = 1.0 - (handler.current_attributes.iq / 200.0)
+
+    prob = base_rate * scheme_factor[scheme] * fatigue_factor * max(0.3, iq_factor)
+    return rng.random() < max(0.005, min(0.12, prob))
+
+
 def drain_stamina(
     agents: list[AgentState],
     scheme: DefensiveScheme,
     is_defense: bool,
 ) -> None:
     """Drain stamina for all agents after a possession."""
-    base_drain = 0.012
-    scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.005
+    base_drain = 0.007
+    scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
     for agent in agents:
-        recovery = agent.agent.attributes.stamina / 5000.0
+        recovery = agent.agent.attributes.stamina / 3000.0
         drain = base_drain + scheme_drain - recovery
-        agent.current_stamina = max(0.1, agent.current_stamina - max(0, drain))
+        agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
 
 def resolve_possession(
@@ -173,9 +199,8 @@ def resolve_possession(
     # 2. Select ball handler
     handler = select_ball_handler(offense, rng)
 
-    # 3. Check turnover
+    # 3. Check turnover (live-ball: steal)
     if check_turnover(handler, scheme, rng):
-        # Credit steal to a random defender
         stealer = rng.choice(defense)
         stealer.steals += 1
         handler.turnovers += 1
@@ -192,6 +217,34 @@ def resolve_possession(
             ),
             ball_handler_id=handler.agent.id,
             action="turnover",
+            result="turnover",
+            defensive_scheme=scheme,
+            home_score=game_state.home_score,
+            away_score=game_state.away_score,
+        )
+        return PossessionResult(
+            turnover=True,
+            scoring_team_home=game_state.home_has_ball,
+            defensive_scheme=scheme,
+            log=log,
+        )
+
+    # 3b. Check shot clock violation (defense shuts down the offense)
+    if check_shot_clock_violation(handler, scheme, rng):
+        handler.turnovers += 1
+        drain_stamina(offense, scheme, is_defense=False)
+        drain_stamina(defense, scheme, is_defense=True)
+
+        log = PossessionLog(
+            quarter=game_state.quarter,
+            possession_number=game_state.possession_number,
+            offense_team_id=(
+                game_state.home_agents[0].agent.team_id
+                if game_state.home_has_ball
+                else game_state.away_agents[0].agent.team_id
+            ),
+            ball_handler_id=handler.agent.id,
+            action="shot_clock_violation",
             result="turnover",
             defensive_scheme=scheme,
             home_score=game_state.home_score,

@@ -51,7 +51,7 @@
             <tr>
               <th></th>
               {% for qs in game.quarter_scores %}
-              <th>{% if loop.last and game.elam_target %}Elam{% else %}Q{{ loop.index }}{% endif %}</th>
+              <th>Q{{ loop.index }}</th>
               {% endfor %}
               <th>T</th>
             </tr>

@@ -20,8 +20,8 @@ class RuleSet(BaseModel):
     """
 
     # Tier 1: Game Mechanics
-    quarter_possessions: int = Field(default=15, ge=5, le=30)
-    shot_clock_seconds: int = Field(default=12, ge=10, le=60)
+    quarter_possessions: int = Field(default=25, ge=5, le=50)
+    shot_clock_seconds: int = Field(default=15, ge=10, le=60)
     three_point_value: int = Field(default=3, ge=1, le=10)
     two_point_value: int = Field(default=2, ge=1, le=10)
     free_throw_value: int = Field(default=1, ge=1, le=5)
@@ -29,9 +29,10 @@ class RuleSet(BaseModel):
     team_foul_bonus_threshold: int = Field(default=4, ge=3, le=10)
     three_point_distance: float = Field(default=22.15, ge=15.0, le=30.0)
     elam_trigger_quarter: int = Field(default=3, ge=1, le=4)
-    elam_margin: int = Field(default=13, ge=5, le=25)
-    halftime_stamina_recovery: float = Field(default=0.25, ge=0.0, le=0.5)
-    safety_cap_possessions: int = Field(default=200, ge=50, le=500)
+    elam_margin: int = Field(default=25, ge=5, le=40)
+    halftime_stamina_recovery: float = Field(default=0.40, ge=0.0, le=0.6)
+    quarter_break_stamina_recovery: float = Field(default=0.15, ge=0.0, le=0.3)
+    safety_cap_possessions: int = Field(default=300, ge=50, le=500)
 
     # Tier 2: Agent Behavior
     max_shot_share: float = Field(default=1.0, ge=0.2, le=1.0)

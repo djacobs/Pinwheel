@@ -111,6 +111,16 @@ def _halftime_recovery(
         agent.current_stamina = min(1.0, agent.current_stamina + rules.halftime_stamina_recovery)
 
 
+def _quarter_break_recovery(
+    game_state: GameState,
+    rules: RuleSet,
+) -> None:
+    """Recover stamina between quarters (not halftime)."""
+    recovery = rules.quarter_break_stamina_recovery
+    for agent in game_state.home_agents + game_state.away_agents:
+        agent.current_stamina = min(1.0, agent.current_stamina + recovery)
+
+
 def _build_box_scores(game_state: GameState) -> list[AgentBoxScore]:
     """Build box scores from agent states."""
     box_scores = []
@@ -192,9 +202,11 @@ def simulate_game(
             )
         )
 
-        # Halftime after Q2
+        # Quarter breaks: halftime after Q2, shorter break after Q1/Q3
         if q == 2:
             _halftime_recovery(game_state, rules)
+        else:
+            _quarter_break_recovery(game_state, rules)
 
     # Elam Ending
     if not game_state.game_over:

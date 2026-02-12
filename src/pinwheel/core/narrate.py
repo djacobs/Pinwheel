@@ -118,6 +118,13 @@ _TURNOVER = [
     "{player} gets careless — {defender} pounces",
 ]
 
+_SHOT_CLOCK_VIOLATION = [
+    "{player} can't find a shot — shot clock violation",
+    "Shot clock expires on {player} — the defense locked them down",
+    "The defense smothers {player} — shot clock turnover",
+    "{player} runs out of time — 15 seconds wasn't enough",
+]
+
 _FOUL = [
     "{defender} fouls {player} on the {shot_desc} — to the line",
     "Whistle! {defender} catches {player} on the arm",
@@ -138,7 +145,9 @@ def narrate_play(
     """Generate a one-line play-by-play description from structured data."""
     rng = random.Random(seed)
 
-    if result == "turnover":
+    if action == "shot_clock_violation":
+        text = rng.choice(_SHOT_CLOCK_VIOLATION).format(player=player, defender=defender)
+    elif result == "turnover":
         text = rng.choice(_TURNOVER).format(player=player, defender=defender)
     elif result == "foul":
         shot_desc = {"three_point": "three", "mid_range": "jumper", "at_rim": "drive"}.get(

@@ -21,9 +21,10 @@ from pinwheel.models.tokens import TokenBalance, Trade
 class TestRuleSet:
     def test_defaults(self):
         rules = RuleSet()
-        assert rules.quarter_possessions == 15
+        assert rules.quarter_possessions == 25
+        assert rules.shot_clock_seconds == 15
         assert rules.three_point_value == 3
-        assert rules.elam_margin == 13
+        assert rules.elam_margin == 25
 
     def test_custom_values(self):
         rules = RuleSet(three_point_value=4, elam_margin=10)
@@ -35,7 +36,7 @@ class TestRuleSet:
             RuleSet(quarter_possessions=100)
 
     def test_default_ruleset_singleton(self):
-        assert DEFAULT_RULESET.quarter_possessions == 15
+        assert DEFAULT_RULESET.quarter_possessions == 25
 
     def test_rule_change(self):
         rc = RuleChange(
