@@ -209,11 +209,13 @@ pinwheel/
 
 ### Session discipline — NON-NEGOTIABLE
 
-Every work session must end with these three steps, in order:
+Every work session must end with these steps, in order:
 
 1. **Tests pass.** Run `uv run pytest -x -q` and confirm green. Every new feature needs tests. Coverage should be as broad as logically possible — not just happy paths, but auth failures, empty states, edge cases. If you added code, you added tests for it.
 2. **Dev log updated.** Update `docs/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
-3. **Code committed.** Stage the specific files you changed and commit with a conventional commit message. Never leave passing code uncommitted. Never commit failing tests.
+3. **UX notes updated.** If any visual or interaction changes were made, update `docs/UX_NOTES.md` with numbered entries describing the problem, fix, and implementation.
+4. **Code committed.** Stage the specific files you changed and commit with a conventional commit message. Never leave passing code uncommitted. Never commit failing tests.
+5. **Demo artifacts.** After significant visual changes, run Rodney (`uvx rodney screenshot`) and Showboat (`bash scripts/run_demo.sh`) to capture updated screenshots for `demo/`.
 
 If you're unsure whether to commit, the answer is yes — commit the passing state. Uncommitted work is lost work.
 
@@ -224,10 +226,11 @@ Commit when you have a complete, valuable unit of change — not "WIP." If you c
 ### Keeping docs alive
 
 - **`docs/DEV_LOG.md`** — Update after each session. Each entry follows the format: **What was asked**, **What was built**, **Issues resolved**, **test count + lint status**. When a session adds new features, update the "Today's Agenda" checkboxes and note the session number. The dev log is the project's memory — future sessions read it to understand where we are.
-- **`scripts/run_demo.sh`** — When a feature adds a new page or route, add a corresponding demo step with a Rodney screenshot. Update the test count in the verification step. The demo script is the project's proof — it must reflect the current state of the application.
+- **`docs/UX_NOTES.md`** — **Update whenever a visual or interaction change is made.** Every UI change — new pages, redesigned layouts, component additions, style changes, narration improvements — gets a numbered entry with the problem, the fix, and implementation details. This is the design decision record. If you touched a template or CSS, you update UX_NOTES.
+- **`scripts/run_demo.sh`** — When a feature adds a new page or route, add a corresponding demo step with a Rodney screenshot. Update the test count in the verification step. The demo script is the project's proof — it must reflect the current state of the application. **Run Rodney and Showboat after significant visual changes** to capture updated screenshots.
 - **Design docs** (`SIMULATION.md`, `GAME_LOOP.md`, etc.) — When a design question is resolved, update the doc. Replace TODOs with decisions. Design docs should reflect the current state of the system, not the state when they were first written.
 - **`CLAUDE.md`** — When a design decision is made that affects architecture, code standards, or project structure, capture it here. This file is the single source of truth for how we build.
-- **Plan files** (`docs/plans/`) — Check off items as they're completed during `/workflows:work`. Plans are living documents, not write-once specs.
+- **Plan files** (`docs/plans/`) — Check off items as they're completed. Plans are living documents, not write-once specs.
 
 ## Code Standards
 
