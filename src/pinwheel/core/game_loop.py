@@ -18,6 +18,12 @@ import logging
 import time
 import uuid
 
+from pinwheel.ai.commentary import (
+    generate_game_commentary,
+    generate_game_commentary_mock,
+    generate_highlight_reel,
+    generate_highlight_reel_mock,
+)
 from pinwheel.ai.mirror import (
     generate_governance_mirror,
     generate_governance_mirror_mock,
@@ -255,10 +261,44 @@ async def step_round(
             "elam_activated": result.elam_activated,
             "total_possessions": result.total_possessions,
         }
+
+        # Generate commentary (non-blocking — never break the game loop)
+        try:
+            if api_key:
+                commentary = await generate_game_commentary(
+                    result, home, away, ruleset, api_key,
+                )
+            else:
+                commentary = generate_game_commentary_mock(result, home, away)
+            summary["commentary"] = commentary
+        except Exception:
+            logger.exception(
+                "commentary_failed game=%s season=%s round=%d",
+                game_id, season_id, round_number,
+            )
+
         game_summaries.append(summary)
 
         if event_bus:
             await event_bus.publish("game.completed", summary)
+
+    # Generate highlight reel for the round (non-blocking)
+    highlight_reel = ""
+    if game_summaries:
+        try:
+            if api_key:
+                highlight_reel = await generate_highlight_reel(
+                    game_summaries, round_number, api_key,
+                )
+            else:
+                highlight_reel = generate_highlight_reel_mock(
+                    game_summaries, round_number,
+                )
+        except Exception:
+            logger.exception(
+                "highlight_reel_failed season=%s round=%d",
+                season_id, round_number,
+            )
 
     # 5. Governance — close window if one is open
     tallies: list[VoteTally] = []
@@ -464,16 +504,17 @@ async def step_round(
         elapsed * 1000,
     )
 
+    round_completed_data: dict = {
+        "round": round_number,
+        "games": len(game_summaries),
+        "mirrors": len(mirrors),
+        "elapsed_ms": round(elapsed * 1000, 1),
+    }
+    if highlight_reel:
+        round_completed_data["highlight_reel"] = highlight_reel
+
     if event_bus:
-        await event_bus.publish(
-            "round.completed",
-            {
-                "round": round_number,
-                "games": len(game_summaries),
-                "mirrors": len(mirrors),
-                "elapsed_ms": round(elapsed * 1000, 1),
-            },
-        )
+        await event_bus.publish("round.completed", round_completed_data)
 
     return RoundResult(
         round_number=round_number,

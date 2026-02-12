@@ -332,6 +332,30 @@ def build_strategy_embed(
     return embed
 
 
+def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
+    """Build an embed showing AI commentary for a game.
+
+    Args:
+        game_data: Dict with keys: home_team, away_team, home_score,
+            away_score, commentary.
+    """
+    home = str(game_data.get("home_team", "Home"))
+    away = str(game_data.get("away_team", "Away"))
+    home_score = game_data.get("home_score", 0)
+    away_score = game_data.get("away_score", 0)
+    commentary = str(game_data.get("commentary", "No commentary available."))
+
+    title = f"{home} {home_score} - {away_score} {away}"
+
+    embed = discord.Embed(
+        title=title,
+        description=commentary[:4096],
+        color=COLOR_GAME,
+    )
+    embed.set_footer(text="Pinwheel Fates -- AI Commentary")
+    return embed
+
+
 def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
     """Build an embed summarizing a completed round.
 

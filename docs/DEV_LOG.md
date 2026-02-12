@@ -4,10 +4,10 @@ Previous log: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Days
 
 ## Where We Are
 
-- **358 tests**, zero lint errors
+- **401 tests**, zero lint errors
 - **Days 1-4 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework
-- **Day 5 in progress:** Discord governance commands wired, web audit trail behind auth
-- **Commit:** `4428707` pushed to `main`
+- **Day 5 in progress:** APScheduler, presenter pacing, AI commentary engine complete
+- **Commit:** `c7ab30a` (Session 9), latest uncommitted: Session 10
 
 ## Today's Agenda (Day 5: Polish + Demo)
 
@@ -16,9 +16,9 @@ Previous log: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Days
 - [x] Discord governance commands — /propose (AI-interpreted), /vote, /tokens, /trade, /strategy (Session 9)
 - [x] Web governance audit trail behind auth — vote totals, no individual votes (Session 9)
 - [x] Demo script — Showboat + Rodney pipeline, 15 steps, 10 screenshots (Sessions 6, 8)
-- [ ] Presenter pacing (the 20-30 min game experience)
-- [ ] AI commentary engine
-- [ ] APScheduler integration for automatic round advancement
+- [x] Presenter pacing — pace-to-cron mapping, `/api/pace` endpoint, `effective_game_cron()` (Session 10)
+- [x] AI commentary engine — broadcaster-style game commentary + round highlight reels (Session 10)
+- [x] APScheduler integration for automatic round advancement — `tick_round()` + lifespan wiring (Session 10)
 - [ ] Polish pass
 - [ ] Deployment to Fly.io
 
@@ -157,5 +157,43 @@ Rewrote/added 5 governance commands in `src/pinwheel/discord/bot.py`:
 - ruff SIM105: replaced `try/except/pass` with `contextlib.suppress(discord.Forbidden)` for trade DM fallback
 
 **31 new tests (358 total), zero lint errors.**
+
+---
+
+## Session 10 — APScheduler + Presenter Pacing + AI Commentary
+
+**What was asked:** Execute three features in parallel: (1) APScheduler integration for automatic round advancement, (2) presenter pacing modes for the 20-30 min demo experience, (3) AI commentary engine for broadcaster-style game narratives.
+
+**What was built:**
+
+### APScheduler Integration
+
+- **`src/pinwheel/core/scheduler_runner.py`** (new) — `tick_round(engine, event_bus, api_key)` async function. Finds active season, determines next round from `max(GameResultRow.round_number) + 1`, calls `step_round()`. All exceptions caught and logged — scheduler never interrupted.
+- **`src/pinwheel/main.py`** — APScheduler wired into FastAPI lifespan. `AsyncIOScheduler` with `CronTrigger.from_crontab()`. Gated on `pinwheel_auto_advance=True` and `effective_game_cron() is not None`. Clean shutdown on teardown.
+- **`src/pinwheel/config.py`** — Added `pinwheel_auto_advance: bool = True`.
+
+### Presenter Pacing
+
+- **`src/pinwheel/config.py`** — `PACE_CRON_MAP` (fast=`*/1`, normal=`*/5`, slow=`*/15`, manual=`None`), `VALID_PACES` frozenset, `pinwheel_presentation_pace: str = "fast"`, `effective_game_cron()` method (explicit cron overrides pace, pace derives cron, manual → None).
+- **`src/pinwheel/api/pace.py`** (new) — `GET /api/pace` returns current pace/cron/auto_advance. `POST /api/pace` changes pace in memory (demo convenience, not persisted). Validates against `VALID_PACES`.
+- **`src/pinwheel/main.py`** — Registered `pace_router`.
+
+### AI Commentary Engine
+
+- **`src/pinwheel/ai/commentary.py`** (new) — Full commentary module with 4 functions:
+  - `generate_game_commentary()` — Claude Sonnet-powered broadcaster-style commentary. Builds rich context from box scores, possession log, Elam status. Prompt: energetic, dramatic, Blaseball energy.
+  - `generate_game_commentary_mock()` — Template-based fallback. Margin-aware openers (nail-biter/blowout/standard), Elam paragraph, star performer paragraph. References real names and scores.
+  - `generate_highlight_reel()` — Sonnet-powered round summary. One punchy sentence per game + overall narrative.
+  - `generate_highlight_reel_mock()` — Template-based fallback with Elam/blowout/close-game awareness + total points summary.
+- **`src/pinwheel/core/game_loop.py`** — Commentary integrated into game loop:
+  - Per-game commentary generated after each game result (non-blocking try/except). Added to `summary["commentary"]`.
+  - Round highlight reel generated after all games. Included in `round.completed` event data.
+- **`src/pinwheel/discord/embeds.py`** — Added `build_commentary_embed()` for Discord display.
+
+**Files modified (4):** `config.py`, `main.py`, `game_loop.py`, `discord/embeds.py`
+
+**Files created (5):** `core/scheduler_runner.py`, `api/pace.py`, `ai/commentary.py`, `tests/test_scheduler_runner.py`, `tests/test_pace.py`, `tests/test_commentary.py`
+
+**43 new tests (401 total), zero lint errors.**
 
 ---

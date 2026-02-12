@@ -13,6 +13,7 @@ from pinwheel.api.events import router as events_router
 from pinwheel.api.games import router as games_router
 from pinwheel.api.governance import router as governance_router
 from pinwheel.api.mirrors import router as mirrors_router
+from pinwheel.api.pace import router as pace_router
 from pinwheel.api.pages import router as pages_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
@@ -29,7 +30,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup: create engine and tables, optionally start Discord bot. Shutdown: cleanup."""
+    """Startup: create engine/tables, optionally start Discord bot and scheduler."""
     settings: Settings = app.state.settings
     engine = create_engine(settings.database_url)
     async with engine.begin() as conn:
@@ -50,7 +51,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("discord_bot_integration_disabled")
 
+    # Start APScheduler for automatic round advancement
+    scheduler = None
+    effective_cron = settings.effective_game_cron()
+    if settings.pinwheel_auto_advance and effective_cron is not None:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        from pinwheel.core.scheduler_runner import tick_round
+
+        scheduler = AsyncIOScheduler()
+        trigger = CronTrigger.from_crontab(effective_cron)
+        scheduler.add_job(
+            tick_round,
+            trigger=trigger,
+            kwargs={
+                "engine": engine,
+                "event_bus": app.state.event_bus,
+                "api_key": settings.anthropic_api_key,
+            },
+            id="tick_round",
+            name="Advance game round",
+            replace_existing=True,
+        )
+        scheduler.start()
+        app.state.scheduler = scheduler
+        logger.info(
+            "scheduler_started cron=%s pace=%s",
+            effective_cron,
+            settings.pinwheel_presentation_pace,
+        )
+    else:
+        app.state.scheduler = None
+        logger.info(
+            "scheduler_disabled pace=%s",
+            settings.pinwheel_presentation_pace,
+        )
+
     yield
+
+    # Shutdown scheduler
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        logger.info("scheduler_stopped")
 
     # Shutdown Discord bot if running
     if discord_bot is not None:
@@ -94,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(mirrors_router)
     app.include_router(events_router)
     app.include_router(eval_dashboard_router)
+    app.include_router(pace_router)
 
     # Page routes (must come after API routes so /api/ paths match first)
     app.include_router(pages_router)

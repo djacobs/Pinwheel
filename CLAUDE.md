@@ -170,6 +170,16 @@ We use the Compound Engineering plugin. Every non-trivial feature follows this c
 
 The ratio is ~80% planning and review, ~20% execution. This sounds slow but is faster in practice: well-planned work executes cleanly, and documented solutions prevent re-solving the same problems. Each unit of engineering work should make subsequent units easier — not harder.
 
+### Session discipline — NON-NEGOTIABLE
+
+Every work session must end with these three steps, in order:
+
+1. **Tests pass.** Run `uv run pytest -x -q` and confirm green. Every new feature needs tests. Coverage should be as broad as logically possible — not just happy paths, but auth failures, empty states, edge cases. If you added code, you added tests for it.
+2. **Dev log updated.** Update `docs/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
+3. **Code committed.** Stage the specific files you changed and commit with a conventional commit message. Never leave passing code uncommitted. Never commit failing tests.
+
+If you're unsure whether to commit, the answer is yes — commit the passing state. Uncommitted work is lost work.
+
 ### Incremental commits during work
 
 Commit when you have a complete, valuable unit of change — not "WIP." If you can't write a commit message that describes a complete change, wait. Run tests before every commit. Stage specific files, not `git add .`.
@@ -267,8 +277,29 @@ python scripts/demo_seed.py seed            # Create 4 teams + round-robin sched
 python scripts/demo_seed.py step 3          # Advance 3 rounds (sim + gov + mirrors + evals)
 python scripts/demo_seed.py status          # Show current standings
 python scripts/demo_seed.py propose TEXT    # Submit a governance proposal
+
+# Rodney screenshots (individual page captures)
+uvx rodney screenshot http://localhost:8000/ demo/home.png        # Any page → PNG
+uvx rodney screenshot http://localhost:8000/arena demo/arena.png
 ```
 
-**`run_demo.sh`** is a 15-step script: seed the league, start the server, capture each major page (home, arena, standings, game detail, mirrors, governance, rules, team profile, evals dashboard), then run the test suite as verification. When adding a new page or route, add a corresponding step with `uvx rodney screenshot`.
+### Showboat
 
-**`demo_seed.py`** uses `step_round()` from the game loop directly, so all hooks (mirrors, evals, event bus) run automatically — no separate seeding needed for new features that integrate into the game loop.
+Showboat wraps `run_demo.sh` into an executable Markdown document. The output (`demo/pinwheel_demo.md`) is both human-readable documentation and a runnable script. This is the hackathon demo artifact — the proof that the system works end-to-end.
+
+### Rodney
+
+Rodney is headless Chrome automation for screenshots. It captures the exact visual state of each page. Every new page or route should get a corresponding Rodney screenshot step in `run_demo.sh`. The screenshots are committed to `demo/` and embedded in the Showboat output.
+
+**When to update the demo pipeline:**
+- Added a new page? → Add a Rodney screenshot step to `run_demo.sh`
+- Changed the visual layout of an existing page? → Re-run the demo to update screenshots
+- Added a new feature visible in the UI? → Consider whether a demo step captures it
+
+### run_demo.sh
+
+A 15-step script: seed the league, start the server, capture each major page (home, arena, standings, game detail, mirrors, governance, rules, team profile, evals dashboard), then run the test suite as verification.
+
+### demo_seed.py
+
+Uses `step_round()` from the game loop directly, so all hooks (mirrors, evals, event bus) run automatically — no separate seeding needed for new features that integrate into the game loop.
