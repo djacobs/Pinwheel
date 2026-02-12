@@ -2,59 +2,91 @@
 {% block title %}Arena — Pinwheel Fates{% endblock %}
 
 {% block content %}
-<h2 class="mb-2">The Arena</h2>
+<div class="page-header">
+  <h2>The Arena</h2>
+  {% if rounds %}
+  <p class="subtitle">{{ rounds|length }} round{{ 's' if rounds|length != 1 else '' }} &middot; {{ rounds|sum(attribute='games'|length) if false else rounds|map(attribute='games')|map('length')|sum }} games</p>
+  {% endif %}
+</div>
 
-{% if games %}
-<div class="arena-grid" hx-ext="sse" sse-connect="/api/events/stream">
-  {% for game in games %}
-  <a href="/games/{{ game.id }}" class="game-panel {% if game.elam_target %}elam{% endif %}" style="text-decoration:none; color:inherit;">
-    {% if game.elam_target %}
-    <div class="elam-banner">ELAM ENDING &mdash; TARGET: {{ game.elam_target }}</div>
-    {% endif %}
-    <div class="game-panel-header">
-      <span class="game-meta">Round {{ game.round_number }} &middot; Game {{ game.matchup_index + 1 }}</span>
-      <span class="game-meta">{{ game.total_possessions }} poss</span>
-    </div>
-    <div class="game-panel-teams">
-      <div class="team-score-block">
-        <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}">
-          {{ game.home_name }}
+{% if rounds %}
+<div hx-ext="sse" sse-connect="/api/events/stream">
+  {% for round in rounds %}
+  <div class="{% if not loop.first %}mt-2{% endif %}">
+    <div class="section-title">Round {{ round.round_number }}</div>
+    <div class="arena-grid">
+      {% for game in round.games %}
+      <a href="/games/{{ game.id }}" class="game-panel {% if game.elam_target %}elam{% endif %}" style="text-decoration:none; color:inherit;">
+        {% if game.winning_play %}
+        <div class="elam-banner">{{ game.winning_play.action }}</div>
+        {% elif game.elam_target %}
+        <div class="elam-banner">Elam Ending &mdash; Target: {{ game.elam_target }}</div>
+        {% endif %}
+        <div class="game-panel-header">
+          <span class="game-meta">Game {{ game.matchup_index + 1 }}</span>
+          <span class="game-meta">{{ game.total_possessions }} poss</span>
         </div>
-        <div class="score score-sm {% if game.winner_team_id == game.home_team_id %}score-winner{% else %}score-loser{% endif %}">
-          {{ game.home_score }}
+        <div class="game-panel-teams">
+          <div class="team-score-block">
+            <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}">
+              {{ game.home_name }}
+            </div>
+            <div class="score score-sm {% if game.winner_team_id == game.home_team_id %}score-winner{% else %}score-loser{% endif %}">
+              {{ game.home_score }}
+            </div>
+          </div>
+          <div class="vs-divider">Final</div>
+          <div class="team-score-block">
+            <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}">
+              {{ game.away_name }}
+            </div>
+            <div class="score score-sm {% if game.winner_team_id == game.away_team_id %}score-winner{% else %}score-loser{% endif %}">
+              {{ game.away_score }}
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="vs-divider">FINAL</div>
-      <div class="team-score-block">
-        <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}">
-          {{ game.away_name }}
-        </div>
-        <div class="score score-sm {% if game.winner_team_id == game.away_team_id %}score-winner{% else %}score-loser{% endif %}">
-          {{ game.away_score }}
-        </div>
-      </div>
-    </div>
-    {% if game.quarter_scores %}
-    <div class="quarter-scores" style="border-top: 1px solid var(--border); padding: 0.4rem 1rem;">
-      <span class="qs-cell qs-header">Q1</span>
-      <span class="qs-cell qs-header">Q2</span>
-      <span class="qs-cell qs-header">Q3</span>
-      <span class="qs-cell qs-header">Q4</span>
-      {% for qs in game.quarter_scores %}
-      <span class="qs-cell">{{ qs.home_score }}-{{ qs.away_score }}</span>
+        {% if game.quarter_scores %}
+        <table class="quarter-table">
+          <thead>
+            <tr>
+              <th></th>
+              {% for qs in game.quarter_scores %}
+              <th>{% if loop.last and game.elam_target %}Elam{% else %}Q{{ loop.index }}{% endif %}</th>
+              {% endfor %}
+              <th>T</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="qt-team">{{ game.home_name[:3] | upper }}</td>
+              {% for qs in game.quarter_scores %}
+              <td class="{% if qs.home_score > qs.away_score %}qt-bold{% endif %}">{{ qs.home_score }}</td>
+              {% endfor %}
+              <td class="qt-total {% if game.winner_team_id == game.home_team_id %}qt-bold{% endif %}">{{ game.home_score }}</td>
+            </tr>
+            <tr>
+              <td class="qt-team">{{ game.away_name[:3] | upper }}</td>
+              {% for qs in game.quarter_scores %}
+              <td class="{% if qs.away_score > qs.home_score %}qt-bold{% endif %}">{{ qs.away_score }}</td>
+              {% endfor %}
+              <td class="qt-total {% if game.winner_team_id == game.away_team_id %}qt-bold{% endif %}">{{ game.away_score }}</td>
+            </tr>
+          </tbody>
+        </table>
+        {% endif %}
+      </a>
       {% endfor %}
     </div>
+
+    {% if round.mirror %}
+    <div class="mirror-card mt-1">
+      <div class="mirror-type">Simulation Mirror &mdash; Round {{ round.mirror.round_number }}</div>
+      <div class="mirror-content">{{ round.mirror.content }}</div>
+    </div>
     {% endif %}
-  </a>
+  </div>
   {% endfor %}
 </div>
-
-{% if mirror %}
-<div class="mirror-card mt-2">
-  <div class="mirror-type">Simulation Mirror &mdash; Round {{ mirror.round_number }}</div>
-  <div class="mirror-content">{{ mirror.content }}</div>
-</div>
-{% endif %}
 
 {% else %}
 <div class="empty-state">

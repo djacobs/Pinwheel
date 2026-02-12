@@ -26,6 +26,31 @@ def _find_project_root() -> pathlib.Path:
 
 PROJECT_ROOT = _find_project_root()
 
+
+def _get_app_version() -> str:
+    """Return a short version string for cache busting (git hash or fallback)."""
+    import subprocess
+
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=str(PROJECT_ROOT),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        # In Docker or without git, use a timestamp-based fallback
+        import hashlib
+        import time
+
+        return hashlib.md5(str(int(time.time() / 3600)).encode()).hexdigest()[:7]
+
+
+APP_VERSION = _get_app_version()
+
 # Default cron expression — used to detect whether the user explicitly overrode it.
 _DEFAULT_GAME_CRON = "*/2 * * * *"
 

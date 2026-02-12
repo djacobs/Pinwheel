@@ -28,39 +28,62 @@ class TestSimulationMirrorMock:
         mirror = generate_simulation_mirror_mock(data, "s-1", 5)
         assert mirror.mirror_type == "simulation"
         assert mirror.round_number == 5
-        assert "1 games" in mirror.content or "1 game" in mirror.content
-        assert len(mirror.content) > 0
+        # Narrative mirrors reference team names, not generic stats
+        assert "Thorns" in mirror.content or "Voids" in mirror.content
+        assert len(mirror.content) > 20
 
-    def test_elam_mention(self):
+    def test_close_game_narrative(self):
         data = {
             "round_number": 3,
             "games": [
                 {
                     "game_id": "g-3-0",
-                    "home_score": 60,
-                    "away_score": 58,
+                    "home_team": "Herons",
+                    "away_team": "Hammers",
+                    "home_score": 30,
+                    "away_score": 27,
                     "elam_activated": True,
                     "total_possessions": 70,
                 },
             ],
         }
         mirror = generate_simulation_mirror_mock(data, "s-1", 3)
-        assert "Elam" in mirror.content
+        # Close games (margin <= 4) should reference the winner
+        assert "Herons" in mirror.content or "Hammers" in mirror.content
 
     def test_no_games(self):
         mirror = generate_simulation_mirror_mock({"games": []}, "s-1", 1)
         assert mirror.mirror_type == "simulation"
-        assert "0 games" in mirror.content
+        # Empty rounds get a terse message, not "0 games with 0 points"
+        assert len(mirror.content) > 0
 
-    def test_multiple_games_highest_score(self):
+    def test_blowout_narrative(self):
         data = {
             "games": [
-                {"home_score": 40, "away_score": 35, "elam_activated": False},
-                {"home_score": 70, "away_score": 65, "elam_activated": False},
+                {
+                    "home_team": "Breakers",
+                    "away_team": "Thorns",
+                    "home_score": 45,
+                    "away_score": 30,
+                    "elam_activated": False,
+                },
+                {
+                    "home_team": "Herons",
+                    "away_team": "Hammers",
+                    "home_score": 25,
+                    "away_score": 27,
+                    "elam_activated": True,
+                },
             ]
         }
         mirror = generate_simulation_mirror_mock(data, "s-1", 2)
-        assert "70" in mirror.content
+        # Should mention at least one team name
+        content = mirror.content
+        has_team = any(
+            name in content
+            for name in ["Breakers", "Thorns", "Herons", "Hammers"]
+        )
+        assert has_team
 
 
 class TestGovernanceMirrorMock:

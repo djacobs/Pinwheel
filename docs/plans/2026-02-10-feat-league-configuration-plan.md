@@ -146,7 +146,7 @@ python -m pinwheel.seed --generate --teams 6 --players-per-team 4
 
 This calls Opus 4.6 with a prompt like: "Generate 6 basketball teams for a 3v3 league. Each team has 4 players (3 starters + 1 bench). Give each player a name, archetype, backstory, and attributes. Make the teams balanced but distinct. Make the names fun and the backstories brief."
 
-**Recommendation:** Support both. Config file for deterministic, repeatable league setup (essential for testing). AI generation for the creative, Blaseball-energy initial seeding. The AI output gets written to a config file that can then be hand-edited.
+**Recommendation:** Support both. Config file for deterministic, repeatable league setup (essential for testing). AI generation for creative initial seeding. The AI output gets written to a config file that can then be hand-edited.
 
 ### Option C: Admin API
 

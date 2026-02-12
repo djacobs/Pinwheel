@@ -497,6 +497,54 @@ class Repository:
         team_name = team.name if team else player.team_id
         return (player.team_id, team_name)
 
+    # --- Agent Box Scores & League Averages ---
+
+    async def get_box_scores_for_agent(
+        self, agent_id: str
+    ) -> list[tuple[BoxScoreRow, GameResultRow]]:
+        """Get all box scores for an agent joined with their game results.
+
+        Returns list of (BoxScoreRow, GameResultRow) tuples ordered by round_number.
+        """
+        stmt = (
+            select(BoxScoreRow, GameResultRow)
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(BoxScoreRow.agent_id == agent_id)
+            .order_by(GameResultRow.round_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.tuples().all())
+
+    async def get_league_attribute_averages(self, season_id: str) -> dict[str, float]:
+        """Average each of the 9 attributes across all agents in a season."""
+        stmt = select(AgentRow.attributes).where(
+            AgentRow.season_id == season_id,
+            AgentRow.is_active.is_(True),
+        )
+        result = await self.session.execute(stmt)
+        all_attrs = list(result.scalars().all())
+
+        if not all_attrs:
+            return {}
+
+        from pinwheel.api.charts import ATTRIBUTE_ORDER
+
+        totals: dict[str, float] = {a: 0.0 for a in ATTRIBUTE_ORDER}
+        count = len(all_attrs)
+        for attrs in all_attrs:
+            for a in ATTRIBUTE_ORDER:
+                totals[a] += float(attrs.get(a, 0))
+
+        return {a: round(totals[a] / count, 1) for a in ATTRIBUTE_ORDER}
+
+    async def update_agent_backstory(self, agent_id: str, backstory: str) -> AgentRow | None:
+        """Update an agent's backstory text."""
+        agent = await self.get_agent(agent_id)
+        if agent:
+            agent.backstory = backstory
+            await self.session.flush()
+        return agent
+
     # --- Eval Results ---
 
     async def store_eval_result(

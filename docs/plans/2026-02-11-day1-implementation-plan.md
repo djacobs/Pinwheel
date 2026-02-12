@@ -385,7 +385,7 @@ async def generate_league(
     - Rivalries (name 1-2 other players they have tension with)
 
     Make the teams balanced but distinct. Make the names fun and the backstories brief.
-    The vibe is Blaseball — slightly unhinged, deeply human, community-first.
+    The vibe is slightly unhinged, deeply human, community-first.
 
     Output as YAML matching this schema: ...
     """

@@ -1,7 +1,7 @@
 [project]
 name = "pinwheel"
 version = "0.1.0"
-description = "Blaseball-inspired auto-simulated 3v3 basketball league with AI-interpreted governance"
+description = "Simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [

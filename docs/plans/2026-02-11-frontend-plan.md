@@ -8,14 +8,14 @@ date: 2026-02-11
 
 ## Overview
 
-HTMX + SSE + Jinja2 templates. No JS build step. The Blaseball aesthetic is the north star: retro, bold, community-focused, slightly unhinged. Full CSS control via Jinja2 templates. FastAPI serves HTML directly.
+HTMX + SSE + Jinja2 templates. No JS build step. The aesthetic is retro, bold, community-focused, slightly unhinged — joyful chaos. Full CSS control via Jinja2 templates. FastAPI serves HTML directly.
 
 ## Stack
 
 - **Jinja2** for server-side rendering (FastAPI native support)
 - **HTMX** for dynamic updates without full page reloads
 - **SSE** (via HTMX `hx-ext="sse"`) for real-time game/governance/mirror updates
-- **CSS** — hand-written, no framework. Blaseball aesthetic requires full control.
+- **CSS** — hand-written, no framework. Full aesthetic control required.
 - **No JavaScript build step.** HTMX and any small utility scripts served as static files.
 
 ## Template Structure
@@ -182,7 +182,7 @@ This means the server renders HTML and the client just inserts it. Zero client-s
 
 ## Visual Design Direction
 
-### Blaseball Aesthetic
+### Visual Aesthetic
 
 - **Typography:** Bold, slightly condensed sans-serif for headers. Monospace for stats and scores. A display font for dramatic moments.
 - **Colors:** High contrast. Dark backgrounds, bright accent colors per team. Neon-ish highlights for active states.
@@ -315,7 +315,7 @@ Logged-in governors see: their team highlighted in standings, their private mirr
 - [ ] Governance page shows proposals with AI interpretations
 - [ ] Logged-in governors can submit proposals and vote from the web
 - [ ] Private mirrors visible only to authenticated governor
-- [ ] CSS achieves Blaseball-inspired aesthetic (dark, bold, retro)
+- [ ] CSS achieves retro sports broadcast aesthetic (dark, bold, community-focused)
 - [ ] Works without JavaScript beyond HTMX (progressive enhancement)
 - [ ] Pages load in < 200ms server-side render time
 - [ ] SSE reconnection handled gracefully (HTMX built-in)

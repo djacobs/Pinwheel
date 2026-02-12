@@ -230,7 +230,7 @@ async def step_round(
             ruleset_snapshot=ruleset.model_dump(),
             quarter_scores=[qs.model_dump() for qs in result.quarter_scores],
             elam_target=result.elam_target_score,
-            play_by_play=[p.model_dump() for p in result.possession_log[:50]],
+            play_by_play=[p.model_dump() for p in result.possession_log],
         )
 
         # Store box scores

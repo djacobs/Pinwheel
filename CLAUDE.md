@@ -1,6 +1,6 @@
 # Pinwheel Fates
 
-Blaseball-inspired auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social mirror — surfacing patterns in gameplay and governance that players can't see from inside the system.
+Auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social mirror — surfacing patterns in gameplay and governance that players can't see from inside the system.
 
 ## Prior Art & Philosophy
 
@@ -20,7 +20,7 @@ See also: `docs/VISION.md` for the full philosophical grounding.
 - **Database:** PostgreSQL via SQLAlchemy 2.0 async (SQLite/aiosqlite for local dev, asyncpg for production). Schema managed via `Base.metadata.create_all()` (no Alembic — acceptable for hackathon pace).
 - **AI:** Claude Opus 4.6 via Anthropic API
 - **Discord:** discord.py 2.x — bot runs in-process with FastAPI
-- **Frontend:** HTMX + SSE + Jinja2 templates (optional Textual TUI for terminal). Technically a live-updating data dashboard — standings, play-by-play, governance panels, AI reflections — but it **must be fun**. The Blaseball aesthetic (retro, bold, community-focused) is the north star. Full CSS control via Jinja2 templates. No JS build step.
+- **Frontend:** HTMX + SSE + Jinja2 templates (optional Textual TUI for terminal). Technically a live-updating data dashboard — standings, play-by-play, governance panels, AI reflections — but it **must be fun**. The aesthetic is retro, bold, community-focused — joyful chaos. Full CSS control via Jinja2 templates. No JS build step.
 - **Testing:** pytest, pytest-asyncio, httpx (async test client)
 - **Linting/Formatting:** ruff
 - **Scheduling:** APScheduler (AsyncIOScheduler) for automatic round advancement

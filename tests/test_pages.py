@@ -156,7 +156,7 @@ class TestPopulatedPages:
 
         r = await client.get("/arena")
         assert r.status_code == 200
-        assert "FINAL" in r.text
+        assert "Final" in r.text
         assert "Team 1" in r.text or "Team 2" in r.text
 
     async def test_standings_with_data(self, app_client):
@@ -197,6 +197,25 @@ class TestPopulatedPages:
         assert "Roster" in r.text
         assert "Agent-1-1" in r.text
 
+    async def test_team_page_has_spider_charts(self, app_client):
+        """Team page should render SVG spider charts for each agent."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        r = await client.get(f"/teams/{team_ids[0]}")
+        assert r.status_code == 200
+        assert "<svg" in r.text
+        assert "polygon" in r.text
+
+    async def test_team_page_has_agent_links(self, app_client):
+        """Team page should have links to individual agent pages."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        r = await client.get(f"/teams/{team_ids[0]}")
+        assert r.status_code == 200
+        assert "/agents/" in r.text
+
     async def test_team_404(self, app_client):
         client, _ = app_client
         r = await client.get("/teams/nonexistent")
@@ -228,3 +247,87 @@ class TestPopulatedPages:
         client, _ = app_client
         r = await client.get("/static/js/htmx.min.js")
         assert r.status_code == 200
+
+
+class TestAgentPages:
+    """Tests for individual agent pages."""
+
+    async def test_agent_page_renders(self, app_client):
+        """Agent page should render with the agent's name."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Get an agent ID
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(team_ids[0])
+            agent_id = team.agents[0].id
+            agent_name = team.agents[0].name
+
+        r = await client.get(f"/agents/{agent_id}")
+        assert r.status_code == 200
+        assert agent_name in r.text
+
+    async def test_agent_page_has_spider_chart(self, app_client):
+        """Agent page should contain an SVG spider chart."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(team_ids[0])
+            agent_id = team.agents[0].id
+
+        r = await client.get(f"/agents/{agent_id}")
+        assert r.status_code == 200
+        assert "<svg" in r.text
+        assert "polygon" in r.text
+
+    async def test_agent_page_has_game_log(self, app_client):
+        """After running a round, agent page should show game log."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(team_ids[0])
+            agent_id = team.agents[0].id
+
+        r = await client.get(f"/agents/{agent_id}")
+        assert r.status_code == 200
+        assert "Game Log" in r.text
+
+    async def test_agent_page_has_season_averages(self, app_client):
+        """Agent page should show season averages after games are played."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(team_ids[0])
+            agent_id = team.agents[0].id
+
+        r = await client.get(f"/agents/{agent_id}")
+        assert r.status_code == 200
+        assert "Season Averages" in r.text
+        assert "PPG" in r.text
+
+    async def test_agent_page_has_team_link(self, app_client):
+        """Agent page should link back to the team."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(team_ids[0])
+            agent_id = team.agents[0].id
+
+        r = await client.get(f"/agents/{agent_id}")
+        assert r.status_code == 200
+        assert f"/teams/{team_ids[0]}" in r.text
+
+    async def test_agent_page_404(self, app_client):
+        """Nonexistent agent ID should return 404."""
+        client, _ = app_client
+        r = await client.get("/agents/nonexistent")
+        assert r.status_code == 404

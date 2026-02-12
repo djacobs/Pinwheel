@@ -2,7 +2,12 @@
 {% block title %}Standings — Pinwheel Fates{% endblock %}
 
 {% block content %}
-<h2 class="mb-2">Standings</h2>
+<div class="page-header">
+  <h2>Standings</h2>
+  {% if standings %}
+  <p class="subtitle">{{ standings|length }} teams &middot; Portland Pinwheel League</p>
+  {% endif %}
+</div>
 
 {% if standings %}
 <div class="card">

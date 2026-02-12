@@ -1,0 +1,71 @@
+{# Spider chart SVG macro — renders a nonagon radar chart for agent attributes.
+
+   Parameters:
+     agent_points  — list of dicts from spider_chart_data() for the agent
+     avg_points    — list of dicts from spider_chart_data() for league average
+     grid_rings    — list of polygon point-strings from compute_grid_rings()
+     axis_lines    — list of dicts with x1,y1,x2,y2 from axis_lines()
+     agent_poly    — polygon points string for agent
+     avg_poly      — polygon points string for league average
+     team_color    — hex color for the team (used for agent polygon fill)
+     size          — SVG viewBox size class: "sm" (220px) or "lg" (280px)
+#}
+
+{% macro spider(agent_points, avg_points, grid_rings, axis_lines, agent_poly, avg_poly, team_color="#53d8fb", size="lg") %}
+{% set chart_size = 280 if size == "lg" else 220 %}
+<div class="spider-chart">
+  <svg viewBox="0 0 300 300" width="{{ chart_size }}" height="{{ chart_size }}" xmlns="http://www.w3.org/2000/svg">
+    {# Layer 1: Grid rings #}
+    {% for ring in grid_rings %}
+    <polygon points="{{ ring }}" fill="none" stroke="var(--border)" stroke-width="0.5" opacity="0.6"/>
+    {% endfor %}
+
+    {# Layer 2: Axis lines #}
+    {% for line in axis_lines %}
+    <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"
+          stroke="var(--border)" stroke-width="0.5" opacity="0.4"/>
+    {% endfor %}
+
+    {# Layer 3: League average polygon #}
+    {% if avg_poly %}
+    <polygon points="{{ avg_poly }}"
+             fill="rgba(255,255,255,0.04)"
+             stroke="rgba(255,255,255,0.2)"
+             stroke-width="1"
+             stroke-dasharray="4,3"/>
+    {% endif %}
+
+    {# Layer 4: Agent polygon #}
+    <polygon points="{{ agent_poly }}"
+             fill="{{ team_color }}1f"
+             stroke="{{ team_color }}"
+             stroke-width="2"/>
+
+    {# Layer 5: Vertex dots #}
+    {% for p in agent_points %}
+    <circle cx="{{ p.x }}" cy="{{ p.y }}" r="3.5" fill="{{ p.color }}"/>
+    {% endfor %}
+
+    {# Layer 6: Labels #}
+    {% for p in agent_points %}
+    <text x="{{ p.lx }}" y="{{ p.ly }}"
+          fill="{{ p.color }}"
+          font-family="var(--font-mono)"
+          font-size="9"
+          font-weight="600"
+          text-anchor="middle"
+          dominant-baseline="middle">{{ p.label }} {{ p.value }}</text>
+    {% endfor %}
+  </svg>
+</div>
+
+{# Legend below chart #}
+<div class="spider-legend">
+  {% for p in agent_points %}
+  <span class="spider-legend-item">
+    <span class="spider-legend-dot" style="background: {{ p.color }};"></span>
+    <span class="spider-legend-label">{{ p.attr | replace('_', ' ') | title }}</span>
+  </span>
+  {% endfor %}
+</div>
+{% endmacro %}

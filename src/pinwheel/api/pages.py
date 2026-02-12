@@ -6,9 +6,17 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from pinwheel.api.charts import (
+    axis_lines,
+    compute_grid_rings,
+    compute_season_averages,
+    polygon_points,
+    spider_chart_data,
+)
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import PROJECT_ROOT
+from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.core.narrate import narrate_play, narrate_winner
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
 from pinwheel.models.rules import RuleSet
@@ -26,6 +34,7 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
         "current_user": current_user,
         "oauth_enabled": oauth_enabled,
         "pinwheel_env": settings.pinwheel_env,
+        "app_version": APP_VERSION,
     }
 
 
@@ -68,9 +77,11 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
 
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Home page with navigation links."""
+    """Home page with navigation links and league snapshot."""
     season_id = await _get_active_season_id(repo)
     latest_mirror = None
+    standings_leader = None
+    total_games = 0
     if season_id:
         m = await repo.get_latest_mirror(season_id, "simulation")
         if m:
@@ -79,7 +90,22 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 "round_number": m.round_number,
             }
 
-    ctx = {"active_page": "home", "latest_mirror": latest_mirror}
+        standings = await _get_standings(repo, season_id)
+        if standings:
+            leader = standings[0]
+            standings_leader = {
+                "team_name": leader.get("team_name", "Unknown"),
+                "wins": leader["wins"],
+                "losses": leader["losses"],
+            }
+            total_games = sum(s["wins"] for s in standings)
+
+    ctx = {
+        "active_page": "home",
+        "latest_mirror": latest_mirror,
+        "standings_leader": standings_leader,
+        "total_games": total_games,
+    }
     return templates.TemplateResponse(
         request,
         "pages/home.html",
@@ -89,10 +115,9 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
 
 @router.get("/arena", response_class=HTMLResponse)
 async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """The Arena — show the latest round's games."""
+    """The Arena — show recent rounds' games (newest first)."""
     season_id = await _get_active_season_id(repo)
-    games = []
-    mirror = None
+    rounds: list[dict] = []
 
     if season_id:
         # Find the latest round that has games
@@ -104,18 +129,51 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             else:
                 break
 
-        if latest_round > 0:
-            round_games = await repo.get_games_for_round(season_id, latest_round)
+        # Show up to 4 recent rounds (newest first)
+        team_names: dict[str, str] = {}
+        agent_names: dict[str, str] = {}
+        first_round = max(1, latest_round - 3)
+
+        for round_num in range(latest_round, first_round - 1, -1):
+            round_games = await repo.get_games_for_round(season_id, round_num)
+            if not round_games:
+                continue
+
             # Build team name cache
-            team_names: dict[str, str] = {}
             for g in round_games:
                 for tid in (g.home_team_id, g.away_team_id):
                     if tid not in team_names:
                         t = await repo.get_team(tid)
                         team_names[tid] = t.name if t else tid
 
+            games_for_round = []
             for g in round_games:
-                games.append(
+                # Extract game-winning play and narrate it
+                winning_play = None
+                if g.play_by_play:
+                    for play in reversed(g.play_by_play):
+                        if play.get("result") == "made" and play.get("points_scored", 0) > 0:
+                            handler_id = play.get("ball_handler_id", "")
+                            if handler_id and handler_id not in agent_names:
+                                agent = await repo.get_agent(handler_id)
+                                agent_names[handler_id] = agent.name if agent else handler_id
+                            action = play.get("action", "")
+                            move = play.get("move_activated", "")
+                            player_name = agent_names.get(handler_id, "Unknown")
+                            winning_play = {
+                                "player": player_name,
+                                "action": narrate_winner(
+                                    player_name,
+                                    action,
+                                    move=move,
+                                    seed=hash(g.id),
+                                ),
+                                "points": play.get("points_scored", 0),
+                                "move": move,
+                            }
+                            break
+
+                games_for_round.append(
                     {
                         "id": g.id,
                         "round_number": g.round_number,
@@ -130,12 +188,14 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                         "elam_target": g.elam_target,
                         "total_possessions": g.total_possessions,
                         "quarter_scores": g.quarter_scores or [],
+                        "winning_play": winning_play,
                     }
                 )
 
             # Get simulation mirror for this round
+            mirror = None
             mirrors = await repo.get_mirrors_for_round(
-                season_id, latest_round, "simulation"
+                season_id, round_num, "simulation"
             )
             if mirrors:
                 mirror = {
@@ -143,13 +203,18 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "round_number": mirrors[0].round_number,
                 }
 
+            rounds.append({
+                "round_number": round_num,
+                "games": games_for_round,
+                "mirror": mirror,
+            })
+
     return templates.TemplateResponse(
         request,
         "pages/arena.html",
         {
             "active_page": "arena",
-            "games": games,
-            "mirror": mirror,
+            "rounds": rounds,
             **_auth_context(request, current_user),
         },
     )
@@ -213,8 +278,30 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         (away_name, game.away_team_id, away_players),
     ]
 
-    # Play-by-play from stored data
-    play_by_play = game.play_by_play or []
+    # Build agent-name cache from box scores already loaded
+    agent_names: dict[str, str] = {}
+    for bs in game.box_scores:
+        if bs.agent_id not in agent_names:
+            agent = await repo.get_agent(bs.agent_id)
+            agent_names[bs.agent_id] = agent.name if agent else bs.agent_id
+
+    # Play-by-play from stored data (JSON dicts), enriched with narration
+    raw_plays = game.play_by_play or []
+    play_by_play = []
+    for play in raw_plays:
+        handler_id = play.get("ball_handler_id", "")
+        def_id = play.get("defender_id", "")
+        enriched = {**play}
+        enriched["narration"] = narrate_play(
+            player=agent_names.get(handler_id, handler_id),
+            defender=agent_names.get(def_id, def_id),
+            action=play.get("action", ""),
+            result=play.get("result", ""),
+            points=play.get("points_scored", 0),
+            move=play.get("move_activated", ""),
+            seed=play.get("possession_number", 0),
+        )
+        play_by_play.append(enriched)
 
     # Mirror for this round
     season_id = await _get_active_season_id(repo)
@@ -249,26 +336,52 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
     if not team:
         raise HTTPException(404, "Team not found")
 
+    # Get this team's standings
+    season_id = await _get_active_season_id(repo)
+    team_standings = None
+    standing_position = None
+    league_name = None
+
+    # League averages for spider chart shadow
+    league_avg = {}
+    if season_id:
+        standings = await _get_standings(repo, season_id)
+        for idx, s in enumerate(standings):
+            if s["team_id"] == team_id:
+                team_standings = s
+                standing_position = idx + 1
+                break
+
+        season = await repo.get_season(season_id)
+        if season:
+            from pinwheel.db.models import LeagueRow
+
+            league = await repo.session.get(LeagueRow, season.league_id)
+            if league:
+                league_name = league.name
+
+        league_avg = await repo.get_league_attribute_averages(season_id)
+
+    # Build agent data with spider chart geometry
+    grid_rings = compute_grid_rings()
+    axes = axis_lines()
+    avg_points = spider_chart_data(league_avg) if league_avg else []
+    avg_poly = polygon_points(avg_points) if avg_points else ""
+
     agents = []
     for a in team.agents:
+        agent_pts = spider_chart_data(a.attributes) if a.attributes else []
         agents.append(
             {
+                "id": a.id,
                 "name": a.name,
                 "archetype": a.archetype,
                 "attributes": a.attributes,
                 "is_active": a.is_active,
+                "spider_points": agent_pts,
+                "spider_poly": polygon_points(agent_pts) if agent_pts else "",
             }
         )
-
-    # Get this team's standings
-    season_id = await _get_active_season_id(repo)
-    team_standings = None
-    if season_id:
-        standings = await _get_standings(repo, season_id)
-        for s in standings:
-            if s["team_id"] == team_id:
-                team_standings = s
-                break
 
     return templates.TemplateResponse(
         request,
@@ -278,9 +391,209 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
             "team": team,
             "agents": agents,
             "team_standings": team_standings,
+            "standing_position": standing_position,
+            "league_name": league_name,
+            "grid_rings": grid_rings,
+            "axis_lines": axes,
+            "avg_points": avg_points,
+            "avg_poly": avg_poly,
             **_auth_context(request, current_user),
         },
     )
+
+
+@router.get("/agents/{agent_id}", response_class=HTMLResponse)
+async def agent_page(
+    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Individual agent profile page."""
+    agent = await repo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    team = await repo.get_team(agent.team_id)
+    season_id = await _get_active_season_id(repo)
+
+    # Spider chart data
+    league_avg = {}
+    if season_id:
+        league_avg = await repo.get_league_attribute_averages(season_id)
+
+    agent_pts = spider_chart_data(agent.attributes) if agent.attributes else []
+    avg_pts = spider_chart_data(league_avg) if league_avg else []
+
+    # Game log + season averages
+    box_score_rows = await repo.get_box_scores_for_agent(agent_id)
+    game_log = []
+    bs_dicts = []
+    team_name_cache: dict[str, str] = {}
+
+    for bs, game in box_score_rows:
+        # Determine opponent
+        opp_id = game.away_team_id if bs.team_id == game.home_team_id else game.home_team_id
+
+        if opp_id not in team_name_cache:
+            opp_team = await repo.get_team(opp_id)
+            team_name_cache[opp_id] = opp_team.name if opp_team else opp_id
+
+        game_log.append(
+            {
+                "game_id": game.id,
+                "round_number": game.round_number,
+                "opponent_name": team_name_cache[opp_id],
+                "points": bs.points,
+                "field_goals_made": bs.field_goals_made,
+                "field_goals_attempted": bs.field_goals_attempted,
+                "three_pointers_made": bs.three_pointers_made,
+                "three_pointers_attempted": bs.three_pointers_attempted,
+                "free_throws_made": bs.free_throws_made,
+                "free_throws_attempted": bs.free_throws_attempted,
+                "assists": bs.assists,
+                "steals": bs.steals,
+                "turnovers": bs.turnovers,
+            }
+        )
+        bs_dicts.append(
+            {
+                "points": bs.points,
+                "assists": bs.assists,
+                "steals": bs.steals,
+                "turnovers": bs.turnovers,
+                "field_goals_made": bs.field_goals_made,
+                "field_goals_attempted": bs.field_goals_attempted,
+                "three_pointers_made": bs.three_pointers_made,
+                "three_pointers_attempted": bs.three_pointers_attempted,
+                "free_throws_made": bs.free_throws_made,
+                "free_throws_attempted": bs.free_throws_attempted,
+            }
+        )
+
+    season_averages = compute_season_averages(bs_dicts)
+
+    # Check if current user is governor on this agent's team (can edit bio)
+    can_edit_bio = False
+    if current_user and season_id:
+        enrollment = await repo.get_player_enrollment(
+            current_user.discord_id, season_id
+        )
+        if enrollment and enrollment[0] == agent.team_id:
+            can_edit_bio = True
+
+    return templates.TemplateResponse(
+        request,
+        "pages/agent.html",
+        {
+            "active_page": "standings",
+            "agent": agent,
+            "team": team,
+            "spider_points": agent_pts,
+            "avg_points": avg_pts,
+            "grid_rings": compute_grid_rings(),
+            "axis_lines": axis_lines(),
+            "spider_poly": polygon_points(agent_pts) if agent_pts else "",
+            "avg_poly": polygon_points(avg_pts) if avg_pts else "",
+            "game_log": game_log,
+            "season_averages": season_averages,
+            "can_edit_bio": can_edit_bio,
+            **_auth_context(request, current_user),
+        },
+    )
+
+
+@router.get("/agents/{agent_id}/bio/edit", response_class=HTMLResponse)
+async def agent_bio_edit_form(
+    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Return HTMX fragment with bio edit form. Governor-only."""
+    agent = await repo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    season_id = await _get_active_season_id(repo)
+    if not current_user or not season_id:
+        raise HTTPException(403, "Not authorized")
+
+    enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
+    if not enrollment or enrollment[0] != agent.team_id:
+        raise HTTPException(403, "Not authorized — must be team governor")
+
+    html = f"""
+    <form hx-post="/agents/{agent_id}/bio" hx-target="#agent-bio" hx-swap="innerHTML">
+      <textarea name="backstory" rows="4" style="width:100%; background:var(--bg-input);
+        color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius);
+        padding:0.75rem; font-family:var(--font-body); font-size:0.9rem; resize:vertical;
+        line-height:1.6;">{agent.backstory or ''}</textarea>
+      <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
+        <button type="submit" class="bio-edit-btn">Save</button>
+        <button type="button" class="bio-edit-btn"
+                hx-get="/agents/{agent_id}/bio/view" hx-target="#agent-bio"
+                hx-swap="innerHTML">Cancel</button>
+      </div>
+    </form>
+    """
+    return HTMLResponse(html)
+
+
+@router.get("/agents/{agent_id}/bio/view", response_class=HTMLResponse)
+async def agent_bio_view(
+    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Return HTMX fragment with bio display. Used after cancel/save."""
+    agent = await repo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    season_id = await _get_active_season_id(repo)
+    can_edit = False
+    if current_user and season_id:
+        enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
+        if enrollment and enrollment[0] == agent.team_id:
+            can_edit = True
+
+    no_bio = '<p class="text-muted">No bio yet.</p>'
+    bio_html = f"<p>{agent.backstory}</p>" if agent.backstory else no_bio
+    edit_btn = ""
+    if can_edit:
+        edit_btn = f"""
+        <button class="bio-edit-btn"
+                hx-get="/agents/{agent_id}/bio/edit"
+                hx-target="#agent-bio"
+                hx-swap="innerHTML">Edit Bio</button>
+        """
+    return HTMLResponse(bio_html + edit_btn)
+
+
+@router.post("/agents/{agent_id}/bio", response_class=HTMLResponse)
+async def update_agent_bio(
+    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Update agent bio. Governor-only."""
+    agent = await repo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    season_id = await _get_active_season_id(repo)
+    if not current_user or not season_id:
+        raise HTTPException(403, "Not authorized")
+
+    enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
+    if not enrollment or enrollment[0] != agent.team_id:
+        raise HTTPException(403, "Not authorized — must be team governor")
+
+    form = await request.form()
+    backstory = str(form.get("backstory", "")).strip()
+    await repo.update_agent_backstory(agent_id, backstory)
+    await repo.session.commit()
+
+    # Return the view fragment
+    bio_html = f"<p>{backstory}</p>" if backstory else '<p class="text-muted">No bio yet.</p>'
+    edit_btn = f"""
+    <button class="bio-edit-btn"
+            hx-get="/agents/{agent_id}/bio/edit"
+            hx-target="#agent-bio"
+            hx-swap="innerHTML">Edit Bio</button>
+    """
+    return HTMLResponse(bio_html + edit_btn)
 
 
 @router.get("/governance", response_class=HTMLResponse)

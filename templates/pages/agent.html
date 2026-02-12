@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "components/spider_chart.html" import spider %}
+{% block title %}{{ agent.name }} — Pinwheel Fates{% endblock %}
+
+{% block content %}
+{# Header #}
+<div class="agent-page-header">
+  <div>
+    <h1>{{ agent.name }}</h1>
+    <div class="flex items-center gap-1">
+      <span class="agent-archetype">{{ agent.archetype }}</span>
+      {% if team %}
+      <span class="text-muted">&middot;</span>
+      <a href="/teams/{{ team.id }}" class="team-link-sm">
+        <span class="team-dot-sm" style="background: {{ team.color }};"></span>
+        {{ team.name }}
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# Bio #}
+<div id="agent-bio" class="agent-bio mb-2">
+  {% if agent.backstory %}
+  <p>{{ agent.backstory }}</p>
+  {% else %}
+  <p class="text-muted">No bio yet.</p>
+  {% endif %}
+  {% if can_edit_bio %}
+  <button class="bio-edit-btn"
+          hx-get="/agents/{{ agent.id }}/bio/edit"
+          hx-target="#agent-bio"
+          hx-swap="innerHTML">Edit Bio</button>
+  {% endif %}
+</div>
+
+{# Two-column: Spider chart + Season averages #}
+<div class="agent-detail-grid mb-2">
+  {# Spider chart #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Attributes</h3>
+    </div>
+    <div class="card-body" style="display:flex; flex-direction:column; align-items:center;">
+      {{ spider(spider_points, avg_points, grid_rings, axis_lines, spider_poly, avg_poly, team_color=team.color if team else "#53d8fb", size="lg") }}
+    </div>
+  </div>
+
+  {# Season averages #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Season Averages</h3>
+    </div>
+    <div class="card-body">
+      {% if season_averages %}
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.ppg }}</div>
+          <div class="stat-label">PPG</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.apg }}</div>
+          <div class="stat-label">APG</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.spg }}</div>
+          <div class="stat-label">SPG</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.topg }}</div>
+          <div class="stat-label">TOPG</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.fg_pct }}%</div>
+          <div class="stat-label">FG%</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.three_pct }}%</div>
+          <div class="stat-label">3P%</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.ft_pct }}%</div>
+          <div class="stat-label">FT%</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ season_averages.games_played }}</div>
+          <div class="stat-label">GP</div>
+        </div>
+      </div>
+      {% else %}
+      <p class="text-muted text-sm">No games played yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# Game Log #}
+{% if game_log %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Game Log</h3>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="box-score-table">
+      <thead>
+        <tr>
+          <th style="text-align:left">RD</th>
+          <th style="text-align:left">OPP</th>
+          <th>PTS</th>
+          <th>FG</th>
+          <th>3P</th>
+          <th>FT</th>
+          <th>AST</th>
+          <th>STL</th>
+          <th>TO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in game_log %}
+        <tr>
+          <td style="text-align:left">
+            <a href="/games/{{ g.game_id }}">{{ g.round_number }}</a>
+          </td>
+          <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">
+            {{ g.opponent_name }}
+          </td>
+          <td>{{ g.points }}</td>
+          <td>{{ g.field_goals_made }}-{{ g.field_goals_attempted }}</td>
+          <td>{{ g.three_pointers_made }}-{{ g.three_pointers_attempted }}</td>
+          <td>{{ g.free_throws_made }}-{{ g.free_throws_attempted }}</td>
+          <td>{{ g.assists }}</td>
+          <td>{{ g.steals }}</td>
+          <td>{{ g.turnovers }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# Moves #}
+{% if agent.moves %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Special Moves</h3>
+  </div>
+  <div class="card-body">
+    {% for move in agent.moves %}
+    <div class="move-item {% if not loop.last %}mb-1{% endif %}">
+      <div class="move-name">{{ move.name if move is mapping else move }}</div>
+      {% if move is mapping %}
+      {% if move.trigger %}
+      <div class="move-detail"><span class="text-muted text-xs">TRIGGER</span> {{ move.trigger }}</div>
+      {% endif %}
+      {% if move.effect %}
+      <div class="move-detail"><span class="text-muted text-xs">EFFECT</span> {{ move.effect }}</div>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if team %}
+<a href="/teams/{{ team.id }}" class="nav-link">&larr; Back to {{ team.name }}</a>
+{% endif %}
+{% endblock %}

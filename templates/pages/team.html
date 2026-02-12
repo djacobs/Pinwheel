@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/spider_chart.html" import spider %}
 {% block title %}{{ team.name }} — Pinwheel Fates{% endblock %}
 
 {% block content %}
@@ -6,6 +7,18 @@
   <div class="team-color-dot" style="background-color: {{ team.color }};"></div>
   <div class="team-info">
     <h1>{{ team.name }}</h1>
+    {% if team_standings %}
+    <div class="team-record mono" style="color: var(--accent-score); font-weight:700; font-size:0.9rem;">
+      {{ team_standings.wins }}-{{ team_standings.losses }}
+      {% if standing_position %}
+      <span class="text-muted" style="font-weight:400;">
+        &middot;
+        {% if standing_position == 1 %}1st{% elif standing_position == 2 %}2nd{% elif standing_position == 3 %}3rd{% else %}{{ standing_position }}th{% endif %}
+        in {{ league_name or 'the league' }}
+      </span>
+      {% endif %}
+    </div>
+    {% endif %}
     {% if team.motto %}
     <div class="team-motto">"{{ team.motto }}"</div>
     {% endif %}
@@ -21,12 +34,12 @@
     <div class="flex gap-2">
       <div>
         <span class="text-muted text-xs">NAME</span><br>
-        <strong>{{ team.venue.name if team.venue.name is defined else team.venue.get('name', 'Unknown') }}</strong>
+        <strong>{{ team.venue['name'] if team.venue is mapping else team.venue }}</strong>
       </div>
-      {% if team.venue.capacity is defined or team.venue.get is defined %}
+      {% if team.venue is mapping and 'capacity' in team.venue %}
       <div>
         <span class="text-muted text-xs">CAPACITY</span><br>
-        <strong class="mono">{{ team.venue.capacity if team.venue.capacity is defined else team.venue.get('capacity', '?') }}</strong>
+        <strong class="mono">{{ '{:,}'.format(team.venue['capacity']) }}</strong>
       </div>
       {% endif %}
     </div>
@@ -38,21 +51,12 @@
 <div class="roster-grid mb-2">
   {% for agent in agents %}
   <div class="agent-card">
-    <div class="agent-name">{{ agent.name }}</div>
+    <a href="/agents/{{ agent.id }}" class="agent-name-link">
+      <div class="agent-name">{{ agent.name }}</div>
+    </a>
     <div class="agent-archetype">{{ agent.archetype }}</div>
-    {% if agent.attributes %}
-    <div style="margin-top: 0.5rem;">
-      {% for attr_name in ['scoring', 'passing', 'defense', 'speed', 'stamina', 'iq', 'ego', 'chaotic_alignment', 'fate'] %}
-        {% set val = agent.attributes[attr_name] if attr_name in agent.attributes else agent.attributes.get(attr_name, 0) %}
-        <div class="attr-bar">
-          <span class="attr-label">{{ attr_name[:3]|upper }}</span>
-          <div class="attr-track">
-            <div class="attr-fill {{ attr_name }}" style="width: {{ val }}%;"></div>
-          </div>
-          <span class="attr-value">{{ val }}</span>
-        </div>
-      {% endfor %}
-    </div>
+    {% if agent.spider_points %}
+    {{ spider(agent.spider_points, avg_points, grid_rings, axis_lines, agent.spider_poly, avg_poly, team_color=team.color, size="sm") }}
     {% endif %}
   </div>
   {% endfor %}

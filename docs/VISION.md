@@ -12,14 +12,14 @@ Drawing from David Lynch's *Catching the Big Fish*: the creative act — and the
 
 ## Overview
 
-Pinwheel is a Blaseball-inspired auto-simulated 3v3 basketball league where human players don't play basketball — they govern it. Teams of co-governors shape the rules of the game through natural language proposals, interpreted by Claude Opus 4.6, and watch the consequences cascade across dozens of daily games.
+Pinwheel is an auto-simulated 3v3 basketball league where human players don't play basketball — they govern it. Teams of co-governors shape the rules of the game through natural language proposals, interpreted by Claude Opus 4.6, and watch the consequences cascade across dozens of daily games. It starts out as basketball, but the players decide what it becomes.
 
 The AI serves as the social system's unconscious: surfacing patterns, mirroring governance dynamics, and offering each player private reflections on their own behavior within the system. The game is most interesting when the rules are slightly unfair and everyone can see why — because that's when governance stops being abstract and becomes urgent.
 
 ## Goals
 
 1. **Demonstrate AI as judgment amplifier.** Opus 4.6 doesn't make decisions for players. It makes the consequences of their decisions visible before, during, and after they act.
-2. **Create a tight feedback loop.** Governance decisions → simulated games → visible consequences → new governance decisions. Fast enough to feel in your gut. The Blaseball cadence: propose a rule, watch it cascade through a dozen games, feel the results before the next governance window.
+2. **Create a tight feedback loop.** Governance decisions → simulated games → visible consequences → new governance decisions. Fast enough to feel in your gut. Propose a rule, watch it cascade through a dozen games, feel the results before the next governance window.
 3. **Make invisible social dynamics legible.** Coalitions forming. Power concentrating. Voices being silenced. Free-riding. The AI sees what individuals inside the system cannot.
 4. **Embody resonant computing principles.** Software that is private, dedicated, plural, adaptable, and prosocial — not extractive, not surveilling, not optimizing for engagement.
 5. **Be genuinely fun.** The craft and joy of the game must stand on its own. The philosophy is the skeleton; the play experience is the body.
@@ -38,4 +38,4 @@ Pinwheel augments human decision-making by making the consequences of collective
 
 ## The Name
 
-**Pinwheel** — from the Portland Trail Blazers logo, where five lines on each side spin around a center: the 5-on-5 in motion. A pinwheel spins when you blow on it — a small input creating continuous rotation. That's the game: a governance decision is the breath, and the simulation spins with the consequences. The name honors the Blazers, the Blaseball lineage, and the core mechanic of the game itself.
+**Pinwheel** — from the Portland Trail Blazers logo, where five lines on each side spin around a center: the 5-on-5 in motion. A pinwheel spins when you blow on it — a small input creating continuous rotation. That's the game: a governance decision is the breath, and the simulation spins with the consequences.

@@ -1,7 +1,7 @@
 """AI commentary engine — play-by-play color commentary for games.
 
 Generates broadcaster-style commentary for individual games and round highlight reels.
-Tone: energetic sports broadcaster meets Blaseball weirdness — fun, dramatic, slightly absurd.
+Tone: energetic sports broadcaster — fun, dramatic, slightly absurd.
 
 Two modes:
 - AI-powered (Claude Sonnet): rich, contextual commentary referencing agents and gameplay moments.
@@ -28,7 +28,7 @@ Write 2-3 short paragraphs of play-by-play commentary for this game. Your style:
 - Reference specific agents by name when describing key plays.
 - If the Elam Ending activated, treat it as a dramatic narrative pivot.
 - Note any dominant performances, big scoring runs, or statistical oddities.
-- Keep it fun. This is Blaseball energy — the weird is the point.
+- Keep it fun. The weird is the point — players change the rules, and the game gets stranger.
 
 Be concise. No headers. No bullet points. Just vivid prose."""
 

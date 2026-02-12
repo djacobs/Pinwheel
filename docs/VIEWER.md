@@ -622,6 +622,6 @@ This is possible because the presenter has the full GameResult. It knows where t
 ## Open Questions
 
 1. **Commentary model tier:** Should commentary use Opus 4.6 (best quality, highest cost) or a faster/cheaper model (Sonnet, Haiku)? Commentary quality is highly visible — it's the voice of the game. But 60 API calls per round is significant. Could use Opus for key moments (Elam, Moves, game-winner) and a faster model for routine possessions.
-2. **Arena visual design:** The 2x2 grid is functional but the aesthetic matters enormously. Blaseball's retro aesthetic is the north star. Should we invest in a designer, or can the HTMX + CSS approach achieve the feel?
+2. **Arena visual design:** The 2x2 grid is functional but the aesthetic matters enormously. The retro sports broadcast aesthetic is the north star. Should we invest in a designer, or can the HTMX + CSS approach achieve the feel?
 3. **Commentary in Discord:** Should live commentary stream to the #game-day channel during games? This would make Discord a viewing surface too, not just a governance surface. But it could be noisy.
 4. **Spoiler protection:** If a user loads the Arena mid-game, should they see the current state (spoiler) or start from the beginning? Option: show live state by default, offer "watch from start" button using replay.

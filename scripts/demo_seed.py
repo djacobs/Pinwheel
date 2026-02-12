@@ -12,6 +12,7 @@ Uses a local SQLite database (demo_pinwheel.db).
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
 from pinwheel.core.game_loop import step_round
@@ -20,9 +21,9 @@ from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
 
-DEMO_DB = "sqlite+aiosqlite:///demo_pinwheel.db"
+DEMO_DB = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///demo_pinwheel.db")
 
-# Blaseball-inspired Portland teams
+# Portland-themed teams
 TEAMS = [
     {
         "name": "Rose City Thorns",

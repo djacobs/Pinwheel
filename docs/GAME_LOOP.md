@@ -223,7 +223,7 @@ team once. 4 games per round.  assignments.                    assignments.
   every round, configurable)
 ```
 
-**Governance frequency:** How often governance windows open is controlled by `governance_rounds_interval` (default 1 = every round, governable). At interval 1, there are 21 governance windows per season. At interval 3, there are 7. Players can vote to make governance more or less frequent — more frequent means more reactive, chaotic, Blaseball-energy play. Less frequent means more strategic, deliberate governance.
+**Governance frequency:** How often governance windows open is controlled by `governance_rounds_interval` (default 1 = every round, governable). At interval 1, there are 21 governance windows per season. At interval 3, there are 7. Players can vote to make governance more or less frequent — more frequent means more reactive, chaotic play. Less frequent means more strategic, deliberate governance.
 
 **Rhythm:** Each round = 1 simulation block. When `governance_rounds_interval` rounds have elapsed, a governance window opens. The cycle:
 
@@ -272,7 +272,7 @@ SEMIFINALS (Best-of-5)                    CHAMPIONSHIP (Best-of-7)
 
 **Home court:** Higher seed has home court advantage (more games at their venue). In a best-of-5: games 1, 2, 5 at higher seed's venue. In a best-of-7: games 1, 2, 5, 7 at higher seed's venue.
 
-**Governance during playoffs:** Active. This is the most Blaseball thing about Pinwheel Fates — the rules can change between playoff games. A governance window opens between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI mirror tracks every move.
+**Governance during playoffs:** Active. This is where Pinwheel gets truly strange — the rules can change between playoff games. A governance window opens between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI mirror tracks every move.
 
 ### Championship & End of Season
 

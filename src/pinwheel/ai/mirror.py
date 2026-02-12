@@ -243,22 +243,107 @@ def generate_simulation_mirror_mock(
     season_id: str,
     round_number: int,
 ) -> Mirror:
-    """Mock simulation mirror for testing without API key."""
-    games = round_data.get("games", [])
-    num_games = len(games)
-    total_points = sum(g.get("home_score", 0) + g.get("away_score", 0) for g in games)
-    elam_count = sum(1 for g in games if g.get("elam_activated", False))
+    """Mock simulation mirror — narrative, specific, never generic."""
+    import random as _rng
 
-    lines = [f"Round {round_number} delivered {num_games} games with {total_points} total points."]
-    if elam_count:
-        lines.append(
-            f"The Elam Ending activated in {elam_count} game(s), "
-            "adding dramatic tension to otherwise conventional contests."
+    games = round_data.get("games", [])
+    if not games:
+        return Mirror(
+            id=f"m-sim-{round_number}-mock",
+            mirror_type="simulation",
+            round_number=round_number,
+            content="Silence from the courts. No games this round.",
         )
-    if games:
-        high_scorer = max(games, key=lambda g: max(g.get("home_score", 0), g.get("away_score", 0)))
-        top_score = max(high_scorer.get("home_score", 0), high_scorer.get("away_score", 0))
-        lines.append(f"The highest score this round was {top_score}.")
+
+    rng = _rng.Random(round_number * 1000 + len(games))
+
+    # Collect narrative ingredients
+    blowouts = []
+    close_games = []
+    for g in games:
+        home = g.get("home_team", "Home")
+        away = g.get("away_team", "Away")
+        hs, aws = g.get("home_score", 0), g.get("away_score", 0)
+        margin = abs(hs - aws)
+        winner = home if hs > aws else away
+        loser = away if hs > aws else home
+        w_score, l_score = max(hs, aws), min(hs, aws)
+        entry = {
+            "winner": winner, "loser": loser,
+            "w_score": w_score, "l_score": l_score,
+            "margin": margin, "total": hs + aws,
+        }
+        if margin >= 10:
+            blowouts.append(entry)
+        elif margin <= 4:
+            close_games.append(entry)
+
+    total_points = sum(g.get("home_score", 0) + g.get("away_score", 0) for g in games)
+    avg_total = total_points // max(len(games), 1)
+
+    # Build narrative lines
+    lines = []
+
+    # Lead with the most dramatic game
+    if close_games:
+        g = close_games[0]
+        w, lo = g["winner"], g["loser"]
+        ws, ls, m = g["w_score"], g["l_score"], g["margin"]
+        openers = [
+            (
+                f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
+                "that went down to the final Elam possession."
+            ),
+            (
+                f"A {m}-point margin was all that separated "
+                f"{w} from {lo}. The kind of game that turns a season."
+            ),
+            (
+                f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
+                "until the Elam target came into view."
+            ),
+        ]
+        lines.append(rng.choice(openers))
+    elif blowouts:
+        g = blowouts[0]
+        w, lo = g["winner"], g["loser"]
+        ws, ls, m = g["w_score"], g["l_score"], g["margin"]
+        openers = [
+            (
+                f"{w} dismantled {lo} by {m}. "
+                "It wasn't close after the first quarter."
+            ),
+            (
+                f"A {m}-point demolition: {w} {ws}, {lo} {ls}. "
+                "The Elam target was a formality."
+            ),
+        ]
+        lines.append(rng.choice(openers))
+    else:
+        g0 = games[0]
+        home, away = g0.get("home_team", "Home"), g0.get("away_team", "Away")
+        lines.append(
+            f"{home} and {away} traded buckets all game. "
+            f"Final: {g0.get('home_score', 0)}-{g0.get('away_score', 0)}."
+        )
+
+    # Add secondary observations
+    if len(games) > 1:
+        if avg_total >= 60:
+            lines.append(
+                f"The courts ran hot — {avg_total} points per game on average. "
+                "Defenses are struggling or offenses are evolving. Maybe both."
+            )
+        elif avg_total <= 40:
+            lines.append(
+                f"Only {avg_total} points per game this round. "
+                "Someone tightened the screws. The game is getting physical."
+            )
+
+    if blowouts and close_games:
+        lines.append(
+            "A round of extremes: blowouts and nail-biters sharing the same scorecard."
+        )
 
     return Mirror(
         id=f"m-sim-{round_number}-mock",

@@ -12,6 +12,16 @@
   </p>
 </div>
 
+{% if standings_leader %}
+<div class="league-snapshot text-center mb-2" style="max-width:500px; margin:0 auto;">
+  <p class="text-muted text-sm mono">
+    <strong style="color: var(--accent-score);">{{ standings_leader.team_name }}</strong>
+    lead at {{ standings_leader.wins }}-{{ standings_leader.losses }}
+    &middot; {{ total_games }} game{{ 's' if total_games != 1 else '' }} played
+  </p>
+</div>
+{% endif %}
+
 <div class="arena-grid mb-2">
   <a href="/arena" class="card" style="text-decoration:none; color:inherit; padding:1.5rem; text-align:center;">
     <h3 style="color: var(--accent-highlight); margin-bottom:0.5rem;">The Arena</h3>

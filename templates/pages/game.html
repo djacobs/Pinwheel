@@ -28,30 +28,30 @@
 
   {% if game.quarter_scores %}
   <div class="flex justify-between mt-1" style="max-width:400px; margin-left:auto; margin-right:auto;">
-    <table class="box-score-table" style="font-size:0.75rem;">
+    <table class="quarter-table">
       <thead>
         <tr>
           <th></th>
           {% for qs in game.quarter_scores %}
-          <th>Q{{ loop.index }}</th>
+          <th>{% if loop.last and game.elam_target %}Elam{% else %}Q{{ loop.index }}{% endif %}</th>
           {% endfor %}
           <th>T</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td style="font-weight:700;">{{ home_name[:3]|upper }}</td>
+          <td class="qt-team">{{ home_name[:3]|upper }}</td>
           {% for qs in game.quarter_scores %}
-          <td>{{ qs.home_score if qs.home_score is defined else qs['home_score'] }}</td>
+          <td class="{% if qs.home_score > qs.away_score %}qt-bold{% endif %}">{{ qs.home_score if qs.home_score is defined else qs['home_score'] }}</td>
           {% endfor %}
-          <td style="font-weight:900; color:var(--accent-score);">{{ game.home_score }}</td>
+          <td class="qt-total {% if game.winner_team_id == game.home_team_id %}qt-bold{% endif %}">{{ game.home_score }}</td>
         </tr>
         <tr>
-          <td style="font-weight:700;">{{ away_name[:3]|upper }}</td>
+          <td class="qt-team">{{ away_name[:3]|upper }}</td>
           {% for qs in game.quarter_scores %}
-          <td>{{ qs.away_score if qs.away_score is defined else qs['away_score'] }}</td>
+          <td class="{% if qs.away_score > qs.home_score %}qt-bold{% endif %}">{{ qs.away_score if qs.away_score is defined else qs['away_score'] }}</td>
           {% endfor %}
-          <td style="font-weight:900; color:var(--accent-score);">{{ game.away_score }}</td>
+          <td class="qt-total {% if game.winner_team_id == game.away_team_id %}qt-bold{% endif %}">{{ game.away_score }}</td>
         </tr>
       </tbody>
     </table>
@@ -112,11 +112,7 @@
         {% for play in play_by_play %}
         <li class="pbp-item">
           <span class="pbp-quarter">Q{{ play.quarter }}</span>
-          <span class="pbp-action">
-            {{ play.action|replace("_", " ")|title }}
-            {% if play.result == "made" %}&mdash; {{ play.result|upper }}{% endif %}
-            {% if play.result == "missed" %}&mdash; miss{% endif %}
-          </span>
+          <span class="pbp-action">{{ play.narration }}</span>
           {% if play.points_scored > 0 %}
           <span class="pbp-points">+{{ play.points_scored }}</span>
           {% endif %}

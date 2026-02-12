@@ -2,7 +2,7 @@
 
 ## Product Thesis
 
-Pinwheel Fates is a Blaseball-inspired auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. The AI (Opus 4.6) serves as the social system's unconscious — surfacing patterns in gameplay and governance that players cannot see from inside the system.
+Pinwheel Fates is an auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. The AI (Opus 4.6) serves as the social system's unconscious — surfacing patterns in gameplay and governance that players cannot see from inside the system.
 
 The product validates a single hypothesis: **visibility improves governance.** If the AI mirror system makes invisible social dynamics legible, players will govern more thoughtfully, and the game will become more fun as a result.
 
@@ -255,7 +255,7 @@ The operator. Sets up the league, seeds teams, manages the Discord server, monit
 - Season mirror, awards, championship narrative (GAME_LOOP.md)
 - Offseason governance: carry-forward vote, roster changes, next season params (GAME_LOOP.md)
 
-**User benefit:** The stakes escalate. Governance between playoff games is the most Blaseball feature in the design — rules change mid-series. The season mirror writes the definitive narrative, giving the community a shared story.
+**User benefit:** The stakes escalate. Governance between playoff games is where things get wild — rules change mid-series. The season mirror writes the definitive narrative, giving the community a shared story.
 
 **Desired journey (qualifying teams):** Clinch playoff spot → higher-stakes governance → playoff series with rule changes between games → championship → read season mirror → offseason governance → next season.
 

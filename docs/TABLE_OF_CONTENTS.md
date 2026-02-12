@@ -43,7 +43,7 @@ These define *how* we build each component. Created via the `/workflows:plan` cy
 | [Discord Bot](plans/2026-02-11-discord-bot-plan.md) | discord.py integration with FastAPI | Day 2-3 | In-process with FastAPI, slash command registration, Discord user → governor mapping, full command flows |
 | [Presenter](plans/2026-02-11-presenter-plan.md) | Game presentation and pacing system | Day 3 | EventBus (async pub/sub), GamePresenter (asyncio task per game), dramatic pacing algorithm, commentary integration, late-join/catch-up, replay |
 | [Season Lifecycle](plans/2026-02-11-season-lifecycle-plan.md) | Season state machine | Day 3 | 8 states (SETUP → COMPLETE), transition logic, playoff bracket management, dev mode compression |
-| [Frontend](plans/2026-02-11-frontend-plan.md) | HTMX patterns and visual design | Day 4 | SSE-driven updates, server-rendered fragments, Blaseball aesthetic, color system, typography, Discord OAuth |
+| [Frontend](plans/2026-02-11-frontend-plan.md) | HTMX patterns and visual design | Day 4 | SSE-driven updates, server-rendered fragments, retro sports broadcast aesthetic, color system, typography, Discord OAuth |
 | [Page Designs](plans/2026-02-11-page-designs.md) | Page-level UX wireframes | Day 4 | ASCII wireframes for 6 page types (Game Preview, Live Game, Game Summary, Team, Agent, Season), global nav, component reuse |
 | [Day 1 Implementation](plans/2026-02-11-day1-implementation-plan.md) | Concrete Day 1 build plan | Day 1 | 7 phases, ~40-60 tests target, file inventory, time estimates (scaffolding 30min → models 1hr → simulation 3-4hr → seeding 1.5hr → DB 1hr → scheduler+API 1hr → observe 30min) |
 

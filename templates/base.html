@@ -4,35 +4,45 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Pinwheel Fates{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/pinwheel.css">
-  <script src="/static/js/htmx.min.js"></script>
-  <script src="/static/js/sse.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/pinwheel.css?v={{ app_version | default('dev') }}">
+  <script src="/static/js/htmx.min.js?v={{ app_version | default('dev') }}"></script>
+  <script src="/static/js/sse.js?v={{ app_version | default('dev') }}"></script>
 </head>
 <body hx-boost="true">
 
 <nav class="nav">
   <div class="nav-inner">
     <a href="/" class="nav-brand">PINWHEEL <span>FATES</span></a>
-    <a href="/arena" class="nav-link {% if active_page == 'arena' %}active{% endif %}">Arena</a>
-    <a href="/standings" class="nav-link {% if active_page == 'standings' %}active{% endif %}">Standings</a>
-    <a href="/governance" class="nav-link {% if active_page == 'governance' %}active{% endif %}">Governance</a>
-    <a href="/rules" class="nav-link {% if active_page == 'rules' %}active{% endif %}">Rules</a>
-    <a href="/mirrors" class="nav-link {% if active_page == 'mirrors' %}active{% endif %}">Mirrors</a>
-    {% if pinwheel_env in ['development', 'staging'] %}
-    <a href="/admin/evals" class="nav-link {% if active_page == 'evals' %}active{% endif %}">Evals</a>
-    {% endif %}
-    <span class="nav-spacer"></span>
-    {% if current_user %}
-      <span class="nav-user">
-        {% if current_user.avatar_url %}
-          <img src="{{ current_user.avatar_url }}" alt="" class="nav-avatar" width="24" height="24">
-        {% endif %}
-        {{ current_user.username }}
-      </span>
-      <a href="/auth/logout" class="nav-link">Logout</a>
-    {% elif oauth_enabled %}
-      <a href="/auth/login" class="nav-link">Login with Discord</a>
-    {% endif %}
+    <button class="nav-toggle" onclick="this.classList.toggle('open');document.getElementById('nav-links').classList.toggle('open');" aria-label="Toggle navigation">
+      <span class="nav-toggle-line"></span>
+      <span class="nav-toggle-line"></span>
+      <span class="nav-toggle-line"></span>
+    </button>
+    <div id="nav-links" class="nav-links">
+      <a href="/arena" class="nav-link {% if active_page == 'arena' %}active{% endif %}">Arena</a>
+      <a href="/standings" class="nav-link {% if active_page == 'standings' %}active{% endif %}">Standings</a>
+      <a href="/governance" class="nav-link {% if active_page == 'governance' %}active{% endif %}">Governance</a>
+      <a href="/rules" class="nav-link {% if active_page == 'rules' %}active{% endif %}">Rules</a>
+      <a href="/mirrors" class="nav-link {% if active_page == 'mirrors' %}active{% endif %}">Mirrors</a>
+      {% if pinwheel_env in ['development', 'staging'] %}
+      <a href="/admin/evals" class="nav-link {% if active_page == 'evals' %}active{% endif %}">Evals</a>
+      {% endif %}
+      <span class="nav-spacer"></span>
+      {% if current_user %}
+        <span class="nav-user">
+          {% if current_user.avatar_url %}
+            <img src="{{ current_user.avatar_url }}" alt="" class="nav-avatar" width="24" height="24">
+          {% endif %}
+          {{ current_user.username }}
+        </span>
+        <a href="/auth/logout" class="nav-link">Logout</a>
+      {% elif oauth_enabled %}
+        <a href="/auth/login" class="nav-link">Login with Discord</a>
+      {% endif %}
+    </div>
   </div>
 </nav>
 
