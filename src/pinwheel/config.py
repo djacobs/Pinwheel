@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import secrets
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 # Default cron expression — used to detect whether the user explicitly overrode it.
@@ -36,7 +39,7 @@ class Settings(BaseSettings):
     discord_client_id: str = ""
     discord_client_secret: str = ""
     discord_redirect_uri: str = "http://localhost:8000/auth/callback"
-    session_secret_key: str = "pinwheel-dev-secret-change-in-production"
+    session_secret_key: str = ""
 
     # Database
     database_url: str = "sqlite+aiosqlite:///pinwheel.db"
@@ -57,6 +60,20 @@ class Settings(BaseSettings):
     pinwheel_log_level: str = "INFO"
 
     model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _ensure_session_secret(self) -> Settings:
+        """Auto-generate session secret in dev; reject missing secret in production."""
+        if not self.session_secret_key:
+            if self.pinwheel_env == "production":
+                msg = (
+                    "SESSION_SECRET_KEY must be set in production. "
+                    "Generate one with: python -c "
+                    '"import secrets; print(secrets.token_urlsafe(32))"'
+                )
+                raise ValueError(msg)
+            self.session_secret_key = secrets.token_urlsafe(32)
+        return self
 
     def effective_game_cron(self) -> str | None:
         """Return the cron expression that should drive game scheduling.

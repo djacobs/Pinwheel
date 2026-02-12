@@ -73,12 +73,14 @@ async def login(request: Request) -> RedirectResponse:
     }
     redirect_url = f"{DISCORD_AUTHORIZE_URL}?{urlencode(params)}"
     response = RedirectResponse(url=redirect_url, status_code=302)
+    is_prod = s.pinwheel_env == "production"
     response.set_cookie(
         "pinwheel_oauth_state",
         state,
         max_age=300,
         httponly=True,
         samesite="lax",
+        secure=is_prod,
     )
     return response
 
@@ -103,19 +105,29 @@ async def callback(
     s = _settings(request)
 
     # Exchange the code for an access token.
-    token_data = await _exchange_code(
-        code=code,
-        client_id=s.discord_client_id,
-        client_secret=s.discord_client_secret,
-        redirect_uri=s.discord_redirect_uri,
-    )
+    try:
+        token_data = await _exchange_code(
+            code=code,
+            client_id=s.discord_client_id,
+            client_secret=s.discord_client_secret,
+            redirect_uri=s.discord_redirect_uri,
+        )
+    except Exception:
+        logger.exception("Discord token exchange error")
+        return RedirectResponse(url="/", status_code=302)
+
     access_token = token_data.get("access_token")
     if not access_token:
         logger.error("Discord token exchange failed: %s", token_data)
         return RedirectResponse(url="/", status_code=302)
 
     # Fetch the Discord user profile.
-    user_info = await _fetch_user(access_token)
+    try:
+        user_info = await _fetch_user(access_token)
+    except Exception:
+        logger.exception("Discord user fetch error")
+        return RedirectResponse(url="/", status_code=302)
+
     discord_id = user_info.get("id", "")
     username = user_info.get("username", "")
     avatar_hash = user_info.get("avatar", "")
@@ -142,6 +154,7 @@ async def callback(
         {"discord_id": discord_id, "username": username, "avatar_url": avatar_url}
     )
 
+    is_prod = s.pinwheel_env == "production"
     response = RedirectResponse(url="/", status_code=302)
     response.set_cookie(
         SESSION_COOKIE_NAME,
@@ -149,6 +162,7 @@ async def callback(
         max_age=SESSION_MAX_AGE,
         httponly=True,
         samesite="lax",
+        secure=is_prod,
     )
     # Clear the one-time state cookie.
     response.delete_cookie("pinwheel_oauth_state")

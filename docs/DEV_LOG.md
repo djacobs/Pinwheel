@@ -1,26 +1,37 @@
-# Pinwheel Dev Log — 2026-02-11
+# Pinwheel Dev Log — 2026-02-12
 
-Previous log: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Days 1-4)
+Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5, Days 1-4), Day 5 below (Sessions 6-10)
 
 ## Where We Are
 
 - **401 tests**, zero lint errors
-- **Days 1-4 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework
-- **Day 5 in progress:** APScheduler, presenter pacing, AI commentary engine complete
-- **Commit:** `c7ab30a` (Session 9), latest uncommitted: Session 10
+- **Days 1-5 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary engine
+- **Day 6 starting:** P1/P2 fixes, Discord server infrastructure, deploy, playtest, pitch
+- **Latest commit:** `9c17bce` (P1/P2 priority list)
 
-## Today's Agenda (Day 5: Polish + Demo)
+## Today's Agenda (Day 6: Harden + Deploy + Pitch)
 
-- [x] Evals framework — Proposal S + Proposal M implemented (Session 7)
-- [x] Set up Discord app (bot token + OAuth credentials) — bot live in guild
-- [x] Discord governance commands — /propose (AI-interpreted), /vote, /tokens, /trade, /strategy (Session 9)
-- [x] Web governance audit trail behind auth — vote totals, no individual votes (Session 9)
-- [x] Demo script — Showboat + Rodney pipeline, 15 steps, 10 screenshots (Sessions 6, 8)
-- [x] Presenter pacing — pace-to-cron mapping, `/api/pace` endpoint, `effective_game_cron()` (Session 10)
-- [x] AI commentary engine — broadcaster-style game commentary + round highlight reels (Session 10)
-- [x] APScheduler integration for automatic round advancement — `tick_round()` + lifespan wiring (Session 10)
-- [ ] Polish pass
-- [ ] Deployment to Fly.io
+### P1 — Must fix first
+- [x] Fix `session_secret_key` hardcoded default — reject in production or auto-generate (Session 12)
+- [x] Add auth gate to `/admin/evals` route (not just nav hiding) (Session 12)
+
+### P2 — Fix before broader exposure
+- [x] OAuth cookies: add `secure=True`, `samesite="lax"` in production (Session 12)
+- [x] OAuth callback: wrap Discord API errors in try/except with graceful redirect (Session 12)
+
+### Discord server infrastructure
+- [ ] `/join` command — team enrollment with season-lock
+- [ ] Channel setup on bot ready (`#how-to-play`, `#play-by-play`, `#big-plays`, per-team channels)
+- [ ] Welcome message in `#how-to-play`
+- [ ] Event routing — game results to `#play-by-play`, highlights to `#big-plays`
+
+### Polish + Deploy
+- [ ] CLAUDE.md accuracy pass (stale project structure, env vars, commands) ← done Session 11
+- [ ] Fly.io deployment
+- [ ] End-to-end playtest (Discord + web, full govern→simulate→observe→reflect cycle)
+- [ ] Sharpen pitch narrative + demo script
+
+## Day 5 Complete (Sessions 6-10, 2026-02-11)
 
 ---
 
@@ -198,22 +209,54 @@ Rewrote/added 5 governance commands in `src/pinwheel/discord/bot.py`:
 
 ---
 
-## Tomorrow's Priority List
+## Session 12 — P1/P2 Security Hardening
 
-### P1 — Must fix before broader/public exposure
+**What was asked:** Fix all 4 security issues before inviting players/testers into the Discord.
 
-1. **`session_secret_key` default is hardcoded** (`src/pinwheel/config.py:39`). If `.env` doesn't set `SESSION_SECRET_KEY`, the app runs with `"pinwheel-dev-secret-change-in-production"`. Fix: raise on startup in production if secret matches the default, or generate a random one.
+**What was built:**
 
-2. **`/admin/evals` lacks authorization** (`src/pinwheel/api/eval_dashboard.py`). The nav link is hidden in production via template check, but the route itself has no auth gate. Fix: add the same auth redirect pattern used on `/governance`.
+### P1 #1: Session secret key
+- `config.py` — Removed hardcoded default. Added `model_validator(mode="after")`:
+  - Production: raises `ValueError` if `SESSION_SECRET_KEY` is empty
+  - Development: auto-generates a random `secrets.token_urlsafe(32)`
 
-### P2 — Should fix before broader exposure
+### P1 #2: Evals dashboard auth gate
+- `api/eval_dashboard.py` — Added the same auth redirect pattern as `/governance`: checks `current_user is None and oauth_enabled`, redirects to `/auth/login`.
 
-3. **OAuth cookies not marked `secure`** (`src/pinwheel/auth/oauth.py:76`, `:146`). In production behind HTTPS, cookies should have `secure=True` and `samesite="lax"`. Fix: gate on `pinwheel_env == "production"`.
+### P2 #3: Secure OAuth cookies
+- `auth/oauth.py` — Both `set_cookie()` calls (state cookie and session cookie) now include `secure=is_prod` where `is_prod = settings.pinwheel_env == "production"`.
 
-4. **OAuth callback can hard-fail** (`src/pinwheel/auth/oauth.py:105`, `:189`, `:201`). Discord API errors during token exchange or user info fetch return raw 500s. Fix: try/except with redirect to an error page or `/` with a flash message.
+### P2 #4: Graceful OAuth callback errors
+- `auth/oauth.py` — Both `_exchange_code()` and `_fetch_user()` calls wrapped in try/except. Discord API errors now redirect to `/` instead of returning raw 500s.
 
-### Demo readiness verdict
+**Files modified (3):** `config.py`, `api/eval_dashboard.py`, `auth/oauth.py`
 
-**Yellow-to-green for internal demo** — feature complete, good momentum. Before broader/public exposure: tighten the two P1 auth/admin controls first.
+**7 new tests (408 total), zero lint errors.**
+
+---
+
+## Session 11 — CLAUDE.md Accuracy Audit (Day 6 Start)
+
+**What was asked:** Begin Day 6. Review CLAUDE.md for accuracy. Identify what's missing or unnecessary.
+
+**What was found:**
+
+CLAUDE.md had significant drift from reality after 5 days of rapid development:
+- **Project Structure** was fiction — listed nonexistent files (`api/router.py`, `api/tokens.py`, `core/events.py`, `ai/client.py`, `ai/prompts.py`), missed entire modules (`auth/`, `discord/`, `evals/` — 20+ real files)
+- **Tech Stack** claimed Alembic (not used — we use `Base.metadata.create_all()`)
+- **Architecture** referenced numpy (not used)
+- **Compound Engineering plugin** references were stale (plugin doesn't work)
+- **Environment Variables** listed 5 of 13+ real variables
+- **Common Commands** used bare `pytest` instead of `uv run pytest`
+
+**What was fixed:**
+- Rewrote Project Structure to match actual 59 source files across 8 modules
+- Replaced Alembic reference with actual schema approach
+- Replaced numpy reference with actual approach (pure Python + stdlib random)
+- Replaced Compound Engineering workflow with actual Plan → Build → Test → Commit workflow
+- Updated Environment Variables to list all 13 real variables
+- Updated Common Commands to use `uv run` prefix and include demo seeding
+
+**401 tests (unchanged), zero lint errors.**
 
 ---

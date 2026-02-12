@@ -44,7 +44,19 @@ async def _get_active_season_id(repo: RepoDep) -> str | None:
 
 @router.get("/evals", response_class=HTMLResponse)
 async def eval_dashboard(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Eval dashboard — aggregate stats, no mirror text."""
+    """Eval dashboard — aggregate stats, no mirror text.
+
+    Auth-gated: redirects to login if OAuth is enabled and user is not
+    authenticated. In dev mode without OAuth credentials the page is
+    accessible to support local testing.
+    """
+    from fastapi.responses import RedirectResponse
+
+    settings = request.app.state.settings
+    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+    if current_user is None and oauth_enabled:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
     season_id = await _get_active_season_id(repo)
     if not season_id:
         return templates.TemplateResponse(

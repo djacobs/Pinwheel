@@ -427,8 +427,96 @@ async def test_no_oauth_config_hides_login_button(
 
 
 # ---------------------------------------------------------------------------
+# Session secret key validation (P1)
+# ---------------------------------------------------------------------------
+
+
+async def test_session_secret_auto_generated_in_dev() -> None:
+    """In development, empty session_secret_key gets auto-generated."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        pinwheel_env="development",
+        session_secret_key="",
+    )
+    assert settings.session_secret_key != ""
+    assert len(settings.session_secret_key) > 20
+
+
+async def test_session_secret_rejected_in_production() -> None:
+    """In production, empty session_secret_key raises ValueError."""
+    with pytest.raises(Exception, match="SESSION_SECRET_KEY must be set"):
+        Settings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            pinwheel_env="production",
+            session_secret_key="",
+        )
+
+
+async def test_session_secret_accepted_when_provided() -> None:
+    """An explicit session_secret_key works in any environment."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        pinwheel_env="production",
+        session_secret_key="my-real-production-secret",
+    )
+    assert settings.session_secret_key == "my-real-production-secret"
+
+
+# ---------------------------------------------------------------------------
 # Player without avatar
 # ---------------------------------------------------------------------------
+
+
+async def test_callback_handles_token_exchange_error(
+    oauth_app_client: tuple[AsyncClient, Settings],
+) -> None:
+    """Callback redirects gracefully when Discord token exchange raises."""
+    client, _settings = oauth_app_client
+
+    with patch(
+        "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
+    ) as mock_ex:
+        mock_ex.side_effect = Exception("Discord API timeout")
+
+        login_resp = await client.get("/auth/login", follow_redirects=False)
+        state = login_resp.cookies.get("pinwheel_oauth_state", "")
+        resp = await client.get(
+            f"/auth/callback?code=bad&state={state}",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/"
+    assert SESSION_COOKIE_NAME not in resp.cookies
+
+
+async def test_callback_handles_user_fetch_error(
+    oauth_app_client: tuple[AsyncClient, Settings],
+) -> None:
+    """Callback redirects gracefully when Discord user fetch raises."""
+    client, _settings = oauth_app_client
+
+    with (
+        patch(
+            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
+        ) as mock_ex,
+        patch(
+            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
+        ) as mock_fu,
+    ):
+        mock_ex.return_value = {"access_token": "tok"}
+        mock_fu.side_effect = Exception("Discord API error")
+
+        login_resp = await client.get("/auth/login", follow_redirects=False)
+        state = login_resp.cookies.get("pinwheel_oauth_state", "")
+        resp = await client.get(
+            f"/auth/callback?code=c&state={state}",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/"
+    assert SESSION_COOKIE_NAME not in resp.cookies
 
 
 async def test_callback_handles_no_avatar(

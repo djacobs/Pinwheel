@@ -17,20 +17,20 @@ See also: `docs/VISION.md` for the full philosophical grounding.
 ## Tech Stack
 
 - **Backend:** Python 3.12+ / FastAPI
-- **Database:** PostgreSQL via SQLAlchemy 2.0 async (SQLite/aiosqlite for local dev, asyncpg for production). Alembic for migrations.
+- **Database:** PostgreSQL via SQLAlchemy 2.0 async (SQLite/aiosqlite for local dev, asyncpg for production). Schema managed via `Base.metadata.create_all()` (no Alembic — acceptable for hackathon pace).
 - **AI:** Claude Opus 4.6 via Anthropic API
 - **Discord:** discord.py 2.x — bot runs in-process with FastAPI
 - **Frontend:** HTMX + SSE + Jinja2 templates (optional Textual TUI for terminal). Technically a live-updating data dashboard — standings, play-by-play, governance panels, AI reflections — but it **must be fun**. The Blaseball aesthetic (retro, bold, community-focused) is the north star. Full CSS control via Jinja2 templates. No JS build step.
 - **Testing:** pytest, pytest-asyncio, httpx (async test client)
 - **Linting/Formatting:** ruff
-- **Dev Workflow:** [Compound Engineering plugin](https://github.com/EveryInc/compound-engineering-plugin) for Claude Code. Install: `/plugin marketplace add https://github.com/EveryInc/compound-engineering-plugin` then `/plugin install compound-engineering`. Provides `/workflows:plan`, `/workflows:work`, `/workflows:review`, `/workflows:compound`. See "Development Workflow" section below.
+- **Scheduling:** APScheduler (AsyncIOScheduler) for automatic round advancement
 
 ## Architecture Principles
 
 ### Performance
 - Simulation engine must run hundreds of games per hour. Profile hot paths.
 - Use async FastAPI endpoints throughout. No blocking calls in request handlers.
-- Simulation is CPU-bound: consider numpy/vectorized operations for game math.
+- Simulation is CPU-bound: pure Python with standard library random. Profile before adding dependencies.
 - Database: proper indexing, batch inserts for game results, connection pooling.
 - Opus 4.6 calls are I/O-bound: use async httpx, batch where possible, cache mirror outputs.
 - FrontEnd must be *fast* and *delightful*. This is a game is about governance but must also be joyful. 
@@ -77,77 +77,120 @@ pinwheel/
 ├── src/
 │   └── pinwheel/
 │       ├── __init__.py
-│       ├── main.py              # FastAPI app factory
-│       ├── config.py            # Settings via pydantic-settings
+│       ├── main.py              # FastAPI app factory + lifespan (APScheduler, Discord bot)
+│       ├── config.py            # Settings via pydantic-settings, PACE_CRON_MAP
 │       ├── api/                 # Route handlers (thin)
 │       │   ├── __init__.py
-│       │   ├── router.py        # Top-level router
+│       │   ├── deps.py          # Dependency injection helpers
+│       │   ├── events.py        # SSE event streaming
 │       │   ├── games.py         # Game results, schedules, box scores
 │       │   ├── governance.py    # Proposals, votes, amendments
+│       │   ├── mirrors.py       # AI reflections (public only)
+│       │   ├── pages.py         # HTML page routes (Jinja2)
+│       │   ├── pace.py          # GET/POST /api/pace (presenter pacing)
+│       │   ├── standings.py     # League standings
 │       │   ├── teams.py         # Team/agent management
-│       │   ├── tokens.py        # Token balances, trades
-│       │   └── mirrors.py       # AI reflections (public + private)
+│       │   └── eval_dashboard.py # /admin/evals (aggregate stats, no mirror text)
 │       ├── core/                # Domain logic
 │       │   ├── __init__.py
 │       │   ├── simulation.py    # Basketball sim engine (pure functions)
+│       │   ├── possession.py    # Possession-level simulation
+│       │   ├── scoring.py       # Shot resolution, Elam Ending
+│       │   ├── defense.py       # Defensive matchup logic
+│       │   ├── moves.py         # Offensive move selection
+│       │   ├── state.py         # Game state dataclasses
+│       │   ├── archetypes.py    # Agent archetype definitions
+│       │   ├── seeding.py       # Team/agent generation
 │       │   ├── governance.py    # Proposal lifecycle, voting
 │       │   ├── tokens.py        # Token economy, trading
-│       │   ├── rules.py         # Rule space definitions, parameter boundaries
-│       │   ├── scheduler.py     # Game scheduling, round-robin generation
-│       │   └── events.py        # Event types (append-only audit log)
-│       ├── ai/                  # Opus 4.6 integration
+│       │   ├── scheduler.py     # Round-robin schedule generation
+│       │   ├── scheduler_runner.py # APScheduler tick_round() for auto-advance
+│       │   ├── game_loop.py     # step_round() orchestrator (sim → gov → mirrors → evals → commentary)
+│       │   ├── event_bus.py     # In-process pub/sub event bus
+│       │   └── hooks.py         # Event bus hook registrations
+│       ├── ai/                  # Claude integration
 │       │   ├── __init__.py
-│       │   ├── client.py        # Anthropic API client wrapper
 │       │   ├── interpreter.py   # Rule proposal → structured rule (sandboxed)
 │       │   ├── mirror.py        # Reflection generation (sim, gov, private)
-│       │   ├── commentary.py    # Live game commentary generation
-│       │   └── prompts.py       # Prompt templates (version-controlled)
+│       │   └── commentary.py    # Broadcaster-style game commentary + highlight reels
+│       ├── auth/                # Discord OAuth2
+│       │   ├── __init__.py
+│       │   ├── deps.py          # Auth dependency injection
+│       │   └── oauth.py         # OAuth2 flow + session management
+│       ├── discord/             # Discord bot integration
+│       │   ├── __init__.py
+│       │   ├── bot.py           # Bot setup, slash commands (/propose, /vote, /tokens, /trade, /strategy)
+│       │   ├── embeds.py        # Discord embed builders
+│       │   ├── helpers.py       # Governor auth lookup, session helpers
+│       │   └── views.py         # Interactive views (ProposalConfirm, TradeOffer, StrategyConfirm)
+│       ├── evals/               # Evaluation framework (Proposal S + M)
+│       │   ├── __init__.py
+│       │   ├── models.py        # Pydantic eval models
+│       │   ├── prescriptive.py  # S.2c — directive language scan
+│       │   ├── grounding.py     # S.2b — entity reference validation
+│       │   ├── behavioral.py    # S.2a — governance action shift detection
+│       │   ├── rubric.py        # S.1 — manual scoring (public mirrors only)
+│       │   ├── golden.py        # M.1 — 20 eval cases
+│       │   ├── ab_compare.py    # M.2 — dual-prompt comparison
+│       │   ├── attribution.py   # M.3 — treatment/control assignment
+│       │   ├── gqi.py           # M.4 — Governance Quality Index
+│       │   ├── flags.py         # M.6 — scenario flagging
+│       │   └── rule_evaluator.py # M.7 — Opus-powered admin analysis
 │       ├── models/              # Pydantic models (shared vocabulary)
 │       │   ├── __init__.py
 │       │   ├── game.py          # GameResult, BoxScore, PlayByPlay
 │       │   ├── team.py          # Team, Agent, AgentAttributes
-│       │   ├── rules.py         # RuleSet, RuleChange, GameEffect (shared vocabulary)
-│       │   ├── governance.py    # Proposal, Amendment, Vote, Rule
+│       │   ├── rules.py         # RuleSet, RuleChange, GameEffect
+│       │   ├── governance.py    # Proposal, Amendment, Vote
 │       │   ├── tokens.py        # TokenBalance, Trade, TokenType
 │       │   └── mirror.py        # Reflection, MirrorUpdate
 │       └── db/                  # Database layer
 │           ├── __init__.py
 │           ├── engine.py        # Connection setup
+│           ├── models.py        # SQLAlchemy ORM models
 │           └── repository.py    # Data access (repository pattern)
 ├── tests/
-│   ├── __init__.py
 │   ├── conftest.py              # Shared fixtures
 │   ├── test_simulation.py
 │   ├── test_governance.py
-│   ├── test_tokens.py
-│   ├── test_rules.py
-│   ├── test_scheduler.py
-│   ├── test_ai_interpreter.py
-│   └── test_api/
-│       ├── __init__.py
-│       ├── test_games_api.py
-│       ├── test_governance_api.py
-│       └── test_teams_api.py
+│   ├── test_game_loop.py
+│   ├── test_event_bus.py
+│   ├── test_mirrors.py
+│   ├── test_models.py
+│   ├── test_seeding.py
+│   ├── test_observe.py
+│   ├── test_db.py
+│   ├── test_auth.py
+│   ├── test_discord.py
+│   ├── test_pages.py
+│   ├── test_pace.py
+│   ├── test_scheduler_runner.py
+│   ├── test_commentary.py
+│   ├── test_api/
+│   │   └── test_e2e.py
+│   └── test_evals/              # 12 eval test files
+│       ├── conftest.py
+│       ├── test_prescriptive.py, test_grounding.py, test_behavioral.py
+│       ├── test_rubric.py, test_golden.py, test_ab_compare.py
+│       ├── test_attribution.py, test_gqi.py, test_flags.py
+│       ├── test_rule_evaluator.py, test_models.py, test_eval_dashboard.py
+├── templates/                   # Jinja2 HTML templates
+│   ├── base.html
+│   └── pages/                   # arena, standings, governance, mirrors, rules, teams, game detail
+├── static/                      # CSS + JS (htmx)
+├── scripts/
+│   ├── demo_seed.py             # CLI: seed, step, status, propose
+│   └── run_demo.sh              # 15-step Showboat/Rodney demo script
 ├── docs/
-│   ├── TABLE_OF_CONTENTS.md     # Master index of all docs and plans (start here)
-│   ├── GLOSSARY.md              # Canonical naming authority — terms, aliases, forbidden names
-│   ├── INTERFACE_CONTRACTS.md   # SSE events, API endpoints, Pydantic model index, event store types
-│   ├── DEMO_MODE.md             # Environment config, pace modes, demo script, feature flags
-│   ├── VISION.md
-│   ├── PRODUCT_OVERVIEW.md      # User journey, PM analysis, gap register, metrics matrix
-│   ├── RUN_OF_PLAY.md
-│   ├── PLAN.md
-│   ├── SIMULATION.md
-│   ├── GAME_LOOP.md             # Game loop & scheduler architecture
-│   ├── PLAYER.md                # Player experience, Discord integration, governance UX
-│   ├── VIEWER.md                # Viewer experience, Arena, AI commentary, API endpoints
-│   ├── SECURITY.md              # Prompt injection defense plan
-│   ├── INSTRUMENTATION.md
-│   ├── ACCEPTANCE_CRITERIA.md   # Testable acceptance criteria with automation notes
-│   ├── OPS.md                   # Operations, deployment (Fly.io), monitoring
+│   ├── TABLE_OF_CONTENTS.md
 │   ├── DEV_LOG.md               # Running log of decisions and work
-│   ├── plans/                   # Feature plans (/workflows:plan output)
-│   └── solutions/               # Documented solutions (/workflows:compound output)
+│   ├── DEV_LOG_2026-02-10.md    # Days 1-4 log archive
+│   ├── VISION.md, PLAN.md, RUN_OF_PLAY.md
+│   ├── SIMULATION.md, GAME_LOOP.md, PLAYER.md, VIEWER.md
+│   ├── GLOSSARY.md, INTERFACE_CONTRACTS.md, DEMO_MODE.md
+│   ├── PRODUCT_OVERVIEW.md, SECURITY.md, INSTRUMENTATION.md
+│   ├── ACCEPTANCE_CRITERIA.md, OPS.md
+│   └── plans/                   # Feature plans (9 plan docs)
 ├── pyproject.toml
 ├── fly.toml                     # Fly.io deployment config
 ├── Dockerfile                   # Multi-stage Docker build
@@ -157,18 +200,12 @@ pinwheel/
 
 ## Development Workflow
 
-We use the Compound Engineering plugin. Every non-trivial feature follows this cycle:
+### Plan → Build → Test → Commit
 
-### Plan → Work → Review → Compound
-
-1. **`/workflows:plan`** — Before writing code, research the codebase and create a detailed plan in `docs/plans/`. Plans reference existing patterns, identify affected files, and define acceptance criteria. The plan is the thinking; the code is the typing.
-2. **`/workflows:work`** — Execute the plan with task tracking, incremental commits, and continuous testing. Follow existing patterns. Test as you go, not at the end. Ship complete features — don't leave things 80% done.
-3. **`/workflows:review`** — Multi-agent code review before merging. Security, performance, architecture, simplicity. P1 findings block merge.
-4. **`/workflows:compound`** — After solving a non-trivial problem, document it in `docs/solutions/`. Each documented solution makes future work easier. Knowledge compounds.
-
-### Why this order matters
-
-The ratio is ~80% planning and review, ~20% execution. This sounds slow but is faster in practice: well-planned work executes cleanly, and documented solutions prevent re-solving the same problems. Each unit of engineering work should make subsequent units easier — not harder.
+1. **Plan first** — Before writing code, research the codebase and create a plan (use Claude Code's plan mode). Plans reference existing patterns, identify affected files, and define acceptance criteria.
+2. **Build with tests** — Execute the plan. Follow existing patterns. Test as you go, not at the end. Ship complete features — don't leave things 80% done.
+3. **Test and lint** — `uv run pytest -x -q` and `uv run ruff check src/ tests/` must both pass before committing.
+4. **Commit** — Stage specific files, write a conventional commit message, and commit the passing state.
 
 ### Session discipline — NON-NEGOTIABLE
 
@@ -227,13 +264,13 @@ The rule space is a defined set of parameters with types, ranges, and validation
 
 ## Known Issues — Priority Fix List
 
-### P1 (fix before any public exposure)
-- [ ] **`session_secret_key` hardcoded default** — `config.py:39` ships with `"pinwheel-dev-secret-change-in-production"`. Must reject this value in production or auto-generate.
-- [ ] **`/admin/evals` has no auth gate** — `api/eval_dashboard.py` hides the nav link but doesn't restrict the route. Add the same auth redirect pattern as `/governance`.
+### P1 (fix before any public exposure) — RESOLVED
+- [x] **`session_secret_key`** — Auto-generates in dev, rejects empty in production (model_validator).
+- [x] **`/admin/evals` auth gate** — Same redirect pattern as `/governance`.
 
-### P2 (fix before broader exposure)
-- [ ] **OAuth cookies lack `secure` flag** — `auth/oauth.py:76`, `:146`. Should be `secure=True, samesite="lax"` in production.
-- [ ] **OAuth callback hard-fails** — `auth/oauth.py:105`, `:189`, `:201`. Discord API errors during token exchange yield raw 500s. Wrap in try/except with graceful redirect.
+### P2 (fix before broader exposure) — RESOLVED
+- [x] **OAuth cookies `secure` flag** — `secure=True` when `pinwheel_env == "production"`.
+- [x] **OAuth callback error handling** — Both `_exchange_code` and `_fetch_user` wrapped in try/except with graceful redirect to `/`.
 
 ## Resolved Design Questions
 
@@ -244,33 +281,50 @@ The rule space is a defined set of parameters with types, ranges, and validation
 ## Environment Variables
 
 ```
-ANTHROPIC_API_KEY=         # Claude API key
-DATABASE_URL=              # PostgreSQL connection string (or sqlite:///pinwheel.db)
-PINWHEEL_ENV=development    # development | staging | production
-PINWHEEL_GAME_CRON="0 * * * *"  # When games run (cron syntax, default: top of every hour)
-PINWHEEL_GOV_WINDOW=900     # Seconds per governance window
+ANTHROPIC_API_KEY=              # Claude API key (mock fallback if unset)
+DATABASE_URL=                   # PostgreSQL or sqlite+aiosqlite:///:memory:
+PINWHEEL_ENV=development        # development | staging | production
+PINWHEEL_GAME_CRON="0 * * * *" # Explicit cron override (optional, pace derives it)
+PINWHEEL_PRESENTATION_PACE=fast # fast (1min) | normal (5min) | slow (15min) | manual
+PINWHEEL_AUTO_ADVANCE=true      # APScheduler auto-advance toggle
+PINWHEEL_GOV_WINDOW=900         # Seconds per governance window
+PINWHEEL_EVALS_ENABLED=true     # Run evals after each round
+SESSION_SECRET_KEY=             # ⚠️ MUST set in production (P1 issue)
+DISCORD_TOKEN=                  # Discord bot token
+DISCORD_GUILD_ID=               # Target guild ID
+DISCORD_CLIENT_ID=              # OAuth2 client ID
+DISCORD_CLIENT_SECRET=          # OAuth2 client secret
+DISCORD_REDIRECT_URI=           # OAuth2 callback URL
 ```
 
 ## Common Commands
 
 ```bash
 # Install dependencies
-uv sync
+uv sync --extra dev
 
 # Run tests (DO THIS BEFORE EVERY COMMIT)
-pytest
+uv run pytest -x -q
 
 # Run tests with coverage
-pytest --cov=pinwheel --cov-report=term-missing
+uv run pytest --cov=pinwheel --cov-report=term-missing
 
-# Format and lint
-ruff format . && ruff check . --fix
+# Lint (must pass before commit)
+uv run ruff check src/ tests/
+
+# Format
+uv run ruff format src/ tests/
 
 # Start dev server
-uvicorn pinwheel.main:app --reload
+uv run uvicorn pinwheel.main:app --reload
 
-# Run a single simulation (for testing)
-python -m pinwheel.core.simulation
+# Demo seeding
+uv run python scripts/demo_seed.py seed       # Create 4 teams + schedule
+uv run python scripts/demo_seed.py step 3     # Advance 3 rounds
+uv run python scripts/demo_seed.py status     # Show standings
+
+# Change pace at runtime (demo convenience)
+curl -X POST http://localhost:8000/api/pace -H 'Content-Type: application/json' -d '{"pace":"slow"}'
 ```
 
 ## Demo Pipeline
