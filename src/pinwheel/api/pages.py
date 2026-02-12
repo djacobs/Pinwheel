@@ -682,19 +682,9 @@ async def update_agent_bio(
 async def governance_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Governance audit trail — proposals, outcomes, vote totals.
 
-    Auth-gated: redirects to login if OAuth is enabled and user is not
-    authenticated. In dev mode without OAuth credentials the page is
-    accessible to support local testing.
+    Publicly viewable. Proposing and voting require Discord auth
+    (via bot slash commands).
     """
-    from fastapi.responses import RedirectResponse
-
-    settings = request.app.state.settings
-    oauth_enabled = bool(
-        settings.discord_client_id and settings.discord_client_secret,
-    )
-    if current_user is None and oauth_enabled:
-        return RedirectResponse(url="/auth/login", status_code=302)
-
     season_id = await _get_active_season_id(repo)
     proposals = []
     rules_changed = []
@@ -786,6 +776,110 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
     )
 
 
+# Human-readable rule display metadata, grouped by tier.
+# Each rule: (param_key, display_label, description)
+_GAME_MECHANICS_RULES = [
+    ("quarter_possessions", "Possessions per Quarter",
+     "Possessions per team per quarter."),
+    ("shot_clock_seconds", "Shot Clock",
+     "Seconds to get a shot off."),
+    ("three_point_value", "Three-Pointer Value",
+     "Points for a made three."),
+    ("two_point_value", "Two-Pointer Value",
+     "Points for a mid-range or at-rim shot."),
+    ("free_throw_value", "Free Throw Value",
+     "Points per made free throw."),
+    ("personal_foul_limit", "Personal Foul Limit",
+     "Fouls before a player fouls out."),
+    ("team_foul_bonus_threshold", "Team Foul Bonus",
+     "Team fouls before bonus free throws."),
+    ("three_point_distance", "Three-Point Distance",
+     "Distance of the arc in feet."),
+    ("elam_trigger_quarter", "Elam Trigger Quarter",
+     "After this quarter, first to target wins."),
+    ("elam_margin", "Elam Target Margin",
+     "Added to leading score for the target."),
+    ("halftime_stamina_recovery", "Halftime Recovery",
+     "Stamina recovered at halftime (0\u20131)."),
+    ("quarter_break_stamina_recovery", "Quarter Break Recovery",
+     "Stamina recovered between quarters (0\u20131)."),
+    ("safety_cap_possessions", "Safety Cap",
+     "Max possessions before force-ending."),
+]
+
+_AGENT_BEHAVIOR_RULES = [
+    ("max_shot_share", "Max Shot Share",
+     "Max fraction of team shots for one player."),
+    ("min_pass_per_possession", "Min Passes",
+     "Required passes before a shot attempt."),
+    ("home_court_enabled", "Home Court Advantage",
+     "Whether home court provides a boost."),
+    ("home_crowd_boost", "Home Crowd Boost",
+     "Scoring bonus from a friendly crowd."),
+    ("away_fatigue_factor", "Away Fatigue",
+     "Extra stamina drain for visitors."),
+    ("crowd_pressure", "Crowd Pressure",
+     "Defensive boost from the home crowd."),
+    ("altitude_stamina_penalty", "Altitude Penalty",
+     "Extra drain at high-altitude venues."),
+    ("travel_fatigue_enabled", "Travel Fatigue",
+     "Whether travel distance affects stamina."),
+    ("travel_fatigue_per_mile", "Travel Fatigue Rate",
+     "Stamina drain per mile of travel."),
+]
+
+_LEAGUE_STRUCTURE_RULES = [
+    ("teams_count", "Teams in League",
+     "Number of teams in the league."),
+    ("round_robins_per_season", "Round Robins",
+     "Times each team plays every other."),
+    ("playoff_teams", "Playoff Teams",
+     "Teams that qualify for playoffs."),
+    ("playoff_semis_best_of", "Semifinal Series",
+     "Best-of format for semifinals."),
+    ("playoff_finals_best_of", "Finals Series",
+     "Best-of format for the championship."),
+]
+
+_META_GOVERNANCE_RULES = [
+    ("proposals_per_window", "Proposals per Window",
+     "Max proposals per governance window."),
+    ("vote_threshold", "Vote Threshold",
+     "Votes needed to pass (0.5 = majority)."),
+]
+
+RULE_TIERS = [
+    {
+        "key": "game_mechanics",
+        "title": "Game Mechanics",
+        "subtitle": "The core numbers that define how basketball works.",
+        "color": "var(--accent-highlight)",
+        "rules": _GAME_MECHANICS_RULES,
+    },
+    {
+        "key": "agent_behavior",
+        "title": "Agent Behavior",
+        "subtitle": "How players interact with the court and crowd.",
+        "color": "var(--accent-governance)",
+        "rules": _AGENT_BEHAVIOR_RULES,
+    },
+    {
+        "key": "league_structure",
+        "title": "League Structure",
+        "subtitle": "Season format, scheduling, and playoffs.",
+        "color": "var(--accent-score)",
+        "rules": _LEAGUE_STRUCTURE_RULES,
+    },
+    {
+        "key": "meta_governance",
+        "title": "Meta-Governance",
+        "subtitle": "The rules about rules.",
+        "color": "var(--accent-mirror)",
+        "rules": _META_GOVERNANCE_RULES,
+    },
+]
+
+
 @router.get("/rules", response_class=HTMLResponse)
 async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Current rules page."""
@@ -815,12 +909,51 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
         )
         rule_history = [e.payload for e in rc_events]
 
+    # Build tiered display data
+    ruleset_dict = ruleset.model_dump()
+    field_info = RuleSet.model_fields
+    tiers = []
+    for tier in RULE_TIERS:
+        tier_rules = []
+        for param, label, desc in tier["rules"]:
+            value = ruleset_dict.get(param)
+            fi = field_info.get(param)
+            range_str = ""
+            if fi and fi.metadata:
+                bounds = []
+                for m in fi.metadata:
+                    if hasattr(m, "ge"):
+                        bounds.append(f"{m.ge}")
+                    if hasattr(m, "le"):
+                        bounds.append(f"{m.le}")
+                if len(bounds) == 2:
+                    range_str = f"{bounds[0]}–{bounds[1]}"
+            changed = param in changes_from_default
+            tier_rules.append({
+                "param": param,
+                "label": label,
+                "desc": desc,
+                "value": value,
+                "range": range_str,
+                "changed": changed,
+            })
+        tiers.append({
+            "key": tier["key"],
+            "title": tier["title"],
+            "subtitle": tier["subtitle"],
+            "color": tier["color"],
+            "rules": tier_rules,
+        })
+
+    community_changes = len(changes_from_default)
+
     return templates.TemplateResponse(
         request,
         "pages/rules.html",
         {
             "active_page": "rules",
-            "ruleset": ruleset.model_dump(),
+            "tiers": tiers,
+            "community_changes": community_changes,
             "changes_from_default": changes_from_default,
             "rule_history": rule_history,
             **_auth_context(request, current_user),

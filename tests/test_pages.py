@@ -119,26 +119,19 @@ class TestEmptyPages:
         assert r.status_code == 200
         assert "No Standings Yet" in r.text
 
-    async def test_governance_requires_auth(self, app_client):
-        """Governance page redirects to login when OAuth is configured."""
+    async def test_governance_public(self, app_client):
+        """Governance page is publicly viewable (no auth required)."""
         client, _ = app_client
-        r = await client.get("/governance", follow_redirects=False)
-        settings = client._transport.app.state.settings  # type: ignore[union-attr]
-        oauth_on = bool(
-            settings.discord_client_id and settings.discord_client_secret,
-        )
-        if oauth_on:
-            assert r.status_code == 302
-            assert "/auth/login" in r.headers.get("location", "")
-        else:
-            assert r.status_code == 200
-            assert "No Proposals Yet" in r.text
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "Governance" in r.text
 
     async def test_rules_empty(self, app_client):
         client, _ = app_client
         r = await client.get("/rules")
         assert r.status_code == 200
-        assert "Current Ruleset" in r.text
+        assert "The Rules" in r.text
+        assert "Game Mechanics" in r.text
 
     async def test_mirrors_empty(self, app_client):
         client, _ = app_client

@@ -1,53 +1,92 @@
 {% extends "base.html" %}
-{% block title %}Rules — Pinwheel Fates{% endblock %}
+{% block title %}The Rules — Pinwheel Fates{% endblock %}
 
 {% block content %}
-<h2 class="mb-2">Current Ruleset</h2>
+<div class="rules-hero">
+  <h1>The Rules</h1>
+  <p class="rules-hero-tagline">
+    Every number below shapes how this league plays. Between rounds, you propose changes
+    in plain English and vote with your team. The AI translates your proposals into
+    mechanics &mdash; but the decisions are yours.
+  </p>
+  {% if community_changes > 0 %}
+  <div class="rules-hero-stat">
+    <span style="color:var(--accent-highlight); font-weight:800;">{{ community_changes }}</span>
+    rule{{ 's' if community_changes != 1 else '' }} changed by the community
+  </div>
+  {% endif %}
+</div>
 
 {% if changes_from_default %}
-<div class="section-title">Modified Rules</div>
-<div class="card mb-2">
-  <div class="card-body">
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text" style="color:var(--accent-highlight);">Changed by the Community</span>
+  </div>
+  <div class="rules-changed-strip">
     {% for param, info in changes_from_default.items() %}
-    <div class="rule-item">
-      <span class="rule-name">{{ param }}</span>
-      <span>
-        <span class="text-muted text-xs">was {{ info.default }} &rarr;</span>
-        <span class="rule-value changed">{{ info.current }}</span>
-      </span>
+    <div class="rule-changed-card">
+      <div class="rule-changed-param">{{ param.replace('_', ' ').title() }}</div>
+      <div class="rule-changed-values">
+        <span class="rule-old">{{ info.default }}</span>
+        <span class="rule-arrow">&rarr;</span>
+        <span class="rule-new">{{ info.current }}</span>
+      </div>
     </div>
     {% endfor %}
   </div>
 </div>
 {% endif %}
 
-<div class="section-title">All Rules</div>
-<div class="card">
-  <div class="card-body">
-    <div class="rules-grid">
-      {% for param, value in ruleset.items() %}
-      <div class="rule-item">
-        <span class="rule-name">{{ param }}</span>
-        <span class="rule-value {% if param in changes_from_default %}changed{% else %}default{% endif %}">
-          {{ value }}
-        </span>
-      </div>
-      {% endfor %}
-    </div>
+{% for tier in tiers %}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">{{ tier.title }}</span>
   </div>
-</div>
-
-{% if rule_history %}
-<div class="section-title mt-2">Rule Change History</div>
-{% for rc in rule_history %}
-<div class="card mb-1">
-  <div class="card-body">
-    <code>{{ rc.parameter }}</code>:
-    {{ rc.old_value }} &rarr;
-    <strong style="color: var(--accent-highlight);">{{ rc.new_value }}</strong>
-    <span class="text-xs text-muted">&middot; Round {{ rc.round_enacted }}</span>
+  <p class="rules-tier-subtitle">{{ tier.subtitle }}</p>
+  <div class="rules-tier-grid">
+    {% for rule in tier.rules %}
+    <div class="rule-card {% if rule.changed %}rule-card-changed{% endif %}">
+      <div class="rule-card-header">
+        <span class="rule-card-label">{{ rule.label }}</span>
+        {% if rule.value is sameas true %}
+        <span class="rule-card-value rule-bool-on">ON</span>
+        {% elif rule.value is sameas false %}
+        <span class="rule-card-value rule-bool-off">OFF</span>
+        {% else %}
+        <span class="rule-card-value {% if rule.changed %}rule-card-value-changed{% endif %}">{{ rule.value }}</span>
+        {% endif %}
+      </div>
+      <div class="rule-card-desc">{{ rule.desc }}</div>
+      {% if rule.range %}
+      <div class="rule-card-range">Range: {{ rule.range }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
 </div>
 {% endfor %}
+
+{% if rule_history %}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Change History</span>
+  </div>
+  {% for rc in rule_history %}
+  <div class="rule-history-item">
+    <span class="rule-history-param">{{ rc.parameter.replace('_', ' ').title() }}</span>
+    <span class="rule-history-change">
+      <span class="rule-old">{{ rc.old_value }}</span>
+      <span class="rule-arrow">&rarr;</span>
+      <span class="rule-new">{{ rc.new_value }}</span>
+    </span>
+    <span class="rule-history-round">Round {{ rc.round_enacted }}</span>
+  </div>
+  {% endfor %}
+</div>
 {% endif %}
+
+<div class="rules-cta">
+  <p>Want to change a rule? Use <code>/propose</code> in Discord.</p>
+  <p class="text-muted text-sm">Write your proposal in plain English. The AI will interpret it into a specific parameter change. Your team votes.</p>
+</div>
 {% endblock %}
