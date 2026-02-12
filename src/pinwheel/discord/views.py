@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from pinwheel.config import Settings
     from pinwheel.discord.helpers import GovernorInfo
     from pinwheel.models.governance import RuleInterpretation
-    from pinwheel.models.tokens import Trade
+    from pinwheel.models.tokens import AgentTrade, Trade
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +217,31 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
 
             api_key = self.parent_view.settings.anthropic_api_key
             if api_key:
-                interpretation = await interpret_proposal(
-                    new_text, ruleset, api_key,
+                from pinwheel.ai.classifier import classify_injection
+                from pinwheel.models.governance import (
+                    RuleInterpretation as RI,
                 )
+
+                classification = await classify_injection(new_text, api_key)
+                if (
+                    classification.classification == "injection"
+                    and classification.confidence > 0.8
+                ):
+                    interpretation = RI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Proposal flagged as potential prompt injection.",
+                    )
+                else:
+                    interpretation = await interpret_proposal(
+                        new_text, ruleset, api_key,
+                    )
+                    if classification.classification == "suspicious":
+                        interpretation.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation.impact_analysis
+                        )
             else:
                 interpretation = interpret_proposal_mock(
                     new_text, ruleset,
@@ -470,3 +492,122 @@ class StrategyConfirmView(discord.ui.View):
         await interaction.response.edit_message(
             embed=embed, view=self,
         )
+
+
+class AgentTradeView(discord.ui.View):
+    """Vote buttons for agent trades — only governors on the two teams can vote."""
+
+    def __init__(
+        self,
+        *,
+        trade: AgentTrade,
+        season_id: str,
+        engine: AsyncEngine,
+    ) -> None:
+        super().__init__(timeout=3600)
+        self.trade = trade
+        self.season_id = season_id
+        self.engine = engine
+
+    def _make_embed(self) -> discord.Embed:
+        from pinwheel.discord.embeds import build_agent_trade_embed
+
+        return build_agent_trade_embed(
+            from_team=self.trade.from_team_name,
+            to_team=self.trade.to_team_name,
+            offered_names=self.trade.offered_agent_names,
+            requested_names=self.trade.requested_agent_names,
+            proposer_name=self.trade.proposed_by,
+            votes_cast=len(self.trade.votes),
+            votes_needed=len(self.trade.required_voters),
+        )
+
+    @discord.ui.button(
+        label="Approve", style=discord.ButtonStyle.green,
+    )
+    async def approve(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        await self._handle_vote(interaction, "yes")
+
+    @discord.ui.button(
+        label="Reject", style=discord.ButtonStyle.red,
+    )
+    async def reject(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        await self._handle_vote(interaction, "no")
+
+    async def _handle_vote(
+        self, interaction: discord.Interaction, vote: str,
+    ) -> None:
+        voter_id = str(interaction.user.id)
+        if voter_id not in self.trade.required_voters:
+            await interaction.response.send_message(
+                "Only governors on the two trading teams can vote.",
+                ephemeral=True,
+            )
+            return
+
+        if voter_id in self.trade.votes:
+            await interaction.response.send_message(
+                "You've already voted on this trade.", ephemeral=True,
+            )
+            return
+
+        from pinwheel.core.tokens import (
+            execute_agent_trade,
+            tally_agent_trade,
+            vote_agent_trade,
+        )
+
+        vote_agent_trade(self.trade, voter_id, vote)
+
+        all_voted, from_ok, to_ok = tally_agent_trade(self.trade)
+        if all_voted:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+
+            if from_ok and to_ok:
+                from pinwheel.db.engine import get_session
+                from pinwheel.db.repository import Repository
+
+                try:
+                    async with get_session(self.engine) as session:
+                        repo = Repository(session)
+                        await execute_agent_trade(
+                            repo, self.trade, self.season_id,
+                        )
+                        await session.commit()
+                except Exception:
+                    logger.exception("agent_trade_execute_failed")
+                    await interaction.response.send_message(
+                        "Trade approved but execution failed.",
+                        ephemeral=True,
+                    )
+                    return
+
+                embed = self._make_embed()
+                embed.title = "Agent Trade Approved"
+                embed.color = 0x2ECC71
+                await interaction.response.edit_message(
+                    embed=embed, view=self,
+                )
+            else:
+                self.trade.status = "rejected"
+                embed = self._make_embed()
+                embed.title = "Agent Trade Rejected"
+                embed.color = 0xE74C3C
+                await interaction.response.edit_message(
+                    embed=embed, view=self,
+                )
+        else:
+            embed = self._make_embed()
+            await interaction.response.edit_message(
+                embed=embed, view=self,
+            )

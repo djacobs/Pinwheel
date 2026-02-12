@@ -605,7 +605,7 @@ h3 { font-size: 1.05rem; }
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--text-muted);
-  min-width: 2rem;
+  min-width: 5rem;
 }
 
 .pbp-action {
@@ -2181,4 +2181,155 @@ h3 { font-size: 1.05rem; }
 .nav-link-play:hover {
   color: var(--accent-governance);
   background: rgba(83, 216, 251, 0.08);
+}
+
+/* ===== Rules — Wild Card Section ===== */
+.rules-wildcard {
+  margin-bottom: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+  position: relative;
+}
+
+.rules-wildcard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-highlight),
+    var(--accent-governance),
+    var(--accent-score)
+  );
+}
+
+.wildcard-inner {
+  padding: 2rem 1.75rem;
+}
+
+.wildcard-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-highlight);
+  margin-bottom: 0.75rem;
+}
+
+.wildcard-headline {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  max-width: 600px;
+}
+
+.wildcard-headline .wc-accent {
+  color: var(--accent-highlight);
+}
+
+.wildcard-body {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  max-width: 600px;
+  margin-bottom: 1.5rem;
+}
+
+.wildcard-body strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.wildcard-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+@media (max-width: 768px) {
+  .wildcard-examples { grid-template-columns: 1fr; }
+}
+
+.wildcard-example {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-governance);
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.wildcard-example:nth-child(2) {
+  border-left-color: var(--accent-highlight);
+}
+
+.wildcard-example:nth-child(3) {
+  border-left-color: var(--accent-score);
+}
+
+.wildcard-example:nth-child(4) {
+  border-left-color: var(--accent-mirror);
+}
+
+.wildcard-example:nth-child(5) {
+  border-left-color: var(--accent-elam);
+}
+
+.wildcard-example:nth-child(6) {
+  border-left-color: var(--accent-success);
+}
+
+.wildcard-flow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.wildcard-flow-step {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  padding: 0.3rem 0.7rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.wildcard-flow-arrow {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Rules tier reframe label */
+.rules-starting-point {
+  text-align: center;
+  padding: 1.5rem 0 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.rules-starting-point strong {
+  color: var(--text-secondary);
+  font-weight: 700;
 }

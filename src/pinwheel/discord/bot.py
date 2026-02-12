@@ -91,9 +91,17 @@ class PinwheelBot(commands.Bot):
             await self._handle_mirrors(interaction)
 
         @self.tree.command(name="join", description="Join a team as a governor for this season")
-        @app_commands.describe(team="The team name to join")
-        async def join_command(interaction: discord.Interaction, team: str) -> None:
+        @app_commands.describe(team="The team name to join (leave blank to see all teams)")
+        async def join_command(
+            interaction: discord.Interaction, team: str = "",
+        ) -> None:
             await self._handle_join(interaction, team)
+
+        @join_command.autocomplete("team")
+        async def _team_autocomplete(
+            interaction: discord.Interaction, current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_teams(current)
 
         @self.tree.command(
             name="vote",
@@ -161,6 +169,33 @@ class PinwheelBot(commands.Bot):
             )
 
         @self.tree.command(
+            name="trade-agent",
+            description="Propose trading agents between two teams",
+        )
+        @app_commands.describe(
+            offer_agent="Name of the agent you're offering",
+            request_agent="Name of the agent you want in return",
+        )
+        async def trade_agent_command(
+            interaction: discord.Interaction,
+            offer_agent: str,
+            request_agent: str,
+        ) -> None:
+            await self._handle_trade_agent(interaction, offer_agent, request_agent)
+
+        @trade_agent_command.autocomplete("offer_agent")
+        async def _offer_agent_autocomplete(
+            interaction: discord.Interaction, current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_agents(interaction, current, own_team=True)
+
+        @trade_agent_command.autocomplete("request_agent")
+        async def _request_agent_autocomplete(
+            interaction: discord.Interaction, current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_agents(interaction, current, own_team=False)
+
+        @self.tree.command(
             name="strategy",
             description="Set your team's strategic direction",
         )
@@ -207,7 +242,9 @@ class PinwheelBot(commands.Bot):
     async def _setup_server(self) -> None:
         """Create channels, roles, and post welcome message on bot startup.
 
-        Idempotent: looks up existing channels/roles by name before creating.
+        Idempotent: loads persisted channel IDs from bot_state, validates
+        they still exist in the guild, creates anything missing, and
+        persists all IDs back. Safe to call on every restart.
         """
         if not self.settings.discord_guild_id:
             return
@@ -220,12 +257,19 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # --- Load persisted channel IDs from DB ---
+        await self._load_persisted_channel_ids()
+
         # --- Get or create category ---
         category_name = "PINWHEEL FATES"
         category = discord.utils.get(guild.categories, name=category_name)
         if category is None:
-            category = await guild.create_category(category_name)
-            logger.info("discord_setup_created_category name=%s", category_name)
+            try:
+                category = await guild.create_category(category_name)
+                logger.info("discord_setup_created category=%s", category_name)
+            except Exception:
+                logger.exception("discord_setup_category_failed name=%s", category_name)
+                return
 
         # --- Get or create shared channels ---
         channel_defs = [
@@ -234,14 +278,13 @@ class PinwheelBot(commands.Bot):
             ("big-plays", "Highlights -- Elam endings, upsets, blowouts"),
         ]
         for ch_name, ch_topic in channel_defs:
-            existing = discord.utils.get(guild.text_channels, name=ch_name, category=category)
-            if existing is None:
-                existing = await guild.create_text_channel(
-                    ch_name, category=category, topic=ch_topic,
-                )
-                logger.info("discord_setup_created_channel name=%s", ch_name)
             key = ch_name.replace("-", "_")
-            self.channel_ids[key] = existing.id
+            channel = await self._get_or_create_shared_channel(
+                guild, category, ch_name, ch_topic, key,
+            )
+            if channel is not None:
+                self.channel_ids[key] = channel.id
+                await self._persist_bot_state(f"channel_{key}", str(channel.id))
 
         # --- Get or create team channels + roles ---
         if self.engine:
@@ -259,40 +302,9 @@ class PinwheelBot(commands.Bot):
                     if season:
                         teams = await repo.get_teams_for_season(season.id)
                         for team in teams:
-                            slug = team.name.lower().replace(" ", "-")
-
-                            # Role
-                            role = discord.utils.get(guild.roles, name=team.name)
-                            if role is None:
-                                color = discord.Color(int(team.color.lstrip("#"), 16))
-                                role = await guild.create_role(name=team.name, color=color)
-                                logger.info("discord_setup_created_role name=%s", team.name)
-
-                            # Team channel (private: only team role + bot can see)
-                            team_ch = discord.utils.get(
-                                guild.text_channels, name=slug, category=category,
+                            await self._setup_team_channel_and_role(
+                                guild, category, team,
                             )
-                            if team_ch is None:
-                                deny = discord.PermissionOverwrite(
-                                    read_messages=False,
-                                )
-                                allow = discord.PermissionOverwrite(
-                                    read_messages=True,
-                                    send_messages=True,
-                                )
-                                overwrites = {
-                                    guild.default_role: deny,
-                                    guild.me: allow,
-                                    role: allow,
-                                }
-                                team_ch = await guild.create_text_channel(
-                                    slug,
-                                    category=category,
-                                    overwrites=overwrites,
-                                    topic=f"Team channel for {team.name}",
-                                )
-                                logger.info("discord_setup_created_team_channel name=%s", slug)
-                            self.channel_ids[f"team_{team.id}"] = team_ch.id
             except Exception:
                 logger.exception("discord_setup_team_channels_failed")
 
@@ -300,6 +312,161 @@ class PinwheelBot(commands.Bot):
         await self._post_welcome_message(guild)
 
         logger.info("discord_setup_complete channels=%s", list(self.channel_ids.keys()))
+
+    async def _load_persisted_channel_ids(self) -> None:
+        """Load channel IDs from bot_state table into self.channel_ids."""
+        if not self.engine:
+            return
+        try:
+            from pinwheel.db.engine import get_session
+
+            async with get_session(self.engine) as session:
+                # Load all channel_* keys
+                from sqlalchemy import select
+
+                from pinwheel.db.models import BotStateRow
+
+                stmt = select(BotStateRow).where(BotStateRow.key.like("channel_%"))
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                for row in rows:
+                    # channel_how_to_play -> how_to_play
+                    channel_key = row.key.removeprefix("channel_")
+                    self.channel_ids[channel_key] = int(row.value)
+                if rows:
+                    logger.info(
+                        "discord_setup_loaded_persisted_ids count=%d keys=%s",
+                        len(list(rows)),
+                        [r.key for r in rows],
+                    )
+        except Exception:
+            logger.exception("discord_setup_load_persisted_ids_failed")
+
+    async def _persist_bot_state(self, key: str, value: str) -> None:
+        """Persist a single bot state key-value pair to the database."""
+        if not self.engine:
+            return
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                await repo.set_bot_state(key, value)
+        except Exception:
+            logger.exception("discord_setup_persist_state_failed key=%s", key)
+
+    async def _get_or_create_shared_channel(
+        self,
+        guild: discord.Guild,
+        category: discord.CategoryChannel,
+        ch_name: str,
+        ch_topic: str,
+        key: str,
+    ) -> discord.TextChannel | None:
+        """Find or create a shared (public) text channel.
+
+        Checks: persisted ID -> guild lookup by name -> create new.
+        Shared channels grant @everyone read access.
+        """
+        # 1. Check if persisted ID still valid in guild
+        persisted_id = self.channel_ids.get(key)
+        if persisted_id:
+            existing = guild.get_channel(persisted_id)
+            if isinstance(existing, discord.TextChannel):
+                logger.info("discord_setup_reused channel=%s id=%d", ch_name, persisted_id)
+                return existing
+
+        # 2. Look up by name in guild
+        existing = discord.utils.get(guild.text_channels, name=ch_name, category=category)
+        if existing is not None:
+            logger.info("discord_setup_found_by_name channel=%s id=%d", ch_name, existing.id)
+            return existing
+
+        # 3. Create new channel with @everyone read
+        try:
+            allow_everyone = discord.PermissionOverwrite(read_messages=True)
+            overwrites = {guild.default_role: allow_everyone}
+            new_ch = await guild.create_text_channel(
+                ch_name, category=category, topic=ch_topic, overwrites=overwrites,
+            )
+            logger.info("discord_setup_created channel=%s id=%d", ch_name, new_ch.id)
+            return new_ch
+        except Exception:
+            logger.exception("discord_setup_create_channel_failed name=%s", ch_name)
+            return None
+
+    async def _setup_team_channel_and_role(
+        self,
+        guild: discord.Guild,
+        category: discord.CategoryChannel,
+        team: object,
+    ) -> None:
+        """Set up a single team's role and private channel.
+
+        Team channels deny @everyone read and grant the team role
+        read + send. Each operation is individually wrapped for
+        graceful degradation.
+        """
+        slug = team.name.lower().replace(" ", "-")  # type: ignore[union-attr]
+        team_key = f"team_{team.id}"  # type: ignore[union-attr]
+
+        # --- Role ---
+        role = discord.utils.get(guild.roles, name=team.name)  # type: ignore[union-attr]
+        if role is None:
+            try:
+                color = discord.Color(int(team.color.lstrip("#"), 16))  # type: ignore[union-attr]
+                role = await guild.create_role(name=team.name, color=color)  # type: ignore[union-attr]
+                logger.info("discord_setup_created role=%s", team.name)  # type: ignore[union-attr]
+            except Exception:
+                logger.exception("discord_setup_create_role_failed name=%s", team.name)  # type: ignore[union-attr]
+                return
+        else:
+            logger.info("discord_setup_reused role=%s", team.name)  # type: ignore[union-attr]
+
+        # --- Team channel ---
+        # 1. Check persisted ID
+        persisted_id = self.channel_ids.get(team_key)
+        team_ch: discord.TextChannel | None = None
+        if persisted_id:
+            found = guild.get_channel(persisted_id)
+            if isinstance(found, discord.TextChannel):
+                team_ch = found
+                logger.info("discord_setup_reused team_channel=%s id=%d", slug, persisted_id)
+
+        # 2. Look up by name
+        if team_ch is None:
+            team_ch = discord.utils.get(
+                guild.text_channels, name=slug, category=category,
+            )
+            if team_ch is not None:
+                logger.info("discord_setup_found_by_name team_channel=%s id=%d", slug, team_ch.id)
+
+        # 3. Create new private channel
+        if team_ch is None:
+            try:
+                deny = discord.PermissionOverwrite(read_messages=False)
+                allow = discord.PermissionOverwrite(
+                    read_messages=True, send_messages=True,
+                )
+                overwrites = {
+                    guild.default_role: deny,
+                    guild.me: allow,
+                    role: allow,
+                }
+                team_ch = await guild.create_text_channel(
+                    slug,
+                    category=category,
+                    overwrites=overwrites,
+                    topic=f"Team channel for {team.name}",  # type: ignore[union-attr]
+                )
+                logger.info("discord_setup_created team_channel=%s id=%d", slug, team_ch.id)
+            except Exception:
+                logger.exception("discord_setup_create_team_channel_failed name=%s", slug)
+                return
+
+        self.channel_ids[team_key] = team_ch.id
+        await self._persist_bot_state(f"channel_{team_key}", str(team_ch.id))
 
     async def _post_welcome_message(self, guild: discord.Guild) -> None:
         """Post the welcome message to #how-to-play if the channel is empty."""
@@ -369,6 +536,34 @@ class PinwheelBot(commands.Bot):
         await channel.send(embed=embed)
         logger.info("discord_welcome_message_posted")
 
+    async def _autocomplete_teams(self, current: str) -> list[app_commands.Choice[str]]:
+        """Return team name choices matching the current input."""
+        if not self.engine:
+            return []
+        try:
+            from sqlalchemy import select
+
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.models import SeasonRow
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                result = await session.execute(select(SeasonRow).limit(1))
+                season = result.scalar_one_or_none()
+                if not season:
+                    return []
+                teams = await repo.get_teams_for_season(season.id)
+                lowered = current.lower()
+                return [
+                    app_commands.Choice(name=t.name, value=t.name)
+                    for t in teams
+                    if lowered in t.name.lower()
+                ][:25]
+        except Exception:
+            logger.exception("discord_team_autocomplete_failed")
+            return []
+
     async def _handle_join(self, interaction: discord.Interaction, team_name: str) -> None:
         """Handle the /join slash command for team enrollment."""
         if not self.engine:
@@ -394,26 +589,49 @@ class PinwheelBot(commands.Bot):
                     )
                     return
 
+                teams = await repo.get_teams_for_season(season.id)
+
+                # No team specified → show team list with governor counts
+                if not team_name.strip():
+                    from pinwheel.discord.embeds import build_team_list_embed
+
+                    counts = await repo.get_governor_counts_by_team(season.id)
+                    team_data = [
+                        {
+                            "name": t.name,
+                            "color": t.color,
+                            "governor_count": counts.get(t.id, 0),
+                        }
+                        for t in teams
+                    ]
+                    embed = build_team_list_embed(
+                        team_data, season.name or "this season",
+                    )
+                    await interaction.response.send_message(
+                        embed=embed, ephemeral=True,
+                    )
+                    return
+
                 # Check existing enrollment
                 discord_id = str(interaction.user.id)
                 enrollment = await repo.get_player_enrollment(discord_id, season.id)
                 if enrollment is not None:
-                    existing_team_id, existing_team_name = enrollment
-                    # Already enrolled -- check if same team
+                    _existing_team_id, existing_team_name = enrollment
                     if existing_team_name.lower() == team_name.lower():
                         await interaction.response.send_message(
                             f"You're already on **{existing_team_name}**!",
                             ephemeral=True,
                         )
                     else:
+                        season_label = season.name or "Season 1"
                         await interaction.response.send_message(
-                            f"You're locked in with **{existing_team_name}** for this season.",
+                            f"You joined **{existing_team_name}** for {season_label}. "
+                            "Team switches aren't allowed mid-season -- ride or die!",
                             ephemeral=True,
                         )
                     return
 
                 # Find the requested team
-                teams = await repo.get_teams_for_season(season.id)
                 target_team = None
                 for t in teams:
                     if t.name.lower() == team_name.lower():
@@ -443,29 +661,34 @@ class PinwheelBot(commands.Bot):
 
             # Assign Discord role if in a guild
             if interaction.guild:
-                role = discord.utils.get(interaction.guild.roles, name=target_team.name)
+                role = discord.utils.get(
+                    interaction.guild.roles, name=target_team.name,
+                )
                 if role and isinstance(interaction.user, discord.Member):
                     await interaction.user.add_roles(role)
 
-            # Build confirmation embed
-            agent_names = ", ".join(a.name for a in target_team.agents)
-            embed = discord.Embed(
-                title=f"Welcome to {target_team.name}!",
-                description=(
-                    f"You are now a governor of **{target_team.name}**.\n\n"
-                    f"**Agents:** {agent_names}\n\n"
-                    "You're locked in for this season. Lead wisely."
-                ),
-                color=discord.Color(int(target_team.color.lstrip("#"), 16)),
-            )
-            embed.set_footer(text="Pinwheel Fates")
+            # Build confirmation embed (shown in channel)
+            from pinwheel.discord.embeds import build_welcome_embed
+
+            agents = [
+                {"name": a.name, "archetype": a.archetype or "Agent"}
+                for a in target_team.agents
+            ]
+            embed = build_welcome_embed(target_team.name, target_team.color, agents)
             await interaction.response.send_message(embed=embed)
+
+            # Send welcome DM with quick-start info
+            import contextlib
+
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await interaction.user.send(embed=embed)
 
         except Exception:
             logger.exception("discord_join_failed")
-            await interaction.response.send_message(
-                "Something went wrong joining the team.", ephemeral=True,
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Something went wrong joining the team.", ephemeral=True,
+                )
 
     def _get_channel_for(self, key: str) -> discord.TextChannel | None:
         """Resolve a channel by key from channel_ids, falling back to main_channel_id."""
@@ -476,6 +699,27 @@ class PinwheelBot(commands.Bot):
         if isinstance(ch, discord.TextChannel):
             return ch
         return None
+
+    def _get_team_channel(self, team_id: str) -> discord.TextChannel | None:
+        """Resolve a team's private channel from channel_ids."""
+        channel_id = self.channel_ids.get(f"team_{team_id}")
+        if not channel_id:
+            return None
+        ch = self.get_channel(channel_id)
+        if isinstance(ch, discord.TextChannel):
+            return ch
+        return None
+
+    async def _send_to_team_channel(
+        self, team_id: str, embed: discord.Embed,
+    ) -> None:
+        """Send an embed to a team's private channel (if available)."""
+        ch = self._get_team_channel(team_id)
+        if ch:
+            import contextlib
+
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await ch.send(embed=embed)
 
     async def _dispatch_event(self, event: dict[str, object]) -> None:
         """Route an EventBus event to the appropriate Discord handler."""
@@ -502,6 +746,20 @@ class PinwheelBot(commands.Bot):
                 big_channel = self._get_channel_for("big_plays")
                 if big_channel:
                     await big_channel.send(embed=embed)
+
+            # Team-specific results to team channels
+            home_id = str(data.get("home_team_id", ""))
+            away_id = str(data.get("away_team_id", ""))
+            if home_id:
+                from pinwheel.discord.embeds import build_team_game_result_embed
+
+                home_embed = build_team_game_result_embed(data, home_id)
+                await self._send_to_team_channel(home_id, home_embed)
+            if away_id:
+                from pinwheel.discord.embeds import build_team_game_result_embed
+
+                away_embed = build_team_game_result_embed(data, away_id)
+                await self._send_to_team_channel(away_id, away_embed)
 
         elif event_type == "round.completed":
             embed = build_round_summary_embed(data)
@@ -546,6 +804,17 @@ class PinwheelBot(commands.Bot):
             channel = self._get_channel_for("main")
             if channel:
                 await channel.send(embed=embed)
+            # Post to all team channels too
+            for key, chan_id in self.channel_ids.items():
+                if key.startswith("team_"):
+                    ch = self.get_channel(chan_id)
+                    if isinstance(ch, discord.TextChannel):
+                        import contextlib
+
+                        with contextlib.suppress(
+                            discord.Forbidden, discord.HTTPException,
+                        ):
+                            await ch.send(embed=embed)
 
     # --- Slash command handlers ---
 
@@ -660,9 +929,32 @@ class PinwheelBot(commands.Bot):
 
             api_key = self.settings.anthropic_api_key
             if api_key:
-                interpretation = await interpret_proposal(
-                    text, ruleset, api_key,
-                )
+                from pinwheel.ai.classifier import classify_injection
+
+                classification = await classify_injection(text, api_key)
+                if (
+                    classification.classification == "injection"
+                    and classification.confidence > 0.8
+                ):
+                    from pinwheel.models.governance import (
+                        RuleInterpretation as RI,
+                    )
+
+                    interpretation = RI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Proposal flagged as potential prompt injection.",
+                    )
+                else:
+                    interpretation = await interpret_proposal(
+                        text, ruleset, api_key,
+                    )
+                    if classification.classification == "suspicious":
+                        interpretation.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation.impact_analysis
+                        )
             else:
                 interpretation = interpret_proposal_mock(
                     text, ruleset,
@@ -1104,6 +1396,189 @@ class PinwheelBot(commands.Bot):
                 await interaction.response.send_message(
                     "Something went wrong with the trade.",
                     ephemeral=True,
+                )
+
+    async def _autocomplete_agents(
+        self, interaction: discord.Interaction, current: str, *, own_team: bool,
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete agent names for trade-agent command."""
+        if not self.engine:
+            return []
+        try:
+            from pinwheel.discord.helpers import get_governor
+
+            gov = await get_governor(self.engine, str(interaction.user.id))
+
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                if own_team:
+                    agents = await repo.get_agents_for_team(gov.team_id)
+                else:
+                    teams = await repo.get_teams_for_season(gov.season_id)
+                    agents = []
+                    for t in teams:
+                        if t.id != gov.team_id:
+                            team_agents = await repo.get_agents_for_team(t.id)
+                            agents.extend(team_agents)
+                lowered = current.lower()
+                return [
+                    app_commands.Choice(name=a.name, value=a.name)
+                    for a in agents
+                    if lowered in a.name.lower()
+                ][:25]
+        except Exception:
+            logger.exception("agent_autocomplete_failed")
+            return []
+
+    async def _handle_trade_agent(
+        self,
+        interaction: discord.Interaction,
+        offer_agent_name: str,
+        request_agent_name: str,
+    ) -> None:
+        """Handle the /trade-agent slash command."""
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database not available.", ephemeral=True,
+            )
+            return
+
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        try:
+            gov = await get_governor(self.engine, str(interaction.user.id))
+        except GovernorNotFound:
+            await interaction.response.send_message(
+                "You must `/join` a team before trading agents.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                # Find the offered agent (must be on proposer's team)
+                my_agents = await repo.get_agents_for_team(gov.team_id)
+                offered = None
+                for a in my_agents:
+                    if a.name.lower() == offer_agent_name.lower():
+                        offered = a
+                        break
+                if not offered:
+                    available = ", ".join(a.name for a in my_agents)
+                    await interaction.response.send_message(
+                        f"Agent not found on your team. Your agents: {available}",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Find the requested agent (must be on a different team)
+                teams = await repo.get_teams_for_season(gov.season_id)
+                requested = None
+                target_team = None
+                for t in teams:
+                    if t.id == gov.team_id:
+                        continue
+                    for a in t.agents:
+                        if a.name.lower() == request_agent_name.lower():
+                            requested = a
+                            target_team = t
+                            break
+                    if requested:
+                        break
+                if not requested or not target_team:
+                    await interaction.response.send_message(
+                        f"Agent '{request_agent_name}' not found on any other team.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Get all governors on both teams
+                from_govs = await repo.get_governors_for_team(
+                    gov.team_id, gov.season_id,
+                )
+                to_govs = await repo.get_governors_for_team(
+                    target_team.id, gov.season_id,
+                )
+                all_voters = [p.discord_id for p in from_govs] + [
+                    p.discord_id for p in to_govs
+                ]
+
+                if len(all_voters) < 2:
+                    await interaction.response.send_message(
+                        "Both teams need at least one governor to vote on a trade.",
+                        ephemeral=True,
+                    )
+                    return
+
+                from pinwheel.core.tokens import propose_agent_trade
+
+                my_team = next(
+                    (t for t in teams if t.id == gov.team_id), None,
+                )
+                trade = await propose_agent_trade(
+                    repo=repo,
+                    proposer_id=str(interaction.user.id),
+                    from_team_id=gov.team_id,
+                    to_team_id=target_team.id,
+                    offered_agent_ids=[offered.id],
+                    requested_agent_ids=[requested.id],
+                    offered_agent_names=[offered.name],
+                    requested_agent_names=[requested.name],
+                    from_team_name=my_team.name if my_team else gov.team_id,
+                    to_team_name=target_team.name,
+                    required_voters=all_voters,
+                    season_id=gov.season_id,
+                )
+                await session.commit()
+
+            # Post trade view to both team channels
+            from pinwheel.discord.embeds import build_agent_trade_embed
+            from pinwheel.discord.views import AgentTradeView
+
+            view = AgentTradeView(
+                trade=trade, season_id=gov.season_id, engine=self.engine,
+            )
+            embed = build_agent_trade_embed(
+                from_team=trade.from_team_name,
+                to_team=trade.to_team_name,
+                offered_names=trade.offered_agent_names,
+                requested_names=trade.requested_agent_names,
+                proposer_name=interaction.user.display_name,
+                votes_cast=0,
+                votes_needed=len(all_voters),
+            )
+
+            # Send to both team channels
+            from_ch = self._get_team_channel(gov.team_id)
+            to_ch = self._get_team_channel(target_team.id)
+            if from_ch:
+                await from_ch.send(embed=embed, view=view)
+            if to_ch:
+                # New view instance for second channel (views can't be reused)
+                view2 = AgentTradeView(
+                    trade=trade, season_id=gov.season_id, engine=self.engine,
+                )
+                await to_ch.send(embed=embed, view=view2)
+
+            await interaction.response.send_message(
+                f"Agent trade proposed: **{offered.name}** "
+                f"for **{requested.name}**. "
+                "Both teams' governors must vote in their team channels.",
+                ephemeral=True,
+            )
+        except Exception:
+            logger.exception("discord_trade_agent_failed")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Something went wrong with the trade.", ephemeral=True,
                 )
 
     async def _handle_strategy(

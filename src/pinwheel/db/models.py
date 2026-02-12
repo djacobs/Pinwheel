@@ -234,6 +234,22 @@ class ScheduleRow(Base):
     )
 
 
+class BotStateRow(Base):
+    """Key-value store for Discord bot state (channel IDs, role IDs, etc).
+
+    Persisted across restarts so the bot can recover channel/role mappings
+    without recreating them.
+    """
+
+    __tablename__ = "bot_state"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC),
+    )
+
+
 class EvalResultRow(Base):
     """Stored eval results. Never contains private mirror content."""
 

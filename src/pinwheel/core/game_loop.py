@@ -255,6 +255,8 @@ async def step_round(
             "game_id": game_id,
             "home_team": home.name,
             "away_team": away.name,
+            "home_team_id": home.id,
+            "away_team_id": away.id,
             "home_score": result.home_score,
             "away_score": result.away_score,
             "winner_team_id": result.winner_team_id,

@@ -63,9 +63,31 @@ async def api_submit_proposal(
     # Interpret via mock (swap to real AI when API key configured)
     settings = request.app.state.settings
     if settings.anthropic_api_key:
+        from pinwheel.ai.classifier import classify_injection
         from pinwheel.ai.interpreter import interpret_proposal as interpret_ai
 
-        interpretation = await interpret_ai(body.raw_text, ruleset, settings.anthropic_api_key)
+        # Pre-flight injection classification
+        classification = await classify_injection(body.raw_text, settings.anthropic_api_key)
+        if (
+            classification.classification == "injection"
+            and classification.confidence > 0.8
+        ):
+            from pinwheel.models.governance import RuleInterpretation as RI
+
+            interpretation = RI(
+                confidence=0.0,
+                injection_flagged=True,
+                rejection_reason=classification.reason,
+                impact_analysis="Proposal flagged as potential prompt injection.",
+            )
+        else:
+            interpretation = await interpret_ai(body.raw_text, ruleset, settings.anthropic_api_key)
+            # Annotate suspicious proposals so the governor sees the warning
+            if classification.classification == "suspicious":
+                interpretation.impact_analysis = (
+                    f"[Suspicious: {classification.reason}] "
+                    + interpretation.impact_analysis
+                )
     else:
         interpretation = interpret_proposal_mock(body.raw_text, ruleset)
 

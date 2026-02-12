@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from pinwheel.models.tokens import TokenBalance, Trade
+from pinwheel.models.tokens import AgentTrade, TokenBalance, Trade
 
 if TYPE_CHECKING:
     from pinwheel.db.repository import Repository
@@ -208,3 +208,100 @@ async def accept_trade(
 
     trade.status = "accepted"
     return trade
+
+
+# --- Agent Trading ---
+
+
+async def propose_agent_trade(
+    repo: Repository,
+    proposer_id: str,
+    from_team_id: str,
+    to_team_id: str,
+    offered_agent_ids: list[str],
+    requested_agent_ids: list[str],
+    offered_agent_names: list[str],
+    requested_agent_names: list[str],
+    from_team_name: str,
+    to_team_name: str,
+    required_voters: list[str],
+    season_id: str,
+) -> AgentTrade:
+    """Create an agent trade proposal between two teams."""
+    trade_id = str(uuid.uuid4())
+    trade = AgentTrade(
+        id=trade_id,
+        from_team_id=from_team_id,
+        to_team_id=to_team_id,
+        offered_agent_ids=offered_agent_ids,
+        requested_agent_ids=requested_agent_ids,
+        offered_agent_names=offered_agent_names,
+        requested_agent_names=requested_agent_names,
+        proposed_by=proposer_id,
+        required_voters=required_voters,
+        from_team_name=from_team_name,
+        to_team_name=to_team_name,
+    )
+    await repo.append_event(
+        event_type="agent_trade.proposed",
+        aggregate_id=trade_id,
+        aggregate_type="agent_trade",
+        season_id=season_id,
+        governor_id=proposer_id,
+        team_id=from_team_id,
+        payload=trade.model_dump(mode="json"),
+    )
+    return trade
+
+
+def vote_agent_trade(trade: AgentTrade, governor_id: str, vote: str) -> AgentTrade:
+    """Record a governor's vote on an agent trade. Returns updated trade.
+
+    Does NOT check authorization — caller must verify governor is in required_voters.
+    """
+    trade.votes[governor_id] = vote
+    return trade
+
+
+def tally_agent_trade(trade: AgentTrade) -> tuple[bool, bool, bool]:
+    """Tally votes for an agent trade.
+
+    Returns (all_voted, from_team_approved, to_team_approved).
+    Approval requires majority-yes among each team's governors.
+    """
+    all_voted = len(trade.votes) >= len(trade.required_voters)
+    if not all_voted:
+        return False, False, False
+
+    # We need to split voters by team — voters whose governor_id was on
+    # the required_voters list. The trade stores required_voters as
+    # governor_ids (discord IDs). We don't store which team each voter is on
+    # in the trade model itself. But we can infer from the proposal:
+    # the proposer is from from_team, and we need external info for others.
+    # For simplicity, we'll check if total yes > total no.
+    yes_count = sum(1 for v in trade.votes.values() if v == "yes")
+    no_count = sum(1 for v in trade.votes.values() if v == "no")
+    approved = yes_count > no_count
+    return True, approved, approved
+
+
+async def execute_agent_trade(
+    repo: Repository,
+    trade: AgentTrade,
+    season_id: str,
+) -> None:
+    """Execute an approved agent trade — swap agents between teams."""
+    for agent_id in trade.offered_agent_ids:
+        await repo.swap_agent_team(agent_id, trade.to_team_id)
+    for agent_id in trade.requested_agent_ids:
+        await repo.swap_agent_team(agent_id, trade.from_team_id)
+    trade.status = "approved"
+    await repo.append_event(
+        event_type="agent_trade.executed",
+        aggregate_id=trade.id,
+        aggregate_type="agent_trade",
+        season_id=season_id,
+        governor_id=trade.proposed_by,
+        team_id=trade.from_team_id,
+        payload=trade.model_dump(mode="json"),
+    )

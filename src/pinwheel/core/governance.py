@@ -68,7 +68,7 @@ def detect_tier(interpretation: RuleInterpretation, ruleset: RuleSet) -> int:
         return 5  # Game Effect or uninterpretable
     param = interpretation.parameter
     tier1 = {
-        "quarter_possessions", "shot_clock_seconds", "three_point_value",
+        "quarter_minutes", "shot_clock_seconds", "three_point_value",
         "two_point_value", "free_throw_value", "personal_foul_limit",
         "team_foul_bonus_threshold", "three_point_distance",
         "elam_trigger_quarter", "elam_margin", "halftime_stamina_recovery",

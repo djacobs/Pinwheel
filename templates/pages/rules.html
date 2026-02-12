@@ -5,9 +5,10 @@
 <div class="rules-hero">
   <h1>The Rules</h1>
   <p class="rules-hero-tagline">
-    Every number below shapes how this league plays. Between rounds, you propose changes
-    in plain English and vote with your team. The AI translates your proposals into
-    mechanics &mdash; but the decisions are yours.
+    You can propose <em>anything</em>. Make the floor lava. Switch to baseball.
+    Ban left-handed dunks. Write it in plain English &mdash; the AI figures out
+    how to make it real. Your team votes. If it passes, the game changes.
+    The numbers below are just where it starts.
   </p>
   {% if community_changes > 0 %}
   <div class="rules-hero-stat">
@@ -15,6 +16,55 @@
     rule{{ 's' if community_changes != 1 else '' }} changed by the community
   </div>
   {% endif %}
+</div>
+
+{# ===== THE WILD CARD ===== #}
+<div class="rules-wildcard">
+  <div class="wildcard-inner">
+    <div class="wildcard-label">Beyond the Numbers</div>
+    <h2 class="wildcard-headline">
+      You are not limited to tweaking config values.
+      <span class="wc-accent">You can propose anything.</span>
+    </h2>
+    <p class="wildcard-body">
+      Want to make the floor lava? Introduce a maximum height rule? Switch to
+      baseball? Require all players to hop on one foot? <strong>Write it in
+      plain English.</strong> The AI interprets your proposal into mechanics.
+      Your team votes. If it passes, it reshapes the game. The simulation
+      engine evolves to match.
+    </p>
+
+    <div class="wildcard-examples">
+      <div class="wildcard-example">
+        &ldquo;Make three-pointers worth 10 points when scored in the last minute.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;If a team scores 5 times in a row, the other team gets a free possession.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;Switch to baseball for one round.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;All agents must have at least 30 Speed.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;If the score is tied at halftime, play the second half with 4 players per team.&rdquo;
+      </div>
+      <div class="wildcard-example">
+        &ldquo;Add a weather system &mdash; rain reduces three-point accuracy by 20%.&rdquo;
+      </div>
+    </div>
+
+    <div class="wildcard-flow">
+      <span class="wildcard-flow-step">You propose</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">AI interprets</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">Your team votes</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">The game changes</span>
+    </div>
+  </div>
 </div>
 
 {% if changes_from_default %}
@@ -36,6 +86,11 @@
   </div>
 </div>
 {% endif %}
+
+<div class="rules-starting-point">
+  <strong>The starting parameters.</strong> These numbers are where every season begins &mdash;
+  but the game goes wherever you take it.
+</div>
 
 {% for tier in tiers %}
 <div class="home-section">
@@ -86,11 +141,11 @@
 {% endif %}
 
 <div class="rules-cta">
-  <p>Want to change a rule? <a href="/play">Join the league</a> and use <code>/propose</code> in Discord.</p>
+  <p>Want to change a rule &mdash; or invent a new one? <a href="/play">Join the league</a> and use <code>/propose</code> in Discord.</p>
   <p class="text-muted text-sm">
-    Write your proposal in plain English. The AI interprets it into a
-    specific parameter change. Your team votes. Passed proposals take effect
-    next round.
+    Write your proposal in plain English &mdash; anything goes. The AI
+    interprets it into mechanics. Your team votes. Passed proposals take
+    effect next round.
   </p>
 </div>
 {% endblock %}

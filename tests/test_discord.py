@@ -6,6 +6,7 @@ All Discord objects are mocked — no real Discord connection required.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -614,7 +615,7 @@ class TestJoinCommand:
         call_kwargs = interaction.response.send_message.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         msg = call_kwargs.args[0] if call_kwargs.args else ""
-        assert "locked in" in str(msg)
+        assert "ride or die" in str(msg) or "mid-season" in str(msg)
 
         await engine.dispose()
 
@@ -1387,6 +1388,173 @@ class TestTradeCommand:
 
 
 # ---------------------------------------------------------------------------
+# /trade-agent
+# ---------------------------------------------------------------------------
+
+
+class TestAgentTradeCommand:
+    """Tests for agent trade proposals with scoped governor voting."""
+
+    async def test_agent_trade_model_roundtrip(self) -> None:
+        """AgentTrade model can be created and serialized."""
+        from pinwheel.models.tokens import AgentTrade
+
+        trade = AgentTrade(
+            id="trade-1",
+            from_team_id="team-a",
+            to_team_id="team-b",
+            offered_agent_ids=["agent-1"],
+            requested_agent_ids=["agent-2"],
+            offered_agent_names=["Player One"],
+            requested_agent_names=["Player Two"],
+            proposed_by="gov-1",
+            required_voters=["gov-1", "gov-2"],
+            from_team_name="Team A",
+            to_team_name="Team B",
+        )
+        assert trade.status == "proposed"
+        data = trade.model_dump(mode="json")
+        restored = AgentTrade(**data)
+        assert restored.id == "trade-1"
+        assert restored.offered_agent_names == ["Player One"]
+
+    async def test_vote_agent_trade(self) -> None:
+        """Voting on an agent trade records the vote."""
+        from pinwheel.core.tokens import vote_agent_trade
+        from pinwheel.models.tokens import AgentTrade
+
+        trade = AgentTrade(
+            id="trade-1",
+            from_team_id="team-a",
+            to_team_id="team-b",
+            offered_agent_ids=["agent-1"],
+            requested_agent_ids=["agent-2"],
+            proposed_by="gov-1",
+            required_voters=["gov-1", "gov-2"],
+        )
+        updated = vote_agent_trade(trade, "gov-1", "yes")
+        assert updated.votes == {"gov-1": "yes"}
+
+    async def test_tally_all_yes_approves(self) -> None:
+        """When all voters say yes, the trade is approved."""
+        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
+        from pinwheel.models.tokens import AgentTrade
+
+        trade = AgentTrade(
+            id="t1", from_team_id="a", to_team_id="b",
+            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            proposed_by="g1", required_voters=["g1", "g2"],
+        )
+        vote_agent_trade(trade, "g1", "yes")
+        vote_agent_trade(trade, "g2", "yes")
+        all_voted, from_ok, to_ok = tally_agent_trade(trade)
+        assert all_voted is True
+        assert from_ok is True
+        assert to_ok is True
+
+    async def test_tally_majority_no_rejects(self) -> None:
+        """When majority votes no, the trade is rejected."""
+        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
+        from pinwheel.models.tokens import AgentTrade
+
+        trade = AgentTrade(
+            id="t1", from_team_id="a", to_team_id="b",
+            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            proposed_by="g1", required_voters=["g1", "g2"],
+        )
+        vote_agent_trade(trade, "g1", "yes")
+        vote_agent_trade(trade, "g2", "no")
+        all_voted, from_ok, to_ok = tally_agent_trade(trade)
+        assert all_voted is True
+        assert from_ok is False
+
+    async def test_tally_incomplete_votes(self) -> None:
+        """Trade not tallied until all required voters have voted."""
+        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
+        from pinwheel.models.tokens import AgentTrade
+
+        trade = AgentTrade(
+            id="t1", from_team_id="a", to_team_id="b",
+            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            proposed_by="g1", required_voters=["g1", "g2", "g3"],
+        )
+        vote_agent_trade(trade, "g1", "yes")
+        all_voted, _, _ = tally_agent_trade(trade)
+        assert all_voted is False
+
+    async def test_swap_agent_team(self) -> None:
+        """swap_agent_team changes the agent's team_id in the database."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("L")
+            season = await repo.create_season(league.id, "S1")
+            team_a = await repo.create_team(season.id, "Team A", color="#ff0000")
+            team_b = await repo.create_team(season.id, "Team B", color="#0000ff")
+            agent = await repo.create_agent(
+                team_id=team_a.id, season_id=season.id,
+                name="Star", archetype="Sharpshooter",
+                attributes={"scoring": 80}, moves=[],
+            )
+            assert agent.team_id == team_a.id
+
+            await repo.swap_agent_team(agent.id, team_b.id)
+            await session.flush()
+
+            refreshed = await session.get(type(agent), agent.id)
+            assert refreshed.team_id == team_b.id
+
+        await engine.dispose()
+
+    async def test_get_governors_for_team(self) -> None:
+        """get_governors_for_team returns enrolled governors."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("L")
+            season = await repo.create_season(league.id, "S1")
+            team = await repo.create_team(season.id, "Team A", color="#ff0000")
+            p1 = await repo.get_or_create_player("111", "Gov1")
+            p2 = await repo.get_or_create_player("222", "Gov2")
+            await repo.enroll_player(p1.id, team.id, season.id)
+            await repo.enroll_player(p2.id, team.id, season.id)
+            await session.commit()
+
+            governors = await repo.get_governors_for_team(team.id, season.id)
+            assert len(governors) == 2
+
+        await engine.dispose()
+
+    async def test_build_agent_trade_embed(self) -> None:
+        """build_agent_trade_embed returns a proper Discord embed."""
+        from pinwheel.discord.embeds import build_agent_trade_embed
+
+        embed = build_agent_trade_embed(
+            from_team="Thorns", to_team="Breakers",
+            offered_names=["Star"], requested_names=["Flash"],
+            proposer_name="Gov1", votes_cast=1, votes_needed=3,
+        )
+        assert "Agent Trade Proposal" in embed.title
+        assert "Thorns" in embed.description
+        assert "Star" in embed.description
+        assert "1/3" in embed.description
+
+
+# ---------------------------------------------------------------------------
 # /strategy
 # ---------------------------------------------------------------------------
 
@@ -1537,3 +1705,337 @@ class TestPrivateMirrorDM:
             "excerpt": "Mirror text",
             "round": 1,
         })  # No governor_id — should not raise
+
+
+# ---------------------------------------------------------------------------
+# Bot state persistence (BotStateRow)
+# ---------------------------------------------------------------------------
+
+
+class TestBotStatePersistence:
+    """Test that bot_state persists and loads channel IDs across restarts."""
+
+    async def test_set_and_get_bot_state(self) -> None:
+        """Repository set/get round-trips correctly."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            # Initially empty
+            val = await repo.get_bot_state("channel_how_to_play")
+            assert val is None
+
+            # Set a value
+            await repo.set_bot_state("channel_how_to_play", "12345")
+            val = await repo.get_bot_state("channel_how_to_play")
+            assert val == "12345"
+
+            # Overwrite
+            await repo.set_bot_state("channel_how_to_play", "67890")
+            val = await repo.get_bot_state("channel_how_to_play")
+            assert val == "67890"
+
+        await engine.dispose()
+
+    async def test_persisted_ids_loaded_on_setup(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Channel IDs stored in bot_state are loaded into channel_ids on setup."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # Pre-populate bot_state with channel IDs
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state("channel_how_to_play", "201")
+            await repo.set_bot_state("channel_play_by_play", "202")
+            await repo.set_bot_state("channel_big_plays", "203")
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+
+        # Build a guild mock where persisted IDs resolve to real channels
+        guild = MagicMock(spec=discord.Guild)
+        category = MagicMock(spec=discord.CategoryChannel)
+        category.name = "PINWHEEL FATES"
+        guild.categories = [category]
+
+        def make_channel(name: str, channel_id: int) -> MagicMock:
+            ch = MagicMock(spec=discord.TextChannel)
+            ch.name = name
+            ch.id = channel_id
+            ch.category = category
+            return ch
+
+        ch_how = make_channel("how-to-play", 201)
+        ch_play = make_channel("play-by-play", 202)
+        ch_big = make_channel("big-plays", 203)
+
+        def get_channel_side_effect(cid: int) -> MagicMock | None:
+            return {201: ch_how, 202: ch_play, 203: ch_big}.get(cid)
+
+        guild.get_channel = MagicMock(side_effect=get_channel_side_effect)
+        guild.text_channels = [ch_how, ch_play, ch_big]
+        guild.roles = []
+        guild.me = MagicMock()
+        guild.default_role = MagicMock()
+        guild.create_category = AsyncMock()
+        guild.create_text_channel = AsyncMock()
+
+        # Mock history as async iterator so welcome message check works
+        for ch in [ch_how, ch_play, ch_big]:
+            async def _async_iter() -> AsyncIterator[MagicMock]:
+                yield MagicMock()
+            ch.history = MagicMock(return_value=_async_iter())
+
+        bot.get_guild = MagicMock(return_value=guild)
+        await bot._setup_server()
+
+        # Channels should be loaded from persisted state, not created
+        guild.create_category.assert_not_called()
+        guild.create_text_channel.assert_not_called()
+        assert bot.channel_ids["how_to_play"] == 201
+        assert bot.channel_ids["play_by_play"] == 202
+        assert bot.channel_ids["big_plays"] == 203
+
+        await engine.dispose()
+
+    async def test_stale_persisted_ids_triggers_recreation(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """If a persisted channel ID no longer exists in the guild, recreate."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # Pre-populate with stale IDs
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state("channel_how_to_play", "999")
+            await repo.set_bot_state("channel_play_by_play", "998")
+            await repo.set_bot_state("channel_big_plays", "997")
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        category = MagicMock(spec=discord.CategoryChannel)
+        category.name = "PINWHEEL FATES"
+        guild.categories = [category]
+        guild.text_channels = []  # No existing channels
+        guild.roles = []
+        guild.me = MagicMock()
+        guild.default_role = MagicMock()
+        guild.create_category = AsyncMock()
+
+        # guild.get_channel returns None for stale IDs
+        guild.get_channel = MagicMock(return_value=None)
+
+        counter = {"id": 300}
+
+        async def mock_create_text_channel(name: str, **kwargs: object) -> MagicMock:
+            ch = MagicMock(spec=discord.TextChannel)
+            ch.id = counter["id"]
+            ch.name = name
+            counter["id"] += 1
+            return ch
+
+        guild.create_text_channel = AsyncMock(side_effect=mock_create_text_channel)
+
+        bot.get_guild = MagicMock(return_value=guild)
+        await bot._setup_server()
+
+        # Channels should have been recreated with new IDs
+        assert guild.create_text_channel.call_count >= 3
+        assert bot.channel_ids["how_to_play"] == 300
+        assert bot.channel_ids["play_by_play"] == 301
+        assert bot.channel_ids["big_plays"] == 302
+
+        # Verify the new IDs were persisted
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            assert await repo.get_bot_state("channel_how_to_play") == "300"
+            assert await repo.get_bot_state("channel_play_by_play") == "301"
+            assert await repo.get_bot_state("channel_big_plays") == "302"
+
+        await engine.dispose()
+
+
+class TestSetupIdempotencyWithDB:
+    """Test that _setup_server is idempotent across multiple calls."""
+
+    async def test_double_setup_no_duplicate_channels(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Running _setup_server twice doesn't create duplicate channels."""
+        from pinwheel.db.engine import create_engine
+        from pinwheel.db.models import Base
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.categories = []
+        guild.text_channels = []
+        guild.roles = []
+        guild.me = MagicMock()
+        guild.default_role = MagicMock()
+
+        category = MagicMock(spec=discord.CategoryChannel)
+        guild.create_category = AsyncMock(return_value=category)
+
+        category = MagicMock(spec=discord.CategoryChannel)
+        category.name = "PINWHEEL FATES"
+        guild.create_category = AsyncMock(return_value=category)
+
+        created_channels: dict[str, MagicMock] = {}
+        counter = {"id": 100}
+
+        async def mock_create_text_channel(name: str, **kwargs: object) -> MagicMock:
+            ch = MagicMock(spec=discord.TextChannel)
+            ch.id = counter["id"]
+            ch.name = name
+            ch.category = category
+            counter["id"] += 1
+            created_channels[name] = ch
+            return ch
+
+        guild.create_text_channel = AsyncMock(side_effect=mock_create_text_channel)
+
+        bot.get_guild = MagicMock(return_value=guild)
+
+        # --- First setup: creates everything ---
+        await bot._setup_server()
+        first_call_count = guild.create_text_channel.call_count
+        assert first_call_count == 3
+        first_ids = dict(bot.channel_ids)
+
+        # --- Second setup: mock guild now has channels; persisted IDs resolve ---
+        def get_channel_side_effect(cid: int) -> MagicMock | None:
+            for ch in created_channels.values():
+                if ch.id == cid:
+                    return ch
+            return None
+
+        guild.get_channel = MagicMock(side_effect=get_channel_side_effect)
+        guild.text_channels = list(created_channels.values())
+        guild.categories = [category]
+        guild.create_category.reset_mock()
+        guild.create_text_channel.reset_mock()
+
+        await bot._setup_server()
+
+        # No new channels created on second run
+        guild.create_text_channel.assert_not_called()
+        guild.create_category.assert_not_called()
+        # IDs unchanged
+        assert bot.channel_ids == first_ids
+
+        await engine.dispose()
+
+    async def test_setup_with_team_channels_persisted(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Team channels and roles are also persisted and reused."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # Seed a team
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(
+                season.id, "Rose City Thorns", color="#e94560",
+            )
+            await repo.create_agent(
+                team.id, season.id, "Briar", "sharpshooter",
+                {"scoring": 65, "passing": 35, "defense": 30,
+                 "speed": 45, "stamina": 40, "iq": 55,
+                 "ego": 40, "chaotic_alignment": 20, "fate": 30},
+            )
+            await session.commit()
+            team_id = team.id
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.categories = []
+        guild.text_channels = []
+        guild.roles = []
+        guild.me = MagicMock()
+        guild.default_role = MagicMock()
+
+        category = MagicMock(spec=discord.CategoryChannel)
+        guild.create_category = AsyncMock(return_value=category)
+
+        counter = {"id": 100}
+        created_channels: dict[str, MagicMock] = {}
+
+        async def mock_create_text_channel(name: str, **kwargs: object) -> MagicMock:
+            ch = MagicMock(spec=discord.TextChannel)
+            ch.id = counter["id"]
+            ch.name = name
+            counter["id"] += 1
+            created_channels[name] = ch
+            return ch
+
+        guild.create_text_channel = AsyncMock(side_effect=mock_create_text_channel)
+
+        mock_role = MagicMock(spec=discord.Role)
+        mock_role.name = "Rose City Thorns"
+        guild.create_role = AsyncMock(return_value=mock_role)
+
+        bot.get_guild = MagicMock(return_value=guild)
+
+        # First setup
+        await bot._setup_server()
+
+        # Team channel should be created and persisted
+        assert f"team_{team_id}" in bot.channel_ids
+        team_ch_id = bot.channel_ids[f"team_{team_id}"]
+
+        # Verify persisted in DB
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            persisted = await repo.get_bot_state(f"channel_team_{team_id}")
+            assert persisted == str(team_ch_id)
+
+        await engine.dispose()

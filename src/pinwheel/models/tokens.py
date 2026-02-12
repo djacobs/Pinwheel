@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 TokenType = Literal["propose", "amend", "boost"]
 
+AgentTradeStatus = Literal["proposed", "approved", "rejected", "expired"]
+
 
 class TokenBalance(BaseModel):
     """A Governor's current token holdings. Derived from events, not mutable state."""
@@ -38,3 +40,22 @@ class Trade(BaseModel):
     status: Literal["offered", "accepted", "rejected", "expired"] = "offered"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
+
+
+class AgentTrade(BaseModel):
+    """A trade of agents between two teams, requiring both teams' governors to vote."""
+
+    id: str
+    from_team_id: str
+    to_team_id: str
+    offered_agent_ids: list[str]  # agents moving from_team → to_team
+    requested_agent_ids: list[str]  # agents moving to_team → from_team
+    offered_agent_names: list[str] = Field(default_factory=list)
+    requested_agent_names: list[str] = Field(default_factory=list)
+    status: AgentTradeStatus = "proposed"
+    proposed_by: str  # governor discord_id who proposed
+    votes: dict[str, str] = Field(default_factory=dict)  # governor_id → "yes"/"no"
+    required_voters: list[str] = Field(default_factory=list)  # all governor IDs on both teams
+    from_team_name: str = ""
+    to_team_name: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

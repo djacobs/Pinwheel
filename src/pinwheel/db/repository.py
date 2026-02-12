@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from pinwheel.db.models import (
     AgentRow,
+    BotStateRow,
     BoxScoreRow,
     EvalResultRow,
     GameResultRow,
@@ -479,6 +480,43 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def swap_agent_team(self, agent_id: str, new_team_id: str) -> None:
+        """Move an agent to a different team."""
+        from pinwheel.db.models import AgentRow
+
+        agent = await self.session.get(AgentRow, agent_id)
+        if agent is None:
+            msg = f"Agent {agent_id} not found"
+            raise ValueError(msg)
+        agent.team_id = new_team_id
+        await self.session.flush()
+
+    async def get_governors_for_team(
+        self, team_id: str, season_id: str,
+    ) -> list[PlayerRow]:
+        """Return all enrolled governors on a team for a given season."""
+        stmt = select(PlayerRow).where(
+            PlayerRow.team_id == team_id,
+            PlayerRow.enrolled_season_id == season_id,
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_governor_counts_by_team(self, season_id: str) -> dict[str, int]:
+        """Return {team_id: governor_count} for all teams in a season."""
+        from sqlalchemy import func as sa_func
+
+        stmt = (
+            select(PlayerRow.team_id, sa_func.count(PlayerRow.id))
+            .where(
+                PlayerRow.enrolled_season_id == season_id,
+                PlayerRow.team_id.isnot(None),
+            )
+            .group_by(PlayerRow.team_id)
+        )
+        result = await self.session.execute(stmt)
+        return dict(result.all())
+
     async def get_player_enrollment(
         self, discord_id: str, season_id: str
     ) -> tuple[str, str] | None:
@@ -584,3 +622,20 @@ class Repository:
         stmt = stmt.order_by(EvalResultRow.created_at.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    # --- Bot State (key-value persistence) ---
+
+    async def get_bot_state(self, key: str) -> str | None:
+        """Retrieve a bot state value by key, or None if not set."""
+        row = await self.session.get(BotStateRow, key)
+        return row.value if row else None
+
+    async def set_bot_state(self, key: str, value: str) -> None:
+        """Upsert a bot state key-value pair."""
+        row = await self.session.get(BotStateRow, key)
+        if row is not None:
+            row.value = value
+        else:
+            row = BotStateRow(key=key, value=value)
+            self.session.add(row)
+        await self.session.flush()

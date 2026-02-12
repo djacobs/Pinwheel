@@ -356,6 +356,129 @@ def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
     return embed
 
 
+def build_welcome_embed(
+    team_name: str,
+    team_color: str,
+    agents: list[dict[str, str]],
+) -> discord.Embed:
+    """Build a welcome DM embed for a newly enrolled governor.
+
+    Args:
+        team_name: Name of the team joined.
+        team_color: Hex color string (e.g. "#E74C3C").
+        agents: List of dicts with 'name' and 'archetype' keys.
+    """
+    roster = "\n".join(
+        f"**{a['name']}** -- {a['archetype']}" for a in agents
+    )
+    embed = discord.Embed(
+        title=f"Welcome to {team_name}!",
+        description=(
+            f"You're now a governor of **{team_name}**.\n\n"
+            f"**Your roster:**\n{roster}\n\n"
+            "**Quick start:**\n"
+            "`/propose` -- Submit a rule change\n"
+            "`/vote` -- Vote on active proposals\n"
+            "`/strategy` -- Set your team's strategy\n"
+            "`/tokens` -- Check your governance tokens"
+        ),
+        color=discord.Color(int(team_color.lstrip("#"), 16)),
+    )
+    embed.set_footer(text="Pinwheel Fates -- Lead wisely.")
+    return embed
+
+
+def build_team_list_embed(
+    teams: list[dict[str, object]],
+    season_name: str = "this season",
+) -> discord.Embed:
+    """Build an embed showing all teams and their governor counts.
+
+    Args:
+        teams: List of dicts with 'name', 'color', 'governor_count' keys.
+        season_name: Display name of the current season.
+    """
+    embed = discord.Embed(
+        title="Choose a Team",
+        description=f"Use `/join <team name>` to enroll for {season_name}.",
+        color=COLOR_GOVERNANCE,
+    )
+    min_count = min((t["governor_count"] for t in teams), default=0)
+    lines: list[str] = []
+    for t in teams:
+        count = t["governor_count"]
+        suffix = "governor" if count == 1 else "governors"
+        marker = " -- needs players!" if count == min_count and count < 2 else ""
+        lines.append(f"**{t['name']}** ({count} {suffix}){marker}")
+    embed.add_field(name="Teams", value="\n".join(lines), inline=False)
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_agent_trade_embed(
+    from_team: str,
+    to_team: str,
+    offered_names: list[str],
+    requested_names: list[str],
+    proposer_name: str,
+    votes_cast: int,
+    votes_needed: int,
+) -> discord.Embed:
+    """Build an embed for an agent trade proposal between two teams."""
+    offered = ", ".join(offered_names) or "None"
+    requested = ", ".join(requested_names) or "None"
+    embed = discord.Embed(
+        title="Agent Trade Proposal",
+        description=(
+            f"Proposed by **{proposer_name}**\n\n"
+            f"**{from_team}** sends: {offered}\n"
+            f"**{to_team}** sends: {requested}\n\n"
+            f"Votes: {votes_cast}/{votes_needed}"
+        ),
+        color=COLOR_GOVERNANCE,
+    )
+    embed.set_footer(text="Pinwheel Fates -- Both teams must approve")
+    return embed
+
+
+def build_team_game_result_embed(
+    game_data: dict[str, object],
+    team_id: str,
+) -> discord.Embed:
+    """Build a team-specific game result embed (win/loss framing).
+
+    Args:
+        game_data: Dict with home_team, away_team, home_score, away_score, etc.
+        team_id: The team to frame the result for.
+    """
+    home = str(game_data.get("home_team", "Home"))
+    away = str(game_data.get("away_team", "Away"))
+    home_score = int(game_data.get("home_score", 0))
+    away_score = int(game_data.get("away_score", 0))
+    winner_id = str(game_data.get("winner_team_id", ""))
+    home_id = str(game_data.get("home_team_id", ""))
+
+    is_home = team_id == home_id
+    your_team = home if is_home else away
+    opponent = away if is_home else home
+    your_score = home_score if is_home else away_score
+    opp_score = away_score if is_home else home_score
+    won = winner_id == team_id
+
+    if won:
+        title = f"Victory! {your_team} wins!"
+        color = 0x2ECC71  # green
+        description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
+    else:
+        title = f"Defeat. {your_team} falls."
+        color = 0xE74C3C  # red
+        description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
+
+    embed = discord.Embed(title=title, description=description, color=color)
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
 def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
     """Build an embed summarizing a completed round.
 
