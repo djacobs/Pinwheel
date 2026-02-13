@@ -38,9 +38,9 @@
           {% endif %}
           {{ current_user.username }}
         </span>
-        <a href="/auth/logout" class="nav-link">Logout</a>
+        <a href="/auth/logout" class="nav-link" hx-boost="false">Logout</a>
       {% elif oauth_enabled %}
-        <a href="/auth/login" class="nav-link">Login with Discord</a>
+        <a href="/auth/login" class="nav-link" hx-boost="false">Login with Discord</a>
       {% endif %}
     </div>
   </div>
