@@ -66,6 +66,7 @@ class Repository:
         season_id: str,
         name: str,
         color: str = "#000000",
+        color_secondary: str = "#ffffff",
         motto: str = "",
         venue: dict | None = None,
     ) -> TeamRow:
@@ -73,6 +74,7 @@ class Repository:
             season_id=season_id,
             name=name,
             color=color,
+            color_secondary=color_secondary,
             motto=motto,
             venue=venue,
         )

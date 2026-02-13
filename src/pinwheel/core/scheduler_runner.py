@@ -35,6 +35,17 @@ def _build_name_cache(teams_cache: dict) -> dict[str, str]:
     return names
 
 
+def _build_color_cache(teams_cache: dict) -> dict[str, tuple[str, str]]:
+    """Build a {team_id: (primary, secondary)} mapping from teams_cache."""
+    colors: dict[str, tuple[str, str]] = {}
+    for team in teams_cache.values():
+        colors[team.id] = (
+            getattr(team, "color", "#888") or "#888",
+            getattr(team, "color_secondary", "#1a1a2e") or "#1a1a2e",
+        )
+    return colors
+
+
 async def tick_round(
     engine: AsyncEngine,
     event_bus: EventBus,
@@ -113,8 +124,9 @@ async def tick_round(
             ):
                 presentation_state.current_round = next_round
 
-                # Build name cache from teams_cache for human-readable events
+                # Build name + color cache from teams_cache for human-readable events
                 name_cache = _build_name_cache(round_result.teams_cache)
+                color_cache = _build_color_cache(round_result.teams_cache)
 
                 # Create callback to mark games as presented in the DB
                 game_row_ids = round_result.game_row_ids
@@ -133,6 +145,7 @@ async def tick_round(
                         game_interval_seconds=game_interval_seconds,
                         quarter_replay_seconds=quarter_replay_seconds,
                         name_cache=name_cache,
+                        color_cache=color_cache,
                         on_game_finished=mark_presented,
                     )
                 )

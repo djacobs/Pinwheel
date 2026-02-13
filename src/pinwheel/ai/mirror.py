@@ -334,18 +334,68 @@ def generate_simulation_mirror_mock(
             f"Final: {g0.get('home_score', 0)}-{g0.get('away_score', 0)}."
         )
 
-    # Add secondary observations
+    # Add secondary observations about scoring pace
     if len(games) > 1:
         if avg_total >= 60:
-            lines.append(
-                f"The courts ran hot — {avg_total} points per game on average. "
-                "Defenses are struggling or offenses are evolving. Maybe both."
-            )
+            high_scoring = [
+                (
+                    f"The courts ran hot — {avg_total} points per game on average. "
+                    "Defenses are struggling or offenses are evolving. Maybe both."
+                ),
+                (
+                    f"{avg_total} PPG across the round. Pace was relentless — "
+                    "teams aren't holding back."
+                ),
+                (
+                    f"Buckets fell at an {avg_total}-point clip. "
+                    "The shot-makers had the last word this round."
+                ),
+                (
+                    f"Scoring surged to {avg_total} per game. "
+                    "Whoever's gameplanning defense needs to go back to the drawing board."
+                ),
+                (
+                    f"An {avg_total}-point average tells the story: "
+                    "offenses found their rhythm and never let go."
+                ),
+            ]
+            lines.append(rng.choice(high_scoring))
         elif avg_total <= 40:
-            lines.append(
-                f"Only {avg_total} points per game this round. "
-                "Someone tightened the screws. The game is getting physical."
-            )
+            low_scoring = [
+                (
+                    f"Only {avg_total} points per game this round. "
+                    "Someone tightened the screws. The game is getting physical."
+                ),
+                (
+                    f"Defense locked in. {avg_total} PPG — "
+                    "that's a lockdown night across the board."
+                ),
+                (
+                    f"{avg_total} points per game. Every bucket earned, "
+                    "nothing came easy."
+                ),
+                (
+                    f"A grind-it-out round at {avg_total} PPG. "
+                    "Possessions felt precious — nobody was giving anything away."
+                ),
+            ]
+            lines.append(rng.choice(low_scoring))
+        else:
+            mid_scoring = [
+                (
+                    f"The pace settled at {avg_total} points per game — "
+                    "neither runaway offense nor suffocating defense dominated."
+                ),
+                (
+                    f"{avg_total} PPG. A balanced round where "
+                    "matchups mattered more than systems."
+                ),
+                (
+                    f"Scoring landed at {avg_total} per game. "
+                    "The meta feels unsettled — teams are still figuring each other out."
+                ),
+            ]
+            lines.append(rng.choice(mid_scoring))
 
     if blowouts and close_games:
         lines.append(

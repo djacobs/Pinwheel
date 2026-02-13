@@ -66,7 +66,9 @@ class TestTeamHooperRoundTrip:
         league = await repo.create_league("L")
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(
-            season.id, "Rose City Thorns", "#CC0000", "Bloom", {"name": "Garden", "capacity": 5000}
+            season.id, "Rose City Thorns",
+            color="#CC0000", motto="Bloom",
+            venue={"name": "Garden", "capacity": 5000},
         )
         retrieved = await repo.get_team(team.id)
         assert retrieved is not None

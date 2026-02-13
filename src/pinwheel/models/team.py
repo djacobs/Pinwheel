@@ -71,6 +71,7 @@ class Team(BaseModel):
     id: str
     name: str
     color: str = "#000000"
+    color_secondary: str = "#ffffff"
     motto: str = ""
     venue: Venue
     hoopers: list[Hooper] = Field(default_factory=list)

@@ -38,6 +38,10 @@ class LiveGameState:
     away_team_id: str
     home_team_name: str
     away_team_name: str
+    home_team_color: str = "#888"
+    home_team_color2: str = "#1a1a2e"
+    away_team_color: str = "#888"
+    away_team_color2: str = "#1a1a2e"
     home_score: int = 0
     away_score: int = 0
     quarter: int = 1
@@ -45,6 +49,7 @@ class LiveGameState:
     status: str = "live"  # "live" | "final"
     recent_plays: list[dict] = field(default_factory=list)
     box_scores: list[dict] = field(default_factory=list)
+    elam_target: int | None = None
     home_leader: dict | None = None
     away_leader: dict | None = None
 
@@ -60,6 +65,7 @@ class PresentationState:
     live_games: dict[int, LiveGameState] = field(default_factory=dict)
     game_results: list[GameResult] = field(default_factory=list)
     name_cache: dict[str, str] = field(default_factory=dict)
+    color_cache: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     def reset(self) -> None:
         """Reset state for a new presentation."""
@@ -70,6 +76,7 @@ class PresentationState:
         self.live_games = {}
         self.game_results = []
         self.name_cache = {}
+        self.color_cache = {}
 
 
 async def present_round(
@@ -79,6 +86,7 @@ async def present_round(
     game_interval_seconds: int = 0,
     quarter_replay_seconds: int = 300,
     name_cache: dict[str, str] | None = None,
+    color_cache: dict[str, tuple[str, str]] | None = None,
     on_game_finished: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
     """Replay a round's games concurrently over real time via EventBus.
@@ -93,6 +101,7 @@ async def present_round(
         game_interval_seconds: Unused (kept for API compat). Games run concurrently.
         quarter_replay_seconds: Wall-clock seconds to replay each quarter.
         name_cache: Mapping of entity IDs to display names (team IDs, hooper IDs).
+        color_cache: Mapping of team IDs to (primary_color, secondary_color) tuples.
         on_game_finished: Async callback invoked with game_index after each game finishes.
     """
     if state.is_active:
@@ -103,10 +112,12 @@ async def present_round(
         return
 
     names = name_cache or {}
+    colors = color_cache or {}
     state.is_active = True
     state.cancel_event.clear()
     state.game_results = list(game_results)
     state.name_cache = dict(names)
+    state.color_cache = dict(colors)
     state.live_games = {}
 
     try:
@@ -119,6 +130,7 @@ async def present_round(
                 state=state,
                 quarter_replay_seconds=quarter_replay_seconds,
                 names=names,
+                colors=colors,
                 on_game_finished=on_game_finished,
             )
             for idx, gr in enumerate(game_results)
@@ -167,6 +179,7 @@ async def _present_full_game(
     state: PresentationState,
     quarter_replay_seconds: int,
     names: dict[str, str],
+    colors: dict[str, tuple[str, str]],
     on_game_finished: Callable[[int], Awaitable[None]] | None,
 ) -> None:
     """Present a single game: starting event → possessions → finished event."""
@@ -175,6 +188,8 @@ async def _present_full_game(
 
     home_name = names.get(game_result.home_team_id, game_result.home_team_id)
     away_name = names.get(game_result.away_team_id, game_result.away_team_id)
+    home_colors = colors.get(game_result.home_team_id, ("#888", "#1a1a2e"))
+    away_colors = colors.get(game_result.away_team_id, ("#888", "#1a1a2e"))
 
     # Create LiveGameState entry so the arena can server-render mid-game
     live = LiveGameState(
@@ -184,7 +199,12 @@ async def _present_full_game(
         away_team_id=game_result.away_team_id,
         home_team_name=home_name,
         away_team_name=away_name,
+        home_team_color=home_colors[0],
+        home_team_color2=home_colors[1],
+        away_team_color=away_colors[0],
+        away_team_color2=away_colors[1],
     )
+    live.elam_target = game_result.elam_target_score
     state.live_games[game_idx] = live
 
     await event_bus.publish(
@@ -196,11 +216,16 @@ async def _present_full_game(
             "away_team_id": game_result.away_team_id,
             "home_team_name": home_name,
             "away_team_name": away_name,
+            "home_team_color": home_colors[0],
+            "home_team_color2": home_colors[1],
+            "away_team_color": away_colors[0],
+            "away_team_color2": away_colors[1],
         },
     )
 
     await _present_game(
-        game_idx, game_result, event_bus, state, quarter_replay_seconds, names
+        game_idx, game_result, event_bus, state, quarter_replay_seconds, names,
+        colors,
     )
 
     if state.cancel_event.is_set():
@@ -243,6 +268,7 @@ async def _present_game(
     state: PresentationState,
     quarter_replay_seconds: int,
     names: dict[str, str],
+    colors: dict[str, tuple[str, str]],
 ) -> None:
     """Drip a single game's possessions over real time."""
     possessions = game_result.possession_log
@@ -291,11 +317,20 @@ async def _present_game(
                 seed=possession.possession_number,
             )
 
+            # During Elam ending, show target score instead of empty clock
+            elam_target = game_result.elam_target_score
+            game_clock = possession.game_clock
+            if not game_clock and elam_target:
+                game_clock = f"Target: {elam_target}"
+
             play_dict = {
                 "game_index": game_idx,
                 "quarter": possession.quarter,
                 "offense_team_id": possession.offense_team_id,
                 "offense_team_name": offense_name,
+                "offense_color": colors.get(
+                    possession.offense_team_id, ("#888",)
+                )[0],
                 "ball_handler_id": possession.ball_handler_id,
                 "ball_handler_name": player_name,
                 "action": possession.action,
@@ -303,7 +338,8 @@ async def _present_game(
                 "points_scored": possession.points_scored,
                 "home_score": possession.home_score,
                 "away_score": possession.away_score,
-                "game_clock": possession.game_clock,
+                "game_clock": game_clock,
+                "elam_target": elam_target,
                 "narration": narration,
             }
 
@@ -313,7 +349,7 @@ async def _present_game(
                 live.home_score = possession.home_score
                 live.away_score = possession.away_score
                 live.quarter = possession.quarter
-                live.game_clock = possession.game_clock
+                live.game_clock = game_clock
                 live.recent_plays.append(play_dict)
                 # Keep only last 30 plays in memory
                 if len(live.recent_plays) > 30:

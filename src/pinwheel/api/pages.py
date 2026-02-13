@@ -73,6 +73,8 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
         team = await repo.get_team(s["team_id"])
         if team:
             s["team_name"] = team.name
+            s["color"] = team.color or "#888"
+            s["color_secondary"] = getattr(team, "color_secondary", None) or "#1a1a2e"
     return standings
 
 
@@ -324,6 +326,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
 
         # Show up to 4 recent rounds (newest first)
         team_names: dict[str, str] = {}
+        team_colors: dict[str, tuple[str, str]] = {}
         hooper_names: dict[str, str] = {}
         first_round = max(1, latest_round - 3)
 
@@ -334,12 +337,16 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             if not round_games:
                 continue
 
-            # Build team name cache
+            # Build team name + color cache
             for g in round_games:
                 for tid in (g.home_team_id, g.away_team_id):
                     if tid not in team_names:
                         t = await repo.get_team(tid)
                         team_names[tid] = t.name if t else tid
+                        team_colors[tid] = (
+                            (t.color or "#888", getattr(t, "color_secondary", None) or "#1a1a2e")
+                            if t else ("#888", "#1a1a2e")
+                        )
 
             games_for_round = []
             for g in round_games:
@@ -384,6 +391,10 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                         "total_possessions": g.total_possessions,
                         "quarter_scores": g.quarter_scores or [],
                         "winning_play": winning_play,
+                        "home_color": team_colors.get(g.home_team_id, ("#888", "#1a1a2e"))[0],
+                        "home_color2": team_colors.get(g.home_team_id, ("#888", "#1a1a2e"))[1],
+                        "away_color": team_colors.get(g.away_team_id, ("#888", "#1a1a2e"))[0],
+                        "away_color2": team_colors.get(g.away_team_id, ("#888", "#1a1a2e"))[1],
                     }
                 )
 
@@ -425,6 +436,10 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "recent_plays": gs.recent_plays[-20:],
                     "home_leader": gs.home_leader,
                     "away_leader": gs.away_leader,
+                    "home_color": gs.home_team_color,
+                    "home_color2": gs.home_team_color2,
+                    "away_color": gs.away_team_color,
+                    "away_color2": gs.away_team_color2,
                 }
                 for gs in pstate.live_games.values()
             ],
@@ -443,17 +458,25 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
         next_round = latest_round + 1
         schedule = await repo.get_schedule_for_round(season_id, next_round)
         team_names_sched: dict[str, str] = {}
+        team_colors_sched: dict[str, tuple[str, str]] = {}
         for entry in schedule:
             for tid in (entry.home_team_id, entry.away_team_id):
                 if tid not in team_names_sched:
                     if tid in team_names:
                         team_names_sched[tid] = team_names[tid]
+                        team_colors_sched[tid] = team_colors.get(tid, ("#888", "#1a1a2e"))
                     else:
                         t = await repo.get_team(tid)
                         team_names_sched[tid] = t.name if t else tid
+                        team_colors_sched[tid] = (
+                            (t.color or "#888", getattr(t, "color_secondary", None) or "#1a1a2e")
+                            if t else ("#888", "#1a1a2e")
+                        )
             upcoming_games.append({
                 "home_name": team_names_sched.get(entry.home_team_id, "?"),
                 "away_name": team_names_sched.get(entry.away_team_id, "?"),
+                "home_color": team_colors_sched.get(entry.home_team_id, ("#888", "#1a1a2e"))[0],
+                "away_color": team_colors_sched.get(entry.away_team_id, ("#888", "#1a1a2e"))[0],
             })
 
     settings: Settings = request.app.state.settings
@@ -497,11 +520,21 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
     if not game or not game.presented:
         raise HTTPException(404, "Game not found")
 
-    # Team names
+    # Team names and colors
     home_team = await repo.get_team(game.home_team_id)
     away_team = await repo.get_team(game.away_team_id)
     home_name = home_team.name if home_team else game.home_team_id
     away_name = away_team.name if away_team else game.away_team_id
+    home_color = home_team.color if home_team else "#888"
+    home_color2 = (
+        (getattr(home_team, "color_secondary", None) or "#1a1a2e")
+        if home_team else "#1a1a2e"
+    )
+    away_color = away_team.color if away_team else "#888"
+    away_color2 = (
+        (getattr(away_team, "color_secondary", None) or "#1a1a2e")
+        if away_team else "#1a1a2e"
+    )
 
     # Box scores grouped by team
     home_players = []
@@ -526,8 +559,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             away_players.append(player)
 
     box_score_groups = [
-        (home_name, game.home_team_id, home_players),
-        (away_name, game.away_team_id, away_players),
+        (home_name, game.home_team_id, home_players, home_color),
+        (away_name, game.away_team_id, away_players, away_color),
     ]
 
     # Build hooper-name cache from box scores already loaded
@@ -575,6 +608,10 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             "game": game,
             "home_name": home_name,
             "away_name": away_name,
+            "home_color": home_color,
+            "home_color2": home_color2,
+            "away_color": away_color,
+            "away_color2": away_color2,
             "box_score_groups": box_score_groups,
             "play_by_play": play_by_play,
             "mirror": mirror,

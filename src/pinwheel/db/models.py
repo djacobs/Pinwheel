@@ -68,6 +68,7 @@ class TeamRow(Base):
     season_id: Mapped[str] = mapped_column(ForeignKey("seasons.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     color: Mapped[str] = mapped_column(String(7), default="#000000")
+    color_secondary: Mapped[str] = mapped_column(String(7), default="#ffffff")
     motto: Mapped[str] = mapped_column(Text, default="")
     venue: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

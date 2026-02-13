@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await conn.run_sync(Base.metadata.create_all)
         # Inline migration: add columns that create_all won't add to existing tables
         await _add_column_if_missing(conn, "game_results", "presented", "BOOLEAN DEFAULT 0")
+        await _add_column_if_missing(
+            conn, "teams", "color_secondary", "VARCHAR(7) DEFAULT '#ffffff'",
+        )
     app.state.engine = engine
     app.state.event_bus = EventBus()
     app.state.presentation_state = PresentationState()

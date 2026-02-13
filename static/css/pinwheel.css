@@ -2453,7 +2453,6 @@ h3 { font-size: 1.05rem; }
 }
 
 .live-play-line:first-child {
-  color: var(--text-primary);
   font-weight: 600;
 }
 

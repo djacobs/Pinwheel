@@ -29,6 +29,7 @@
       <tr>
         <td class="rank rank-{{ loop.index }}">{{ loop.index }}</td>
         <td>
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{{ team.color }}; margin-right:0.4rem; vertical-align:middle;"></span>
           <a href="/teams/{{ team.team_id }}" class="team-link">{{ team.team_name }}</a>
         </td>
         <td class="num record">{{ team.wins }}</td>

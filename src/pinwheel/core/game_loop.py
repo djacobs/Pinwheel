@@ -67,6 +67,8 @@ def _row_to_team(team_row: object) -> Team:
     return Team(
         id=team_row.id,  # type: ignore[attr-defined]
         name=team_row.name,  # type: ignore[attr-defined]
+        color=getattr(team_row, "color", "#000000") or "#000000",
+        color_secondary=getattr(team_row, "color_secondary", "#ffffff") or "#ffffff",
         venue=venue,
         hoopers=hoopers,
     )

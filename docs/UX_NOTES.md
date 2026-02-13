@@ -421,3 +421,66 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** Discord embeds showed "Elam Ending activated!" on every game — since Elam always activates, this was pure noise. The big-plays channel routing used `is_elam` as its condition, meaning every single game went to `#big-plays`, defeating the purpose of having a highlights channel.
 
 **Fix:** Replaced "Elam Ending activated!" with "Elam Target: {score}" (actually informative). Changed big-plays routing from `is_elam` (always true) to margin-based: blowouts (margin >15) and buzzer-beaters (margin <=2) go to `#big-plays`, everything else to `#play-by-play` only.
+
+---
+
+## Completed — Session 32 (Team Color Schemes)
+
+### 49. [DONE] Team color accents on arena game cards
+**Problem:** Arena game cards were monochrome — no visual team identity. All team names and scores looked the same, making it hard to quickly identify which teams played.
+
+**Fix:** Each team score block gets a 3px left-border in the team's primary color. The winning team's name is rendered in their team color. Colors flow from a `team_colors` dict built alongside the existing `team_names` cache, carrying `(primary, secondary)` tuples per team ID.
+
+### 50. [DONE] Team-colored game detail header
+**Problem:** Game detail page header was plain — both teams looked identical in white text on dark background. No visual identity for each team's section.
+
+**Fix:** Each team's header section gets their secondary color as background and primary color as a 4px left-border. Team names render in their primary color. The effect is subtle but creates distinct visual zones — the Rose City Thorns section has a dark navy tint with red accents, while the Burnside Breakers get deep blue with cyan.
+
+### 51. [DONE] Team-colored box score headers
+**Problem:** Box score team header rows in game detail were plain text with no visual distinction between the two teams' sections.
+
+**Fix:** Team header rows get a 3px left-border in their primary color. The `box_score_groups` tuple was extended with a fourth element (team color) to carry this through to the template.
+
+### 52. [DONE] Color dots on standings page
+**Problem:** Standings table listed team names but had no color indicators — unlike the home page mini standings which had small dots.
+
+**Fix:** Added 10px circular color dots (inline `border-radius: 50%` spans) next to each team name in the standings table, matching the pattern used in the home page mini standings. Colors passed from `_get_standings()` which now sets both `color` and `color_secondary` on each standings entry.
+
+### 53. [DONE] Team colors in live arena zones
+**Problem:** Live game zones during presentations used default text colors — team names were indistinguishable in the scoreboard area.
+
+**Fix:** Server-rendered live zones apply team primary colors to team name spans via inline `style="color: {{ game.home_color }}"`. For JS-created zones (via SSE `game_starting` event), the `getOrCreateZone()` function reads `home_team_color` and `away_team_color` from the event payload and applies them as inline styles.
+
+### 54. [DONE] Team color borders on upcoming games
+**Problem:** "Up Next" section on the arena showed upcoming matchups as plain text — no visual team identity.
+
+**Fix:** Each upcoming game card's team score blocks get a 3px left-border in the team's primary color, matching the completed game card pattern. Colors passed from a separate `team_colors_sched` dict built while resolving upcoming schedule entries.
+
+---
+
+## Completed — Session 33 (Live Zone Fixes + Elam Target + Commentary)
+
+### 55. [DONE] Live container layout fix — section-title outside grid
+**Problem:** The "Live — Round N" `.section-title` was a direct child of `.live-container`, which uses CSS grid `repeat(auto-fit, minmax(380px, 1fr))`. At desktop widths, the title consumed one grid column (~480px) while the `.arena-grid` wrapper got the other, wasting half the viewport. The live zones were also double-nested inside `.arena-grid` (which had its own `1fr 1fr` grid), further cramping them.
+
+**Fix:** Moved `.section-title` outside `.live-container` so it doesn't participate in the grid. Removed the `.arena-grid` wrapper — `.live-zone` elements are now direct children of `.live-container`. This matches how JS creates zones (already appends directly to `#live-container`). Two 380px+ zones now sit side by side at 960px with no wasted column.
+
+### 56. [DONE] Team-colored play-by-play lines in live arena
+**Problem:** Every play in the live feed used `var(--text-secondary)` regardless of which team was on offense. Team colors were available in the presenter's color cache but never connected to individual play lines.
+
+**Fix:** Added `offense_color` to the presenter's `play_dict`, derived from `colors.get(possession.offense_team_id)`. Server-rendered play lines get `style="color: {{ play.offense_color }}"`. JS-created play lines (via SSE) apply `line.style.color = d.offense_color`. Updated `.live-play-line:first-child` CSS to remove the `color: var(--text-primary)` override (which would fight the team color), keeping only `font-weight: 600`.
+
+### 57. [DONE] Elam target shown in live zone instead of "0:00"
+**Problem:** During Elam ending (Q4), the live zone clock showed "0:00" or was blank. The whole excitement of the Elam Ending is the target score — it should be front and center.
+
+**Fix:** Added `elam_target` field to `LiveGameState`. In `_present_game()`, when `game_clock` is empty and `elam_target` exists, substitutes `"Target: {target}"` as the clock display. Included `elam_target` in the SSE play dict. JS handler shows "Target: N" when no game clock is present but elam_target is. Both server-rendered and JS paths now display the Elam target during Q4.
+
+### 58. [DONE] Nav label: "Arena" → "Games"
+**Problem:** Nav said "Arena" which is internal project language, not user-friendly.
+
+**Fix:** Changed the nav link text from "Arena" to "Games" in `base.html`. Route remains `/arena`.
+
+### 59. [DONE] Commentary variance — simulation mirror mock
+**Problem:** The simulation mirror mock had only 2 hardcoded templates: "The courts ran hot" for high-scoring rounds (>=60 PPG) and "Someone tightened the screws" for low-scoring rounds (<=40 PPG). Mid-range scoring (41-59 PPG) produced no commentary at all. Every high-scoring round showed identical text.
+
+**Fix:** Replaced with randomized variant arrays using the existing seeded RNG: 5 high-scoring variants, 4 low-scoring variants, and 3 mid-range variants. Examples: "Pace was relentless", "Buckets fell at an N-point clip", "Defense locked in", "Every bucket earned", "The meta feels unsettled". Deterministic per round (seeded by round number) but varied between rounds.

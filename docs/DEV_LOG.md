@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **515 tests**, zero lint errors
+- **515 tests**, zero lint errors (Session 33)
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 31 (Live arena redesign)
+- **Latest commit:** Session 33 (Live zone fixes + Elam target + commentary variance)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -67,6 +67,17 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Discord fixes — remove Elam noise, route big-plays by margin (Session 31)
 - [x] Upcoming schedule section on arena (Session 31)
 - [x] Game detail page hooper links in box score and play-by-play (Session 31)
+
+### Team color schemes
+- [x] Two complementary colors per team — primary + dark secondary (Session 32)
+- [x] Colors on arena game cards, live zones, upcoming games, game detail, standings (Session 32)
+
+### Live zone fixes + polish
+- [x] Fix live container layout — remove .arena-grid wrapper, section-title outside grid (Session 33)
+- [x] Team-colored play-by-play lines — offense_color in SSE payload and server-rendered (Session 33)
+- [x] Elam target in live zone — show "Target: XX" instead of "0:00" during Q4 (Session 33)
+- [x] Nav label: "Arena" → "Games" (Session 33)
+- [x] Commentary variance — 12 scoring-pace variants replacing single "The courts ran hot" (Session 33)
 
 ---
 
@@ -570,3 +581,97 @@ Bottom-up through the full stack:
 **515 tests, zero lint errors.**
 
 **What could have gone better:** Three test failures needed fixing after implementation: (1) `test_discord.py` score margins didn't match new blowout/buzzer-beater routing thresholds, (2) `test_pages.py` fixture was missing `PresentationState` on `app.state`, (3) minor lint issues (Yoda condition, unused import). All caught and fixed before final green.
+
+---
+
+## Session 32 — Team Color Schemes
+
+**What was asked:** Add two complementary colors per team (primary + dark secondary) and flow them through the arena, game detail, live zones, standings, and presenter/SSE layers so the UI has real team identity instead of monochrome surfaces.
+
+**What was built:**
+
+### Schema + models
+- Added `color_secondary: Mapped[str]` to `TeamRow` (ORM) with `#ffffff` default
+- Added `color_secondary: str` to `Team` (Pydantic model)
+- Added inline migration in `main.py` for existing DBs
+- Updated `Repository.create_team()` to accept `color_secondary`
+
+### Arena page — colored game cards, live zones, upcoming games
+- Built `team_colors: dict[str, tuple[str, str]]` alongside `team_names` in `arena_page()`
+- Each completed game dict now carries `home_color`, `home_color2`, `away_color`, `away_color2`
+- Game cards have colored left-border per team; winning team name in team color
+- Live zone server-rendered team names use team colors
+- JS `getOrCreateZone()` applies colors from SSE `game_starting` event data
+- Upcoming games have colored left-borders
+
+### Game detail page — colored header and box scores
+- Team sections have secondary color background, primary color border and team name
+- Box score team headers have primary color left-border accent
+
+### Standings page — color dots
+- Color dots next to team names (same pattern as home page mini standings)
+- Colors passed from `_get_standings()` which now sets `color` and `color_secondary` on each entry
+
+### Presenter / SSE layer
+- Added 4 color fields to `LiveGameState` dataclass
+- Added `color_cache: dict[str, tuple[str, str]]` to `PresentationState` and `present_round()`
+- Colors included in `presentation.game_starting` SSE event payload
+- `_build_color_cache()` helper in `scheduler_runner.py`
+
+### Game loop
+- `_row_to_team()` now carries `color` and `color_secondary` from DB rows into Team objects
+
+### Seeding
+- Added complementary secondary colors to all 4 teams in `demo_seed.py`:
+  - Rose City Thorns: `#e94560` / `#1a1a2e` (red on dark navy)
+  - Burnside Breakers: `#53d8fb` / `#0a2540` (cyan on deep blue)
+  - St. Johns Herons: `#b794f4` / `#1e1033` (purple on dark plum)
+  - Hawthorne Hammers: `#f0c040` / `#2a1f00` (gold on dark brown)
+
+**Files modified (13):** `db/models.py`, `models/team.py`, `main.py`, `db/repository.py`, `api/pages.py`, `core/presenter.py`, `core/scheduler_runner.py`, `core/game_loop.py`, `templates/pages/arena.html`, `templates/pages/game.html`, `templates/pages/standings.html`, `scripts/demo_seed.py`, `tests/test_db.py`
+
+**515 tests, zero lint errors.**
+
+**What could have gone better:** One test (`test_db.py`) used positional args for `create_team()` and broke when the new `color_secondary` parameter was inserted between `color` and `motto`. Fixed by switching to keyword args. Four lint line-length errors also needed fixing.
+
+---
+
+## Session 33 — Live Zone Fixes + Elam Target + Commentary Variance
+
+**What was asked:** Five issues after deploying team colors: (1) Too much white space — `.section-title` inside `.live-container` grid wasted a column. (2) Play-by-play lines all same color regardless of team. (3) Elam ending shows "0:00" instead of the target score — the whole point of Elam. (4) Nav says "Arena" instead of "Games". (5) Mirror commentary repeats "The courts ran hot..." every round.
+
+**What was built:**
+
+### Live container layout fix
+- Moved `.section-title` outside `.live-container` so it doesn't consume a grid column
+- Removed `.arena-grid` wrapper — `.live-zone` elements are now direct children of `.live-container` grid
+- Matches how JS creates zones (already appends directly to `#live-container`)
+
+### Team-colored play-by-play
+- Added `colors` parameter to `_present_game()`, derived `offense_color` from `colors.get(possession.offense_team_id)`
+- Added `offense_color` to `play_dict` — flows through SSE to JS and server-rendered templates
+- Server-rendered play lines: `style="color: {{ play.offense_color }};"`
+- JS-created play lines: `if (d.offense_color) line.style.color = d.offense_color;`
+- Updated `.live-play-line:first-child` CSS — removed `color: var(--text-primary)` override, kept `font-weight: 600`
+
+### Elam target in live zone
+- Added `elam_target: int | None` to `LiveGameState`, set from `game_result.elam_target_score`
+- In `_present_game()`, when `game_clock` is empty and `elam_target` exists, substitutes `"Target: {elam_target}"`
+- Included `elam_target` in `play_dict` for SSE
+- JS handler: when no `game_clock` but `elam_target` present, sets clock to `"Target: " + d.elam_target`
+- Server-rendered template already uses `game_clock` which now contains the substituted value
+
+### Nav label
+- Changed "Arena" → "Games" in `base.html` nav
+
+### Commentary variance
+- Replaced single high-scoring template with 5 variants ("The courts ran hot", "Pace was relentless", "Buckets fell", "Scoring surged", "Offenses found their rhythm")
+- Replaced single low-scoring template with 4 variants ("Tightened the screws", "Defense locked in", "Every bucket earned", "Possessions felt precious")
+- Added 3 mid-range variants (41-59 PPG) — previously uncovered band
+- All use existing seeded RNG for deterministic but varied output
+
+**Files modified (4):** `templates/pages/arena.html`, `src/pinwheel/core/presenter.py`, `static/css/pinwheel.css`, `templates/base.html`, `src/pinwheel/ai/mirror.py`
+
+**515 tests, zero lint errors.**
+
+**What could have gone better:** Clean session — all changes were straightforward presentation-layer fixes with no test failures.

@@ -11,52 +11,50 @@
 
 <!-- Live Games — server-rendered if a presentation is active, else hidden for SSE -->
 {% if live_round %}
+<div class="section-title">Live — Round {{ live_round.round_number }}</div>
 <div id="live-container" class="live-container">
-  <div class="section-title">Live — Round {{ live_round.round_number }}</div>
-  <div class="arena-grid">
-    {% for game in live_round.games %}
-    <div class="live-zone" id="live-game-{{ game.game_index }}">
-      <div class="live-zone-header">
-        <span class="live-badge {% if game.status == 'final' %}live-badge-done{% endif %}">{{ 'FINAL' if game.status == 'final' else 'LIVE' }}</span>
-        <span class="live-quarter" data-g="{{ game.game_index }}">Q{{ game.quarter }}</span>
-        <span class="live-clock" data-g="{{ game.game_index }}">{{ game.game_clock }}</span>
+  {% for game in live_round.games %}
+  <div class="live-zone" id="live-game-{{ game.game_index }}">
+    <div class="live-zone-header">
+      <span class="live-badge {% if game.status == 'final' %}live-badge-done{% endif %}">{{ 'FINAL' if game.status == 'final' else 'LIVE' }}</span>
+      <span class="live-quarter" data-g="{{ game.game_index }}">Q{{ game.quarter }}</span>
+      <span class="live-clock" data-g="{{ game.game_index }}">{{ game.game_clock }}</span>
+    </div>
+    <div class="live-zone-scoreboard">
+      <div class="live-team">
+        <span class="live-team-name" data-role="home" data-g="{{ game.game_index }}" style="color: {{ game.home_color }};">{{ game.home_team_name }}</span>
+        <span class="live-score" data-role="home" data-g="{{ game.game_index }}">{{ game.home_score }}</span>
       </div>
-      <div class="live-zone-scoreboard">
-        <div class="live-team">
-          <span class="live-team-name" data-role="home" data-g="{{ game.game_index }}">{{ game.home_team_name }}</span>
-          <span class="live-score" data-role="home" data-g="{{ game.game_index }}">{{ game.home_score }}</span>
-        </div>
-        <div class="live-vs">vs</div>
-        <div class="live-team">
-          <span class="live-team-name" data-role="away" data-g="{{ game.game_index }}">{{ game.away_team_name }}</span>
-          <span class="live-score" data-role="away" data-g="{{ game.game_index }}">{{ game.away_score }}</span>
-        </div>
-      </div>
-      {% if game.home_leader or game.away_leader %}
-      <div class="live-leaders" data-g="{{ game.game_index }}">
-        {% if game.home_leader %}
-        <span class="live-leader"><a href="/hoopers/{{ game.home_leader.hooper_id }}">{{ game.home_leader.hooper_name }}</a> {{ game.home_leader.points }} pts</span>
-        {% endif %}
-        {% if game.away_leader %}
-        <span class="live-leader"><a href="/hoopers/{{ game.away_leader.hooper_id }}">{{ game.away_leader.hooper_name }}</a> {{ game.away_leader.points }} pts</span>
-        {% endif %}
-      </div>
-      {% else %}
-      <div class="live-leaders" data-g="{{ game.game_index }}"></div>
-      {% endif %}
-      <div class="live-status" data-g="{{ game.game_index }}" {% if game.status == 'final' %}class="live-status live-final"{% endif %}>{% if game.status == 'final' %}FINAL{% endif %}</div>
-      <div class="live-plays" data-g="{{ game.game_index }}">
-        {% for play in game.recent_plays|reverse %}
-        <div class="live-play-line">
-          <span class="live-play-clock">{{ play.game_clock }}</span>
-          {{ play.narration }}
-          {% if play.points_scored > 0 %}<span class="live-play-pts">+{{ play.points_scored }}</span>{% endif %}
-        </div>
-        {% endfor %}
+      <div class="live-vs">vs</div>
+      <div class="live-team">
+        <span class="live-team-name" data-role="away" data-g="{{ game.game_index }}" style="color: {{ game.away_color }};">{{ game.away_team_name }}</span>
+        <span class="live-score" data-role="away" data-g="{{ game.game_index }}">{{ game.away_score }}</span>
       </div>
     </div>
-    {% endfor %}
+    {% if game.home_leader or game.away_leader %}
+    <div class="live-leaders" data-g="{{ game.game_index }}">
+      {% if game.home_leader %}
+      <span class="live-leader"><a href="/hoopers/{{ game.home_leader.hooper_id }}">{{ game.home_leader.hooper_name }}</a> {{ game.home_leader.points }} pts</span>
+      {% endif %}
+      {% if game.away_leader %}
+      <span class="live-leader"><a href="/hoopers/{{ game.away_leader.hooper_id }}">{{ game.away_leader.hooper_name }}</a> {{ game.away_leader.points }} pts</span>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="live-leaders" data-g="{{ game.game_index }}"></div>
+    {% endif %}
+    <div class="live-status" data-g="{{ game.game_index }}" {% if game.status == 'final' %}class="live-status live-final"{% endif %}>{% if game.status == 'final' %}FINAL{% endif %}</div>
+    <div class="live-plays" data-g="{{ game.game_index }}">
+      {% for play in game.recent_plays|reverse %}
+      <div class="live-play-line" style="color: {{ play.offense_color }};">
+        <span class="live-play-clock">{{ play.game_clock }}</span>
+        {{ play.narration }}
+        {% if play.points_scored > 0 %}<span class="live-play-pts">+{{ play.points_scored }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
   </div>
+  {% endfor %}
 </div>
 {% else %}
 <div id="live-container" class="live-container" style="display:none;"></div>
@@ -88,8 +86,8 @@
           <span class="game-meta">{{ game.total_possessions }} poss</span>
         </div>
         <div class="game-panel-teams">
-          <div class="team-score-block">
-            <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}">
+          <div class="team-score-block" style="border-left: 3px solid {{ game.home_color }}; padding-left: 0.5rem;">
+            <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}" {% if game.winner_team_id == game.home_team_id %}style="color: {{ game.home_color }};"{% endif %}>
               {{ game.home_name }}
             </div>
             <div class="score score-sm {% if game.winner_team_id == game.home_team_id %}score-winner{% else %}score-loser{% endif %}">
@@ -97,8 +95,8 @@
             </div>
           </div>
           <div class="vs-divider">Final</div>
-          <div class="team-score-block">
-            <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}">
+          <div class="team-score-block" style="border-left: 3px solid {{ game.away_color }}; padding-left: 0.5rem;">
+            <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}" {% if game.winner_team_id == game.away_team_id %}style="color: {{ game.away_color }};"{% endif %}>
               {{ game.away_name }}
             </div>
             <div class="score score-sm {% if game.winner_team_id == game.away_team_id %}score-winner{% else %}score-loser{% endif %}">
@@ -165,11 +163,11 @@
     {% for ug in upcoming_games %}
     <div class="game-panel upcoming-panel">
       <div class="game-panel-teams">
-        <div class="team-score-block">
+        <div class="team-score-block" style="border-left: 3px solid {{ ug.home_color }}; padding-left: 0.5rem;">
           <div class="team-name">{{ ug.home_name }}</div>
         </div>
         <div class="vs-divider">vs</div>
-        <div class="team-score-block">
+        <div class="team-score-block" style="border-left: 3px solid {{ ug.away_color }}; padding-left: 0.5rem;">
           <div class="team-name">{{ ug.away_name }}</div>
         </div>
       </div>
@@ -193,6 +191,8 @@
     var zone = document.getElementById(zoneId);
     if (zone) return zone;
     container.style.display = '';
+    var homeColor = d.home_team_color || '#888';
+    var awayColor = d.away_team_color || '#888';
     zone = document.createElement('div');
     zone.id = zoneId;
     zone.className = 'live-zone';
@@ -204,12 +204,12 @@
       '</div>' +
       '<div class="live-zone-scoreboard">' +
         '<div class="live-team">' +
-          '<span class="live-team-name" data-role="home" data-g="' + gameIdx + '">' + (d.home_team_name || 'Home') + '</span>' +
+          '<span class="live-team-name" data-role="home" data-g="' + gameIdx + '" style="color:' + homeColor + ';">' + (d.home_team_name || 'Home') + '</span>' +
           '<span class="live-score" data-role="home" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
         '<div class="live-vs">vs</div>' +
         '<div class="live-team">' +
-          '<span class="live-team-name" data-role="away" data-g="' + gameIdx + '">' + (d.away_team_name || 'Away') + '</span>' +
+          '<span class="live-team-name" data-role="away" data-g="' + gameIdx + '" style="color:' + awayColor + ';">' + (d.away_team_name || 'Away') + '</span>' +
           '<span class="live-score" data-role="away" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
       '</div>' +
@@ -240,10 +240,14 @@
     if (homeScore) homeScore.textContent = d.home_score;
     if (awayScore) awayScore.textContent = d.away_score;
     if (quarter) quarter.textContent = 'Q' + d.quarter;
-    if (clock && d.game_clock) clock.textContent = d.game_clock;
+    if (clock) {
+      if (d.game_clock) clock.textContent = d.game_clock;
+      else if (d.elam_target) clock.textContent = 'Target: ' + d.elam_target;
+    }
     if (plays && d.narration) {
       var line = document.createElement('div');
       line.className = 'live-play-line';
+      if (d.offense_color) line.style.color = d.offense_color;
       var pts = d.points_scored > 0 ? ' <span class="live-play-pts">+' + d.points_scored + '</span>' : '';
       line.innerHTML = '<span class="live-play-clock">' + (d.game_clock || '') + '</span> ' + d.narration + pts;
       plays.insertBefore(line, plays.firstChild);

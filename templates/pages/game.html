@@ -4,8 +4,8 @@
 {% block content %}
 <div class="game-header card mb-2">
   <div class="game-matchup">
-    <div class="game-team">
-      <div class="game-team-name {% if game.winner_team_id == game.home_team_id %}score-winner{% endif %}">
+    <div class="game-team" style="background: {{ home_color2 }}; border-left: 4px solid {{ home_color }}; padding: 1rem; border-radius: var(--radius);">
+      <div class="game-team-name {% if game.winner_team_id == game.home_team_id %}score-winner{% endif %}" style="color: {{ home_color }};">
         {{ home_name }}
       </div>
       <div class="game-team-score">{{ game.home_score }}</div>
@@ -18,8 +18,8 @@
       </div>
       {% endif %}
     </div>
-    <div class="game-team">
-      <div class="game-team-name {% if game.winner_team_id == game.away_team_id %}score-winner{% endif %}">
+    <div class="game-team" style="background: {{ away_color2 }}; border-left: 4px solid {{ away_color }}; padding: 1rem; border-radius: var(--radius);">
+      <div class="game-team-name {% if game.winner_team_id == game.away_team_id %}score-winner{% endif %}" style="color: {{ away_color }};">
         {{ away_name }}
       </div>
       <div class="game-team-score">{{ game.away_score }}</div>
@@ -79,9 +79,9 @@
           </tr>
         </thead>
         <tbody>
-          {% for team_name, team_id, players in box_score_groups %}
+          {% for team_name, team_id, players, team_color in box_score_groups %}
           <tr class="team-header">
-            <td colspan="7">{{ team_name }}</td>
+            <td colspan="7" style="border-left: 3px solid {{ team_color }}; padding-left: 0.5rem;">{{ team_name }}</td>
           </tr>
           {% for p in players %}
           <tr>
