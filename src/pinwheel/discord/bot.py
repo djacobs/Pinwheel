@@ -737,12 +737,13 @@ class PinwheelBot(commands.Bot):
             if play_channel:
                 await play_channel.send(embed=embed)
 
-            # Big plays: Elam activated, blowout (>15 diff), or upset
-            is_elam = bool(data.get("elam_activated"))
+            # Big plays: blowout (>15 diff) or buzzer-beater (margin <= 2)
             home_score = int(data.get("home_score", 0))
             away_score = int(data.get("away_score", 0))
-            is_blowout = abs(home_score - away_score) > 15
-            if is_elam or is_blowout:
+            margin = abs(home_score - away_score)
+            is_blowout = margin > 15
+            is_buzzer_beater = margin <= 2
+            if is_blowout or is_buzzer_beater:
                 big_channel = self._get_channel_for("big_plays")
                 if big_channel:
                     await big_channel.send(embed=embed)

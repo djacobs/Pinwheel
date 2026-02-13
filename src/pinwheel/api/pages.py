@@ -111,9 +111,11 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             else:
                 break
 
-        # Latest round's games — the headline scores
+        # Latest round's games — the headline scores (presented only)
         if current_round > 0:
-            round_games = await repo.get_games_for_round(season_id, current_round)
+            round_games = await repo.get_games_for_round(
+                season_id, current_round, presented_only=True,
+            )
             for g in round_games:
                 # Cache team names
                 for tid in (g.home_team_id, g.away_team_id):
@@ -326,7 +328,9 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
         first_round = max(1, latest_round - 3)
 
         for round_num in range(latest_round, first_round - 1, -1):
-            round_games = await repo.get_games_for_round(season_id, round_num)
+            round_games = await repo.get_games_for_round(
+                season_id, round_num, presented_only=True,
+            )
             if not round_games:
                 continue
 
@@ -400,6 +404,58 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                 "mirror": mirror,
             })
 
+    # Build live_round from PresentationState if presentation is active
+    from pinwheel.core.presenter import PresentationState
+
+    live_round = None
+    pstate: PresentationState = request.app.state.presentation_state
+    if pstate.is_active and pstate.live_games:
+        live_round = {
+            "round_number": pstate.current_round,
+            "games": [
+                {
+                    "game_index": gs.game_index,
+                    "home_team_name": gs.home_team_name,
+                    "away_team_name": gs.away_team_name,
+                    "home_score": gs.home_score,
+                    "away_score": gs.away_score,
+                    "quarter": gs.quarter,
+                    "game_clock": gs.game_clock,
+                    "status": gs.status,
+                    "recent_plays": gs.recent_plays[-20:],
+                    "home_leader": gs.home_leader,
+                    "away_leader": gs.away_leader,
+                }
+                for gs in pstate.live_games.values()
+            ],
+        }
+
+    # Upcoming games (next unplayed round)
+    upcoming_games: list[dict] = []
+    if season_id:
+        latest_round = 0
+        for rn in range(1, 100):
+            rg = await repo.get_games_for_round(season_id, rn)
+            if rg:
+                latest_round = rn
+            else:
+                break
+        next_round = latest_round + 1
+        schedule = await repo.get_schedule_for_round(season_id, next_round)
+        team_names_sched: dict[str, str] = {}
+        for entry in schedule:
+            for tid in (entry.home_team_id, entry.away_team_id):
+                if tid not in team_names_sched:
+                    if tid in team_names:
+                        team_names_sched[tid] = team_names[tid]
+                    else:
+                        t = await repo.get_team(tid)
+                        team_names_sched[tid] = t.name if t else tid
+            upcoming_games.append({
+                "home_name": team_names_sched.get(entry.home_team_id, "?"),
+                "away_name": team_names_sched.get(entry.away_team_id, "?"),
+            })
+
     settings: Settings = request.app.state.settings
     return templates.TemplateResponse(
         request,
@@ -407,6 +463,8 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
         {
             "active_page": "arena",
             "rounds": rounds,
+            "live_round": live_round,
+            "upcoming_games": upcoming_games,
             "auto_advance": settings.pinwheel_auto_advance,
             **_auth_context(request, current_user),
         },
@@ -436,7 +494,7 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
 async def game_page(request: Request, game_id: str, repo: RepoDep, current_user: OptionalUser):
     """Single game detail page."""
     game = await repo.get_game_result(game_id)
-    if not game:
+    if not game or not game.presented:
         raise HTTPException(404, "Game not found")
 
     # Team names
@@ -451,6 +509,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
     for bs in game.box_scores:
         h = await repo.get_hooper(bs.hooper_id)
         player = {
+            "hooper_id": bs.hooper_id,
             "hooper_name": h.name if h else bs.hooper_id,
             "points": bs.points,
             "field_goals_made": bs.field_goals_made,
@@ -485,6 +544,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         handler_id = play.get("ball_handler_id", "")
         def_id = play.get("defender_id", "")
         enriched = {**play}
+        enriched["handler_id"] = handler_id
+        enriched["handler_name"] = hooper_names.get(handler_id, handler_id)
         enriched["narration"] = narrate_play(
             player=hooper_names.get(handler_id, handler_id),
             defender=hooper_names.get(def_id, def_id),

@@ -6,6 +6,10 @@ the EventBus so the frontend receives them in real time via SSE.
 
 All games in a round run concurrently — the arena shows them side by side.
 
+The presenter also writes running state to ``PresentationState.live_games`` so
+the arena page can server-render current scores on every page load — no gap
+after a reload or deploy.
+
 Usage:
     state = PresentationState()
     await present_round(game_results, event_bus, state, ...)
@@ -25,6 +29,27 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class LiveGameState:
+    """Running state for a single live game — everything the template needs."""
+
+    game_index: int
+    game_id: str
+    home_team_id: str
+    away_team_id: str
+    home_team_name: str
+    away_team_name: str
+    home_score: int = 0
+    away_score: int = 0
+    quarter: int = 1
+    game_clock: str = ""
+    status: str = "live"  # "live" | "final"
+    recent_plays: list[dict] = field(default_factory=list)
+    box_scores: list[dict] = field(default_factory=list)
+    home_leader: dict | None = None
+    away_leader: dict | None = None
+
+
+@dataclass
 class PresentationState:
     """Tracks active presentation for re-entry guard and cancellation."""
 
@@ -32,6 +57,9 @@ class PresentationState:
     current_round: int = 0
     current_game_index: int = 0
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    live_games: dict[int, LiveGameState] = field(default_factory=dict)
+    game_results: list[GameResult] = field(default_factory=list)
+    name_cache: dict[str, str] = field(default_factory=dict)
 
     def reset(self) -> None:
         """Reset state for a new presentation."""
@@ -39,6 +67,9 @@ class PresentationState:
         self.current_round = 0
         self.current_game_index = 0
         self.cancel_event = asyncio.Event()
+        self.live_games = {}
+        self.game_results = []
+        self.name_cache = {}
 
 
 async def present_round(
@@ -74,6 +105,9 @@ async def present_round(
     names = name_cache or {}
     state.is_active = True
     state.cancel_event.clear()
+    state.game_results = list(game_results)
+    state.name_cache = dict(names)
+    state.live_games = {}
 
     try:
         tasks = [
@@ -104,6 +138,27 @@ async def present_round(
         state.is_active = False
 
 
+def _compute_leaders(
+    game_result: GameResult, names: dict[str, str]
+) -> tuple[dict | None, dict | None]:
+    """Return top scorer per team as (home_leader, away_leader) dicts."""
+    home_best: dict | None = None
+    away_best: dict | None = None
+    for bs in game_result.box_scores:
+        entry = {
+            "hooper_id": bs.hooper_id,
+            "hooper_name": names.get(bs.hooper_id, bs.hooper_name),
+            "points": bs.points,
+        }
+        if bs.team_id == game_result.home_team_id:
+            if home_best is None or bs.points > home_best["points"]:
+                home_best = entry
+        else:
+            if away_best is None or bs.points > away_best["points"]:
+                away_best = entry
+    return home_best, away_best
+
+
 async def _present_full_game(
     game_idx: int,
     game_result: GameResult,
@@ -118,6 +173,20 @@ async def _present_full_game(
     if state.cancel_event.is_set():
         return
 
+    home_name = names.get(game_result.home_team_id, game_result.home_team_id)
+    away_name = names.get(game_result.away_team_id, game_result.away_team_id)
+
+    # Create LiveGameState entry so the arena can server-render mid-game
+    live = LiveGameState(
+        game_index=game_idx,
+        game_id=game_result.game_id,
+        home_team_id=game_result.home_team_id,
+        away_team_id=game_result.away_team_id,
+        home_team_name=home_name,
+        away_team_name=away_name,
+    )
+    state.live_games[game_idx] = live
+
     await event_bus.publish(
         "presentation.game_starting",
         {
@@ -125,12 +194,8 @@ async def _present_full_game(
             "total_games": total_games,
             "home_team_id": game_result.home_team_id,
             "away_team_id": game_result.away_team_id,
-            "home_team_name": names.get(
-                game_result.home_team_id, game_result.home_team_id
-            ),
-            "away_team_name": names.get(
-                game_result.away_team_id, game_result.away_team_id
-            ),
+            "home_team_name": home_name,
+            "away_team_name": away_name,
         },
     )
 
@@ -141,20 +206,24 @@ async def _present_full_game(
     if state.cancel_event.is_set():
         return
 
+    # Compute leaders from pre-computed box scores
+    home_leader, away_leader = _compute_leaders(game_result, names)
+    live.status = "final"
+    live.home_leader = home_leader
+    live.away_leader = away_leader
+
     await event_bus.publish(
         "presentation.game_finished",
         {
             "game_index": game_idx,
             "home_team_id": game_result.home_team_id,
             "away_team_id": game_result.away_team_id,
-            "home_team_name": names.get(
-                game_result.home_team_id, game_result.home_team_id
-            ),
-            "away_team_name": names.get(
-                game_result.away_team_id, game_result.away_team_id
-            ),
+            "home_team_name": home_name,
+            "away_team_name": away_name,
             "home_score": game_result.home_score,
             "away_score": game_result.away_score,
+            "home_leader": home_leader,
+            "away_leader": away_leader,
         },
     )
 
@@ -222,23 +291,34 @@ async def _present_game(
                 seed=possession.possession_number,
             )
 
-            await event_bus.publish(
-                "presentation.possession",
-                {
-                    "game_index": game_idx,
-                    "quarter": possession.quarter,
-                    "offense_team_id": possession.offense_team_id,
-                    "offense_team_name": offense_name,
-                    "ball_handler_id": possession.ball_handler_id,
-                    "ball_handler_name": player_name,
-                    "action": possession.action,
-                    "result": possession.result,
-                    "points_scored": possession.points_scored,
-                    "home_score": possession.home_score,
-                    "away_score": possession.away_score,
-                    "game_clock": possession.game_clock,
-                    "narration": narration,
-                },
-            )
+            play_dict = {
+                "game_index": game_idx,
+                "quarter": possession.quarter,
+                "offense_team_id": possession.offense_team_id,
+                "offense_team_name": offense_name,
+                "ball_handler_id": possession.ball_handler_id,
+                "ball_handler_name": player_name,
+                "action": possession.action,
+                "result": possession.result,
+                "points_scored": possession.points_scored,
+                "home_score": possession.home_score,
+                "away_score": possession.away_score,
+                "game_clock": possession.game_clock,
+                "narration": narration,
+            }
+
+            # Update LiveGameState so server-render stays current
+            live = state.live_games.get(game_idx)
+            if live is not None:
+                live.home_score = possession.home_score
+                live.away_score = possession.away_score
+                live.quarter = possession.quarter
+                live.game_clock = possession.game_clock
+                live.recent_plays.append(play_dict)
+                # Keep only last 30 plays in memory
+                if len(live.recent_plays) > 30:
+                    live.recent_plays = live.recent_plays[-30:]
+
+            await event_bus.publish("presentation.possession", play_dict)
 
             await asyncio.sleep(delay)

@@ -2349,12 +2349,6 @@ h3 { font-size: 1.05rem; }
   border: 2px solid var(--accent-highlight);
   border-radius: var(--radius-lg);
   padding: 1.25rem;
-  animation: live-pulse 2s ease-in-out infinite;
-}
-
-@keyframes live-pulse {
-  0%, 100% { border-color: var(--accent-highlight); }
-  50% { border-color: var(--accent-score); }
 }
 
 .live-zone-header {
@@ -2374,17 +2368,10 @@ h3 { font-size: 1.05rem; }
   letter-spacing: 0.1em;
   padding: 0.2rem 0.6rem;
   border-radius: var(--radius);
-  animation: live-blink 1.5s step-end infinite;
 }
 
 .live-badge-done {
   background: var(--text-muted);
-  animation: none;
-}
-
-@keyframes live-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 
 .live-quarter {

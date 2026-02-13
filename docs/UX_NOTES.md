@@ -387,3 +387,37 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** The arena live zone never appeared on the deployed site. The `EventSource` connection opened but no events reached the browser — the page was completely static during live presentations. The SSE generator yielded nothing until the first EventBus event, and Fly.io's proxy buffered the response waiting for body data.
 
 **Fix:** Added an immediate `: connected\n\n` SSE comment when the stream opens, flushing bytes through the proxy so the browser transitions from "connecting" to "open" state. Added 15-second `: heartbeat\n\n` keep-alive comments to prevent proxy timeout during quiet periods. Added `es.onopen` and `es.onerror` console logging to the frontend for future debugging.
+
+---
+
+## Completed — Session 31 (Live Arena Redesign)
+
+### 43. [DONE] Server-rendered live games on arena page
+**Problem:** Page reload during a live game showed nothing — all live state was client-side only (in the browser DOM via SSE). Server restart (deploy) killed the presentation entirely. Users who arrived mid-game saw a static page with no indication games were in progress.
+
+**Fix:** Arena page now server-renders live game state from `PresentationState`. When a presentation is active, the template renders a "Live — Round N" section with per-game cards showing: LIVE/FINAL badge, quarter indicator (Q1-Q4), game clock, team names and scores, recent narrated plays, and top scorers per team with links to hooper pages. On page reload, the full current state appears immediately — SSE then picks up from that point. When no presentation is active, a hidden container sits ready for SSE to populate dynamically.
+
+### 44. [DONE] Game leaders in live arena zones
+**Problem:** Live game cards showed scores and play-by-play but no player stats. Viewers couldn't see who was having a big game or discover standout hoopers during live action.
+
+**Fix:** Added leaders section to each live game zone showing the top scorer per team. Leaders are computed from pre-calculated box scores via `_compute_leaders()` and included in the `game_finished` event payload. Each leader name links to `/hoopers/{id}`. The JS `game_finished` handler also renders leaders with hooper links for users who were watching live.
+
+### 45. [DONE] Hooper links in game detail box score and play-by-play
+**Problem:** Game detail pages showed hooper names as plain text in the box score table and play-by-play. No way to navigate from a standout performance to the hooper's profile page.
+
+**Fix:** Box score hooper names are now `<a href="/hoopers/{{ p.hooper_id }}">` links. Play-by-play lines have a `data-handler` attribute with the handler's hooper ID, and a click handler navigates to the hooper page. Both changes make the game detail page a discovery surface for meeting individual hoopers.
+
+### 46. [DONE] "Up Next" schedule section on arena
+**Problem:** Arena page showed completed games and live games but gave no preview of what's coming. Players couldn't see upcoming matchups to plan their viewing.
+
+**Fix:** Added "Up Next — Round N" section below live/completed games showing the next unplayed round's matchups. Each matchup displays team color dots and team names in a horizontal strip. Query added to `arena_page()` to fetch the next round's schedule entries.
+
+### 47. [DONE] Foul narration distinguishes made vs missed free throws
+**Problem:** All foul outcomes used the same narration template regardless of whether free throws were made or missed. "Flash draws the foul" was the same whether they scored 2 or 0.
+
+**Fix:** Foul narration now branches: `points > 0` produces "hits N from the stripe", `points == 0` produces "misses from the stripe". Added 2 new foul template variations for variety.
+
+### 48. [DONE] Discord Elam noise removed, big-plays routing fixed
+**Problem:** Discord embeds showed "Elam Ending activated!" on every game — since Elam always activates, this was pure noise. The big-plays channel routing used `is_elam` as its condition, meaning every single game went to `#big-plays`, defeating the purpose of having a highlights channel.
+
+**Fix:** Replaced "Elam Ending activated!" with "Elam Target: {score}" (actually informative). Changed big-plays routing from `is_elam` (always true) to margin-based: blowouts (margin >15) and buzzer-beaters (margin <=2) go to `#big-plays`, everything else to `#play-by-play` only.

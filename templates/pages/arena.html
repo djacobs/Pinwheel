@@ -9,8 +9,58 @@
   {% endif %}
 </div>
 
-<!-- Live Games Container — populated dynamically when presentation starts -->
+<!-- Live Games — server-rendered if a presentation is active, else hidden for SSE -->
+{% if live_round %}
+<div id="live-container" class="live-container">
+  <div class="section-title">Live — Round {{ live_round.round_number }}</div>
+  <div class="arena-grid">
+    {% for game in live_round.games %}
+    <div class="live-zone" id="live-game-{{ game.game_index }}">
+      <div class="live-zone-header">
+        <span class="live-badge {% if game.status == 'final' %}live-badge-done{% endif %}">{{ 'FINAL' if game.status == 'final' else 'LIVE' }}</span>
+        <span class="live-quarter" data-g="{{ game.game_index }}">Q{{ game.quarter }}</span>
+        <span class="live-clock" data-g="{{ game.game_index }}">{{ game.game_clock }}</span>
+      </div>
+      <div class="live-zone-scoreboard">
+        <div class="live-team">
+          <span class="live-team-name" data-role="home" data-g="{{ game.game_index }}">{{ game.home_team_name }}</span>
+          <span class="live-score" data-role="home" data-g="{{ game.game_index }}">{{ game.home_score }}</span>
+        </div>
+        <div class="live-vs">vs</div>
+        <div class="live-team">
+          <span class="live-team-name" data-role="away" data-g="{{ game.game_index }}">{{ game.away_team_name }}</span>
+          <span class="live-score" data-role="away" data-g="{{ game.game_index }}">{{ game.away_score }}</span>
+        </div>
+      </div>
+      {% if game.home_leader or game.away_leader %}
+      <div class="live-leaders" data-g="{{ game.game_index }}">
+        {% if game.home_leader %}
+        <span class="live-leader"><a href="/hoopers/{{ game.home_leader.hooper_id }}">{{ game.home_leader.hooper_name }}</a> {{ game.home_leader.points }} pts</span>
+        {% endif %}
+        {% if game.away_leader %}
+        <span class="live-leader"><a href="/hoopers/{{ game.away_leader.hooper_id }}">{{ game.away_leader.hooper_name }}</a> {{ game.away_leader.points }} pts</span>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="live-leaders" data-g="{{ game.game_index }}"></div>
+      {% endif %}
+      <div class="live-status" data-g="{{ game.game_index }}" {% if game.status == 'final' %}class="live-status live-final"{% endif %}>{% if game.status == 'final' %}FINAL{% endif %}</div>
+      <div class="live-plays" data-g="{{ game.game_index }}">
+        {% for play in game.recent_plays|reverse %}
+        <div class="live-play-line">
+          <span class="live-play-clock">{{ play.game_clock }}</span>
+          {{ play.narration }}
+          {% if play.points_scored > 0 %}<span class="live-play-pts">+{{ play.points_scored }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
 <div id="live-container" class="live-container" style="display:none;"></div>
+{% endif %}
 
 <!-- Advance Round button — visible when auto_advance is off -->
 {% if not auto_advance %}
@@ -100,9 +150,32 @@
 </div>
 
 {% else %}
+{% if not live_round %}
 <div class="empty-state">
   <h3>No Games Yet</h3>
   <p>The season hasn't started. Games will appear here once the first round is simulated.</p>
+</div>
+{% endif %}
+{% endif %}
+
+{% if upcoming_games %}
+<div class="mt-2">
+  <div class="section-title">Up Next</div>
+  <div class="arena-grid">
+    {% for ug in upcoming_games %}
+    <div class="game-panel upcoming-panel">
+      <div class="game-panel-teams">
+        <div class="team-score-block">
+          <div class="team-name">{{ ug.home_name }}</div>
+        </div>
+        <div class="vs-divider">vs</div>
+        <div class="team-score-block">
+          <div class="team-name">{{ ug.away_name }}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
@@ -140,6 +213,7 @@
           '<span class="live-score" data-role="away" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
       '</div>' +
+      '<div class="live-leaders" data-g="' + gameIdx + '"></div>' +
       '<div class="live-status" data-g="' + gameIdx + '"></div>' +
       '<div class="live-plays" data-g="' + gameIdx + '"></div>';
     container.appendChild(zone);
@@ -187,7 +261,15 @@
     if (awayScore) awayScore.textContent = d.away_score;
     if (status) { status.textContent = 'FINAL'; status.className = 'live-status live-final'; }
     var badge = document.querySelector('#live-game-' + gi + ' .live-badge');
-    if (badge) { badge.textContent = 'DONE'; badge.className = 'live-badge live-badge-done'; }
+    if (badge) { badge.textContent = 'FINAL'; badge.className = 'live-badge live-badge-done'; }
+    // Show leaders
+    var leaders = q('.live-leaders[data-g="' + gi + '"]');
+    if (leaders) {
+      var parts = [];
+      if (d.home_leader) parts.push('<span class="live-leader"><a href="/hoopers/' + d.home_leader.hooper_id + '">' + d.home_leader.hooper_name + '</a> ' + d.home_leader.points + ' pts</span>');
+      if (d.away_leader) parts.push('<span class="live-leader"><a href="/hoopers/' + d.away_leader.hooper_id + '">' + d.away_leader.hooper_name + '</a> ' + d.away_leader.points + ' pts</span>');
+      leaders.innerHTML = parts.join('');
+    }
   });
 
   es.addEventListener('presentation.round_finished', function(e) {

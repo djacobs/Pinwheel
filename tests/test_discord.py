@@ -217,15 +217,14 @@ class TestEventDispatch:
                 "game_id": "g-1-0",
                 "home_team": "Rose City Thorns",
                 "away_team": "Burnside Breakers",
-                "home_score": 45,
+                "home_score": 55,
                 "away_score": 38,
                 "winner_team_id": "team-1",
-                "elam_activated": True,
                 "total_possessions": 60,
             },
         }
         await bot._dispatch_event(event)
-        # Elam game: sent to both play-by-play and big-plays (both resolve to same mock)
+        # Blowout (>15 diff): sent to both play-by-play and big-plays
         assert channel.send.call_count == 2
         embed = channel.send.call_args_list[0].kwargs["embed"]
         assert "Rose City Thorns" in embed.title
@@ -351,17 +350,17 @@ class TestBuildGameResultEmbed:
         assert "55" in (embed.description or "")
         assert "48" in (embed.description or "")
 
-    def test_elam_ending(self) -> None:
+    def test_elam_target_score(self) -> None:
         data = {
             "home_team": "A",
             "away_team": "B",
             "home_score": 50,
             "away_score": 50,
-            "elam_activated": True,
+            "elam_target_score": 55,
             "total_possessions": 75,
         }
         embed = build_game_result_embed(data)
-        assert "Elam" in (embed.description or "")
+        assert "Elam Target: 55" in (embed.description or "")
 
 
 class TestBuildStandingsEmbed:
@@ -776,7 +775,7 @@ class TestEventRouting:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_game_routed_to_play_by_play(self, bot: PinwheelBot) -> None:
-        """Non-elam game goes to play-by-play only."""
+        """Normal game (not blowout or buzzer-beater) goes to play-by-play only."""
         play_channel = AsyncMock(spec=discord.TextChannel)
         big_channel = AsyncMock(spec=discord.TextChannel)
 
@@ -798,7 +797,6 @@ class TestEventRouting:
                 "away_team": "Breakers",
                 "home_score": 45,
                 "away_score": 38,
-                "elam_activated": False,
                 "total_possessions": 60,
             },
         }
@@ -806,8 +804,8 @@ class TestEventRouting:
         play_channel.send.assert_called_once()
         big_channel.send.assert_not_called()
 
-    async def test_elam_game_routed_to_big_plays(self, bot: PinwheelBot) -> None:
-        """Elam game goes to both play-by-play and big-plays."""
+    async def test_buzzer_beater_routed_to_big_plays(self, bot: PinwheelBot) -> None:
+        """Buzzer-beater (margin <= 2) goes to both play-by-play and big-plays."""
         play_channel = AsyncMock(spec=discord.TextChannel)
         big_channel = AsyncMock(spec=discord.TextChannel)
 
@@ -828,8 +826,7 @@ class TestEventRouting:
                 "home_team": "Thorns",
                 "away_team": "Breakers",
                 "home_score": 50,
-                "away_score": 48,
-                "elam_activated": True,
+                "away_score": 49,
                 "total_possessions": 70,
             },
         }

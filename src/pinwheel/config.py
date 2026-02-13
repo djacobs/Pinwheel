@@ -123,6 +123,13 @@ class Settings(BaseSettings):
             self.session_secret_key = secrets.token_urlsafe(32)
         return self
 
+    @model_validator(mode="after")
+    def _force_replay_in_production(self) -> Settings:
+        """In production, games must use replay mode so the live arena works."""
+        if self.pinwheel_env == "production" and self.pinwheel_presentation_mode != "replay":
+            self.pinwheel_presentation_mode = "replay"
+        return self
+
     def effective_game_cron(self) -> str | None:
         """Return the cron expression that should drive game scheduling.
 

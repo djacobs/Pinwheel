@@ -35,13 +35,13 @@ def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
     away = str(game_data.get("away_team", "Away"))
     home_score = game_data.get("home_score", 0)
     away_score = game_data.get("away_score", 0)
-    elam = game_data.get("elam_activated", False)
+    elam_target = game_data.get("elam_target_score")
 
     title = f"{home} vs {away}"
     description = f"**{home}** {home_score} - {away_score} **{away}**"
 
-    if elam:
-        description += "\nElam Ending activated!"
+    if elam_target:
+        description += f"\nElam Target: {elam_target}"
 
     embed = discord.Embed(
         title=title,

@@ -283,3 +283,121 @@ async def test_present_round_without_name_cache():
     starting = [e for e in bus.events if e[0] == "presentation.game_starting"]
     assert starting[0][1]["home_team_name"] == "team-a"
     assert starting[0][1]["away_team_name"] == "team-b"
+
+
+@pytest.mark.asyncio
+async def test_live_games_populated_during_presentation():
+    """state.live_games should be populated while presentation runs."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    # After presentation, live_games should have the game entry
+    assert 0 in state.live_games
+    live = state.live_games[0]
+    assert live.game_id == "g-1-0"
+    assert live.home_team_id == "team-a"
+    assert live.away_team_id == "team-b"
+
+
+@pytest.mark.asyncio
+async def test_live_games_scores_track_correctly():
+    """LiveGameState scores should reflect the last possession's scores."""
+    bus = MockEventBus()
+    state = PresentationState()
+    possessions = [
+        _make_possession(quarter=1, home_score=2, away_score=0),
+        _make_possession(quarter=1, home_score=4, away_score=0),
+        _make_possession(quarter=2, home_score=4, away_score=3),
+    ]
+    game = _make_game(possessions=possessions)
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    live = state.live_games[0]
+    assert live.home_score == 4
+    assert live.away_score == 3
+
+
+@pytest.mark.asyncio
+async def test_live_games_status_transitions_to_final():
+    """LiveGameState status should be 'final' after game finishes."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    live = state.live_games[0]
+    assert live.status == "final"
+
+
+@pytest.mark.asyncio
+async def test_live_games_recent_plays_accumulate():
+    """LiveGameState should accumulate recent plays."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    live = state.live_games[0]
+    assert len(live.recent_plays) == 3  # 3 possessions in the game
+    assert "narration" in live.recent_plays[0]
+
+
+@pytest.mark.asyncio
+async def test_game_finished_includes_leaders():
+    """game_finished event should include home_leader and away_leader."""
+    from pinwheel.models.game import HooperBoxScore
+
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+    game.box_scores = [
+        HooperBoxScore(
+            hooper_id="hooper-1", hooper_name="Flash", team_id="team-a", points=20,
+        ),
+        HooperBoxScore(
+            hooper_id="hooper-2", hooper_name="Thunder", team_id="team-b", points=15,
+        ),
+    ]
+
+    name_cache = {
+        "team-a": "Thunderbolts",
+        "team-b": "Storm",
+        "hooper-1": "Flash Johnson",
+        "hooper-2": "Thunder Bolt",
+    }
+
+    await present_round(
+        [game], bus, state,
+        quarter_replay_seconds=0.01,
+        name_cache=name_cache,
+    )
+
+    finished = [e for e in bus.events if e[0] == "presentation.game_finished"]
+    assert len(finished) == 1
+    data = finished[0][1]
+    assert data["home_leader"]["hooper_id"] == "hooper-1"
+    assert data["home_leader"]["hooper_name"] == "Flash Johnson"
+    assert data["home_leader"]["points"] == 20
+    assert data["away_leader"]["hooper_id"] == "hooper-2"
+    assert data["away_leader"]["points"] == 15
+
+
+@pytest.mark.asyncio
+async def test_presentation_state_reset_clears_live_games():
+    """reset() should clear live_games, game_results, and name_cache."""
+    state = PresentationState()
+    state.live_games = {0: object()}  # type: ignore
+    state.game_results = [object()]  # type: ignore
+    state.name_cache = {"a": "b"}
+
+    state.reset()
+
+    assert state.live_games == {}
+    assert state.game_results == []
+    assert state.name_cache == {}

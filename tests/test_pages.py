@@ -28,8 +28,10 @@ async def app_client():
     app.state.engine = engine
 
     from pinwheel.core.event_bus import EventBus
+    from pinwheel.core.presenter import PresentationState
 
     app.state.event_bus = EventBus()
+    app.state.presentation_state = PresentationState()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -93,6 +95,12 @@ async def _seed_season(engine):
 
         # Run 1 round
         await step_round(repo, season.id, round_number=1)
+
+        # Mark games as presented so they appear on arena/home
+        games = await repo.get_games_for_round(season.id, 1)
+        for g in games:
+            await repo.mark_game_presented(g.id)
+
         await session.commit()
 
         return season.id, team_ids
@@ -280,6 +288,71 @@ class TestPopulatedPages:
         client, _ = app_client
         r = await client.get("/static/js/htmx.min.js")
         assert r.status_code == 200
+
+
+class TestArenaLive:
+    """Tests for the live arena section when a presentation is active."""
+
+    async def test_arena_with_live_games(self, app_client):
+        """Arena should render live games from PresentationState."""
+        client, engine = app_client
+        from pinwheel.core.presenter import LiveGameState
+
+        # Set up a fake active presentation
+        pstate = client._transport.app.state.presentation_state  # type: ignore
+        pstate.is_active = True
+        pstate.current_round = 5
+        pstate.live_games = {
+            0: LiveGameState(
+                game_index=0,
+                game_id="g-5-0",
+                home_team_id="team-a",
+                away_team_id="team-b",
+                home_team_name="Thunderbolts",
+                away_team_name="Storm",
+                home_score=25,
+                away_score=20,
+                quarter=2,
+                game_clock="3:45",
+                status="live",
+            ),
+        }
+
+        r = await client.get("/arena")
+        assert r.status_code == 200
+        assert "LIVE" in r.text
+        assert "Thunderbolts" in r.text
+        assert "Storm" in r.text
+        assert "25" in r.text
+        assert "Q2" in r.text
+
+        # Clean up
+        pstate.reset()
+
+    async def test_arena_no_live_games_shows_hidden_container(self, app_client):
+        """Arena without live games should have a hidden live container."""
+        client, _ = app_client
+        r = await client.get("/arena")
+        assert r.status_code == 200
+        assert 'style="display:none;"' in r.text
+
+
+class TestGameDetailHooperLinks:
+    """Tests for hooper links in game detail page."""
+
+    async def test_game_detail_has_hooper_links(self, app_client):
+        """Game detail page should have links to hooper pages."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            game_id = games[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        assert "/hoopers/" in r.text
 
 
 class TestHooperPages:

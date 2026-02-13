@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **489 tests**, zero lint errors
+- **515 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 30 (SSE heartbeat fix)
+- **Latest commit:** Session 31 (Live arena redesign)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -56,6 +56,17 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ### Safety & rules
 - [x] Rules page "propose anything" rewrite — wild card section (Session 24)
 - [x] Haiku injection classifier — fail-open pre-flight on proposals (Session 24)
+
+### Live arena redesign
+- [x] Server-rendered live game state — arena page renders current game state from PresentationState (Session 31)
+- [x] LiveGameState dataclass — per-game running state with scores, quarter, clock, plays, leaders (Session 31)
+- [x] Arena template live section with hooper links and leader display (Session 31)
+- [x] Startup recovery — mark unpresented games on deploy (Session 31)
+- [x] Production safeguard — force replay mode in production (Session 31)
+- [x] Foul narration — distinguish made vs missed free throws (Session 31)
+- [x] Discord fixes — remove Elam noise, route big-plays by margin (Session 31)
+- [x] Upcoming schedule section on arena (Session 31)
+- [x] Game detail page hooper links in box score and play-by-play (Session 31)
 
 ---
 
@@ -510,3 +521,52 @@ Bottom-up through the full stack:
 **489 tests, zero lint errors.**
 
 **What could have gone better:** Should have anticipated proxy buffering when implementing SSE in Session 27. The `: connected` initial comment is standard practice for SSE behind reverse proxies — this was a known pattern we missed.
+
+---
+
+## Session 31 — Live Arena Redesign
+
+**What was asked:** The "simulate instantly, replay later" architecture had fundamental problems: page reload during a live game showed nothing (state only in browser DOM), server restart killed the presentation, and the `presented` column was a fragile band-aid. Implement the Live Arena Redesign plan — server-rendered live state, startup recovery, production safeguards, game design features, Discord fixes, and comprehensive tests.
+
+**What was built:**
+
+### Server-rendered live state (core architecture change)
+- Added `LiveGameState` dataclass to `presenter.py` — tracks per-game running state: game_index, game_id, team IDs/names, scores, quarter, clock, status (live/final), recent_plays (capped at 30), box_scores, leaders
+- Enriched `PresentationState` with `live_games: dict[int, LiveGameState]`, `game_results: list[GameResult]`, `name_cache: dict[str, str]`
+- Updated `_present_full_game()`: creates LiveGameState entry on game_starting, computes leaders on game_finished via new `_compute_leaders()` helper
+- Updated `_present_game()`: updates LiveGameState scores, quarter, clock, recent_plays on each possession
+
+### Arena route + template
+- `arena_page()` reads `PresentationState`, builds `live_round` dict when active, passes to template
+- Template renders live games server-side with scores, quarter, clock, narrated plays, leaders with hooper links
+- Hidden container for SSE to populate when no active presentation
+- JS `getOrCreateZone()` reuses server-rendered zones; `game_finished` handler renders leaders with hooper links
+- Added "Up Next" section showing upcoming round matchups
+
+### Startup recovery + production safeguards
+- `config.py`: Pydantic model validator forces `presentation_mode="replay"` in production
+- `main.py`: On startup, marks unpresented games in latest round as presented (handles deploy-during-game)
+- `scheduler_runner.py`: In instant mode (dev only), marks games presented immediately after storing
+
+### Game design features
+- Game detail page: box score hooper names wrapped in `<a>` links to `/hoopers/{id}`; play-by-play lines have `data-handler` click handler for hooper navigation
+- Foul narration: distinguishes made vs missed free throws (`hits N from the stripe` vs `misses from the stripe`), added 2 new foul templates
+
+### Discord fixes
+- Removed "Elam Ending activated!" from embeds (always true = meaningless), replaced with Elam target score display
+- Changed big-plays routing from `is_elam` to blowout (margin >15) or buzzer-beater (margin <=2)
+
+### Tests (26 new)
+- `test_presenter.py` +7: live_games populated, scores track, status transitions, recent_plays accumulate, leaders computed, reset clears live_games
+- `test_pages.py` +3: arena with live games from PresentationState, hidden container when inactive, game detail hooper links; fixture updated with PresentationState
+- `test_narrate.py` +12 (new file): foul made/missed, shots, turnovers, shot clock violations, move flourishes, deterministic seeding, winner narration
+- `test_config.py` +4 (new file): production forces replay, development allows instant/replay
+- `test_discord.py` 4 updated: blowout routing, buzzer-beater routing, elam target score display
+
+**Files created (2):** `tests/test_narrate.py`, `tests/test_config.py`
+
+**Files modified (12):** `core/presenter.py`, `api/pages.py`, `templates/pages/arena.html`, `templates/pages/game.html`, `core/narrate.py`, `config.py`, `main.py`, `core/scheduler_runner.py`, `discord/embeds.py`, `discord/bot.py`, `tests/test_presenter.py`, `tests/test_pages.py`, `tests/test_discord.py`
+
+**515 tests, zero lint errors.**
+
+**What could have gone better:** Three test failures needed fixing after implementation: (1) `test_discord.py` score margins didn't match new blowout/buzzer-beater routing thresholds, (2) `test_pages.py` fixture was missing `PresentationState` on `app.state`, (3) minor lint issues (Yoda condition, unused import). All caught and fixed before final green.

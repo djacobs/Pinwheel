@@ -91,6 +91,19 @@ async def tick_round(
                 api_key=api_key,
             )
 
+            # If instant mode (dev only), mark all games presented immediately
+            if (
+                presentation_mode != "replay"
+                and round_result.game_results
+            ):
+                for gid in round_result.game_row_ids:
+                    await repo.mark_game_presented(gid)
+                await session.commit()
+                logger.info(
+                    "instant_mode: marked %d games as presented",
+                    len(round_result.game_row_ids),
+                )
+
             # If replay mode, start presenting results over real time
             if (
                 presentation_mode == "replay"

@@ -85,7 +85,7 @@
           </tr>
           {% for p in players %}
           <tr>
-            <td>{{ p.hooper_name }}</td>
+            <td><a href="/hoopers/{{ p.hooper_id }}" style="color:inherit; text-decoration:underline dotted;">{{ p.hooper_name }}</a></td>
             <td>{{ p.points }}</td>
             <td>{{ p.field_goals_made }}-{{ p.field_goals_attempted }}</td>
             <td>{{ p.three_pointers_made }}-{{ p.three_pointers_attempted }}</td>
@@ -110,7 +110,7 @@
       {% if play_by_play %}
       <ul class="pbp-list">
         {% for play in play_by_play %}
-        <li class="pbp-item">
+        <li class="pbp-item" {% if play.handler_id %}data-handler="{{ play.handler_id }}"{% endif %}>
           <span class="pbp-quarter">Q{{ play.quarter }}{% if play.game_clock %} {{ play.game_clock }}{% endif %}</span>
           <span class="pbp-action">{{ play.narration }}</span>
           {% if play.points_scored > 0 %}
@@ -138,4 +138,13 @@
 <div class="mt-2">
   <a href="/arena" class="nav-link">&larr; Back to Arena</a>
 </div>
+
+<script>
+document.querySelectorAll('.pbp-item[data-handler]').forEach(function(el) {
+  el.style.cursor = 'pointer';
+  el.addEventListener('click', function() {
+    window.location.href = '/hoopers/' + el.dataset.handler;
+  });
+});
+</script>
 {% endblock %}

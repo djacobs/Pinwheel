@@ -128,6 +128,8 @@ _SHOT_CLOCK_VIOLATION = [
 _FOUL = [
     "{defender} fouls {player} on the {shot_desc} — to the line",
     "Whistle! {defender} catches {player} on the arm",
+    "Foul called — {defender} hacks {player} going up",
+    "{player} draws the foul on {defender} — heads to the stripe",
 ]
 
 
@@ -158,6 +160,8 @@ def narrate_play(
         )
         if points > 0:
             text += f" — hits {points} from the stripe"
+        else:
+            text += " — misses from the stripe"
     elif result == "made":
         if action == "three_point":
             text = rng.choice(_THREE_MADE).format(player=player, defender=defender)
