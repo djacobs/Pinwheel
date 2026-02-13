@@ -484,3 +484,28 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** The simulation mirror mock had only 2 hardcoded templates: "The courts ran hot" for high-scoring rounds (>=60 PPG) and "Someone tightened the screws" for low-scoring rounds (<=40 PPG). Mid-range scoring (41-59 PPG) produced no commentary at all. Every high-scoring round showed identical text.
 
 **Fix:** Replaced with randomized variant arrays using the existing seeded RNG: 5 high-scoring variants, 4 low-scoring variants, and 3 mid-range variants. Examples: "Pace was relentless", "Buckets fell at an N-point clip", "Defense locked in", "Every bucket earned", "The meta feels unsettled". Deterministic per round (seeded by round number) but varied between rounds.
+
+### 60. [DONE] Discord notifications spoil game results
+**Problem:** Discord messages with game scores fired immediately when the simulation completed, before the live presentation replayed the games for viewers on the arena page. Anyone watching Discord would see results before the live show finished.
+
+**Fix:** Switched the Discord bot from `game.completed`/`round.completed` events (fired by simulation) to `presentation.game_finished`/`presentation.round_finished` (fired by the presenter after each game's live replay completes). In instant mode (no presenter), the scheduler runner now publishes presentation events directly.
+
+### 61. [DONE] Turnover narration missing defender name
+**Problem:** Turnover play-by-play showed only the ball handler's name: "Rosa Vex coughs it up — with the steal" — no indication of who stole the ball. The `defender_id` was never set on turnover possession logs despite the stealer being tracked for stats.
+
+**Fix:** Set `defender_id=stealer.hooper.id` on turnover logs. Rewrote all 4 turnover templates to clearly name both players (e.g., "Kai Swift strips Rosa Vex — stolen", "Rosa Vex loses the handle — Kai Swift with the steal"). Added 4 fallback templates for the rare case where defender is missing.
+
+### 62. [DONE] Elam target label: "Target:" → "Target score:"
+**Problem:** During the Elam Ending (untimed Q4), the clock display showed "Target: 67" which was ambiguous — could mean anything.
+
+**Fix:** Changed to "Target score: 67" in both the presenter (server-rendered) and arena JS (SSE live updates).
+
+### 63. [DONE] Substitutions not appearing in games
+**Problem:** No bench substitutions ever occurred despite the substitution mechanic being implemented. Every hooper defaulted to `is_starter=True` because `_row_to_team()` in the game loop never set `is_starter` — all 4 hoopers were starters, bench was always empty.
+
+**Fix:** `_row_to_team()` now sets `is_starter=idx < 3` — first 3 hoopers are starters, 4th is bench. Fatigue-based substitutions now trigger at quarter breaks when a starter's stamina drops below the threshold.
+
+### 64. [DONE] Doubled play-by-play lines in live arena
+**Problem:** Every play appeared twice in the live play-by-play feed. The arena template had two SSE connections: an HTMX `hx-ext="sse" sse-connect` attribute (vestigial, no `sse-swap` targets) and a manual `new EventSource()` in the script block. Both received every possession event and both appended lines.
+
+**Fix:** Removed the unused HTMX SSE attribute from the rounds wrapper div. The manual EventSource in the script block handles all live updates.

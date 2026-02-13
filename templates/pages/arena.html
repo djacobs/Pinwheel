@@ -69,7 +69,7 @@
 {% endif %}
 
 {% if rounds %}
-<div hx-ext="sse" sse-connect="/api/events/stream">
+<div>
   {% for round in rounds %}
   <div class="{% if not loop.first %}mt-2{% endif %}">
     <div class="section-title">Round {{ round.round_number }}</div>
@@ -242,7 +242,7 @@
     if (quarter) quarter.textContent = 'Q' + d.quarter;
     if (clock) {
       if (d.game_clock) clock.textContent = d.game_clock;
-      else if (d.elam_target) clock.textContent = 'Target: ' + d.elam_target;
+      else if (d.elam_target) clock.textContent = 'Target score: ' + d.elam_target;
     }
     if (plays && d.narration) {
       var line = document.createElement('div');

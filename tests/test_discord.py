@@ -207,12 +207,12 @@ class TestEventDispatch:
     ) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
-    async def test_dispatch_game_completed(self, bot: PinwheelBot) -> None:
+    async def test_dispatch_game_finished(self, bot: PinwheelBot) -> None:
         channel = AsyncMock(spec=discord.TextChannel)
         bot.get_channel = MagicMock(return_value=channel)
 
         event = {
-            "type": "game.completed",
+            "type": "presentation.game_finished",
             "data": {
                 "game_id": "g-1-0",
                 "home_team": "Rose City Thorns",
@@ -229,13 +229,13 @@ class TestEventDispatch:
         embed = channel.send.call_args_list[0].kwargs["embed"]
         assert "Rose City Thorns" in embed.title
 
-    async def test_dispatch_round_completed(self, bot: PinwheelBot) -> None:
+    async def test_dispatch_round_finished(self, bot: PinwheelBot) -> None:
         channel = AsyncMock(spec=discord.TextChannel)
         bot.get_channel = MagicMock(return_value=channel)
 
         event = {
-            "type": "round.completed",
-            "data": {"round": 3, "games": 4, "mirrors": 2, "elapsed_ms": 150.5},
+            "type": "presentation.round_finished",
+            "data": {"round": 3, "games_presented": 4},
         }
         await bot._dispatch_event(event)
         channel.send.assert_called_once()
@@ -296,7 +296,7 @@ class TestEventDispatch:
         bot = PinwheelBot(settings=settings, event_bus=event_bus)
 
         # Should not raise, just silently return
-        event = {"type": "game.completed", "data": {"home_team": "A", "away_team": "B"}}
+        event = {"type": "presentation.game_finished", "data": {"home_team": "A", "away_team": "B"}}
         await bot._dispatch_event(event)
 
     async def test_dispatch_unknown_event_type(self, bot: PinwheelBot) -> None:
@@ -791,7 +791,7 @@ class TestEventRouting:
         bot.get_channel = MagicMock(side_effect=get_channel_side_effect)
 
         event = {
-            "type": "game.completed",
+            "type": "presentation.game_finished",
             "data": {
                 "home_team": "Thorns",
                 "away_team": "Breakers",
@@ -821,7 +821,7 @@ class TestEventRouting:
         bot.get_channel = MagicMock(side_effect=get_channel_side_effect)
 
         event = {
-            "type": "game.completed",
+            "type": "presentation.game_finished",
             "data": {
                 "home_team": "Thorns",
                 "away_team": "Breakers",
@@ -851,7 +851,7 @@ class TestEventRouting:
         bot.get_channel = MagicMock(side_effect=get_channel_side_effect)
 
         event = {
-            "type": "game.completed",
+            "type": "presentation.game_finished",
             "data": {
                 "home_team": "Thorns",
                 "away_team": "Breakers",
@@ -865,15 +865,15 @@ class TestEventRouting:
         play_channel.send.assert_called_once()
         big_channel.send.assert_called_once()
 
-    async def test_round_completed_routed_to_play_by_play(self, bot: PinwheelBot) -> None:
-        """Round completed goes to play-by-play."""
+    async def test_round_finished_routed_to_play_by_play(self, bot: PinwheelBot) -> None:
+        """Round finished goes to play-by-play."""
         play_channel = AsyncMock(spec=discord.TextChannel)
         bot.channel_ids = {"play_by_play": 201}
         bot.get_channel = MagicMock(return_value=play_channel)
 
         event = {
-            "type": "round.completed",
-            "data": {"round": 3, "games": 4, "mirrors": 2, "elapsed_ms": 150.5},
+            "type": "presentation.round_finished",
+            "data": {"round": 3, "games_presented": 4},
         }
         await bot._dispatch_event(event)
         play_channel.send.assert_called_once()

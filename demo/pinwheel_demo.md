@@ -1,6 +1,6 @@
 # Pinwheel Fates -- Full Cycle Demo
 
-*2026-02-13T04:33:41Z*
+*2026-02-13T05:25:43Z*
 
 **Pinwheel Fates** is a simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules. Starts out as basketball, finishes as ???. The AI serves as a social mirror -- surfacing patterns in gameplay and governance that players cannot see from inside the system.
 
@@ -16,11 +16,11 @@ uv run python scripts/demo_seed.py seed
 
 ```output
 League seeded: 4 teams, 6 scheduled games
-Season ID: 894a1296-6800-40a2-9734-b95542aa694d
-  Rose City Thorns: 43abbbed-de1d-47d6-92db-32a6f4c53148
-  Burnside Breakers: 39919919-e790-43d4-83c0-2902c799ed55
-  St. Johns Herons: 8d6f15f4-ed50-4bda-a924-637310a2bdc9
-  Hawthorne Hammers: 25ed275a-96f8-4414-8043-11b8359bbb51
+Season ID: 2a35aeda-41d8-4781-bad0-2723929d4309
+  Rose City Thorns: 8f52a4b7-f440-4831-b251-ce1c4ff4c01c
+  Burnside Breakers: fb1a994b-bb95-4d15-9e9e-797b1899a29b
+  St. Johns Herons: 8f552875-656b-4938-8729-3d52ad3682f1
+  Hawthorne Hammers: 71886adc-0768-4285-83dd-a426cec61fba
 ```
 
 ## Step 2: Start the Web Dashboard
@@ -46,7 +46,7 @@ The home page with navigation cards. Dark theme, retro sports broadcast aestheti
 uvx rodney screenshot demo/01_home.png -w 1280 -h 900
 ```
 
-![e15b9a52-2026-02-13](e15b9a52-2026-02-13.png)
+![9ff6837e-2026-02-13](9ff6837e-2026-02-13.png)
 
 ## Step 4: Simulate Round 1
 
@@ -58,9 +58,9 @@ uv run python scripts/demo_seed.py step 1
 
 ```output
 Round 1: 2 games, 2 mirrors
-  Rose City Thorns 68 - 54 Burnside Breakers (HOME) [ELAM]
-  St. Johns Herons 51 - 53 Hawthorne Hammers (AWAY) [ELAM]
-  Mirror (simulation): Hawthorne Hammers edged St. Johns Herons 53-51. Neither team blinked until the E...
+  Rose City Thorns 36 - 61 Burnside Breakers (AWAY) [ELAM]
+  St. Johns Herons 49 - 40 Hawthorne Hammers (HOME) [ELAM]
+  Mirror (simulation): A 25-point demolition: Burnside Breakers 61, Rose City Thorns 36. The Elam targe...
   Mirror (governance): Round 1 was quiet on the governance front — no proposals filed....
 ```
 
@@ -72,7 +72,7 @@ Game results appear in the Arena across multiple rounds with vivid Elam banner n
 uvx rodney screenshot demo/02_arena.png -w 1280 -h 1400
 ```
 
-![8a93a95b-2026-02-13](8a93a95b-2026-02-13.png)
+![c47f6b61-2026-02-13](c47f6b61-2026-02-13.png)
 
 ## Step 6: Standings
 
@@ -82,7 +82,7 @@ The league table updates after each round. Win/Loss, Points For/Against, Differe
 uvx rodney screenshot demo/03_standings.png -w 1280 -h 900
 ```
 
-![e26f3ae3-2026-02-13](e26f3ae3-2026-02-13.png)
+![216f22e5-2026-02-13](216f22e5-2026-02-13.png)
 
 ## Step 7: Game Detail
 
@@ -92,7 +92,7 @@ Click into a game for box scores and rich narrated play-by-play with player name
 uvx rodney screenshot demo/04_game_detail.png -w 1280 -h 1200
 ```
 
-![5a1c2a6d-2026-02-13](5a1c2a6d-2026-02-13.png)
+![b8e9278f-2026-02-13](b8e9278f-2026-02-13.png)
 
 ## Step 8: Advance the Season
 
@@ -104,14 +104,14 @@ uv run python scripts/demo_seed.py step 2
 
 ```output
 Round 2: 2 games, 2 mirrors
-  Rose City Thorns 44 - 68 Hawthorne Hammers (AWAY) [ELAM]
-  Burnside Breakers 64 - 42 St. Johns Herons (HOME) [ELAM]
-  Mirror (simulation): Hawthorne Hammers dismantled Rose City Thorns by 24. It wasn't close after the f...
+  Rose City Thorns 55 - 59 Hawthorne Hammers (AWAY) [ELAM]
+  Burnside Breakers 60 - 39 St. Johns Herons (HOME) [ELAM]
+  Mirror (simulation): Hawthorne Hammers edged Rose City Thorns 59-55. Neither team blinked until the E...
   Mirror (governance): Round 2 was quiet on the governance front — no proposals filed....
 Round 3: 2 games, 2 mirrors
-  Rose City Thorns 62 - 64 St. Johns Herons (AWAY) [ELAM]
-  Hawthorne Hammers 55 - 60 Burnside Breakers (AWAY) [ELAM]
-  Mirror (simulation): St. Johns Herons survived Rose City Thorns by 2 — a 64-62 grinder that went down...
+  Rose City Thorns 67 - 50 St. Johns Herons (HOME) [ELAM]
+  Hawthorne Hammers 52 - 76 Burnside Breakers (AWAY) [ELAM]
+  Mirror (simulation): Rose City Thorns dismantled St. Johns Herons by 17. It wasn't close after the fi...
   Mirror (governance): Round 3 was quiet on the governance front — no proposals filed....
 ```
 
@@ -125,17 +125,17 @@ uv run python scripts/demo_seed.py status
 Season: Season 1 | Rounds played: 3
 Team                        W   L    PCT    PF    PA  DIFF
 -------------------------------------------------------
-Hawthorne Hammers           2   1  0.667   176   155 +  21
-Burnside Breakers           2   1  0.667   178   165 +  13
-Rose City Thorns            1   2  0.333   174   186  -12
-St. Johns Herons            1   2  0.333   157   179  -22
+Burnside Breakers           3   0  1.000   197   127 +  70
+Rose City Thorns            1   2  0.333   158   170  -12
+St. Johns Herons            1   2  0.333   138   167  -29
+Hawthorne Hammers           1   2  0.333   151   180  -29
 ```
 
 ```bash {image}
 uvx rodney screenshot demo/05_standings_r3.png -w 1280 -h 900
 ```
 
-![981e28b3-2026-02-13](981e28b3-2026-02-13.png)
+![2ff938fc-2026-02-13](2ff938fc-2026-02-13.png)
 
 ## Step 10: AI Mirrors
 
@@ -145,7 +145,7 @@ Narrative mirrors that reference specific teams and game details. The mirror sys
 uvx rodney screenshot demo/06_mirrors.png -w 1280 -h 1200
 ```
 
-![ccb474c7-2026-02-13](ccb474c7-2026-02-13.png)
+![7f040df2-2026-02-13](7f040df2-2026-02-13.png)
 
 ## Step 11: Governance -- Submit a Proposal
 
@@ -156,7 +156,7 @@ uv run python scripts/demo_seed.py propose Make three-pointers worth 5 points
 ```
 
 ```output
-Proposal submitted: p-d850b4eb
+Proposal submitted: p-797ec16c
   Text: Make three-pointers worth 5 points
 ```
 
@@ -164,7 +164,7 @@ Proposal submitted: p-d850b4eb
 uvx rodney screenshot demo/07_governance.png -w 1280 -h 900
 ```
 
-![54d5b76c-2026-02-13](54d5b76c-2026-02-13.png)
+![9ef57f14-2026-02-13](9ef57f14-2026-02-13.png)
 
 ## Step 12: Current Ruleset
 
@@ -174,7 +174,7 @@ The rules page shows all current parameters and highlights changes from defaults
 uvx rodney screenshot demo/08_rules.png -w 1280 -h 900
 ```
 
-![8fad543c-2026-02-13](8fad543c-2026-02-13.png)
+![51788bb6-2026-02-13](51788bb6-2026-02-13.png)
 
 ## Step 13: Team Profile
 
@@ -184,7 +184,7 @@ Each team has a profile with roster, agent attributes (visualized as bars), and 
 uvx rodney screenshot demo/09_team.png -w 1280 -h 1200
 ```
 
-![d9c7cbfa-2026-02-13](d9c7cbfa-2026-02-13.png)
+![5eb1e939-2026-02-13](5eb1e939-2026-02-13.png)
 
 ## Step 14: Evals Dashboard
 

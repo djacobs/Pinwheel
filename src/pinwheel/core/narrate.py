@@ -112,10 +112,17 @@ _RIM_MISSED = [
 ]
 
 _TURNOVER = [
-    "{defender} strips {player} — turnover",
-    "{player} coughs it up — {defender} with the steal",
-    "Loose ball! {defender} picks {player}'s pocket",
-    "{player} gets careless — {defender} pounces",
+    "{defender} strips {player} — stolen",
+    "{player} loses the handle — {defender} with the steal",
+    "{defender} picks {player}'s pocket — turnover",
+    "{player} gets careless and {defender} pounces",
+]
+
+_TURNOVER_NO_DEFENDER = [
+    "{player} loses the handle — turnover",
+    "{player} coughs it up — stolen",
+    "Loose ball! {player} can't hang on",
+    "{player} gets careless — turnover",
 ]
 
 _SHOT_CLOCK_VIOLATION = [
@@ -150,7 +157,10 @@ def narrate_play(
     if action == "shot_clock_violation":
         text = rng.choice(_SHOT_CLOCK_VIOLATION).format(player=player, defender=defender)
     elif result == "turnover":
-        text = rng.choice(_TURNOVER).format(player=player, defender=defender)
+        if defender:
+            text = rng.choice(_TURNOVER).format(player=player, defender=defender)
+        else:
+            text = rng.choice(_TURNOVER_NO_DEFENDER).format(player=player)
     elif result == "foul":
         shot_desc = {"three_point": "three", "mid_range": "jumper", "at_rim": "drive"}.get(
             action, "shot"

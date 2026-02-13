@@ -28,11 +28,16 @@ def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
     """Build an embed for a completed game result.
 
     Args:
-        game_data: Dict with keys: home_team, away_team, home_score,
-            away_score, winner_team_id, elam_activated, total_possessions.
+        game_data: Dict with keys: home_team (or home_team_name), away_team
+            (or away_team_name), home_score, away_score, winner_team_id,
+            elam_activated, total_possessions.
     """
-    home = str(game_data.get("home_team", "Home"))
-    away = str(game_data.get("away_team", "Away"))
+    home = str(
+        game_data.get("home_team", game_data.get("home_team_name", "Home"))
+    )
+    away = str(
+        game_data.get("away_team", game_data.get("away_team_name", "Away"))
+    )
     home_score = game_data.get("home_score", 0)
     away_score = game_data.get("away_score", 0)
     elam_target = game_data.get("elam_target_score")
@@ -336,11 +341,15 @@ def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
     """Build an embed showing AI commentary for a game.
 
     Args:
-        game_data: Dict with keys: home_team, away_team, home_score,
-            away_score, commentary.
+        game_data: Dict with keys: home_team (or home_team_name), away_team
+            (or away_team_name), home_score, away_score, commentary.
     """
-    home = str(game_data.get("home_team", "Home"))
-    away = str(game_data.get("away_team", "Away"))
+    home = str(
+        game_data.get("home_team", game_data.get("home_team_name", "Home"))
+    )
+    away = str(
+        game_data.get("away_team", game_data.get("away_team_name", "Away"))
+    )
     home_score = game_data.get("home_score", 0)
     away_score = game_data.get("away_score", 0)
     commentary = str(game_data.get("commentary", "No commentary available."))
@@ -448,11 +457,16 @@ def build_team_game_result_embed(
     """Build a team-specific game result embed (win/loss framing).
 
     Args:
-        game_data: Dict with home_team, away_team, home_score, away_score, etc.
+        game_data: Dict with home_team (or home_team_name), away_team
+            (or away_team_name), home_score, away_score, etc.
         team_id: The team to frame the result for.
     """
-    home = str(game_data.get("home_team", "Home"))
-    away = str(game_data.get("away_team", "Away"))
+    home = str(
+        game_data.get("home_team", game_data.get("home_team_name", "Home"))
+    )
+    away = str(
+        game_data.get("away_team", game_data.get("away_team_name", "Away"))
+    )
     home_score = int(game_data.get("home_score", 0))
     away_score = int(game_data.get("away_score", 0))
     winner_id = str(game_data.get("winner_team_id", ""))
@@ -486,17 +500,16 @@ def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
         round_data: Dict from round.completed event with round, games, mirrors, elapsed_ms.
     """
     round_num = round_data.get("round", "?")
-    games_count = round_data.get("games", 0)
+    games_count = round_data.get("games_presented", round_data.get("games", 0))
     mirrors_count = round_data.get("mirrors", 0)
-    elapsed = round_data.get("elapsed_ms", 0)
+
+    parts = [f"**{games_count}** games played"]
+    if mirrors_count:
+        parts.append(f"**{mirrors_count}** mirrors generated")
 
     embed = discord.Embed(
         title=f"Round {round_num} Complete",
-        description=(
-            f"**{games_count}** games simulated\n"
-            f"**{mirrors_count}** mirrors generated\n"
-            f"Elapsed: {elapsed}ms"
-        ),
+        description="\n".join(parts),
         color=COLOR_GAME,
     )
     embed.set_footer(text="Pinwheel Fates")

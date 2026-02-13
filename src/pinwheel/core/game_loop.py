@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 def _row_to_team(team_row: object) -> Team:
     """Convert a TeamRow + HooperRows to domain Team model."""
     hoopers = []
-    for a in team_row.hoopers:  # type: ignore[attr-defined]
+    for idx, a in enumerate(team_row.hoopers):  # type: ignore[attr-defined]
         attrs = PlayerAttributes(**a.attributes)  # type: ignore[attr-defined]
         hoopers.append(
             Hooper(
@@ -58,6 +58,7 @@ def _row_to_team(team_row: object) -> Team:
                 archetype=a.archetype,  # type: ignore[attr-defined]
                 attributes=attrs,
                 moves=[],
+                is_starter=idx < 3,
             )
         )
 

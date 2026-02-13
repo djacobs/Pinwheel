@@ -401,3 +401,82 @@ async def test_presentation_state_reset_clears_live_games():
     assert state.live_games == {}
     assert state.game_results == []
     assert state.name_cache == {}
+
+
+@pytest.mark.asyncio
+async def test_skip_quarters_skips_early_possessions():
+    """skip_quarters should fast-forward through early quarters without publishing."""
+    q1_poss = [_make_possession(quarter=1, home_score=i * 2) for i in range(3)]
+    q2_poss = [_make_possession(quarter=2, home_score=6 + i * 2) for i in range(3)]
+    q3_poss = [_make_possession(quarter=3, home_score=12 + i * 2) for i in range(3)]
+    all_poss = q1_poss + q2_poss + q3_poss
+    game = _make_game(possessions=all_poss)
+
+    bus = MockEventBus()
+    state = PresentationState()
+
+    await present_round(
+        [game],
+        bus,
+        state,
+        quarter_replay_seconds=0,  # instant replay for test speed
+        skip_quarters=2,           # skip Q1 and Q2
+    )
+
+    # Should have game_starting, only Q3 possessions, game_finished, round_finished
+    possession_events = [e for e in bus.events if e[0] == "presentation.possession"]
+    # Only Q3 possessions should be published (3 of them)
+    assert len(possession_events) == 3
+    for ev in possession_events:
+        assert ev[1]["quarter"] == 3
+
+
+@pytest.mark.asyncio
+async def test_skip_quarters_all_skipped():
+    """When skip_quarters >= total quarters, game still finishes properly."""
+    q1_poss = [_make_possession(quarter=1, home_score=2)]
+    q2_poss = [_make_possession(quarter=2, home_score=4)]
+    game = _make_game(possessions=q1_poss + q2_poss)
+
+    bus = MockEventBus()
+    state = PresentationState()
+
+    await present_round(
+        [game],
+        bus,
+        state,
+        quarter_replay_seconds=0,
+        skip_quarters=5,  # more than total quarters
+    )
+
+    # No possession events should be published
+    possession_events = [e for e in bus.events if e[0] == "presentation.possession"]
+    assert len(possession_events) == 0
+
+    # But game_finished and round_finished should still fire
+    finished = [e for e in bus.events if e[0] == "presentation.game_finished"]
+    assert len(finished) == 1
+    round_done = [e for e in bus.events if e[0] == "presentation.round_finished"]
+    assert len(round_done) == 1
+
+
+@pytest.mark.asyncio
+async def test_skip_quarters_zero_means_normal():
+    """skip_quarters=0 should present all quarters normally."""
+    q1_poss = [_make_possession(quarter=1, home_score=2)]
+    q2_poss = [_make_possession(quarter=2, home_score=4)]
+    game = _make_game(possessions=q1_poss + q2_poss)
+
+    bus = MockEventBus()
+    state = PresentationState()
+
+    await present_round(
+        [game],
+        bus,
+        state,
+        quarter_replay_seconds=0,
+        skip_quarters=0,
+    )
+
+    possession_events = [e for e in bus.events if e[0] == "presentation.possession"]
+    assert len(possession_events) == 2  # One from each quarter

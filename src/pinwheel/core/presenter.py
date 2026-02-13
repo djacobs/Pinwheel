@@ -64,6 +64,7 @@ class PresentationState:
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     live_games: dict[int, LiveGameState] = field(default_factory=dict)
     game_results: list[GameResult] = field(default_factory=list)
+    game_summaries: list[dict] = field(default_factory=list)
     name_cache: dict[str, str] = field(default_factory=dict)
     color_cache: dict[str, tuple[str, str]] = field(default_factory=dict)
 
@@ -75,6 +76,7 @@ class PresentationState:
         self.cancel_event = asyncio.Event()
         self.live_games = {}
         self.game_results = []
+        self.game_summaries = []
         self.name_cache = {}
         self.color_cache = {}
 
@@ -88,6 +90,8 @@ async def present_round(
     name_cache: dict[str, str] | None = None,
     color_cache: dict[str, tuple[str, str]] | None = None,
     on_game_finished: Callable[[int], Awaitable[None]] | None = None,
+    game_summaries: list[dict] | None = None,
+    skip_quarters: int = 0,
 ) -> None:
     """Replay a round's games concurrently over real time via EventBus.
 
@@ -103,6 +107,8 @@ async def present_round(
         name_cache: Mapping of entity IDs to display names (team IDs, hooper IDs).
         color_cache: Mapping of team IDs to (primary_color, secondary_color) tuples.
         on_game_finished: Async callback invoked with game_index after each game finishes.
+        game_summaries: Game summary dicts from step_round (for Discord notifications).
+        skip_quarters: Number of quarters to fast-forward through (for resume after deploy).
     """
     if state.is_active:
         logger.warning(
@@ -116,6 +122,7 @@ async def present_round(
     state.is_active = True
     state.cancel_event.clear()
     state.game_results = list(game_results)
+    state.game_summaries = list(game_summaries or [])
     state.name_cache = dict(names)
     state.color_cache = dict(colors)
     state.live_games = {}
@@ -132,6 +139,7 @@ async def present_round(
                 names=names,
                 colors=colors,
                 on_game_finished=on_game_finished,
+                skip_quarters=skip_quarters,
             )
             for idx, gr in enumerate(game_results)
         ]
@@ -181,6 +189,7 @@ async def _present_full_game(
     names: dict[str, str],
     colors: dict[str, tuple[str, str]],
     on_game_finished: Callable[[int], Awaitable[None]] | None,
+    skip_quarters: int = 0,
 ) -> None:
     """Present a single game: starting event → possessions → finished event."""
     if state.cancel_event.is_set():
@@ -225,7 +234,7 @@ async def _present_full_game(
 
     await _present_game(
         game_idx, game_result, event_bus, state, quarter_replay_seconds, names,
-        colors,
+        colors, skip_quarters=skip_quarters,
     )
 
     if state.cancel_event.is_set():
@@ -237,20 +246,31 @@ async def _present_full_game(
     live.home_leader = home_leader
     live.away_leader = away_leader
 
-    await event_bus.publish(
-        "presentation.game_finished",
-        {
-            "game_index": game_idx,
-            "home_team_id": game_result.home_team_id,
-            "away_team_id": game_result.away_team_id,
-            "home_team_name": home_name,
-            "away_team_name": away_name,
-            "home_score": game_result.home_score,
-            "away_score": game_result.away_score,
-            "home_leader": home_leader,
-            "away_leader": away_leader,
-        },
-    )
+    # Merge game summary data (commentary, winner, etc.) into the event
+    finished_data: dict = {
+        "game_index": game_idx,
+        "home_team_id": game_result.home_team_id,
+        "away_team_id": game_result.away_team_id,
+        "home_team_name": home_name,
+        "away_team_name": away_name,
+        "home_score": game_result.home_score,
+        "away_score": game_result.away_score,
+        "home_leader": home_leader,
+        "away_leader": away_leader,
+    }
+    # Attach game summary fields so Discord gets full context
+    if game_idx < len(state.game_summaries):
+        summary = state.game_summaries[game_idx]
+        finished_data.update({
+            "home_team": summary.get("home_team", home_name),
+            "away_team": summary.get("away_team", away_name),
+            "winner_team_id": summary.get("winner_team_id", ""),
+            "elam_activated": summary.get("elam_activated", False),
+            "total_possessions": summary.get("total_possessions", 0),
+            "commentary": summary.get("commentary", ""),
+        })
+
+    await event_bus.publish("presentation.game_finished", finished_data)
 
     if on_game_finished is not None:
         try:
@@ -269,6 +289,7 @@ async def _present_game(
     quarter_replay_seconds: int,
     names: dict[str, str],
     colors: dict[str, tuple[str, str]],
+    skip_quarters: int = 0,
 ) -> None:
     """Drip a single game's possessions over real time."""
     possessions = game_result.possession_log
@@ -280,7 +301,36 @@ async def _present_game(
     for p in possessions:
         quarters.setdefault(p.quarter, []).append(p)
 
-    for quarter_num in sorted(quarters.keys()):
+    sorted_quarter_nums = sorted(quarters.keys())
+
+    # Fast-forward through skipped quarters (deploy resume)
+    if skip_quarters > 0:
+        skipped = sorted_quarter_nums[:skip_quarters]
+        sorted_quarter_nums = sorted_quarter_nums[skip_quarters:]
+        # Update LiveGameState with the final scores from skipped quarters
+        for qn in skipped:
+            quarter_poss = quarters[qn]
+            if quarter_poss:
+                last_p = quarter_poss[-1]
+                live = state.live_games.get(game_idx)
+                if live is not None:
+                    live.home_score = last_p.home_score
+                    live.away_score = last_p.away_score
+                    live.quarter = last_p.quarter
+        if sorted_quarter_nums:
+            logger.info(
+                "resume: game %d skipped %d quarters, resuming at Q%d",
+                game_idx,
+                skip_quarters,
+                sorted_quarter_nums[0],
+            )
+        else:
+            logger.info(
+                "resume: game %d skipped all quarters (game already finished)",
+                game_idx,
+            )
+
+    for quarter_num in sorted_quarter_nums:
         if state.cancel_event.is_set():
             return
 
@@ -321,7 +371,7 @@ async def _present_game(
             elam_target = game_result.elam_target_score
             game_clock = possession.game_clock
             if not game_clock and elam_target:
-                game_clock = f"Target: {elam_target}"
+                game_clock = f"Target score: {elam_target}"
 
             play_dict = {
                 "game_index": game_idx,

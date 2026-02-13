@@ -731,7 +731,7 @@ class PinwheelBot(commands.Bot):
         if not isinstance(data, dict):
             return
 
-        if event_type == "game.completed":
+        if event_type == "presentation.game_finished":
             embed = build_game_result_embed(data)
             play_channel = self._get_channel_for("play_by_play")
             if play_channel:
@@ -762,7 +762,7 @@ class PinwheelBot(commands.Bot):
                 away_embed = build_team_game_result_embed(data, away_id)
                 await self._send_to_team_channel(away_id, away_embed)
 
-        elif event_type == "round.completed":
+        elif event_type == "presentation.round_finished":
             embed = build_round_summary_embed(data)
             play_channel = self._get_channel_for("play_by_play")
             if play_channel:

@@ -228,6 +228,7 @@ def resolve_possession(
                 else game_state.away_agents[0].hooper.team_id
             ),
             ball_handler_id=handler.hooper.id,
+            defender_id=stealer.hooper.id,
             action="turnover",
             result="turnover",
             defensive_scheme=scheme,

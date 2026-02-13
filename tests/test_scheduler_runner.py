@@ -1,13 +1,22 @@
 """Tests for the scheduler_runner tick_round function."""
 
+import json
 import logging
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.event_bus import EventBus
+from pinwheel.core.presenter import PresentationState
 from pinwheel.core.scheduler import generate_round_robin
-from pinwheel.core.scheduler_runner import tick_round
+from pinwheel.core.scheduler_runner import (
+    PRESENTATION_STATE_KEY,
+    _clear_presentation_state,
+    _persist_presentation_start,
+    resume_presentation,
+    tick_round,
+)
 from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
@@ -142,3 +151,142 @@ class TestTickRound:
             mirrors = await repo.get_mirrors_for_round(season_id, 1)
             # At least simulation + governance mirrors
             assert len(mirrors) >= 2
+
+
+class TestPresentationPersistence:
+    async def test_persist_and_clear(self, engine: AsyncEngine):
+        """Persisting and clearing presentation state round-trips through DB."""
+        await _persist_presentation_start(
+            engine, "season-1", 3, ["g1", "g2"], 300,
+        )
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(PRESENTATION_STATE_KEY)
+            assert raw is not None
+            data = json.loads(raw)
+            assert data["season_id"] == "season-1"
+            assert data["round_number"] == 3
+            assert data["game_row_ids"] == ["g1", "g2"]
+            assert data["quarter_replay_seconds"] == 300
+            assert "started_at" in data
+
+        await _clear_presentation_state(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(PRESENTATION_STATE_KEY)
+            assert raw is None
+
+    async def test_resume_no_state(self, engine: AsyncEngine):
+        """resume_presentation returns False when no interrupted presentation."""
+        event_bus = EventBus()
+        state = PresentationState()
+        result = await resume_presentation(engine, event_bus, state)
+        assert result is False
+
+    async def test_resume_invalid_json(self, engine: AsyncEngine):
+        """resume_presentation handles corrupt JSON gracefully."""
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state(PRESENTATION_STATE_KEY, "not-json")
+
+        event_bus = EventBus()
+        state = PresentationState()
+        result = await resume_presentation(engine, event_bus, state)
+        assert result is False
+
+        # State should be cleared
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(PRESENTATION_STATE_KEY)
+            assert raw is None
+
+    async def test_resume_missing_games(self, engine: AsyncEngine):
+        """resume_presentation returns False when game rows don't exist."""
+        data = json.dumps({
+            "season_id": "nonexistent",
+            "round_number": 1,
+            "started_at": datetime.now(UTC).isoformat(),
+            "game_row_ids": ["fake-id-1", "fake-id-2"],
+            "quarter_replay_seconds": 300,
+        })
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
+
+        event_bus = EventBus()
+        state = PresentationState()
+        result = await resume_presentation(engine, event_bus, state)
+        assert result is False
+
+    async def test_resume_reconstructs_and_starts(self, engine: AsyncEngine):
+        """resume_presentation reconstructs games from DB and starts presentation."""
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+
+        # Run a round to create game results
+        await tick_round(engine, event_bus)
+
+        # Get the game row IDs
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            game_row_ids = [g.id for g in games]
+
+        # Simulate an interrupted presentation that started 6 minutes ago
+        # (with 300s per quarter, that's 1+ quarters elapsed)
+        data = json.dumps({
+            "season_id": season_id,
+            "round_number": 1,
+            "started_at": (datetime.now(UTC) - timedelta(minutes=6)).isoformat(),
+            "game_row_ids": game_row_ids,
+            "quarter_replay_seconds": 300,
+        })
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
+
+        state = PresentationState()
+        result = await resume_presentation(engine, event_bus, state, quarter_replay_seconds=300)
+        assert result is True
+        assert state.current_round == 1
+
+        # Give the background task a moment to start, then cancel it
+        import asyncio
+        await asyncio.sleep(0.1)
+        state.cancel_event.set()
+        await asyncio.sleep(0.1)
+
+    async def test_skip_quarters_calculation(self, engine: AsyncEngine):
+        """Elapsed time correctly maps to skip_quarters count."""
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+        await tick_round(engine, event_bus)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            game_row_ids = [g.id for g in games]
+
+        # 15 minutes elapsed with 300s/quarter → skip 3 quarters
+        data = json.dumps({
+            "season_id": season_id,
+            "round_number": 1,
+            "started_at": (datetime.now(UTC) - timedelta(minutes=15)).isoformat(),
+            "game_row_ids": game_row_ids,
+            "quarter_replay_seconds": 300,
+        })
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
+
+        state = PresentationState()
+        result = await resume_presentation(engine, event_bus, state, quarter_replay_seconds=300)
+        assert result is True
+
+        # Cancel immediately
+        import asyncio
+        await asyncio.sleep(0.1)
+        state.cancel_event.set()
+        await asyncio.sleep(0.1)

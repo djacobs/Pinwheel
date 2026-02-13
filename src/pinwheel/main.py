@@ -55,29 +55,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.event_bus = EventBus()
     app.state.presentation_state = PresentationState()
 
-    # Startup recovery: mark any unpresented games as presented so they don't
-    # vanish after a deploy-during-game crash.
-    from sqlalchemy import func, select, update
+    # Startup recovery: try to resume an interrupted presentation, otherwise
+    # mark unpresented games as presented so they don't vanish.
+    from pinwheel.core.scheduler_runner import resume_presentation
 
-    from pinwheel.db.models import GameResultRow
+    resumed = await resume_presentation(
+        engine=engine,
+        event_bus=app.state.event_bus,
+        presentation_state=app.state.presentation_state,
+        quarter_replay_seconds=settings.pinwheel_quarter_replay_seconds,
+    )
 
-    async with engine.begin() as conn:
-        # Mark ALL unpresented games as presented so they show on the arena.
-        # This handles: deploy-during-game, games created before the presented
-        # column existed, or any other gap.
-        count_result = await conn.execute(
-            select(func.count()).where(GameResultRow.presented.is_(False))
-        )
-        unpresented = count_result.scalar_one()
-        if unpresented > 0:
-            await conn.execute(
-                update(GameResultRow)
-                .where(GameResultRow.presented.is_(False))
-                .values(presented=True)
+    if not resumed:
+        from sqlalchemy import func, select, update
+
+        from pinwheel.db.models import GameResultRow
+
+        async with engine.begin() as conn:
+            count_result = await conn.execute(
+                select(func.count()).where(GameResultRow.presented.is_(False))
             )
-            logger.info(
-                "startup_recovery: marked %d games as presented", unpresented,
-            )
+            unpresented = count_result.scalar_one()
+            if unpresented > 0:
+                await conn.execute(
+                    update(GameResultRow)
+                    .where(GameResultRow.presented.is_(False))
+                    .values(presented=True)
+                )
+                logger.info(
+                    "startup_recovery: marked %d games as presented", unpresented,
+                )
 
     # Start Discord bot if configured
     discord_bot = None
