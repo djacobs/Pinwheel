@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **524 tests**, zero lint errors (Session 36)
+- **539 tests**, zero lint errors (Session 38)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 36 (Deploy-during-live resilience)
+- **Latest commit:** Session 38 (Token regen + GQI fix)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -107,3 +107,81 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **524 tests, zero lint errors.**
 
 **What could have gone better:** The `BotStateRow.value` column is `String(500)` which could be tight if there are many game IDs. For now it's fine (typical round has 2-3 games, UUIDs are 36 chars each), but a longer `Text` column would be more future-proof.
+
+---
+
+## Session 37 — Governance Interval-Based Tallying
+
+**What was asked:** Replace the dead window-based governance tallying (no code ever writes `window.opened` events, so governance never ran) with interval-based tallying: every Nth round (default 3, configurable). Also fix governance notification timing (fire after presentation, not during simulation) and make `/vote` skip already-resolved proposals.
+
+**What was built:**
+
+### Interval-based governance tallying
+- **Root cause:** `step_round()` checked for `window.opened` events to decide when to tally, but no code ever wrote those events. The `window_id` on proposals was always `""`. Governance tallying was a dead code path.
+- **Fix:** New `PINWHEEL_GOVERNANCE_INTERVAL` config (default 3). `step_round()` now checks `round_number % governance_interval == 0`. Gathers all `proposal.confirmed` events that have no matching `proposal.passed`/`proposal.failed` (unresolved), deduplicates, gathers votes, and calls `tally_governance()`.
+- New `tally_governance()` function in `governance.py` — same logic as `close_governance_window()` but takes `season_id` directly, no window concept, no `window.closed` event. `close_governance_window()` refactored to delegate to it.
+
+### Governance notification timing
+- Removed `governance.window_closed` EventBus publish from `step_round()` (was firing instantly during simulation).
+- In instant mode: `tick_round()` publishes `governance.window_closed` alongside `presentation.round_finished`.
+- In replay mode: `_present_and_clear()` publishes `governance.window_closed` after `present_round()` finishes, in the `finally` block.
+- Added `governance_summary` field to `RoundResult` to carry the notification data from `step_round()` to `tick_round()`.
+
+### `/vote` filters resolved proposals
+- `_handle_vote()` now fetches `proposal.passed`/`proposal.failed` events and filters them out, so votes only target unresolved proposals.
+
+**Files modified (6):** `config.py`, `core/governance.py`, `core/game_loop.py`, `core/scheduler_runner.py`, `main.py`, `discord/bot.py`
+
+**Tests added (10):** 3 in `test_governance.py` (tally_governance enacts, no window.closed event, close_governance_window delegates), 5 in `test_game_loop.py` (tallies on interval round, skips non-interval, interval=1 every round, resolved not retallied, no governance event from step_round), 2 in `test_scheduler_runner.py` (instant mode publishes after presentation, governance_interval passed through).
+
+**534 tests, zero lint errors.**
+
+**What could have gone better:** Nothing major. The test for "resolved proposals not retallied" initially tried to use round 6, but the 4-team round-robin only generates 3 rounds of games. Fixed by using `governance_interval=1` with rounds 1 and 2 instead.
+
+---
+
+## Session 38 — Token Regeneration + GQI Fix
+
+**What was asked:** After a doc audit revealed conflicts between product docs and implementation, prioritize: (1) wire token regeneration into the governance tally step, (2) fix GQI `compute_vote_deliberation()` bug, (3) put remaining doc updates on tomorrow's todo list.
+
+**What was built:**
+
+### Token regeneration wired into governance tally
+- After governance tallying runs in `step_round()`, iterates over all teams and their enrolled governors, calling `regenerate_tokens()` for each.
+- Grants 2 propose, 2 amend, 2 boost tokens per governor per governance cycle.
+- Added structured logging: `tokens_regenerated season=... round=... governors=N`.
+- 2 tests: tokens regenerated on governance tally round, tokens NOT regenerated on non-tally round.
+
+### GQI `compute_vote_deliberation()` fix
+- **Root cause:** The function depended on `window.opened` events (never written) to determine when voting started. Always returned the fallback 0.5.
+- **Fix:** Now measures time from `proposal.confirmed` to `vote.cast` for each vote, normalized by `window_duration_seconds` (default 120s). Returns average normalized delay across all votes.
+- Updated module docstring to reflect the new approach.
+- 3 tests: no proposals returns 0.5, 60s delay with 120s window returns 0.5, instant vote returns 0.0.
+
+**Files modified (2):** `core/game_loop.py`, `evals/gqi.py`
+
+**Tests modified (2):** `tests/test_game_loop.py` (2 new), `tests/test_evals/test_gqi.py` (3 new)
+
+**539 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward fixes guided by the doc audit.
+
+---
+
+## Tomorrow's Agenda: Doc Updates
+
+The doc audit (Session 38) identified these conflicts between product docs and implementation. All deferred to tomorrow.
+
+### High priority (docs describe dead/wrong behavior)
+- [ ] **GAME_LOOP.md** — Rewrite "Three Clocks" to remove governance window concept; describe interval-based tallying instead
+- [ ] **INTERFACE_CONTRACTS.md** — Fix SSE event names (`game_result` → `possession`, `quarter_end`, `game_end`), remove dead event store types (`window.opened`, `vote.revealed`), add missing types (`token.regenerated`, `token.spent`)
+- [ ] **DEMO_MODE.md** + **OPS.md** + **CLAUDE.md** — Add `PINWHEEL_GOVERNANCE_INTERVAL` env var, fix pace modes documentation
+- [ ] **GLOSSARY.md** — Rewrite "Window" and "Boost" definitions to match current implementation
+
+### Medium priority (docs propose features not yet built or describe wrong models)
+- [ ] **RUN_OF_PLAY.md** — Replace twice-daily governance windows model with interval-based tallying
+- [ ] **SIMULATION.md** — Fix parameter name (`fatigue_recovery_rate` is actually `recovery_rate`), fix default shot clock (30s, not 24s)
+- [ ] **ACCEPTANCE_CRITERIA.md** — Update ~11 criteria that reference governance windows
+
+### Low priority (cleanup)
+- [ ] Remove dead code: `GovernanceWindow` model if no longer referenced, `window.opened`/`vote.revealed` event type constants in `models/governance.py`

@@ -372,15 +372,19 @@ def apply_rule_change(
 # --- Window Resolution ---
 
 
-async def close_governance_window(
+async def tally_governance(
     repo: Repository,
-    window: GovernanceWindow,
+    season_id: str,
     proposals: list[Proposal],
     votes_by_proposal: dict[str, list[Vote]],
     current_ruleset: RuleSet,
     round_number: int,
 ) -> tuple[RuleSet, list[VoteTally]]:
-    """Resolve all proposals in a governance window.
+    """Tally all pending proposals and enact passing rule changes.
+
+    Unlike close_governance_window(), this takes a season_id directly
+    and does not emit a window.closed event — there is no window concept
+    in interval-based governance.
 
     Returns the updated ruleset and list of vote tallies.
     """
@@ -407,7 +411,7 @@ async def close_governance_window(
                     event_type="rule.enacted",
                     aggregate_id=proposal.id,
                     aggregate_type="rule_change",
-                    season_id=window.season_id,
+                    season_id=season_id,
                     payload=change.model_dump(mode="json"),
                 )
             except (ValueError, Exception):
@@ -415,7 +419,7 @@ async def close_governance_window(
                     event_type="rule.rolled_back",
                     aggregate_id=proposal.id,
                     aggregate_type="rule_change",
-                    season_id=window.season_id,
+                    season_id=season_id,
                     payload={"reason": "validation_error", "proposal_id": proposal.id},
                 )
 
@@ -425,9 +429,36 @@ async def close_governance_window(
             event_type=event_type,
             aggregate_id=proposal.id,
             aggregate_type="proposal",
-            season_id=window.season_id,
+            season_id=season_id,
             payload=tally.model_dump(mode="json"),
         )
+
+    return ruleset, tallies
+
+
+async def close_governance_window(
+    repo: Repository,
+    window: GovernanceWindow,
+    proposals: list[Proposal],
+    votes_by_proposal: dict[str, list[Vote]],
+    current_ruleset: RuleSet,
+    round_number: int,
+) -> tuple[RuleSet, list[VoteTally]]:
+    """Resolve all proposals in a governance window.
+
+    Delegates to tally_governance() for the actual tallying, then
+    emits a window.closed event.
+
+    Returns the updated ruleset and list of vote tallies.
+    """
+    ruleset, tallies = await tally_governance(
+        repo=repo,
+        season_id=window.season_id,
+        proposals=proposals,
+        votes_by_proposal=votes_by_proposal,
+        current_ruleset=current_ruleset,
+        round_number=round_number,
+    )
 
     # Close window
     await repo.append_event(

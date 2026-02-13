@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     pinwheel_game_interval_seconds: int = 1800    # 30 min between games in replay mode
     pinwheel_quarter_replay_seconds: int = 300    # 5 min per quarter in replay mode
 
+    # Governance
+    pinwheel_governance_interval: int = 3  # Tally governance every N rounds
+
     # Evals
     pinwheel_evals_enabled: bool = True
 

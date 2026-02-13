@@ -290,3 +290,90 @@ class TestPresentationPersistence:
         await asyncio.sleep(0.1)
         state.cancel_event.set()
         await asyncio.sleep(0.1)
+
+
+class TestGovernanceNotificationTiming:
+    async def test_instant_mode_publishes_governance_after_presentation(
+        self, engine: AsyncEngine,
+    ):
+        """In instant mode, governance.window_closed fires alongside presentation events."""
+        from pinwheel.ai.interpreter import interpret_proposal_mock
+        from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
+        from pinwheel.core.tokens import regenerate_tokens
+        from pinwheel.models.rules import RuleSet
+
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+
+        # Submit a proposal so governance has something to tally
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            teams = await repo.get_teams_for_season(season_id)
+            team_id = teams[0].id
+            gov_id = "gov-timing-test"
+            await regenerate_tokens(repo, gov_id, team_id, season_id)
+            interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+            proposal = await submit_proposal(
+                repo=repo, governor_id=gov_id, team_id=team_id,
+                season_id=season_id, window_id="",
+                raw_text="Make three pointers worth 5",
+                interpretation=interpretation, ruleset=RuleSet(),
+            )
+            await confirm_proposal(repo, proposal)
+            await cast_vote(
+                repo=repo, proposal=proposal, governor_id=gov_id,
+                team_id=team_id, vote_choice="yes", weight=1.0,
+            )
+
+        # Advance 3 rounds — governance tallies on round 3
+        received: list[dict] = []
+
+        async with event_bus.subscribe(None) as sub:
+            await tick_round(engine, event_bus, governance_interval=3)  # round 1
+            await tick_round(engine, event_bus, governance_interval=3)  # round 2
+            await tick_round(engine, event_bus, governance_interval=3)  # round 3
+
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+
+        # governance.window_closed should fire (from instant mode in tick_round)
+        assert "governance.window_closed" in event_types
+
+        # It should come after presentation.round_finished
+        gov_idx = next(
+            i for i, e in enumerate(received)
+            if e["type"] == "governance.window_closed"
+        )
+        round_finished_indices = [
+            i for i, e in enumerate(received)
+            if e["type"] == "presentation.round_finished"
+        ]
+        # The governance event should come after the round 3 presentation.round_finished
+        assert any(rf_idx < gov_idx for rf_idx in round_finished_indices)
+
+    async def test_governance_interval_passed_through(self, engine: AsyncEngine):
+        """tick_round passes governance_interval to step_round."""
+        await _setup_season(engine)
+        event_bus = EventBus()
+
+        # With interval=1, governance should tally on round 1
+        # (but there are no proposals, so no governance.window_closed event)
+        received: list[dict] = []
+
+        async with event_bus.subscribe(None) as sub:
+            await tick_round(engine, event_bus, governance_interval=1)
+
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        # No proposals → no governance event, but round should still complete
+        event_types = [e["type"] for e in received]
+        assert "round.completed" in event_types

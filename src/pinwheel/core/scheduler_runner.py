@@ -97,6 +97,7 @@ async def _present_and_clear(
     on_game_finished: object = None,
     game_summaries: list[dict] | None = None,
     skip_quarters: int = 0,
+    governance_summary: dict | None = None,
 ) -> None:
     """Wrapper: run present_round, then clear the persisted state flag."""
     try:
@@ -113,6 +114,12 @@ async def _present_and_clear(
             skip_quarters=skip_quarters,
         )
     finally:
+        # Publish governance notification after presentation finishes
+        if governance_summary:
+            await event_bus.publish(
+                "governance.window_closed",
+                governance_summary,
+            )
         await _clear_presentation_state(engine)
         logger.info("presentation_state_cleared")
 
@@ -299,6 +306,7 @@ async def tick_round(
     presentation_mode: str = "instant",
     game_interval_seconds: int = 1800,
     quarter_replay_seconds: int = 300,
+    governance_interval: int = 3,
 ) -> None:
     """Advance the active season by one round.
 
@@ -345,6 +353,7 @@ async def tick_round(
                 round_number=next_round,
                 event_bus=event_bus,
                 api_key=api_key,
+                governance_interval=governance_interval,
             )
 
             # If instant mode (dev only), mark all games presented immediately
@@ -370,6 +379,13 @@ async def tick_round(
                         "games_presented": len(round_result.game_results),
                     },
                 )
+
+                # Publish governance notification alongside presentation events
+                if round_result.governance_summary:
+                    await event_bus.publish(
+                        "governance.window_closed",
+                        round_result.governance_summary,
+                    )
 
                 logger.info(
                     "instant_mode: marked %d games as presented",
@@ -416,6 +432,7 @@ async def tick_round(
                         color_cache=color_cache,
                         on_game_finished=mark_presented,
                         game_summaries=round_result.games,
+                        governance_summary=round_result.governance_summary,
                     )
                 )
                 logger.info(

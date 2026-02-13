@@ -3,8 +3,8 @@
 Four sub-metrics, each weighted 25%:
 - Proposal Diversity: Shannon entropy of targeted parameters
 - Participation Breadth: Inverted Gini of per-governor action counts
-- Consequence Awareness: Keyword overlap between PUBLIC mirror content and next-window proposals
-- Vote Deliberation: Normalized time-to-vote within window
+- Consequence Awareness: Keyword overlap between PUBLIC mirror content and next proposals
+- Vote Deliberation: Normalized time-to-vote after proposal confirmation
 """
 
 from __future__ import annotations
@@ -143,30 +143,38 @@ async def compute_vote_deliberation(
     round_number: int,
     window_duration_seconds: float = 120.0,
 ) -> float:
-    """Normalized time-to-vote within window. Higher = more deliberation."""
+    """Normalized time-to-vote after proposal confirmation. Higher = more deliberation.
+
+    Measures the delay between when each proposal was confirmed (available for
+    voting) and when each vote was cast, normalized by window_duration_seconds.
+    """
     events = await repo.get_events_by_type(
         season_id=season_id,
-        event_types=["vote.cast", "window.opened"],
+        event_types=["vote.cast", "proposal.confirmed"],
     )
 
-    window_opened_at = None
+    # Build map of proposal_id -> confirmed_at timestamp
+    confirmed_at: dict[str, object] = {}
     for e in events:
-        if e.event_type == "window.opened" and e.round_number == round_number:
-            window_opened_at = e.created_at
-            break
+        if e.event_type == "proposal.confirmed":
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            confirmed_at[pid] = e.created_at
 
-    if not window_opened_at:
-        return 0.5  # Default if no window
+    if not confirmed_at:
+        return 0.5  # No proposals confirmed
 
     vote_delays: list[float] = []
     for e in events:
-        if e.event_type == "vote.cast" and e.round_number == round_number:
-            delay = (e.created_at - window_opened_at).total_seconds()
-            if window_duration_seconds > 0:
-                normalized = min(delay / window_duration_seconds, 1.0)
-            else:
-                normalized = 0.5
-            vote_delays.append(normalized)
+        if e.event_type == "vote.cast":
+            pid = e.payload.get("proposal_id", "")
+            proposal_confirmed = confirmed_at.get(pid)
+            if proposal_confirmed is not None:
+                delay = (e.created_at - proposal_confirmed).total_seconds()
+                if window_duration_seconds > 0:
+                    normalized = min(delay / window_duration_seconds, 1.0)
+                else:
+                    normalized = 0.5
+                vote_delays.append(normalized)
 
     if not vote_delays:
         return 0.5

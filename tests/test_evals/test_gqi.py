@@ -1,11 +1,14 @@
 """Tests for Governance Quality Index."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from pinwheel.evals.gqi import (
     _gini_coefficient,
     _shannon_entropy,
     compute_gqi,
+    compute_vote_deliberation,
     store_gqi,
 )
 
@@ -99,3 +102,85 @@ async def test_gqi_with_activity(repo):
 
     result = await compute_gqi(repo, season.id, 1)
     assert result.participation_breadth > 0
+
+
+@pytest.mark.asyncio
+async def test_vote_deliberation_no_proposals(repo):
+    """No confirmed proposals returns neutral 0.5."""
+    league = await repo.create_league("Test")
+    season = await repo.create_season(league.id, "S1")
+
+    result = await compute_vote_deliberation(repo, season.id, 1)
+    assert result == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_vote_deliberation_with_delay(repo):
+    """Votes cast 60s after confirmation with 120s window → 0.5 deliberation."""
+    league = await repo.create_league("Test")
+    season = await repo.create_season(league.id, "S1")
+
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    # Proposal confirmed at base_time
+    confirmed_event = await repo.append_event(
+        event_type="proposal.confirmed",
+        aggregate_id="p-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        payload={"proposal_id": "p-1"},
+        round_number=1,
+    )
+    confirmed_event.created_at = base_time
+    await repo.session.flush()
+
+    # Vote cast 60s later
+    vote_event = await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="p-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        payload={"proposal_id": "p-1", "vote": "yes"},
+        round_number=1,
+        governor_id="gov-1",
+    )
+    vote_event.created_at = base_time + timedelta(seconds=60)
+    await repo.session.flush()
+
+    result = await compute_vote_deliberation(repo, season.id, 1, window_duration_seconds=120.0)
+    assert result == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_vote_deliberation_instant_vote(repo):
+    """Vote cast immediately after confirmation → 0.0 deliberation."""
+    league = await repo.create_league("Test")
+    season = await repo.create_season(league.id, "S1")
+
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    confirmed_event = await repo.append_event(
+        event_type="proposal.confirmed",
+        aggregate_id="p-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        payload={"proposal_id": "p-1"},
+        round_number=1,
+    )
+    confirmed_event.created_at = base_time
+    await repo.session.flush()
+
+    vote_event = await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="p-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        payload={"proposal_id": "p-1", "vote": "yes"},
+        round_number=1,
+        governor_id="gov-1",
+    )
+    vote_event.created_at = base_time  # Same timestamp — no delay
+    await repo.session.flush()
+
+    result = await compute_vote_deliberation(repo, season.id, 1)
+    assert result == pytest.approx(0.0)

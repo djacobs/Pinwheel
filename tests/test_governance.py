@@ -15,6 +15,7 @@ from pinwheel.core.governance import (
     detect_tier,
     sanitize_text,
     submit_proposal,
+    tally_governance,
     tally_votes,
     token_cost_for_tier,
     vote_threshold_for_tier,
@@ -486,3 +487,118 @@ class TestGovernanceLifecycle:
 
         assert tallies[0].passed is False
         assert new_ruleset.three_point_value == 3  # Unchanged
+
+
+# --- tally_governance Tests ---
+
+
+class TestTallyGovernance:
+    async def test_tally_enacts_passing_proposal(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """tally_governance enacts a passing proposal without window concept."""
+        gov_id, team_id = seeded_governor
+        gov2_id = "gov-002"
+        await regenerate_tokens(repo, gov2_id, team_id, season_id)
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="", raw_text="Make three pointers worth 5",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+
+        vote1 = await cast_vote(
+            repo=repo, proposal=proposal, governor_id=gov_id,
+            team_id=team_id, vote_choice="yes", weight=1.0,
+        )
+        vote2 = await cast_vote(
+            repo=repo, proposal=proposal, governor_id=gov2_id,
+            team_id=team_id, vote_choice="yes", weight=1.0,
+        )
+
+        new_ruleset, tallies = await tally_governance(
+            repo=repo,
+            season_id=season_id,
+            proposals=[proposal],
+            votes_by_proposal={proposal.id: [vote1, vote2]},
+            current_ruleset=RuleSet(),
+            round_number=3,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        assert new_ruleset.three_point_value == 5
+
+    async def test_tally_does_not_emit_window_closed(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """tally_governance should NOT write a window.closed event."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="", raw_text="Make three pointers worth 5",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+
+        vote1 = await cast_vote(
+            repo=repo, proposal=proposal, governor_id=gov_id,
+            team_id=team_id, vote_choice="yes", weight=1.0,
+        )
+
+        await tally_governance(
+            repo=repo,
+            season_id=season_id,
+            proposals=[proposal],
+            votes_by_proposal={proposal.id: [vote1]},
+            current_ruleset=RuleSet(),
+            round_number=3,
+        )
+
+        # No window.closed event should exist
+        window_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["window.closed"],
+        )
+        assert len(window_events) == 0
+
+    async def test_close_governance_window_delegates_to_tally(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """close_governance_window delegates to tally_governance + emits window.closed."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Make three pointers worth 5",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+
+        vote1 = await cast_vote(
+            repo=repo, proposal=proposal, governor_id=gov_id,
+            team_id=team_id, vote_choice="yes", weight=1.0,
+        )
+
+        window = GovernanceWindow(id="w-1", season_id=season_id, round_number=1)
+        new_ruleset, tallies = await close_governance_window(
+            repo=repo,
+            window=window,
+            proposals=[proposal],
+            votes_by_proposal={proposal.id: [vote1]},
+            current_ruleset=RuleSet(),
+            round_number=1,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+
+        # window.closed event SHOULD exist
+        window_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["window.closed"],
+        )
+        assert len(window_events) == 1

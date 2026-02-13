@@ -1142,19 +1142,29 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
 
-                # Find confirmed proposals (open for voting)
+                # Find confirmed proposals that haven't been resolved yet
                 confirmed = await repo.get_events_by_type(
                     season_id=gov.season_id,
                     event_types=["proposal.confirmed"],
                 )
-                if not confirmed:
+                resolved = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.passed", "proposal.failed"],
+                )
+                resolved_ids = {e.aggregate_id for e in resolved}
+                pending = [
+                    c for c in confirmed
+                    if c.payload.get("proposal_id", c.aggregate_id)
+                    not in resolved_ids
+                ]
+                if not pending:
                     await interaction.response.send_message(
                         "No proposals are currently open for voting.",
                         ephemeral=True,
                     )
                     return
 
-                latest = confirmed[-1]
+                latest = pending[-1]
                 proposal_id = latest.payload.get(
                     "proposal_id", latest.aggregate_id,
                 )

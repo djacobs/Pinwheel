@@ -121,6 +121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "presentation_mode": settings.pinwheel_presentation_mode,
                 "game_interval_seconds": settings.pinwheel_game_interval_seconds,
                 "quarter_replay_seconds": settings.pinwheel_quarter_replay_seconds,
+                "governance_interval": settings.pinwheel_governance_interval,
             },
             id="tick_round",
             name="Advance game round",

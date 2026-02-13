@@ -33,11 +33,12 @@ from pinwheel.ai.mirror import (
     generate_simulation_mirror_mock,
 )
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.governance import close_governance_window
+from pinwheel.core.governance import tally_governance
 from pinwheel.core.simulation import simulate_game
+from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.repository import Repository
 from pinwheel.models.game import GameResult
-from pinwheel.models.governance import GovernanceWindow, Proposal, Vote, VoteTally
+from pinwheel.models.governance import Proposal, Vote, VoteTally
 from pinwheel.models.mirror import Mirror
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
@@ -173,6 +174,7 @@ async def step_round(
     round_number: int,
     event_bus: EventBus | None = None,
     api_key: str = "",
+    governance_interval: int = 3,
 ) -> RoundResult:
     """Execute one complete round of the game loop.
 
@@ -312,100 +314,113 @@ async def step_round(
                 season_id, round_number,
             )
 
-    # 5. Governance — close window if one is open
+    # 5. Governance — tally every Nth round (interval-based)
     tallies: list[VoteTally] = []
     governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
+    governance_summary: dict | None = None
 
-    gov_events = await repo.get_events_by_type(
-        season_id=season_id,
-        event_types=["window.opened"],
-    )
-
-    open_window = None
-    for evt in reversed(gov_events):
-        payload = evt.payload
-        if payload.get("status") == "open":
-            open_window = GovernanceWindow(**payload)
-            break
-
-    if open_window and open_window.round_number < round_number:
-        # Gather proposals and votes for this window
-        proposal_events = await repo.get_events_by_type(
+    if governance_interval > 0 and round_number % governance_interval == 0:
+        # Gather confirmed proposals that haven't been resolved yet
+        confirmed_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["proposal.submitted", "proposal.confirmed"],
+            event_types=["proposal.confirmed"],
         )
-        vote_events = await repo.get_events_by_type(
+        resolved_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["vote.cast"],
+            event_types=["proposal.passed", "proposal.failed"],
         )
+        resolved_ids = {e.aggregate_id for e in resolved_events}
 
-        proposals = []
-        for pe in proposal_events:
-            p_data = pe.payload
-            if p_data.get("window_id") == open_window.id and p_data.get("status") in (
-                "confirmed",
-                "submitted",
-            ):
-                proposals.append(Proposal(**p_data))
+        # Deduplicate: use proposal_id from payload, falling back to aggregate_id
+        pending_proposal_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for ce in confirmed_events:
+            pid = ce.payload.get("proposal_id", ce.aggregate_id)
+            if pid not in resolved_ids and pid not in seen_ids:
+                pending_proposal_ids.append(pid)
+                seen_ids.add(pid)
 
-        votes_by_proposal: dict[str, list[Vote]] = {}
-        for ve in vote_events:
-            v_data = ve.payload
-            pid = v_data.get("proposal_id", "")
-            if pid:
-                votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
+        if pending_proposal_ids:
+            # Reconstruct proposals from submitted events
+            submitted_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["proposal.submitted"],
+            )
+            proposals: list[Proposal] = []
+            for se in submitted_events:
+                p_data = se.payload
+                pid = p_data.get("id", se.aggregate_id)
+                if pid in seen_ids:
+                    # Mark as confirmed since we found it via confirmed events
+                    p_data_copy = dict(p_data)
+                    if p_data_copy.get("status") == "submitted":
+                        p_data_copy["status"] = "confirmed"
+                    proposals.append(Proposal(**p_data_copy))
 
-        new_ruleset, round_tallies = await close_governance_window(
-            repo=repo,
-            window=open_window,
-            proposals=proposals,
-            votes_by_proposal=votes_by_proposal,
-            ruleset=ruleset,
-            round_number=round_number,
-        )
-        tallies = round_tallies
+            # Gather votes for pending proposals
+            vote_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["vote.cast"],
+            )
+            votes_by_proposal: dict[str, list[Vote]] = {}
+            for ve in vote_events:
+                v_data = ve.payload
+                pid = v_data.get("proposal_id", "")
+                if pid in seen_ids:
+                    votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
 
-        if new_ruleset != ruleset:
-            await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
-            ruleset = new_ruleset
+            new_ruleset, round_tallies = await tally_governance(
+                repo=repo,
+                season_id=season_id,
+                proposals=proposals,
+                votes_by_proposal=votes_by_proposal,
+                current_ruleset=ruleset,
+                round_number=round_number,
+            )
+            tallies = round_tallies
 
-        governance_data["proposals"] = [p.model_dump(mode="json") for p in proposals]
-        governance_data["votes"] = [
-            v.model_dump(mode="json") for vs in votes_by_proposal.values() for v in vs
-        ]
-        governance_data["rules_changed"] = [
-            t.model_dump(mode="json") for t in tallies if t.passed
-        ]
+            if new_ruleset != ruleset:
+                await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
+                ruleset = new_ruleset
 
-        # Enrich rules_changed with actual parameter change details
-        rule_enacted_events = await repo.get_events_by_type(
-            season_id=season_id,
-            event_types=["rule.enacted"],
-        )
-        # Filter to this round's changes and merge into governance_data
-        for rc_event in rule_enacted_events:
-            if rc_event.payload.get("round_enacted") == round_number:
-                # Find matching tally entry and enrich it
-                for rc in governance_data["rules_changed"]:
-                    if rc.get("proposal_id") == rc_event.payload.get("source_proposal_id"):
-                        rc["parameter"] = rc_event.payload.get("parameter")
-                        rc["old_value"] = rc_event.payload.get("old_value")
-                        rc["new_value"] = rc_event.payload.get("new_value")
+            governance_data["proposals"] = [p.model_dump(mode="json") for p in proposals]
+            governance_data["votes"] = [
+                v.model_dump(mode="json") for vs in votes_by_proposal.values() for v in vs
+            ]
+            governance_data["rules_changed"] = [
+                t.model_dump(mode="json") for t in tallies if t.passed
+            ]
 
-        # Add governance window timing info
-        from pinwheel.config import Settings as _Settings
+            # Enrich rules_changed with actual parameter change details
+            rule_enacted_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["rule.enacted"],
+            )
+            for rc_event in rule_enacted_events:
+                if rc_event.payload.get("round_enacted") == round_number:
+                    for rc in governance_data["rules_changed"]:
+                        if rc.get("proposal_id") == rc_event.payload.get("source_proposal_id"):
+                            rc["parameter"] = rc_event.payload.get("parameter")
+                            rc["old_value"] = rc_event.payload.get("old_value")
+                            rc["new_value"] = rc_event.payload.get("new_value")
 
-        _gov_settings = _Settings()
-        governance_data["governance_window_minutes"] = _gov_settings.pinwheel_gov_window // 60
+        governance_summary = {
+            "round": round_number,
+            "proposals_count": len(pending_proposal_ids),
+            "rules_changed": len([t for t in tallies if t.passed]),
+        }
 
-        if event_bus:
-            await event_bus.publish(
-                "governance.window_closed",
-                {
-                    "round": round_number,
-                    "proposals_count": len(proposals),
-                    "rules_changed": len([t for t in tallies if t.passed]),
-                },
+        # Regenerate tokens for all enrolled governors
+        regen_count = 0
+        for team in teams_cache.values():
+            governors = await repo.get_governors_for_team(team.id, season_id)
+            for gov in governors:
+                await regenerate_tokens(repo, gov.id, team.id, season_id)
+                regen_count += 1
+        if regen_count > 0:
+            logger.info(
+                "tokens_regenerated season=%s round=%d governors=%d",
+                season_id, round_number, regen_count,
             )
 
     # 6. Generate mirrors
@@ -557,6 +572,7 @@ async def step_round(
         game_results=game_results,
         game_row_ids=game_row_ids,
         teams_cache=teams_cache,
+        governance_summary=governance_summary,
     )
 
 
@@ -572,6 +588,7 @@ class RoundResult:
         game_results: list[GameResult] | None = None,
         game_row_ids: list[str] | None = None,
         teams_cache: dict | None = None,
+        governance_summary: dict | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
@@ -580,3 +597,4 @@ class RoundResult:
         self.game_results = game_results or []
         self.game_row_ids = game_row_ids or []
         self.teams_cache = teams_cache or {}
+        self.governance_summary = governance_summary
