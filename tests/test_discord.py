@@ -660,6 +660,7 @@ class TestJoinCommand:
 
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock(spec=discord.Member)
         interaction.user.id = 111222333
         interaction.user.display_name = "TestPlayer"
@@ -669,12 +670,12 @@ class TestJoinCommand:
         interaction.guild.roles = []
 
         await bot._handle_join(interaction, "Rose City Thorns")
-        interaction.response.send_message.assert_called_once()
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        interaction.followup.send.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
         assert "Rose City Thorns" in embed.title
-        assert not call_kwargs.kwargs.get("ephemeral")
 
         # Verify enrollment in DB
         async with get_session(engine) as session:
@@ -713,6 +714,7 @@ class TestJoinCommand:
 
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 111222333
         interaction.user.display_name = "TestPlayer"
@@ -721,8 +723,8 @@ class TestJoinCommand:
         interaction.guild = None
 
         await bot._handle_join(interaction, "Burnside Breakers")
-        interaction.response.send_message.assert_called_once()
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.followup.send.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         msg = call_kwargs.args[0] if call_kwargs.args else ""
         assert "ride or die" in str(msg) or "mid-season" in str(msg)
@@ -751,6 +753,7 @@ class TestJoinCommand:
 
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 111222333
         interaction.user.display_name = "TestPlayer"
@@ -758,8 +761,8 @@ class TestJoinCommand:
         interaction.user.display_avatar.url = "https://example.com/avatar.png"
 
         await bot._handle_join(interaction, "Nonexistent Team")
-        interaction.response.send_message.assert_called_once()
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.followup.send.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
 
         await engine.dispose()

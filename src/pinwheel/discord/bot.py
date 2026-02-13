@@ -717,6 +717,9 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB + role ops can exceed 3s interaction timeout
+        await interaction.response.defer()
+
         try:
             from sqlalchemy import select
 
@@ -729,7 +732,7 @@ class PinwheelBot(commands.Bot):
                 result = await session.execute(select(SeasonRow).limit(1))
                 season = result.scalar_one_or_none()
                 if not season:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "No active season.",
                         ephemeral=True,
                     )
@@ -754,7 +757,7 @@ class PinwheelBot(commands.Bot):
                         team_data,
                         season.name or "this season",
                     )
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         embed=embed,
                         ephemeral=True,
                     )
@@ -766,13 +769,13 @@ class PinwheelBot(commands.Bot):
                 if enrollment is not None:
                     _existing_team_id, existing_team_name = enrollment
                     if existing_team_name.lower() == team_name.lower():
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             f"You're already on **{existing_team_name}**!",
                             ephemeral=True,
                         )
                     else:
                         season_label = season.name or "Season 1"
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             f"You joined **{existing_team_name}** for {season_label}. "
                             "Team switches aren't allowed mid-season -- ride or die!",
                             ephemeral=True,
@@ -788,7 +791,7 @@ class PinwheelBot(commands.Bot):
 
                 if target_team is None:
                     available = ", ".join(t.name for t in teams)
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"Team not found. Available teams: {available}",
                         ephemeral=True,
                     )
@@ -833,7 +836,7 @@ class PinwheelBot(commands.Bot):
                 hoopers,
                 motto=target_team.motto or "",
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
             # Send welcome DM with quick-start info
             import contextlib
@@ -843,11 +846,10 @@ class PinwheelBot(commands.Bot):
 
         except Exception:
             logger.exception("discord_join_failed")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Something went wrong joining the team.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "Something went wrong joining the team.",
+                ephemeral=True,
+            )
 
     def _get_channel_for(self, key: str) -> discord.TextChannel | None:
         """Resolve a channel by key from channel_ids, falling back to main_channel_id."""
