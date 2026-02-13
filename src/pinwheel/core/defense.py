@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 from typing import Literal
 
-from pinwheel.core.state import AgentState, GameState
+from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.rules import RuleSet
 
 DefensiveScheme = Literal["man_tight", "man_switch", "zone", "press"]
@@ -40,8 +40,8 @@ SCHEME_TURNOVER_BONUS: dict[DefensiveScheme, float] = {
 
 
 def select_scheme(
-    offense: list[AgentState],
-    defense: list[AgentState],
+    offense: list[HooperState],
+    defense: list[HooperState],
     game_state: GameState,
     rules: RuleSet,
     rng: random.Random,
@@ -97,8 +97,8 @@ def select_scheme(
 
 
 def assign_matchups(
-    offense: list[AgentState],
-    defense: list[AgentState],
+    offense: list[HooperState],
+    defense: list[HooperState],
     scheme: DefensiveScheme,
     rng: random.Random,
 ) -> dict[str, str]:
@@ -117,14 +117,14 @@ def assign_matchups(
         matchups = {}
         for i, d in enumerate(def_sorted):
             opp = off_sorted[i % len(off_sorted)]
-            matchups[d.agent.id] = opp.agent.id
+            matchups[d.hooper.id] = opp.hooper.id
         return matchups
 
     if scheme == "zone":
         # Zone: each defender covers a zone, roughly rotational assignment
         matchups = {}
         for i, d in enumerate(defense):
-            matchups[d.agent.id] = offense[i % len(offense)].agent.id
+            matchups[d.hooper.id] = offense[i % len(offense)].hooper.id
         return matchups
 
     # Press: match by speed (fastest defender on fastest ball handler)
@@ -132,20 +132,20 @@ def assign_matchups(
     def_sorted = sorted(defense, key=lambda a: a.current_attributes.speed, reverse=True)
     matchups = {}
     for i, d in enumerate(def_sorted):
-        matchups[d.agent.id] = off_sorted[i % len(off_sorted)].agent.id
+        matchups[d.hooper.id] = off_sorted[i % len(off_sorted)].hooper.id
     return matchups
 
 
 def get_primary_defender(
-    ball_handler: AgentState,
+    ball_handler: HooperState,
     matchups: dict[str, str],
-    defense: list[AgentState],
-) -> AgentState:
+    defense: list[HooperState],
+) -> HooperState:
     """Find the defender assigned to guard the ball handler."""
     for def_id, off_id in matchups.items():
-        if off_id == ball_handler.agent.id:
+        if off_id == ball_handler.hooper.id:
             for d in defense:
-                if d.agent.id == def_id:
+                if d.hooper.id == def_id:
                     return d
     # Fallback: first available defender
     return defense[0] if defense else ball_handler

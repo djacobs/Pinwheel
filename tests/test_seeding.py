@@ -37,16 +37,16 @@ class TestLeagueGeneration:
         league = generate_league(num_teams=8, seed=42)
         assert len(league.teams) == 8
 
-    def test_each_team_has_4_agents(self):
+    def test_each_team_has_4_hoopers(self):
         league = generate_league(seed=42)
         for team in league.teams:
-            assert len(team.agents) == 4
+            assert len(team.hoopers) == 4
 
     def test_3_starters_1_bench(self):
         league = generate_league(seed=42)
         for team in league.teams:
-            starters = [a for a in team.agents if a.is_starter]
-            bench = [a for a in team.agents if not a.is_starter]
+            starters = [h for h in team.hoopers if h.is_starter]
+            bench = [h for h in team.hoopers if not h.is_starter]
             assert len(starters) == 3
             assert len(bench) == 1
 
@@ -54,7 +54,7 @@ class TestLeagueGeneration:
         l1 = generate_league(seed=42)
         l2 = generate_league(seed=42)
         assert l1.teams[0].name == l2.teams[0].name
-        assert l1.teams[0].agents[0].attributes == l2.teams[0].agents[0].attributes
+        assert l1.teams[0].hoopers[0].attributes == l2.teams[0].hoopers[0].attributes
 
 
 class TestYAMLRoundTrip:
@@ -66,5 +66,5 @@ class TestYAMLRoundTrip:
         loaded = load_league_yaml(path)
         assert len(loaded.teams) == 4
         assert loaded.teams[0].name == league.teams[0].name
-        assert loaded.teams[0].agents[0].id == league.teams[0].agents[0].id
+        assert loaded.teams[0].hoopers[0].id == league.teams[0].hoopers[0].id
         path.unlink()

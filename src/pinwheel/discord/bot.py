@@ -169,31 +169,31 @@ class PinwheelBot(commands.Bot):
             )
 
         @self.tree.command(
-            name="trade-agent",
-            description="Propose trading agents between two teams",
+            name="trade-hooper",
+            description="Propose trading hoopers between two teams",
         )
         @app_commands.describe(
-            offer_agent="Name of the agent you're offering",
-            request_agent="Name of the agent you want in return",
+            offer_hooper="Name of the hooper you're offering",
+            request_hooper="Name of the hooper you want in return",
         )
-        async def trade_agent_command(
+        async def trade_hooper_command(
             interaction: discord.Interaction,
-            offer_agent: str,
-            request_agent: str,
+            offer_hooper: str,
+            request_hooper: str,
         ) -> None:
-            await self._handle_trade_agent(interaction, offer_agent, request_agent)
+            await self._handle_trade_hooper(interaction, offer_hooper, request_hooper)
 
-        @trade_agent_command.autocomplete("offer_agent")
-        async def _offer_agent_autocomplete(
+        @trade_hooper_command.autocomplete("offer_hooper")
+        async def _offer_hooper_autocomplete(
             interaction: discord.Interaction, current: str,
         ) -> list[app_commands.Choice[str]]:
-            return await self._autocomplete_agents(interaction, current, own_team=True)
+            return await self._autocomplete_hoopers(interaction, current, own_team=True)
 
-        @trade_agent_command.autocomplete("request_agent")
-        async def _request_agent_autocomplete(
+        @trade_hooper_command.autocomplete("request_hooper")
+        async def _request_hooper_autocomplete(
             interaction: discord.Interaction, current: str,
         ) -> list[app_commands.Choice[str]]:
-            return await self._autocomplete_agents(interaction, current, own_team=False)
+            return await self._autocomplete_hoopers(interaction, current, own_team=False)
 
         @self.tree.command(
             name="strategy",
@@ -503,8 +503,8 @@ class PinwheelBot(commands.Bot):
                         teams = await repo.get_teams_for_season(season.id)
                         lines = []
                         for team in teams:
-                            agent_names = ", ".join(a.name for a in team.agents)
-                            lines.append(f"**{team.name}** -- {agent_names}")
+                            hooper_names = ", ".join(h.name for h in team.hoopers)
+                            lines.append(f"**{team.name}** -- {hooper_names}")
                         team_lines = "\n".join(lines)
             except Exception:
                 logger.exception("discord_welcome_team_query_failed")
@@ -524,7 +524,7 @@ class PinwheelBot(commands.Bot):
             "into game parameters\n"
             "- Check standings with `/standings`, schedule with `/schedule`\n\n"
             f"**The teams:**\n{team_lines}\n\n"
-            "Choose wisely. Your team's agents are counting on you."
+            "Choose wisely. Your team's hoopers are counting on you."
         )
 
         embed = discord.Embed(
@@ -670,11 +670,11 @@ class PinwheelBot(commands.Bot):
             # Build confirmation embed (shown in channel)
             from pinwheel.discord.embeds import build_welcome_embed
 
-            agents = [
-                {"name": a.name, "archetype": a.archetype or "Agent"}
-                for a in target_team.agents
+            hoopers = [
+                {"name": h.name, "archetype": h.archetype or "Hooper"}
+                for h in target_team.hoopers
             ]
-            embed = build_welcome_embed(target_team.name, target_team.color, agents)
+            embed = build_welcome_embed(target_team.name, target_team.color, hoopers)
             await interaction.response.send_message(embed=embed)
 
             # Send welcome DM with quick-start info
@@ -1398,10 +1398,10 @@ class PinwheelBot(commands.Bot):
                     ephemeral=True,
                 )
 
-    async def _autocomplete_agents(
+    async def _autocomplete_hoopers(
         self, interaction: discord.Interaction, current: str, *, own_team: bool,
     ) -> list[app_commands.Choice[str]]:
-        """Autocomplete agent names for trade-agent command."""
+        """Autocomplete hooper names for trade-hooper command."""
         if not self.engine:
             return []
         try:
@@ -1415,31 +1415,31 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 if own_team:
-                    agents = await repo.get_agents_for_team(gov.team_id)
+                    hoopers = await repo.get_hoopers_for_team(gov.team_id)
                 else:
                     teams = await repo.get_teams_for_season(gov.season_id)
-                    agents = []
+                    hoopers = []
                     for t in teams:
                         if t.id != gov.team_id:
-                            team_agents = await repo.get_agents_for_team(t.id)
-                            agents.extend(team_agents)
+                            team_hoopers = await repo.get_hoopers_for_team(t.id)
+                            hoopers.extend(team_hoopers)
                 lowered = current.lower()
                 return [
-                    app_commands.Choice(name=a.name, value=a.name)
-                    for a in agents
-                    if lowered in a.name.lower()
+                    app_commands.Choice(name=h.name, value=h.name)
+                    for h in hoopers
+                    if lowered in h.name.lower()
                 ][:25]
         except Exception:
-            logger.exception("agent_autocomplete_failed")
+            logger.exception("hooper_autocomplete_failed")
             return []
 
-    async def _handle_trade_agent(
+    async def _handle_trade_hooper(
         self,
         interaction: discord.Interaction,
-        offer_agent_name: str,
-        request_agent_name: str,
+        offer_hooper_name: str,
+        request_hooper_name: str,
     ) -> None:
-        """Handle the /trade-agent slash command."""
+        """Handle the /trade-hooper slash command."""
         if not self.engine:
             await interaction.response.send_message(
                 "Database not available.", ephemeral=True,
@@ -1452,7 +1452,7 @@ class PinwheelBot(commands.Bot):
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You must `/join` a team before trading agents.",
+                "You must `/join` a team before trading hoopers.",
                 ephemeral=True,
             )
             return
@@ -1464,38 +1464,38 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
 
-                # Find the offered agent (must be on proposer's team)
-                my_agents = await repo.get_agents_for_team(gov.team_id)
+                # Find the offered hooper (must be on proposer's team)
+                my_hoopers = await repo.get_hoopers_for_team(gov.team_id)
                 offered = None
-                for a in my_agents:
-                    if a.name.lower() == offer_agent_name.lower():
-                        offered = a
+                for h in my_hoopers:
+                    if h.name.lower() == offer_hooper_name.lower():
+                        offered = h
                         break
                 if not offered:
-                    available = ", ".join(a.name for a in my_agents)
+                    available = ", ".join(h.name for h in my_hoopers)
                     await interaction.response.send_message(
-                        f"Agent not found on your team. Your agents: {available}",
+                        f"Hooper not found on your team. Your hoopers: {available}",
                         ephemeral=True,
                     )
                     return
 
-                # Find the requested agent (must be on a different team)
+                # Find the requested hooper (must be on a different team)
                 teams = await repo.get_teams_for_season(gov.season_id)
                 requested = None
                 target_team = None
                 for t in teams:
                     if t.id == gov.team_id:
                         continue
-                    for a in t.agents:
-                        if a.name.lower() == request_agent_name.lower():
-                            requested = a
+                    for h in t.hoopers:
+                        if h.name.lower() == request_hooper_name.lower():
+                            requested = h
                             target_team = t
                             break
                     if requested:
                         break
                 if not requested or not target_team:
                     await interaction.response.send_message(
-                        f"Agent '{request_agent_name}' not found on any other team.",
+                        f"Hooper '{request_hooper_name}' not found on any other team.",
                         ephemeral=True,
                     )
                     return
@@ -1518,20 +1518,20 @@ class PinwheelBot(commands.Bot):
                     )
                     return
 
-                from pinwheel.core.tokens import propose_agent_trade
+                from pinwheel.core.tokens import propose_hooper_trade
 
                 my_team = next(
                     (t for t in teams if t.id == gov.team_id), None,
                 )
-                trade = await propose_agent_trade(
+                trade = await propose_hooper_trade(
                     repo=repo,
                     proposer_id=str(interaction.user.id),
                     from_team_id=gov.team_id,
                     to_team_id=target_team.id,
-                    offered_agent_ids=[offered.id],
-                    requested_agent_ids=[requested.id],
-                    offered_agent_names=[offered.name],
-                    requested_agent_names=[requested.name],
+                    offered_hooper_ids=[offered.id],
+                    requested_hooper_ids=[requested.id],
+                    offered_hooper_names=[offered.name],
+                    requested_hooper_names=[requested.name],
                     from_team_name=my_team.name if my_team else gov.team_id,
                     to_team_name=target_team.name,
                     required_voters=all_voters,
@@ -1540,17 +1540,17 @@ class PinwheelBot(commands.Bot):
                 await session.commit()
 
             # Post trade view to both team channels
-            from pinwheel.discord.embeds import build_agent_trade_embed
-            from pinwheel.discord.views import AgentTradeView
+            from pinwheel.discord.embeds import build_hooper_trade_embed
+            from pinwheel.discord.views import HooperTradeView
 
-            view = AgentTradeView(
+            view = HooperTradeView(
                 trade=trade, season_id=gov.season_id, engine=self.engine,
             )
-            embed = build_agent_trade_embed(
+            embed = build_hooper_trade_embed(
                 from_team=trade.from_team_name,
                 to_team=trade.to_team_name,
-                offered_names=trade.offered_agent_names,
-                requested_names=trade.requested_agent_names,
+                offered_names=trade.offered_hooper_names,
+                requested_names=trade.requested_hooper_names,
                 proposer_name=interaction.user.display_name,
                 votes_cast=0,
                 votes_needed=len(all_voters),
@@ -1563,19 +1563,19 @@ class PinwheelBot(commands.Bot):
                 await from_ch.send(embed=embed, view=view)
             if to_ch:
                 # New view instance for second channel (views can't be reused)
-                view2 = AgentTradeView(
+                view2 = HooperTradeView(
                     trade=trade, season_id=gov.season_id, engine=self.engine,
                 )
                 await to_ch.send(embed=embed, view=view2)
 
             await interaction.response.send_message(
-                f"Agent trade proposed: **{offered.name}** "
+                f"Hooper trade proposed: **{offered.name}** "
                 f"for **{requested.name}**. "
                 "Both teams' governors must vote in their team channels.",
                 ephemeral=True,
             )
         except Exception:
-            logger.exception("discord_trade_agent_failed")
+            logger.exception("discord_trade_hooper_failed")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "Something went wrong with the trade.", ephemeral=True,

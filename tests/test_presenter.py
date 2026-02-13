@@ -26,7 +26,7 @@ def _make_possession(quarter: int = 1, home_score: int = 0, away_score: int = 0)
         quarter=quarter,
         possession_number=1,
         offense_team_id="team-a",
-        ball_handler_id="agent-1",
+        ball_handler_id="hooper-1",
         action="mid_range",
         result="made",
         points_scored=2,

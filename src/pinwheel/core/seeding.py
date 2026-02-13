@@ -14,7 +14,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from pinwheel.core.archetypes import ARCHETYPE_MOVES, ARCHETYPES, apply_variance
-from pinwheel.models.team import Agent, Team, Venue
+from pinwheel.models.team import Hooper, Team, Venue
 
 
 class LeagueConfig(BaseModel):
@@ -27,12 +27,12 @@ class LeagueConfig(BaseModel):
 
 def generate_league(
     num_teams: int = 8,
-    agents_per_team: int = 4,
+    hoopers_per_team: int = 4,
     seed: int = 42,
 ) -> LeagueConfig:
     """Generate a league programmatically from archetypes.
 
-    Each team gets agents with diverse archetypes. Attributes get variance.
+    Each team gets hoopers with diverse archetypes. Attributes get variance.
     """
     archetype_names = list(ARCHETYPES.keys())
     teams: list[Team] = []
@@ -53,25 +53,26 @@ def generate_league(
         tname, color, motto, vname, cap = team_data[team_idx]
         team_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{seed}-{team_idx}"))
 
-        agents = []
-        for agent_idx in range(agents_per_team):
-            idx = (team_idx * agents_per_team + agent_idx) % len(archetype_names)
+        hoopers = []
+        for hooper_idx in range(hoopers_per_team):
+            idx = (team_idx * hoopers_per_team + hooper_idx) % len(archetype_names)
             arch_name = archetype_names[idx]
             base_attrs = ARCHETYPES[arch_name]
-            agent_seed = seed * 1000 + team_idx * 100 + agent_idx
-            attrs = apply_variance(base_attrs, agent_seed, variance=8)
+            hooper_seed = seed * 1000 + team_idx * 100 + hooper_idx
+            attrs = apply_variance(base_attrs, hooper_seed, variance=8)
             moves = ARCHETYPE_MOVES.get(arch_name, [])
 
-            agent_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"agent-{seed}-{team_idx}-{agent_idx}"))
-            agents.append(
-                Agent(
-                    id=agent_id,
-                    name=f"Agent-{team_idx}-{agent_idx}",
+            ns = f"hooper-{seed}-{team_idx}-{hooper_idx}"
+            hooper_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, ns))
+            hoopers.append(
+                Hooper(
+                    id=hooper_id,
+                    name=f"Hooper-{team_idx}-{hooper_idx}",
                     team_id=team_id,
                     archetype=arch_name,
                     attributes=attrs,
                     moves=moves,
-                    is_starter=agent_idx < 3,
+                    is_starter=hooper_idx < 3,
                 )
             )
 
@@ -82,7 +83,7 @@ def generate_league(
                 color=color,
                 motto=motto,
                 venue=Venue(name=vname, capacity=cap),
-                agents=agents,
+                hoopers=hoopers,
             )
         )
 

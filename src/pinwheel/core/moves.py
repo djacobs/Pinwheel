@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import random
 
-from pinwheel.core.state import AgentState
+from pinwheel.core.state import HooperState
 from pinwheel.models.team import Move
 
 # --- Move definitions ---
@@ -89,9 +89,9 @@ ALL_MOVES = [
 ]
 
 
-def check_gate(move: Move, agent: AgentState) -> bool:
+def check_gate(move: Move, agent: HooperState) -> bool:
     """Check if agent meets the attribute gate for a move."""
-    attrs = agent.agent.attributes.model_dump()
+    attrs = agent.hooper.attributes.model_dump()
     for attr_name, min_val in move.attribute_gate.items():
         if attrs.get(attr_name, 0) < min_val:
             return False
@@ -100,7 +100,7 @@ def check_gate(move: Move, agent: AgentState) -> bool:
 
 def check_trigger(
     move: Move,
-    agent: AgentState,
+    agent: HooperState,
     action: str,
     last_possession_three: bool,
     is_elam: bool,
@@ -123,7 +123,7 @@ def check_trigger(
 
 
 def get_triggered_moves(
-    agent: AgentState,
+    agent: HooperState,
     action: str,
     last_possession_three: bool,
     is_elam: bool,
@@ -131,7 +131,7 @@ def get_triggered_moves(
 ) -> list[Move]:
     """Return all moves that trigger for this agent in this situation."""
     triggered = []
-    for move in agent.agent.moves:
+    for move in agent.hooper.moves:
         if not check_gate(move, agent):
             continue
         if not check_trigger(move, agent, action, last_possession_three, is_elam):

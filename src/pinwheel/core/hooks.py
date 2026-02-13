@@ -11,7 +11,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from pinwheel.core.state import AgentState, GameState
+    from pinwheel.core.state import GameState, HooperState
 
 
 class HookPoint(Enum):
@@ -34,17 +34,17 @@ class GameEffect(Protocol):
     """Protocol for game effects that modify simulation behavior."""
 
     def should_fire(
-        self, hook: HookPoint, game_state: GameState, agent: AgentState | None
+        self, hook: HookPoint, game_state: GameState, agent: HooperState | None
     ) -> bool: ...
 
-    def apply(self, hook: HookPoint, game_state: GameState, agent: AgentState | None) -> None: ...
+    def apply(self, hook: HookPoint, game_state: GameState, agent: HooperState | None) -> None: ...
 
 
 def fire_hooks(
     hook: HookPoint,
     game_state: GameState,
     effects: list[GameEffect],
-    agent: AgentState | None = None,
+    agent: HooperState | None = None,
 ) -> None:
     """Fire all effects registered for this hook point."""
     for effect in effects:

@@ -13,17 +13,94 @@ import time
 
 from pinwheel.core.hooks import GameEffect, HookPoint, fire_hooks
 from pinwheel.core.possession import resolve_possession
-from pinwheel.core.state import AgentState, GameState
-from pinwheel.models.game import AgentBoxScore, GameResult, PossessionLog, QuarterScore
+from pinwheel.core.state import GameState, HooperState
+from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team
 
 logger = logging.getLogger(__name__)
 
 
-def _build_agent_states(team: Team) -> list[AgentState]:
-    """Create mutable AgentState for each agent on a team."""
-    return [AgentState(agent=agent) for agent in team.agents]
+def _build_hooper_states(team: Team) -> list[HooperState]:
+    """Create mutable HooperState for each hooper on a team."""
+    return [HooperState(hooper=h, on_court=h.is_starter) for h in team.hoopers]
+
+
+def _check_substitution(
+    game_state: GameState,
+    rules: RuleSet,
+    possession_log: list[PossessionLog],
+    reason: str = "foul_out",
+) -> None:
+    """Check and perform substitutions for both teams.
+
+    Two triggers:
+    - foul_out: an ejected player is replaced by the best bench player
+    - fatigue: at quarter breaks, swap the most fatigued active player
+      with a bench player who has higher stamina
+    """
+    for is_home in (True, False):
+        active = game_state.home_active if is_home else game_state.away_active
+        bench = game_state.home_bench if is_home else game_state.away_bench
+
+        if not bench:
+            continue
+
+        if reason == "foul_out":
+            # Find ejected players who are still marked on_court
+            all_agents = game_state.home_agents if is_home else game_state.away_agents
+            for player in all_agents:
+                if player.ejected and player.on_court:
+                    # Pick best bench player by stamina
+                    best_bench = max(bench, key=lambda b: b.current_stamina)
+                    game_state.substitute(player, best_bench)
+                    # Log substitution
+                    team_id = (
+                        game_state.home_agents[0].hooper.team_id
+                        if is_home
+                        else game_state.away_agents[0].hooper.team_id
+                    )
+                    log = PossessionLog(
+                        quarter=game_state.quarter,
+                        possession_number=game_state.possession_number,
+                        offense_team_id=team_id,
+                        ball_handler_id=best_bench.hooper.id,
+                        action="substitution",
+                        result=f"foul_out:{player.hooper.name}:{best_bench.hooper.name}",
+                        home_score=game_state.home_score,
+                        away_score=game_state.away_score,
+                    )
+                    possession_log.append(log)
+                    # Refresh bench list since we just moved someone
+                    bench = game_state.home_bench if is_home else game_state.away_bench
+                    if not bench:
+                        break
+
+        elif reason == "fatigue":
+            # Find the active player with lowest stamina
+            if not active:
+                continue
+            worst = min(active, key=lambda a: a.current_stamina)
+            if worst.current_stamina < rules.substitution_stamina_threshold:
+                best_bench = max(bench, key=lambda b: b.current_stamina)
+                if best_bench.current_stamina > worst.current_stamina:
+                    game_state.substitute(worst, best_bench)
+                    team_id = (
+                        game_state.home_agents[0].hooper.team_id
+                        if is_home
+                        else game_state.away_agents[0].hooper.team_id
+                    )
+                    log = PossessionLog(
+                        quarter=game_state.quarter,
+                        possession_number=game_state.possession_number,
+                        offense_team_id=team_id,
+                        ball_handler_id=best_bench.hooper.id,
+                        action="substitution",
+                        result=f"fatigue:{worst.hooper.name}:{best_bench.hooper.name}",
+                        home_score=game_state.home_score,
+                        away_score=game_state.away_score,
+                    )
+                    possession_log.append(log)
 
 
 def _run_quarter(
@@ -62,11 +139,14 @@ def _run_quarter(
 
         # Track agent minutes
         minutes_used = result.time_used / 60.0
-        for a in game_state.home_starters + game_state.away_starters:
+        for a in game_state.home_active + game_state.away_active:
             a.minutes += minutes_used
 
         # Track whether last possession was a made three
         last_three = result.shot_made and result.shot_type == "three_point"
+
+        # Check for foul-out substitutions after each possession
+        _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
         # Alternate possession
         game_state.home_has_ball = not game_state.home_has_ball
@@ -111,6 +191,9 @@ def _run_elam(
             game_state.game_over = True
             break
 
+        # Check for foul-out substitutions
+        _check_substitution(game_state, rules, possession_log, reason="foul_out")
+
         game_state.home_has_ball = not game_state.home_has_ball
 
         # Safety cap
@@ -138,34 +221,34 @@ def _quarter_break_recovery(
         agent.current_stamina = min(1.0, agent.current_stamina + recovery)
 
 
-def _build_box_scores(game_state: GameState) -> list[AgentBoxScore]:
-    """Build box scores from agent states."""
+def _build_box_scores(game_state: GameState) -> list[HooperBoxScore]:
+    """Build box scores from hooper states."""
     box_scores = []
-    for agent_state in game_state.home_agents + game_state.away_agents:
+    for hs in game_state.home_agents + game_state.away_agents:
         # Compute plus-minus (simplified: team score diff while on court)
-        is_home = agent_state.agent.team_id == game_state.home_agents[0].agent.team_id
+        is_home = hs.hooper.team_id == game_state.home_agents[0].hooper.team_id
         pm = game_state.home_score - game_state.away_score
         if not is_home:
             pm = -pm
 
         box_scores.append(
-            AgentBoxScore(
-                agent_id=agent_state.agent.id,
-                agent_name=agent_state.agent.name,
-                team_id=agent_state.agent.team_id,
-                minutes=round(agent_state.minutes, 1),
-                points=agent_state.points,
-                field_goals_made=agent_state.field_goals_made,
-                field_goals_attempted=agent_state.field_goals_attempted,
-                three_pointers_made=agent_state.three_pointers_made,
-                three_pointers_attempted=agent_state.three_pointers_attempted,
-                free_throws_made=agent_state.free_throws_made,
-                free_throws_attempted=agent_state.free_throws_attempted,
-                rebounds=agent_state.rebounds,
-                assists=agent_state.assists,
-                steals=agent_state.steals,
-                turnovers=agent_state.turnovers,
-                fouls=agent_state.fouls,
+            HooperBoxScore(
+                hooper_id=hs.hooper.id,
+                hooper_name=hs.hooper.name,
+                team_id=hs.hooper.team_id,
+                minutes=round(hs.minutes, 1),
+                points=hs.points,
+                field_goals_made=hs.field_goals_made,
+                field_goals_attempted=hs.field_goals_attempted,
+                three_pointers_made=hs.three_pointers_made,
+                three_pointers_attempted=hs.three_pointers_attempted,
+                free_throws_made=hs.free_throws_made,
+                free_throws_attempted=hs.free_throws_attempted,
+                rebounds=hs.rebounds,
+                assists=hs.assists,
+                steals=hs.steals,
+                turnovers=hs.turnovers,
+                fouls=hs.fouls,
                 plus_minus=pm,
             )
         )
@@ -194,8 +277,8 @@ def simulate_game(
 
     # Build mutable state
     game_state = GameState(
-        home_agents=_build_agent_states(home),
-        away_agents=_build_agent_states(away),
+        home_agents=_build_hooper_states(home),
+        away_agents=_build_hooper_states(away),
     )
 
     quarter_scores: list[QuarterScore] = []
@@ -225,6 +308,9 @@ def simulate_game(
             _halftime_recovery(game_state, rules)
         else:
             _quarter_break_recovery(game_state, rules)
+
+        # Fatigue-based substitution at quarter breaks
+        _check_substitution(game_state, rules, possession_log, reason="fatigue")
 
     # Elam Ending
     if not game_state.game_over:

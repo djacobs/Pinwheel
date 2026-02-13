@@ -40,7 +40,7 @@ async def get_boxscore(game_id: str, repo: RepoDep) -> dict:
     return {
         "data": [
             {
-                "agent_id": bs.agent_id,
+                "hooper_id": bs.hooper_id,
                 "team_id": bs.team_id,
                 "points": bs.points,
                 "field_goals_made": bs.field_goals_made,

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from pinwheel.config import Settings
     from pinwheel.discord.helpers import GovernorInfo
     from pinwheel.models.governance import RuleInterpretation
-    from pinwheel.models.tokens import AgentTrade, Trade
+    from pinwheel.models.tokens import HooperTrade, Trade
 
 logger = logging.getLogger(__name__)
 
@@ -494,13 +494,13 @@ class StrategyConfirmView(discord.ui.View):
         )
 
 
-class AgentTradeView(discord.ui.View):
-    """Vote buttons for agent trades — only governors on the two teams can vote."""
+class HooperTradeView(discord.ui.View):
+    """Vote buttons for hooper trades — only governors on the two teams can vote."""
 
     def __init__(
         self,
         *,
-        trade: AgentTrade,
+        trade: HooperTrade,
         season_id: str,
         engine: AsyncEngine,
     ) -> None:
@@ -510,13 +510,13 @@ class AgentTradeView(discord.ui.View):
         self.engine = engine
 
     def _make_embed(self) -> discord.Embed:
-        from pinwheel.discord.embeds import build_agent_trade_embed
+        from pinwheel.discord.embeds import build_hooper_trade_embed
 
-        return build_agent_trade_embed(
+        return build_hooper_trade_embed(
             from_team=self.trade.from_team_name,
             to_team=self.trade.to_team_name,
-            offered_names=self.trade.offered_agent_names,
-            requested_names=self.trade.requested_agent_names,
+            offered_names=self.trade.offered_hooper_names,
+            requested_names=self.trade.requested_hooper_names,
             proposer_name=self.trade.proposed_by,
             votes_cast=len(self.trade.votes),
             votes_needed=len(self.trade.required_voters),
@@ -560,14 +560,14 @@ class AgentTradeView(discord.ui.View):
             return
 
         from pinwheel.core.tokens import (
-            execute_agent_trade,
-            tally_agent_trade,
-            vote_agent_trade,
+            execute_hooper_trade,
+            tally_hooper_trade,
+            vote_hooper_trade,
         )
 
-        vote_agent_trade(self.trade, voter_id, vote)
+        vote_hooper_trade(self.trade, voter_id, vote)
 
-        all_voted, from_ok, to_ok = tally_agent_trade(self.trade)
+        all_voted, from_ok, to_ok = tally_hooper_trade(self.trade)
         if all_voted:
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
@@ -580,12 +580,12 @@ class AgentTradeView(discord.ui.View):
                 try:
                     async with get_session(self.engine) as session:
                         repo = Repository(session)
-                        await execute_agent_trade(
+                        await execute_hooper_trade(
                             repo, self.trade, self.season_id,
                         )
                         await session.commit()
                 except Exception:
-                    logger.exception("agent_trade_execute_failed")
+                    logger.exception("hooper_trade_execute_failed")
                     await interaction.response.send_message(
                         "Trade approved but execution failed.",
                         ephemeral=True,
@@ -593,7 +593,7 @@ class AgentTradeView(discord.ui.View):
                     return
 
                 embed = self._make_embed()
-                embed.title = "Agent Trade Approved"
+                embed.title = "Hooper Trade Approved"
                 embed.color = 0x2ECC71
                 await interaction.response.edit_message(
                     embed=embed, view=self,
@@ -601,7 +601,7 @@ class AgentTradeView(discord.ui.View):
             else:
                 self.trade.status = "rejected"
                 embed = self._make_embed()
-                embed.title = "Agent Trade Rejected"
+                embed.title = "Hooper Trade Rejected"
                 embed.color = 0xE74C3C
                 await interaction.response.edit_message(
                     embed=embed, view=self,

@@ -17,8 +17,8 @@ class PossessionLog(BaseModel):
     possession_number: int
     offense_team_id: str
     ball_handler_id: str
-    action: str  # drive, three_point, mid_range, post_up, pass
-    result: str  # made, missed, turnover, foul
+    action: str  # drive, three_point, mid_range, post_up, pass, substitution
+    result: str  # made, missed, turnover, foul, foul_out:..., fatigue:...
     points_scored: int = 0
     defender_id: str = ""
     assist_id: str = ""
@@ -30,11 +30,11 @@ class PossessionLog(BaseModel):
     game_clock: str = ""
 
 
-class AgentBoxScore(BaseModel):
-    """Per-Agent stat line for a single Game."""
+class HooperBoxScore(BaseModel):
+    """Per-Hooper stat line for a single Game."""
 
-    agent_id: str
-    agent_name: str
+    hooper_id: str
+    hooper_name: str
     team_id: str
     minutes: float = 0.0
     points: int = 0
@@ -66,6 +66,19 @@ class AgentBoxScore(BaseModel):
             else 0.0
         )
 
+    # Backward-compatible aliases
+    @property
+    def agent_id(self) -> str:
+        return self.hooper_id
+
+    @property
+    def agent_name(self) -> str:
+        return self.hooper_name
+
+
+# Backward-compatible alias
+AgentBoxScore = HooperBoxScore
+
 
 class QuarterScore(BaseModel):
     """Score for a single quarter."""
@@ -89,7 +102,7 @@ class GameResult(BaseModel):
     elam_activated: bool = False
     elam_target_score: int | None = None
     quarter_scores: list[QuarterScore] = Field(default_factory=list)
-    box_scores: list[AgentBoxScore] = Field(default_factory=list)
+    box_scores: list[HooperBoxScore] = Field(default_factory=list)
     possession_log: list[PossessionLog] = Field(default_factory=list)
     duration_ms: float = 0.0
 

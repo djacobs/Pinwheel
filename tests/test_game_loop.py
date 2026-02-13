@@ -26,7 +26,7 @@ async def repo(engine: AsyncEngine) -> Repository:
         yield Repository(session)
 
 
-def _agent_attrs() -> dict:
+def _hooper_attrs() -> dict:
     return {
         "scoring": 50,
         "passing": 40,
@@ -41,7 +41,7 @@ def _agent_attrs() -> dict:
 
 
 async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
-    """Create a league, season, 4 teams with 3 agents each, and a schedule."""
+    """Create a league, season, 4 teams with 3 hoopers each, and a schedule."""
     league = await repo.create_league("Test League")
     season = await repo.create_season(
         league.id,
@@ -58,12 +58,12 @@ async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
         )
         team_ids.append(team.id)
         for j in range(3):
-            await repo.create_agent(
+            await repo.create_hooper(
                 team_id=team.id,
                 season_id=season.id,
-                name=f"Agent-{i + 1}-{j + 1}",
+                name=f"Hooper-{i + 1}-{j + 1}",
                 archetype="sharpshooter",
-                attributes=_agent_attrs(),
+                attributes=_hooper_attrs(),
             )
 
     # Generate round-robin schedule and store

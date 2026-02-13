@@ -12,7 +12,10 @@ from pydantic import BaseModel, Field
 
 TokenType = Literal["propose", "amend", "boost"]
 
-AgentTradeStatus = Literal["proposed", "approved", "rejected", "expired"]
+HooperTradeStatus = Literal["proposed", "approved", "rejected", "expired"]
+
+# Backward-compatible alias
+AgentTradeStatus = HooperTradeStatus
 
 
 class TokenBalance(BaseModel):
@@ -42,20 +45,41 @@ class Trade(BaseModel):
     expires_at: datetime | None = None
 
 
-class AgentTrade(BaseModel):
-    """A trade of agents between two teams, requiring both teams' governors to vote."""
+class HooperTrade(BaseModel):
+    """A trade of hoopers between two teams, requiring both teams' governors to vote."""
 
     id: str
     from_team_id: str
     to_team_id: str
-    offered_agent_ids: list[str]  # agents moving from_team → to_team
-    requested_agent_ids: list[str]  # agents moving to_team → from_team
-    offered_agent_names: list[str] = Field(default_factory=list)
-    requested_agent_names: list[str] = Field(default_factory=list)
-    status: AgentTradeStatus = "proposed"
+    offered_hooper_ids: list[str]  # hoopers moving from_team → to_team
+    requested_hooper_ids: list[str]  # hoopers moving to_team → from_team
+    offered_hooper_names: list[str] = Field(default_factory=list)
+    requested_hooper_names: list[str] = Field(default_factory=list)
+    status: HooperTradeStatus = "proposed"
     proposed_by: str  # governor discord_id who proposed
     votes: dict[str, str] = Field(default_factory=dict)  # governor_id → "yes"/"no"
     required_voters: list[str] = Field(default_factory=list)  # all governor IDs on both teams
     from_team_name: str = ""
     to_team_name: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # Backward-compatible aliases
+    @property
+    def offered_agent_ids(self) -> list[str]:
+        return self.offered_hooper_ids
+
+    @property
+    def requested_agent_ids(self) -> list[str]:
+        return self.requested_hooper_ids
+
+    @property
+    def offered_agent_names(self) -> list[str]:
+        return self.offered_hooper_names
+
+    @property
+    def requested_agent_names(self) -> list[str]:
+        return self.requested_hooper_names
+
+
+# Backward-compatible alias
+AgentTrade = HooperTrade

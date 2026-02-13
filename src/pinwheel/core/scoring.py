@@ -10,7 +10,7 @@ import math
 import random
 from typing import Literal
 
-from pinwheel.core.state import AgentState
+from pinwheel.core.state import HooperState
 from pinwheel.models.rules import RuleSet
 
 ShotType = Literal["at_rim", "mid_range", "three_point", "free_throw"]
@@ -39,7 +39,7 @@ def logistic(x: float, midpoint: float, steepness: float) -> float:
 
 
 def compute_contest(
-    defender: AgentState,
+    defender: HooperState,
     shot_type: ShotType,
     scheme_modifier: float,
 ) -> float:
@@ -62,8 +62,8 @@ def compute_stamina_modifier(stamina: float) -> float:
 
 
 def compute_shot_probability(
-    shooter: AgentState,
-    defender: AgentState,
+    shooter: HooperState,
+    defender: HooperState,
     shot_type: ShotType,
     scheme_modifier: float,
     rules: RuleSet,
@@ -88,8 +88,8 @@ def points_for_shot(shot_type: ShotType, rules: RuleSet) -> int:
 
 
 def resolve_shot(
-    shooter: AgentState,
-    defender: AgentState,
+    shooter: HooperState,
+    defender: HooperState,
     shot_type: ShotType,
     scheme_modifier: float,
     rules: RuleSet,

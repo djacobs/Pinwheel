@@ -20,7 +20,7 @@ from pinwheel.core.defense import (
 )
 from pinwheel.core.moves import apply_move_modifier, get_triggered_moves
 from pinwheel.core.scoring import ShotType, resolve_shot
-from pinwheel.core.state import AgentState, GameState
+from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.game import PossessionLog
 from pinwheel.models.rules import RuleSet
 
@@ -47,7 +47,7 @@ class PossessionResult:
     log: PossessionLog | None = None
 
 
-def select_ball_handler(offense: list[AgentState], rng: random.Random) -> AgentState:
+def select_ball_handler(offense: list[HooperState], rng: random.Random) -> HooperState:
     """Pick who handles the ball. Weighted by passing + IQ."""
     if not offense:
         raise ValueError("No offensive players available")
@@ -56,7 +56,7 @@ def select_ball_handler(offense: list[AgentState], rng: random.Random) -> AgentS
 
 
 def select_action(
-    handler: AgentState,
+    handler: HooperState,
     game_state: GameState,
     rules: RuleSet,
     rng: random.Random,
@@ -86,7 +86,7 @@ def select_action(
 
 
 def check_turnover(
-    handler: AgentState,
+    handler: HooperState,
     scheme: DefensiveScheme,
     rng: random.Random,
 ) -> bool:
@@ -100,7 +100,7 @@ def check_turnover(
 
 
 def check_foul(
-    defender: AgentState,
+    defender: HooperState,
     shot_type: ShotType,
     scheme: DefensiveScheme,
     rng: random.Random,
@@ -116,10 +116,10 @@ def check_foul(
 
 
 def attempt_rebound(
-    offense: list[AgentState],
-    defense: list[AgentState],
+    offense: list[HooperState],
+    defense: list[HooperState],
     rng: random.Random,
-) -> tuple[AgentState, bool]:
+) -> tuple[HooperState, bool]:
     """Resolve a rebound after a missed shot. Returns (rebounder, is_offensive)."""
     all_players = [(a, True) for a in offense] + [(a, False) for a in defense]
     if not all_players:
@@ -142,7 +142,7 @@ def attempt_rebound(
 
 
 def check_shot_clock_violation(
-    handler: AgentState,
+    handler: HooperState,
     scheme: DefensiveScheme,
     rng: random.Random,
 ) -> bool:
@@ -168,7 +168,7 @@ def check_shot_clock_violation(
 
 
 def drain_stamina(
-    agents: list[AgentState],
+    agents: list[HooperState],
     scheme: DefensiveScheme,
     is_defense: bool,
 ) -> None:
@@ -176,7 +176,7 @@ def drain_stamina(
     base_drain = 0.007
     scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
     for agent in agents:
-        recovery = agent.agent.attributes.stamina / 3000.0
+        recovery = agent.hooper.attributes.stamina / 3000.0
         drain = base_drain + scheme_drain - recovery
         agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
@@ -223,11 +223,11 @@ def resolve_possession(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
             offense_team_id=(
-                game_state.home_agents[0].agent.team_id
+                game_state.home_agents[0].hooper.team_id
                 if game_state.home_has_ball
-                else game_state.away_agents[0].agent.team_id
+                else game_state.away_agents[0].hooper.team_id
             ),
-            ball_handler_id=handler.agent.id,
+            ball_handler_id=handler.hooper.id,
             action="turnover",
             result="turnover",
             defensive_scheme=scheme,
@@ -252,11 +252,11 @@ def resolve_possession(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
             offense_team_id=(
-                game_state.home_agents[0].agent.team_id
+                game_state.home_agents[0].hooper.team_id
                 if game_state.home_has_ball
-                else game_state.away_agents[0].agent.team_id
+                else game_state.away_agents[0].hooper.team_id
             ),
-            ball_handler_id=handler.agent.id,
+            ball_handler_id=handler.hooper.id,
             action="shot_clock_violation",
             result="turnover",
             defensive_scheme=scheme,
@@ -321,7 +321,7 @@ def resolve_possession(
     if check_foul(primary_defender, shot_type, scheme, rng):
         foul_on_defender = True
         primary_defender.fouls += 1
-        fouling_id = primary_defender.agent.id
+        fouling_id = primary_defender.hooper.id
         if primary_defender.fouls >= rules.personal_foul_limit:
             primary_defender.ejected = True
 
@@ -344,15 +344,15 @@ def resolve_possession(
     if not made and not foul_on_defender:
         rebounder, is_offensive = attempt_rebound(offense, defense, rng)
         rebounder.rebounds += 1
-        rebound_id = rebounder.agent.id
+        rebound_id = rebounder.hooper.id
 
     # 11. Assist credit (simplified: random teammate if made)
     if made and len(offense) > 1:
-        teammates = [a for a in offense if a.agent.id != handler.agent.id]
+        teammates = [a for a in offense if a.hooper.id != handler.hooper.id]
         if teammates:
             assister = rng.choice(teammates)
             assister.assists += 1
-            assist_id = assister.agent.id
+            assist_id = assister.hooper.id
 
     # 12. Update score
     if pts > 0:
@@ -367,19 +367,19 @@ def resolve_possession(
 
     # Build log
     team_id = (
-        game_state.home_agents[0].agent.team_id
+        game_state.home_agents[0].hooper.team_id
         if game_state.home_has_ball
-        else game_state.away_agents[0].agent.team_id
+        else game_state.away_agents[0].hooper.team_id
     )
     log = PossessionLog(
         quarter=game_state.quarter,
         possession_number=game_state.possession_number,
         offense_team_id=team_id,
-        ball_handler_id=handler.agent.id,
+        ball_handler_id=handler.hooper.id,
         action=shot_type,
         result="made" if made else ("foul" if foul_on_defender else "missed"),
         points_scored=pts,
-        defender_id=primary_defender.agent.id,
+        defender_id=primary_defender.hooper.id,
         assist_id=assist_id,
         rebound_id=rebound_id,
         move_activated=move_name,
@@ -394,7 +394,7 @@ def resolve_possession(
         turnover=False,
         foul_on_defender=foul_on_defender,
         fouling_agent_id=fouling_id,
-        shooter_id=handler.agent.id,
+        shooter_id=handler.hooper.id,
         assist_id=assist_id,
         rebound_id=rebound_id,
         shot_type=shot_type,

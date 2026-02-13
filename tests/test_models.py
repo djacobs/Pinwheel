@@ -4,15 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from pinwheel.models.game import (
-    AgentBoxScore,
     CommentaryLine,
     GameResult,
+    HooperBoxScore,
     PossessionLog,
 )
 from pinwheel.models.governance import Amendment, GovernanceEvent, Proposal, Vote
 from pinwheel.models.mirror import Mirror, MirrorUpdate
 from pinwheel.models.rules import DEFAULT_RULESET, RuleChange, RuleSet
-from pinwheel.models.team import Agent, Move, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
 from pinwheel.models.tokens import TokenBalance, Trade
 
 # --- RuleSet ---
@@ -49,7 +49,7 @@ class TestRuleSet:
         assert rc.new_value == 4
 
 
-# --- Team / Agent ---
+# --- Team / Hooper ---
 
 
 class TestPlayerAttributes:
@@ -105,7 +105,7 @@ class TestTeamModels:
         m = Move(name="Heat Check", trigger="made_three", effect="+15% three_point")
         assert m.source == "archetype"
 
-    def test_agent(self):
+    def test_hooper(self):
         attrs = PlayerAttributes(
             scoring=80,
             passing=40,
@@ -117,19 +117,19 @@ class TestTeamModels:
             chaotic_alignment=20,
             fate=28,
         )
-        a = Agent(
+        h = Hooper(
             id="a-1",
             name="Nakamura",
             team_id="t-1",
             archetype="sharpshooter",
             attributes=attrs,
         )
-        assert a.is_starter is True
+        assert h.is_starter is True
 
     def test_team(self):
         v = Venue(name="Court", capacity=5000)
         t = Team(id="t-1", name="Thorns", venue=v)
-        assert t.agents == []
+        assert t.hoopers == []
 
 
 # --- Game ---
@@ -149,9 +149,9 @@ class TestGameModels:
         assert p.points_scored == 3
 
     def test_box_score_percentages(self):
-        bs = AgentBoxScore(
-            agent_id="a-1",
-            agent_name="Test",
+        bs = HooperBoxScore(
+            hooper_id="a-1",
+            hooper_name="Test",
             team_id="t-1",
             field_goals_made=5,
             field_goals_attempted=10,
@@ -162,7 +162,7 @@ class TestGameModels:
         assert bs.three_pct == 0.5
 
     def test_box_score_zero_attempts(self):
-        bs = AgentBoxScore(agent_id="a-1", agent_name="Test", team_id="t-1")
+        bs = HooperBoxScore(hooper_id="a-1", hooper_name="Test", team_id="t-1")
         assert bs.fg_pct == 0.0
         assert bs.three_pct == 0.0
 

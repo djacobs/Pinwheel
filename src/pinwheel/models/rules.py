@@ -14,7 +14,7 @@ class RuleSet(BaseModel):
 
     Organized by tier (SIMULATION.md):
     - Tier 1: Game Mechanics — core gameplay numbers
-    - Tier 2: Agent Behavior — how agents interact with the environment
+    - Tier 2: Hooper Behavior — how hoopers interact with the environment
     - Tier 3: League Structure — season format, scheduling
     - Tier 4: Meta-Governance — rules about rules
     """
@@ -33,8 +33,9 @@ class RuleSet(BaseModel):
     halftime_stamina_recovery: float = Field(default=0.40, ge=0.0, le=0.6)
     quarter_break_stamina_recovery: float = Field(default=0.15, ge=0.0, le=0.3)
     safety_cap_possessions: int = Field(default=300, ge=50, le=500)
+    substitution_stamina_threshold: float = Field(default=0.35, ge=0.1, le=0.8)
 
-    # Tier 2: Agent Behavior
+    # Tier 2: Hooper Behavior
     max_shot_share: float = Field(default=1.0, ge=0.2, le=1.0)
     min_pass_per_possession: int = Field(default=0, ge=0, le=5)
     home_court_enabled: bool = True

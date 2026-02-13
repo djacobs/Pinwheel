@@ -534,7 +534,7 @@ class TestJoinCommand:
             league = await repo.create_league("Test League")
             season = await repo.create_season(league.id, "Season 1")
             team = await repo.create_team(season.id, "Rose City Thorns", color="#e94560")
-            await repo.create_agent(
+            await repo.create_hooper(
                 team.id, season.id, "Briar Ashwood", "sharpshooter",
                 {
                     "scoring": 65, "passing": 35, "defense": 30,
@@ -910,7 +910,7 @@ async def _make_enrolled_bot_and_interaction(
         team = await repo.create_team(
             season.id, "Rose City Thorns", color="#e94560",
         )
-        await repo.create_agent(
+        await repo.create_hooper(
             team.id, season.id, "Briar Ashwood", "sharpshooter",
             {
                 "scoring": 65, "passing": 35, "defense": 30,
@@ -1388,25 +1388,25 @@ class TestTradeCommand:
 
 
 # ---------------------------------------------------------------------------
-# /trade-agent
+# /trade-hooper
 # ---------------------------------------------------------------------------
 
 
-class TestAgentTradeCommand:
-    """Tests for agent trade proposals with scoped governor voting."""
+class TestHooperTradeCommand:
+    """Tests for hooper trade proposals with scoped governor voting."""
 
-    async def test_agent_trade_model_roundtrip(self) -> None:
-        """AgentTrade model can be created and serialized."""
-        from pinwheel.models.tokens import AgentTrade
+    async def test_hooper_trade_model_roundtrip(self) -> None:
+        """HooperTrade model can be created and serialized."""
+        from pinwheel.models.tokens import HooperTrade
 
-        trade = AgentTrade(
+        trade = HooperTrade(
             id="trade-1",
             from_team_id="team-a",
             to_team_id="team-b",
-            offered_agent_ids=["agent-1"],
-            requested_agent_ids=["agent-2"],
-            offered_agent_names=["Player One"],
-            requested_agent_names=["Player Two"],
+            offered_hooper_ids=["hooper-1"],
+            requested_hooper_ids=["hooper-2"],
+            offered_hooper_names=["Player One"],
+            requested_hooper_names=["Player Two"],
             proposed_by="gov-1",
             required_voters=["gov-1", "gov-2"],
             from_team_name="Team A",
@@ -1414,76 +1414,76 @@ class TestAgentTradeCommand:
         )
         assert trade.status == "proposed"
         data = trade.model_dump(mode="json")
-        restored = AgentTrade(**data)
+        restored = HooperTrade(**data)
         assert restored.id == "trade-1"
-        assert restored.offered_agent_names == ["Player One"]
+        assert restored.offered_hooper_names == ["Player One"]
 
-    async def test_vote_agent_trade(self) -> None:
-        """Voting on an agent trade records the vote."""
-        from pinwheel.core.tokens import vote_agent_trade
-        from pinwheel.models.tokens import AgentTrade
+    async def test_vote_hooper_trade(self) -> None:
+        """Voting on a hooper trade records the vote."""
+        from pinwheel.core.tokens import vote_hooper_trade
+        from pinwheel.models.tokens import HooperTrade
 
-        trade = AgentTrade(
+        trade = HooperTrade(
             id="trade-1",
             from_team_id="team-a",
             to_team_id="team-b",
-            offered_agent_ids=["agent-1"],
-            requested_agent_ids=["agent-2"],
+            offered_hooper_ids=["hooper-1"],
+            requested_hooper_ids=["hooper-2"],
             proposed_by="gov-1",
             required_voters=["gov-1", "gov-2"],
         )
-        updated = vote_agent_trade(trade, "gov-1", "yes")
+        updated = vote_hooper_trade(trade, "gov-1", "yes")
         assert updated.votes == {"gov-1": "yes"}
 
     async def test_tally_all_yes_approves(self) -> None:
         """When all voters say yes, the trade is approved."""
-        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
-        from pinwheel.models.tokens import AgentTrade
+        from pinwheel.core.tokens import tally_hooper_trade, vote_hooper_trade
+        from pinwheel.models.tokens import HooperTrade
 
-        trade = AgentTrade(
+        trade = HooperTrade(
             id="t1", from_team_id="a", to_team_id="b",
-            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2"],
         )
-        vote_agent_trade(trade, "g1", "yes")
-        vote_agent_trade(trade, "g2", "yes")
-        all_voted, from_ok, to_ok = tally_agent_trade(trade)
+        vote_hooper_trade(trade, "g1", "yes")
+        vote_hooper_trade(trade, "g2", "yes")
+        all_voted, from_ok, to_ok = tally_hooper_trade(trade)
         assert all_voted is True
         assert from_ok is True
         assert to_ok is True
 
     async def test_tally_majority_no_rejects(self) -> None:
         """When majority votes no, the trade is rejected."""
-        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
-        from pinwheel.models.tokens import AgentTrade
+        from pinwheel.core.tokens import tally_hooper_trade, vote_hooper_trade
+        from pinwheel.models.tokens import HooperTrade
 
-        trade = AgentTrade(
+        trade = HooperTrade(
             id="t1", from_team_id="a", to_team_id="b",
-            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2"],
         )
-        vote_agent_trade(trade, "g1", "yes")
-        vote_agent_trade(trade, "g2", "no")
-        all_voted, from_ok, to_ok = tally_agent_trade(trade)
+        vote_hooper_trade(trade, "g1", "yes")
+        vote_hooper_trade(trade, "g2", "no")
+        all_voted, from_ok, to_ok = tally_hooper_trade(trade)
         assert all_voted is True
         assert from_ok is False
 
     async def test_tally_incomplete_votes(self) -> None:
         """Trade not tallied until all required voters have voted."""
-        from pinwheel.core.tokens import tally_agent_trade, vote_agent_trade
-        from pinwheel.models.tokens import AgentTrade
+        from pinwheel.core.tokens import tally_hooper_trade, vote_hooper_trade
+        from pinwheel.models.tokens import HooperTrade
 
-        trade = AgentTrade(
+        trade = HooperTrade(
             id="t1", from_team_id="a", to_team_id="b",
-            offered_agent_ids=["x"], requested_agent_ids=["y"],
+            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2", "g3"],
         )
-        vote_agent_trade(trade, "g1", "yes")
-        all_voted, _, _ = tally_agent_trade(trade)
+        vote_hooper_trade(trade, "g1", "yes")
+        all_voted, _, _ = tally_hooper_trade(trade)
         assert all_voted is False
 
-    async def test_swap_agent_team(self) -> None:
-        """swap_agent_team changes the agent's team_id in the database."""
+    async def test_swap_hooper_team(self) -> None:
+        """swap_hooper_team changes the hooper's team_id in the database."""
         from pinwheel.db.engine import create_engine, get_session
         from pinwheel.db.models import Base
         from pinwheel.db.repository import Repository
@@ -1498,17 +1498,17 @@ class TestAgentTradeCommand:
             season = await repo.create_season(league.id, "S1")
             team_a = await repo.create_team(season.id, "Team A", color="#ff0000")
             team_b = await repo.create_team(season.id, "Team B", color="#0000ff")
-            agent = await repo.create_agent(
+            hooper = await repo.create_hooper(
                 team_id=team_a.id, season_id=season.id,
                 name="Star", archetype="Sharpshooter",
                 attributes={"scoring": 80}, moves=[],
             )
-            assert agent.team_id == team_a.id
+            assert hooper.team_id == team_a.id
 
-            await repo.swap_agent_team(agent.id, team_b.id)
+            await repo.swap_hooper_team(hooper.id, team_b.id)
             await session.flush()
 
-            refreshed = await session.get(type(agent), agent.id)
+            refreshed = await session.get(type(hooper), hooper.id)
             assert refreshed.team_id == team_b.id
 
         await engine.dispose()
@@ -1539,16 +1539,16 @@ class TestAgentTradeCommand:
 
         await engine.dispose()
 
-    async def test_build_agent_trade_embed(self) -> None:
-        """build_agent_trade_embed returns a proper Discord embed."""
-        from pinwheel.discord.embeds import build_agent_trade_embed
+    async def test_build_hooper_trade_embed(self) -> None:
+        """build_hooper_trade_embed returns a proper Discord embed."""
+        from pinwheel.discord.embeds import build_hooper_trade_embed
 
-        embed = build_agent_trade_embed(
+        embed = build_hooper_trade_embed(
             from_team="Thorns", to_team="Breakers",
             offered_names=["Star"], requested_names=["Flash"],
             proposer_name="Gov1", votes_cast=1, votes_needed=3,
         )
-        assert "Agent Trade Proposal" in embed.title
+        assert "Hooper Trade Proposal" in embed.title
         assert "Thorns" in embed.description
         assert "Star" in embed.description
         assert "1/3" in embed.description
@@ -1983,7 +1983,7 @@ class TestSetupIdempotencyWithDB:
             team = await repo.create_team(
                 season.id, "Rose City Thorns", color="#e94560",
             )
-            await repo.create_agent(
+            await repo.create_hooper(
                 team.id, season.id, "Briar", "sharpshooter",
                 {"scoring": 65, "passing": 35, "defense": 30,
                  "speed": 45, "stamina": 40, "iq": 55,

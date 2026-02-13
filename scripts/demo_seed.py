@@ -29,7 +29,7 @@ TEAMS = [
         "name": "Rose City Thorns",
         "color": "#e94560",
         "venue": {"name": "Thorn Garden", "capacity": 4000},
-        "agents": [
+        "hoopers": [
             (
                 "Briar Ashwood",
                 "sharpshooter",
@@ -81,7 +81,7 @@ TEAMS = [
         "name": "Burnside Breakers",
         "color": "#53d8fb",
         "venue": {"name": "Burnside Courts", "capacity": 3500},
-        "agents": [
+        "hoopers": [
             (
                 "Kai Ripley",
                 "glass_cannon",
@@ -133,7 +133,7 @@ TEAMS = [
         "name": "St. Johns Herons",
         "color": "#b794f4",
         "venue": {"name": "Cathedral Park Arena", "capacity": 3000},
-        "agents": [
+        "hoopers": [
             (
                 "Wren Silvas",
                 "sharpshooter",
@@ -185,7 +185,7 @@ TEAMS = [
         "name": "Hawthorne Hammers",
         "color": "#f0c040",
         "venue": {"name": "The Forge", "capacity": 4500},
-        "agents": [
+        "hoopers": [
             (
                 "Steel Voss",
                 "enforcer",
@@ -251,8 +251,8 @@ async def seed():
         for t in TEAMS:
             team = await repo.create_team(season.id, t["name"], color=t["color"], venue=t["venue"])
             team_ids.append(team.id)
-            for name, archetype, attrs in t["agents"]:
-                await repo.create_agent(
+            for name, archetype, attrs in t["hoopers"]:
+                await repo.create_hooper(
                     team_id=team.id,
                     season_id=season.id,
                     name=name,

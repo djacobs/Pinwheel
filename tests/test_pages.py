@@ -38,7 +38,7 @@ async def app_client():
     await engine.dispose()
 
 
-def _agent_attrs():
+def _hooper_attrs():
     return {
         "scoring": 50,
         "passing": 40,
@@ -73,12 +73,12 @@ async def _seed_season(engine):
             )
             team_ids.append(team.id)
             for j in range(3):
-                await repo.create_agent(
+                await repo.create_hooper(
                     team_id=team.id,
                     season_id=season.id,
-                    name=f"Agent-{i + 1}-{j + 1}",
+                    name=f"Hooper-{i + 1}-{j + 1}",
                     archetype="sharpshooter",
-                    attributes=_agent_attrs(),
+                    attributes=_hooper_attrs(),
                 )
 
         matchups = generate_round_robin(team_ids)
@@ -208,10 +208,10 @@ class TestPopulatedPages:
         assert r.status_code == 200
         assert "Team 1" in r.text
         assert "Roster" in r.text
-        assert "Agent-1-1" in r.text
+        assert "Hooper-1-1" in r.text
 
     async def test_team_page_has_spider_charts(self, app_client):
-        """Team page should render SVG spider charts for each agent."""
+        """Team page should render SVG spider charts for each hooper."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
@@ -220,14 +220,14 @@ class TestPopulatedPages:
         assert "<svg" in r.text
         assert "polygon" in r.text
 
-    async def test_team_page_has_agent_links(self, app_client):
-        """Team page should have links to individual agent pages."""
+    async def test_team_page_has_hooper_links(self, app_client):
+        """Team page should have links to individual hooper pages."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
         r = await client.get(f"/teams/{team_ids[0]}")
         assert r.status_code == 200
-        assert "/agents/" in r.text
+        assert "/hoopers/" in r.text
 
     async def test_team_404(self, app_client):
         client, _ = app_client
@@ -252,7 +252,7 @@ class TestPopulatedPages:
         assert r.status_code == 200
         assert "Rounds Played" in r.text
         assert "Teams" in r.text
-        assert "Agents" in r.text
+        assert "hoopers" in r.text
 
     async def test_home_has_join_cta(self, app_client):
         """Home page should have a join/play CTA."""
@@ -282,85 +282,85 @@ class TestPopulatedPages:
         assert r.status_code == 200
 
 
-class TestAgentPages:
-    """Tests for individual agent pages."""
+class TestHooperPages:
+    """Tests for individual hooper pages."""
 
-    async def test_agent_page_renders(self, app_client):
-        """Agent page should render with the agent's name."""
+    async def test_hooper_page_renders(self, app_client):
+        """Hooper page should render with the hooper's name."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
-        # Get an agent ID
+        # Get a hooper ID
         async with get_session(engine) as session:
             repo = Repository(session)
             team = await repo.get_team(team_ids[0])
-            agent_id = team.agents[0].id
-            agent_name = team.agents[0].name
+            hooper_id = team.hoopers[0].id
+            hooper_name = team.hoopers[0].name
 
-        r = await client.get(f"/agents/{agent_id}")
+        r = await client.get(f"/hoopers/{hooper_id}")
         assert r.status_code == 200
-        assert agent_name in r.text
+        assert hooper_name in r.text
 
-    async def test_agent_page_has_spider_chart(self, app_client):
-        """Agent page should contain an SVG spider chart."""
+    async def test_hooper_page_has_spider_chart(self, app_client):
+        """Hooper page should contain an SVG spider chart."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
         async with get_session(engine) as session:
             repo = Repository(session)
             team = await repo.get_team(team_ids[0])
-            agent_id = team.agents[0].id
+            hooper_id = team.hoopers[0].id
 
-        r = await client.get(f"/agents/{agent_id}")
+        r = await client.get(f"/hoopers/{hooper_id}")
         assert r.status_code == 200
         assert "<svg" in r.text
         assert "polygon" in r.text
 
-    async def test_agent_page_has_game_log(self, app_client):
-        """After running a round, agent page should show game log."""
+    async def test_hooper_page_has_game_log(self, app_client):
+        """After running a round, hooper page should show game log."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
         async with get_session(engine) as session:
             repo = Repository(session)
             team = await repo.get_team(team_ids[0])
-            agent_id = team.agents[0].id
+            hooper_id = team.hoopers[0].id
 
-        r = await client.get(f"/agents/{agent_id}")
+        r = await client.get(f"/hoopers/{hooper_id}")
         assert r.status_code == 200
         assert "Game Log" in r.text
 
-    async def test_agent_page_has_season_averages(self, app_client):
-        """Agent page should show season averages after games are played."""
+    async def test_hooper_page_has_season_averages(self, app_client):
+        """Hooper page should show season averages after games are played."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
         async with get_session(engine) as session:
             repo = Repository(session)
             team = await repo.get_team(team_ids[0])
-            agent_id = team.agents[0].id
+            hooper_id = team.hoopers[0].id
 
-        r = await client.get(f"/agents/{agent_id}")
+        r = await client.get(f"/hoopers/{hooper_id}")
         assert r.status_code == 200
         assert "Season Averages" in r.text
         assert "PPG" in r.text
 
-    async def test_agent_page_has_team_link(self, app_client):
-        """Agent page should link back to the team."""
+    async def test_hooper_page_has_team_link(self, app_client):
+        """Hooper page should link back to the team."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
         async with get_session(engine) as session:
             repo = Repository(session)
             team = await repo.get_team(team_ids[0])
-            agent_id = team.agents[0].id
+            hooper_id = team.hoopers[0].id
 
-        r = await client.get(f"/agents/{agent_id}")
+        r = await client.get(f"/hoopers/{hooper_id}")
         assert r.status_code == 200
         assert f"/teams/{team_ids[0]}" in r.text
 
-    async def test_agent_page_404(self, app_client):
-        """Nonexistent agent ID should return 404."""
+    async def test_hooper_page_404(self, app_client):
+        """Nonexistent hooper ID should return 404."""
         client, _ = app_client
-        r = await client.get("/agents/nonexistent")
+        r = await client.get("/hoopers/nonexistent")
         assert r.status_code == 404

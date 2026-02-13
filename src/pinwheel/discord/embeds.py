@@ -359,17 +359,17 @@ def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
 def build_welcome_embed(
     team_name: str,
     team_color: str,
-    agents: list[dict[str, str]],
+    hoopers: list[dict[str, str]],
 ) -> discord.Embed:
     """Build a welcome DM embed for a newly enrolled governor.
 
     Args:
         team_name: Name of the team joined.
         team_color: Hex color string (e.g. "#E74C3C").
-        agents: List of dicts with 'name' and 'archetype' keys.
+        hoopers: List of dicts with 'name' and 'archetype' keys.
     """
     roster = "\n".join(
-        f"**{a['name']}** -- {a['archetype']}" for a in agents
+        f"**{h['name']}** -- {h['archetype']}" for h in hoopers
     )
     embed = discord.Embed(
         title=f"Welcome to {team_name}!",
@@ -415,7 +415,7 @@ def build_team_list_embed(
     return embed
 
 
-def build_agent_trade_embed(
+def build_hooper_trade_embed(
     from_team: str,
     to_team: str,
     offered_names: list[str],
@@ -424,11 +424,11 @@ def build_agent_trade_embed(
     votes_cast: int,
     votes_needed: int,
 ) -> discord.Embed:
-    """Build an embed for an agent trade proposal between two teams."""
+    """Build an embed for a hooper trade proposal between two teams."""
     offered = ", ".join(offered_names) or "None"
     requested = ", ".join(requested_names) or "None"
     embed = discord.Embed(
-        title="Agent Trade Proposal",
+        title="Hooper Trade Proposal",
         description=(
             f"Proposed by **{proposer_name}**\n\n"
             f"**{from_team}** sends: {offered}\n"

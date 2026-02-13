@@ -118,7 +118,7 @@ class TestE2E:
             )
 
             team_id_map: dict[str, str] = {}  # model team id → db team id
-            agent_id_map: dict[str, str] = {}
+            hooper_id_map: dict[str, str] = {}
 
             for team in league.teams:
                 db_team = await repo.create_team(
@@ -130,17 +130,17 @@ class TestE2E:
                 )
                 team_id_map[team.id] = db_team.id
 
-                for agent in team.agents:
-                    db_agent = await repo.create_agent(
+                for hooper in team.hoopers:
+                    db_hooper = await repo.create_hooper(
                         team_id=db_team.id,
                         season_id=db_season.id,
-                        name=agent.name,
-                        archetype=agent.archetype,
-                        attributes=agent.attributes.model_dump(),
-                        moves=[m.model_dump() for m in agent.moves],
-                        is_active=agent.is_starter,
+                        name=hooper.name,
+                        archetype=hooper.archetype,
+                        attributes=hooper.attributes.model_dump(),
+                        moves=[m.model_dump() for m in hooper.moves],
+                        is_active=hooper.is_starter,
                     )
-                    agent_id_map[agent.id] = db_agent.id
+                    hooper_id_map[hooper.id] = db_hooper.id
 
         # 3. Generate round-robin schedule
         db_team_ids = list(team_id_map.values())
@@ -178,12 +178,12 @@ class TestE2E:
                 )
 
                 for bs in result.box_scores:
-                    # Map agent IDs
-                    orig_agent_id = bs.agent_id
-                    db_agent_id = agent_id_map.get(orig_agent_id, orig_agent_id)
+                    # Map hooper IDs
+                    orig_hooper_id = bs.hooper_id
+                    db_hooper_id = hooper_id_map.get(orig_hooper_id, orig_hooper_id)
                     await repo.store_box_score(
                         game_id=db_game.id,
-                        agent_id=db_agent_id,
+                        hooper_id=db_hooper_id,
                         team_id=(
                             matchup.home_team_id
                             if bs.team_id == home_team.id
@@ -220,8 +220,8 @@ class TestE2E:
             resp = await client.get(f"/api/teams/{first_team_id}")
             assert resp.status_code == 200
             team_data = resp.json()["data"]
-            assert "agents" in team_data
-            assert len(team_data["agents"]) == 4
+            assert "hoopers" in team_data
+            assert len(team_data["hoopers"]) == 4
 
             # Standings
             resp = await client.get(f"/api/standings?season_id={db_season.id}")

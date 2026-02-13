@@ -22,7 +22,7 @@ async def engine() -> AsyncEngine:
     await eng.dispose()
 
 
-def _agent_attrs() -> dict:
+def _hooper_attrs() -> dict:
     return {
         "scoring": 50,
         "passing": 40,
@@ -37,7 +37,7 @@ def _agent_attrs() -> dict:
 
 
 async def _setup_season(engine: AsyncEngine) -> str:
-    """Create a league, season, 4 teams with 3 agents each, and a schedule.
+    """Create a league, season, 4 teams with 3 hoopers each, and a schedule.
 
     Returns the season ID.
     """
@@ -59,12 +59,12 @@ async def _setup_season(engine: AsyncEngine) -> str:
             )
             team_ids.append(team.id)
             for j in range(3):
-                await repo.create_agent(
+                await repo.create_hooper(
                     team_id=team.id,
                     season_id=season.id,
-                    name=f"Agent-{i + 1}-{j + 1}",
+                    name=f"Hooper-{i + 1}-{j + 1}",
                     archetype="sharpshooter",
-                    attributes=_agent_attrs(),
+                    attributes=_hooper_attrs(),
                 )
 
         matchups = generate_round_robin(team_ids)

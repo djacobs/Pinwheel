@@ -49,14 +49,14 @@
 
 <div class="section-title">Roster</div>
 <div class="roster-grid mb-2">
-  {% for agent in agents %}
-  <div class="agent-card">
-    <a href="/agents/{{ agent.id }}" class="agent-name-link">
-      <div class="agent-name">{{ agent.name }}</div>
+  {% for hooper in hoopers %}
+  <div class="hooper-card">
+    <a href="/hoopers/{{ hooper.id }}" class="hooper-name-link">
+      <div class="hooper-name">{{ hooper.name }}</div>
     </a>
-    <div class="agent-archetype">{{ agent.archetype }}</div>
-    {% if agent.spider_points %}
-    {{ spider(agent.spider_points, avg_points, grid_rings, axis_lines, agent.spider_poly, avg_poly, team_color=team.color, size="sm") }}
+    <div class="hooper-archetype">{{ hooper.archetype }}</div>
+    {% if hooper.spider_points %}
+    {{ spider(hooper.spider_points, avg_points, grid_rings, axis_lines, hooper.spider_poly, avg_poly, team_color=team.color, size="sm") }}
     {% endif %}
   </div>
   {% endfor %}

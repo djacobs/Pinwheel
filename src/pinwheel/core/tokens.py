@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from pinwheel.models.tokens import AgentTrade, TokenBalance, Trade
+from pinwheel.models.tokens import HooperTrade, TokenBalance, Trade
 
 if TYPE_CHECKING:
     from pinwheel.db.repository import Repository
@@ -210,42 +210,42 @@ async def accept_trade(
     return trade
 
 
-# --- Agent Trading ---
+# --- Hooper Trading ---
 
 
-async def propose_agent_trade(
+async def propose_hooper_trade(
     repo: Repository,
     proposer_id: str,
     from_team_id: str,
     to_team_id: str,
-    offered_agent_ids: list[str],
-    requested_agent_ids: list[str],
-    offered_agent_names: list[str],
-    requested_agent_names: list[str],
+    offered_hooper_ids: list[str],
+    requested_hooper_ids: list[str],
+    offered_hooper_names: list[str],
+    requested_hooper_names: list[str],
     from_team_name: str,
     to_team_name: str,
     required_voters: list[str],
     season_id: str,
-) -> AgentTrade:
+) -> HooperTrade:
     """Create an agent trade proposal between two teams."""
     trade_id = str(uuid.uuid4())
-    trade = AgentTrade(
+    trade = HooperTrade(
         id=trade_id,
         from_team_id=from_team_id,
         to_team_id=to_team_id,
-        offered_agent_ids=offered_agent_ids,
-        requested_agent_ids=requested_agent_ids,
-        offered_agent_names=offered_agent_names,
-        requested_agent_names=requested_agent_names,
+        offered_hooper_ids=offered_hooper_ids,
+        requested_hooper_ids=requested_hooper_ids,
+        offered_hooper_names=offered_hooper_names,
+        requested_hooper_names=requested_hooper_names,
         proposed_by=proposer_id,
         required_voters=required_voters,
         from_team_name=from_team_name,
         to_team_name=to_team_name,
     )
     await repo.append_event(
-        event_type="agent_trade.proposed",
+        event_type="hooper_trade.proposed",
         aggregate_id=trade_id,
-        aggregate_type="agent_trade",
+        aggregate_type="hooper_trade",
         season_id=season_id,
         governor_id=proposer_id,
         team_id=from_team_id,
@@ -254,7 +254,7 @@ async def propose_agent_trade(
     return trade
 
 
-def vote_agent_trade(trade: AgentTrade, governor_id: str, vote: str) -> AgentTrade:
+def vote_hooper_trade(trade: HooperTrade, governor_id: str, vote: str) -> HooperTrade:
     """Record a governor's vote on an agent trade. Returns updated trade.
 
     Does NOT check authorization — caller must verify governor is in required_voters.
@@ -263,7 +263,7 @@ def vote_agent_trade(trade: AgentTrade, governor_id: str, vote: str) -> AgentTra
     return trade
 
 
-def tally_agent_trade(trade: AgentTrade) -> tuple[bool, bool, bool]:
+def tally_hooper_trade(trade: HooperTrade) -> tuple[bool, bool, bool]:
     """Tally votes for an agent trade.
 
     Returns (all_voted, from_team_approved, to_team_approved).
@@ -285,21 +285,21 @@ def tally_agent_trade(trade: AgentTrade) -> tuple[bool, bool, bool]:
     return True, approved, approved
 
 
-async def execute_agent_trade(
+async def execute_hooper_trade(
     repo: Repository,
-    trade: AgentTrade,
+    trade: HooperTrade,
     season_id: str,
 ) -> None:
-    """Execute an approved agent trade — swap agents between teams."""
-    for agent_id in trade.offered_agent_ids:
-        await repo.swap_agent_team(agent_id, trade.to_team_id)
-    for agent_id in trade.requested_agent_ids:
-        await repo.swap_agent_team(agent_id, trade.from_team_id)
+    """Execute an approved hooper trade — swap hoopers between teams."""
+    for hooper_id in trade.offered_hooper_ids:
+        await repo.swap_hooper_team(hooper_id, trade.to_team_id)
+    for hooper_id in trade.requested_hooper_ids:
+        await repo.swap_hooper_team(hooper_id, trade.from_team_id)
     trade.status = "approved"
     await repo.append_event(
-        event_type="agent_trade.executed",
+        event_type="hooper_trade.executed",
         aggregate_id=trade.id,
-        aggregate_type="agent_trade",
+        aggregate_type="hooper_trade",
         season_id=season_id,
         governor_id=trade.proposed_by,
         team_id=trade.from_team_id,

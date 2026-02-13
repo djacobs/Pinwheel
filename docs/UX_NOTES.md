@@ -343,3 +343,13 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** Mirrors were too brief (2-3 paragraphs) and didn't mention specific rule changes, governance outcomes, or timing of next governance window. Governors couldn't easily see what changed and what it meant.
 
 **Fix:** Updated all 3 mirror prompt templates: simulation (3-5 paragraphs), governance (3-5 paragraphs), private (2-3 paragraphs). Added prompt rules for referencing specific parameter changes with old/new values, summarizing governance window outcomes, and mentioning next window timing. Increased `max_tokens` from 800 to 1500. Enriched `governance_data["rules_changed"]` with actual `RuleChange` data from `rule.enacted` events. Updated mock generators to show detailed parameter changes.
+
+### 37. [DONE] Agent → Hooper rename across all UI
+**Problem:** "Agent" reads as "AI agent" in an AI project, confusing visitors. These are simulated basketball players, not AI actors. "Hooper" is basketball slang — unambiguous, fun, domain-appropriate.
+
+**Fix:** System-wide rename across all user-facing surfaces: route `/agents/{id}` → `/hoopers/{id}`, template `agent.html` → `hooper.html`, all template variables (`{{ agent.name }}` → `{{ hooper.name }}`), CSS classes (`.agent-card` → `.hooper-card`, `.agent-name` → `.hooper-name`, etc.), Discord bot commands (`/trade-agent` → `/trade-hooper`), embed titles ("Agent Trade Proposal" → "Hooper Trade Proposal"), rules tier label ("Agent Behavior" → "Hooper Behavior"), and all user-facing text referencing "agents" now says "hoopers". Box score API key `agent_id` → `hooper_id`.
+
+### 38. [DONE] Play/rules page "propose anything" copy
+**Problem:** "You are not limited to tweaking config values. You can propose anything." felt awkward and indirect — too much preamble before the exciting part.
+
+**Fix:** Changed to "Want to change the rules? Propose new ones — anything." Shorter, more direct, puts the action first. Updated on both `/play` and `/rules` pages.

@@ -789,20 +789,20 @@ h3 { font-size: 1.05rem; }
   gap: 0.75rem;
 }
 
-.agent-card {
+.hooper-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1rem;
 }
 
-.agent-name {
+.hooper-name {
   font-weight: 800;
   font-size: 1rem;
   margin-bottom: 0.15rem;
 }
 
-.agent-archetype {
+.hooper-archetype {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -897,15 +897,15 @@ h3 { font-size: 1.05rem; }
   white-space: nowrap;
 }
 
-/* ===== Agent Page ===== */
-.agent-page-header {
+/* ===== Hooper Page ===== */
+.hooper-page-header {
   display: flex;
   align-items: center;
   gap: 1.5rem;
   padding: 1.5rem 0;
 }
 
-.agent-page-header h1 {
+.hooper-page-header h1 {
   margin-bottom: 0.25rem;
 }
 
@@ -930,17 +930,17 @@ h3 { font-size: 1.05rem; }
   display: inline-block;
 }
 
-.agent-name-link {
+.hooper-name-link {
   color: var(--text-primary);
   text-decoration: none;
 }
 
-.agent-name-link:hover {
+.hooper-name-link:hover {
   color: var(--accent-governance);
   text-decoration: none;
 }
 
-.agent-bio {
+.hooper-bio {
   font-style: italic;
   color: var(--text-secondary);
   line-height: 1.7;
@@ -968,14 +968,14 @@ h3 { font-size: 1.05rem; }
   color: var(--accent-governance);
 }
 
-.agent-detail-grid {
+.hooper-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
 
 @media (max-width: 768px) {
-  .agent-detail-grid { grid-template-columns: 1fr; }
+  .hooper-detail-grid { grid-template-columns: 1fr; }
 }
 
 .stats-grid {

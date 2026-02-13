@@ -1,6 +1,6 @@
-"""Team, Agent, and related models.
+"""Team, Hooper, and related models.
 
-See docs/GLOSSARY.md: Team, Agent, Archetype, Venue, Move.
+See docs/GLOSSARY.md: Team, Hooper, Archetype, Venue, Move.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 
 class PlayerAttributes(BaseModel):
-    """Nine attributes that define an Agent's capabilities. Budget: 360 points."""
+    """Nine attributes that define a Hooper's capabilities. Budget: 360 points."""
 
     scoring: int = Field(ge=1, le=100)
     passing: int = Field(ge=1, le=100)
@@ -29,7 +29,7 @@ class PlayerAttributes(BaseModel):
 
 
 class Move(BaseModel):
-    """A special ability an Agent can activate during a Possession."""
+    """A special ability a Hooper can activate during a Possession."""
 
     name: str
     trigger: str
@@ -48,7 +48,7 @@ class Venue(BaseModel):
     location: list[float] = Field(default_factory=lambda: [45.5152, -122.6784])  # [lat, lon]
 
 
-class Agent(BaseModel):
+class Hooper(BaseModel):
     """A simulated basketball player."""
 
     id: str
@@ -61,12 +61,27 @@ class Agent(BaseModel):
     is_starter: bool = True
 
 
+# Backward-compatible alias
+Agent = Hooper
+
+
 class Team(BaseModel):
-    """A group of 4 Agents (3 starters + 1 bench)."""
+    """A group of 4 Hoopers (3 starters + 1 bench)."""
 
     id: str
     name: str
     color: str = "#000000"
     motto: str = ""
     venue: Venue
-    agents: list[Agent] = Field(default_factory=list)
+    hoopers: list[Hooper] = Field(default_factory=list)
+
+    def __init__(self, **data: object) -> None:
+        # Accept 'agents' as backward-compatible alias for 'hoopers'
+        if "agents" in data and "hoopers" not in data:
+            data["hoopers"] = data.pop("agents")  # type: ignore[assignment]
+        super().__init__(**data)
+
+    @property
+    def agents(self) -> list[Hooper]:
+        """Backward-compatible alias for hoopers."""
+        return self.hoopers

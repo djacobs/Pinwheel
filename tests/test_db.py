@@ -35,7 +35,7 @@ class TestTableCreation:
             "leagues",
             "seasons",
             "teams",
-            "agents",
+            "hoopers",
             "game_results",
             "box_scores",
             "governance_events",
@@ -61,7 +61,7 @@ class TestLeagueSeason:
         assert season.current_ruleset == {"three_point_value": 3}
 
 
-class TestTeamAgentRoundTrip:
+class TestTeamHooperRoundTrip:
     async def test_create_and_retrieve_team(self, repo: Repository):
         league = await repo.create_league("L")
         season = await repo.create_season(league.id, "S1")
@@ -74,11 +74,11 @@ class TestTeamAgentRoundTrip:
         assert retrieved.color == "#CC0000"
         assert retrieved.venue["name"] == "Garden"
 
-    async def test_create_and_retrieve_agent(self, repo: Repository):
+    async def test_create_and_retrieve_hooper(self, repo: Repository):
         league = await repo.create_league("L")
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(season.id, "Team A")
-        agent = await repo.create_agent(
+        hooper = await repo.create_hooper(
             team_id=team.id,
             season_id=season.id,
             name="Sharpshooter-1",
@@ -86,23 +86,23 @@ class TestTeamAgentRoundTrip:
             attributes={"scoring": 80, "passing": 40, "defense": 25},
             moves=[{"name": "Heat Check", "trigger": "made_three"}],
         )
-        retrieved = await repo.get_agent(agent.id)
+        retrieved = await repo.get_hooper(hooper.id)
         assert retrieved is not None
         assert retrieved.name == "Sharpshooter-1"
         assert retrieved.attributes["scoring"] == 80
         assert retrieved.moves[0]["name"] == "Heat Check"
 
-    async def test_team_agents_relationship(self, repo: Repository):
+    async def test_team_hoopers_relationship(self, repo: Repository):
         league = await repo.create_league("L")
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(season.id, "Team A")
         for i in range(4):
-            await repo.create_agent(
-                team.id, season.id, f"Agent-{i}", "sharpshooter", {"scoring": 50}
+            await repo.create_hooper(
+                team.id, season.id, f"Hooper-{i}", "sharpshooter", {"scoring": 50}
             )
         teams = await repo.get_teams_for_season(season.id)
         assert len(teams) == 1
-        assert len(teams[0].agents) == 4
+        assert len(teams[0].hoopers) == 4
 
 
 class TestGameResultRoundTrip:
@@ -138,7 +138,7 @@ class TestGameResultRoundTrip:
         season = await repo.create_season(league.id, "S1")
         home = await repo.create_team(season.id, "Home")
         away = await repo.create_team(season.id, "Away")
-        agent = await repo.create_agent(home.id, season.id, "A1", "sharpshooter", {"scoring": 50})
+        hooper = await repo.create_hooper(home.id, season.id, "A1", "sharpshooter", {"scoring": 50})
 
         game = await repo.store_game_result(
             season_id=season.id,
@@ -152,7 +152,7 @@ class TestGameResultRoundTrip:
             seed=42,
             total_possessions=80,
         )
-        bs = await repo.store_box_score(game.id, agent.id, home.id, points=15, assists=3, steals=2)
+        bs = await repo.store_box_score(game.id, hooper.id, home.id, points=15, assists=3, steals=2)
         assert bs.points == 15
 
         loaded_game = await repo.get_game_result(game.id)

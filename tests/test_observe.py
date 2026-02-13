@@ -7,7 +7,7 @@ across a large sample of games with diverse team compositions.
 from pinwheel.core.archetypes import ARCHETYPES, apply_variance
 from pinwheel.core.simulation import simulate_game
 from pinwheel.models.rules import DEFAULT_RULESET
-from pinwheel.models.team import Agent, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
 
 
 def _make_varied_team(
@@ -15,16 +15,16 @@ def _make_varied_team(
     seed_base: int,
     archetype_offset: int = 0,
 ) -> Team:
-    """Create a team with varied archetype agents for realistic distributions."""
+    """Create a team with varied archetype hoopers for realistic distributions."""
     arch_names = list(ARCHETYPES.keys())
-    agents = []
+    hoopers = []
     for i in range(4):
         arch = arch_names[(archetype_offset + i) % len(arch_names)]
         attrs = apply_variance(ARCHETYPES[arch], rng_seed=seed_base + i, variance=8)
-        agents.append(
-            Agent(
+        hoopers.append(
+            Hooper(
                 id=f"{team_id}-a{i}",
-                name=f"Agent-{i}",
+                name=f"Hooper-{i}",
                 team_id=team_id,
                 archetype=arch,
                 attributes=attrs,
@@ -35,7 +35,7 @@ def _make_varied_team(
         id=team_id,
         name=f"Team-{team_id}",
         venue=Venue(name="Court", capacity=5000),
-        agents=agents,
+        hoopers=hoopers,
     )
 
 
@@ -165,11 +165,11 @@ class TestThousandGameDistributions:
 
 
 def _make_team_from_attrs(team_id: str, attrs: PlayerAttributes) -> Team:
-    """Helper: make a team where all agents share the same attributes."""
-    agents = [
-        Agent(
+    """Helper: make a team where all hoopers share the same attributes."""
+    hoopers = [
+        Hooper(
             id=f"{team_id}-a{i}",
-            name=f"Agent-{i}",
+            name=f"Hooper-{i}",
             team_id=team_id,
             archetype="generic",
             attributes=attrs,
@@ -181,5 +181,5 @@ def _make_team_from_attrs(team_id: str, attrs: PlayerAttributes) -> Team:
         id=team_id,
         name=f"Team-{team_id}",
         venue=Venue(name="Court", capacity=5000),
-        agents=agents,
+        hoopers=hoopers,
     )

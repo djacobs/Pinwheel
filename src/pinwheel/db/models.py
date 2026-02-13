@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for the Pinwheel database.
 
-Day 1 tables: leagues, seasons, teams, agents, game_results, box_scores,
+Day 1 tables: leagues, seasons, teams, hoopers, game_results, box_scores,
 governance_events, schedule. Additional tables (mirrors, commentary,
 governors) added as needed.
 """
@@ -73,11 +73,20 @@ class TeamRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     season: Mapped[SeasonRow] = relationship(back_populates="teams")
-    agents: Mapped[list[AgentRow]] = relationship(back_populates="team")
+    hoopers: Mapped[list[HooperRow]] = relationship(back_populates="team")
+
+    @property
+    def agents(self) -> list[HooperRow]:
+        """Backward-compatible alias for hoopers."""
+        return self.hoopers
 
 
-class AgentRow(Base):
-    __tablename__ = "agents"
+# Backward-compatible alias
+AgentRow = None  # Defined after HooperRow
+
+
+class HooperRow(Base):
+    __tablename__ = "hoopers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     team_id: Mapped[str] = mapped_column(ForeignKey("teams.id"), nullable=False)
@@ -90,9 +99,12 @@ class AgentRow(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
-    team: Mapped[TeamRow] = relationship(back_populates="agents")
+    team: Mapped[TeamRow] = relationship(back_populates="hoopers")
 
-    __table_args__ = (Index("ix_agents_team_id", "team_id"),)
+    __table_args__ = (Index("ix_hoopers_team_id", "team_id"),)
+
+
+AgentRow = HooperRow  # type: ignore[assignment]
 
 
 class GameResultRow(Base):
@@ -128,7 +140,7 @@ class BoxScoreRow(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     game_id: Mapped[str] = mapped_column(ForeignKey("game_results.id"), nullable=False)
-    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    hooper_id: Mapped[str] = mapped_column(ForeignKey("hoopers.id"), nullable=False)
     team_id: Mapped[str] = mapped_column(ForeignKey("teams.id"), nullable=False)
     points: Mapped[int] = mapped_column(Integer, default=0)
     field_goals_made: Mapped[int] = mapped_column(Integer, default=0)
@@ -145,9 +157,14 @@ class BoxScoreRow(Base):
 
     game: Mapped[GameResultRow] = relationship(back_populates="box_scores")
 
+    @property
+    def agent_id(self) -> str:
+        """Backward-compatible alias for hooper_id."""
+        return self.hooper_id
+
     __table_args__ = (
         Index("ix_box_scores_game_id", "game_id"),
-        Index("ix_box_scores_agent_id", "agent_id"),
+        Index("ix_box_scores_hooper_id", "hooper_id"),
     )
 
 

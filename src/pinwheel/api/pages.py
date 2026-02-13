@@ -95,7 +95,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
 
         # Team color + name cache
         team_names: dict[str, str] = {}
-        agent_names: dict[str, str] = {}
+        hooper_names: dict[str, str] = {}
         for s in standings:
             t = await repo.get_team(s["team_id"])
             if t:
@@ -128,11 +128,11 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                     for play in reversed(g.play_by_play):
                         if play.get("result") == "made" and play.get("points_scored", 0) > 0:
                             handler_id = play.get("ball_handler_id", "")
-                            if handler_id and handler_id not in agent_names:
-                                agent = await repo.get_agent(handler_id)
-                                agent_names[handler_id] = agent.name if agent else handler_id
+                            if handler_id and handler_id not in hooper_names:
+                                h = await repo.get_hooper(handler_id)
+                                hooper_names[handler_id] = h.name if h else handler_id
                             winning_play = narrate_winner(
-                                agent_names.get(handler_id, "Unknown"),
+                                hooper_names.get(handler_id, "Unknown"),
                                 play.get("action", ""),
                                 move=play.get("move_activated", ""),
                                 seed=hash(g.id),
@@ -205,7 +205,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     # Current league state for context
     current_round = 0
     total_teams = 0
-    total_agents = 0
+    total_hoopers = 0
     total_games = 0
 
     if season_id:
@@ -222,7 +222,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         for s in standings:
             team = await repo.get_team(s["team_id"])
             if team:
-                total_agents += len(team.agents)
+                total_hoopers += len(team.hoopers)
 
     # Pace description
     pace = settings.pinwheel_presentation_pace
@@ -293,7 +293,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             "active_page": "play",
             "current_round": current_round,
             "total_teams": total_teams,
-            "total_agents": total_agents,
+            "total_hoopers": total_hoopers,
             "total_games": total_games,
             "pace_desc": pace_desc,
             "gov_window_minutes": gov_window_minutes,
@@ -322,7 +322,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
 
         # Show up to 4 recent rounds (newest first)
         team_names: dict[str, str] = {}
-        agent_names: dict[str, str] = {}
+        hooper_names: dict[str, str] = {}
         first_round = max(1, latest_round - 3)
 
         for round_num in range(latest_round, first_round - 1, -1):
@@ -345,12 +345,12 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     for play in reversed(g.play_by_play):
                         if play.get("result") == "made" and play.get("points_scored", 0) > 0:
                             handler_id = play.get("ball_handler_id", "")
-                            if handler_id and handler_id not in agent_names:
-                                agent = await repo.get_agent(handler_id)
-                                agent_names[handler_id] = agent.name if agent else handler_id
+                            if handler_id and handler_id not in hooper_names:
+                                h = await repo.get_hooper(handler_id)
+                                hooper_names[handler_id] = h.name if h else handler_id
                             action = play.get("action", "")
                             move = play.get("move_activated", "")
-                            player_name = agent_names.get(handler_id, "Unknown")
+                            player_name = hooper_names.get(handler_id, "Unknown")
                             winning_play = {
                                 "player": player_name,
                                 "action": narrate_winner(
@@ -447,9 +447,9 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
     home_players = []
     away_players = []
     for bs in game.box_scores:
-        agent = await repo.get_agent(bs.agent_id)
+        h = await repo.get_hooper(bs.hooper_id)
         player = {
-            "agent_name": agent.name if agent else bs.agent_id,
+            "hooper_name": h.name if h else bs.hooper_id,
             "points": bs.points,
             "field_goals_made": bs.field_goals_made,
             "field_goals_attempted": bs.field_goals_attempted,
@@ -469,12 +469,12 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         (away_name, game.away_team_id, away_players),
     ]
 
-    # Build agent-name cache from box scores already loaded
-    agent_names: dict[str, str] = {}
+    # Build hooper-name cache from box scores already loaded
+    hooper_names: dict[str, str] = {}
     for bs in game.box_scores:
-        if bs.agent_id not in agent_names:
-            agent = await repo.get_agent(bs.agent_id)
-            agent_names[bs.agent_id] = agent.name if agent else bs.agent_id
+        if bs.hooper_id not in hooper_names:
+            h = await repo.get_hooper(bs.hooper_id)
+            hooper_names[bs.hooper_id] = h.name if h else bs.hooper_id
 
     # Play-by-play from stored data (JSON dicts), enriched with narration
     raw_plays = game.play_by_play or []
@@ -484,8 +484,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         def_id = play.get("defender_id", "")
         enriched = {**play}
         enriched["narration"] = narrate_play(
-            player=agent_names.get(handler_id, handler_id),
-            defender=agent_names.get(def_id, def_id),
+            player=hooper_names.get(handler_id, handler_id),
+            defender=hooper_names.get(def_id, def_id),
             action=play.get("action", ""),
             result=play.get("result", ""),
             points=play.get("points_scored", 0),
@@ -553,24 +553,24 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
 
         league_avg = await repo.get_league_attribute_averages(season_id)
 
-    # Build agent data with spider chart geometry
+    # Build hooper data with spider chart geometry
     grid_rings = compute_grid_rings()
     axes = axis_lines()
     avg_points = spider_chart_data(league_avg) if league_avg else []
     avg_poly = polygon_points(avg_points) if avg_points else ""
 
-    agents = []
-    for a in team.agents:
-        agent_pts = spider_chart_data(a.attributes) if a.attributes else []
-        agents.append(
+    hoopers = []
+    for a in team.hoopers:
+        hooper_pts = spider_chart_data(a.attributes) if a.attributes else []
+        hoopers.append(
             {
                 "id": a.id,
                 "name": a.name,
                 "archetype": a.archetype,
                 "attributes": a.attributes,
                 "is_active": a.is_active,
-                "spider_points": agent_pts,
-                "spider_poly": polygon_points(agent_pts) if agent_pts else "",
+                "spider_points": hooper_pts,
+                "spider_poly": polygon_points(hooper_pts) if hooper_pts else "",
             }
         )
 
@@ -580,7 +580,7 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
         {
             "active_page": "standings",
             "team": team,
-            "agents": agents,
+            "hoopers": hoopers,
             "team_standings": team_standings,
             "standing_position": standing_position,
             "league_name": league_name,
@@ -593,16 +593,16 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
     )
 
 
-@router.get("/agents/{agent_id}", response_class=HTMLResponse)
-async def agent_page(
-    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+@router.get("/hoopers/{hooper_id}", response_class=HTMLResponse)
+async def hooper_page(
+    request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser
 ):
-    """Individual agent profile page."""
-    agent = await repo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(404, "Agent not found")
+    """Individual hooper profile page."""
+    hooper = await repo.get_hooper(hooper_id)
+    if not hooper:
+        raise HTTPException(404, "Hooper not found")
 
-    team = await repo.get_team(agent.team_id)
+    team = await repo.get_team(hooper.team_id)
     season_id = await _get_active_season_id(repo)
 
     # Spider chart data
@@ -610,11 +610,11 @@ async def agent_page(
     if season_id:
         league_avg = await repo.get_league_attribute_averages(season_id)
 
-    agent_pts = spider_chart_data(agent.attributes) if agent.attributes else []
+    hooper_pts = spider_chart_data(hooper.attributes) if hooper.attributes else []
     avg_pts = spider_chart_data(league_avg) if league_avg else []
 
     # Game log + season averages
-    box_score_rows = await repo.get_box_scores_for_agent(agent_id)
+    box_score_rows = await repo.get_box_scores_for_hooper(hooper_id)
     game_log = []
     bs_dicts = []
     team_name_cache: dict[str, str] = {}
@@ -661,27 +661,27 @@ async def agent_page(
 
     season_averages = compute_season_averages(bs_dicts)
 
-    # Check if current user is governor on this agent's team (can edit bio)
+    # Check if current user is governor on this hooper's team (can edit bio)
     can_edit_bio = False
     if current_user and season_id:
         enrollment = await repo.get_player_enrollment(
             current_user.discord_id, season_id
         )
-        if enrollment and enrollment[0] == agent.team_id:
+        if enrollment and enrollment[0] == hooper.team_id:
             can_edit_bio = True
 
     return templates.TemplateResponse(
         request,
-        "pages/agent.html",
+        "pages/hooper.html",
         {
             "active_page": "standings",
-            "agent": agent,
+            "hooper": hooper,
             "team": team,
-            "spider_points": agent_pts,
+            "spider_points": hooper_pts,
             "avg_points": avg_pts,
             "grid_rings": compute_grid_rings(),
             "axis_lines": axis_lines(),
-            "spider_poly": polygon_points(agent_pts) if agent_pts else "",
+            "spider_poly": polygon_points(hooper_pts) if hooper_pts else "",
             "avg_poly": polygon_points(avg_pts) if avg_pts else "",
             "game_log": game_log,
             "season_averages": season_averages,
@@ -691,33 +691,33 @@ async def agent_page(
     )
 
 
-@router.get("/agents/{agent_id}/bio/edit", response_class=HTMLResponse)
-async def agent_bio_edit_form(
-    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+@router.get("/hoopers/{hooper_id}/bio/edit", response_class=HTMLResponse)
+async def hooper_bio_edit_form(
+    request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser
 ):
     """Return HTMX fragment with bio edit form. Governor-only."""
-    agent = await repo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(404, "Agent not found")
+    hooper = await repo.get_hooper(hooper_id)
+    if not hooper:
+        raise HTTPException(404, "Hooper not found")
 
     season_id = await _get_active_season_id(repo)
     if not current_user or not season_id:
         raise HTTPException(403, "Not authorized")
 
     enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
-    if not enrollment or enrollment[0] != agent.team_id:
+    if not enrollment or enrollment[0] != hooper.team_id:
         raise HTTPException(403, "Not authorized — must be team governor")
 
     html = f"""
-    <form hx-post="/agents/{agent_id}/bio" hx-target="#agent-bio" hx-swap="innerHTML">
+    <form hx-post="/hoopers/{hooper_id}/bio" hx-target="#hooper-bio" hx-swap="innerHTML">
       <textarea name="backstory" rows="4" style="width:100%; background:var(--bg-input);
         color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius);
         padding:0.75rem; font-family:var(--font-body); font-size:0.9rem; resize:vertical;
-        line-height:1.6;">{agent.backstory or ''}</textarea>
+        line-height:1.6;">{hooper.backstory or ''}</textarea>
       <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
         <button type="submit" class="bio-edit-btn">Save</button>
         <button type="button" class="bio-edit-btn"
-                hx-get="/agents/{agent_id}/bio/view" hx-target="#agent-bio"
+                hx-get="/hoopers/{hooper_id}/bio/view" hx-target="#hooper-bio"
                 hx-swap="innerHTML">Cancel</button>
       </div>
     </form>
@@ -725,63 +725,63 @@ async def agent_bio_edit_form(
     return HTMLResponse(html)
 
 
-@router.get("/agents/{agent_id}/bio/view", response_class=HTMLResponse)
-async def agent_bio_view(
-    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+@router.get("/hoopers/{hooper_id}/bio/view", response_class=HTMLResponse)
+async def hooper_bio_view(
+    request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser
 ):
     """Return HTMX fragment with bio display. Used after cancel/save."""
-    agent = await repo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(404, "Agent not found")
+    hooper = await repo.get_hooper(hooper_id)
+    if not hooper:
+        raise HTTPException(404, "Hooper not found")
 
     season_id = await _get_active_season_id(repo)
     can_edit = False
     if current_user and season_id:
         enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
-        if enrollment and enrollment[0] == agent.team_id:
+        if enrollment and enrollment[0] == hooper.team_id:
             can_edit = True
 
     no_bio = '<p class="text-muted">No bio yet.</p>'
-    bio_html = f"<p>{agent.backstory}</p>" if agent.backstory else no_bio
+    bio_html = f"<p>{hooper.backstory}</p>" if hooper.backstory else no_bio
     edit_btn = ""
     if can_edit:
         edit_btn = f"""
         <button class="bio-edit-btn"
-                hx-get="/agents/{agent_id}/bio/edit"
-                hx-target="#agent-bio"
+                hx-get="/hoopers/{hooper_id}/bio/edit"
+                hx-target="#hooper-bio"
                 hx-swap="innerHTML">Edit Bio</button>
         """
     return HTMLResponse(bio_html + edit_btn)
 
 
-@router.post("/agents/{agent_id}/bio", response_class=HTMLResponse)
-async def update_agent_bio(
-    request: Request, agent_id: str, repo: RepoDep, current_user: OptionalUser
+@router.post("/hoopers/{hooper_id}/bio", response_class=HTMLResponse)
+async def update_hooper_bio(
+    request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser
 ):
-    """Update agent bio. Governor-only."""
-    agent = await repo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(404, "Agent not found")
+    """Update hooper bio. Governor-only."""
+    hooper = await repo.get_hooper(hooper_id)
+    if not hooper:
+        raise HTTPException(404, "Hooper not found")
 
     season_id = await _get_active_season_id(repo)
     if not current_user or not season_id:
         raise HTTPException(403, "Not authorized")
 
     enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
-    if not enrollment or enrollment[0] != agent.team_id:
+    if not enrollment or enrollment[0] != hooper.team_id:
         raise HTTPException(403, "Not authorized — must be team governor")
 
     form = await request.form()
     backstory = str(form.get("backstory", "")).strip()
-    await repo.update_agent_backstory(agent_id, backstory)
+    await repo.update_hooper_backstory(hooper_id, backstory)
     await repo.session.commit()
 
     # Return the view fragment
     bio_html = f"<p>{backstory}</p>" if backstory else '<p class="text-muted">No bio yet.</p>'
     edit_btn = f"""
     <button class="bio-edit-btn"
-            hx-get="/agents/{agent_id}/bio/edit"
-            hx-target="#agent-bio"
+            hx-get="/hoopers/{hooper_id}/bio/edit"
+            hx-target="#hooper-bio"
             hx-swap="innerHTML">Edit Bio</button>
     """
     return HTMLResponse(bio_html + edit_btn)
@@ -916,7 +916,7 @@ _GAME_MECHANICS_RULES = [
      "Max possessions before force-ending."),
 ]
 
-_AGENT_BEHAVIOR_RULES = [
+_HOOPER_BEHAVIOR_RULES = [
     ("max_shot_share", "Max Shot Share",
      "Max fraction of team shots for one player."),
     ("min_pass_per_possession", "Min Passes",
@@ -967,10 +967,10 @@ RULE_TIERS = [
     },
     {
         "key": "agent_behavior",
-        "title": "Agent Behavior",
+        "title": "Hooper Behavior",
         "subtitle": "How players interact with the court and crowd.",
         "color": "var(--accent-governance)",
-        "rules": _AGENT_BEHAVIOR_RULES,
+        "rules": _HOOPER_BEHAVIOR_RULES,
     },
     {
         "key": "league_structure",

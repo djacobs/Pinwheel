@@ -40,18 +40,18 @@ from pinwheel.models.game import GameResult
 from pinwheel.models.governance import GovernanceWindow, Proposal, Vote, VoteTally
 from pinwheel.models.mirror import Mirror
 from pinwheel.models.rules import RuleSet
-from pinwheel.models.team import Agent, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
 
 logger = logging.getLogger(__name__)
 
 
 def _row_to_team(team_row: object) -> Team:
-    """Convert a TeamRow + AgentRows to domain Team model."""
-    agents = []
-    for a in team_row.agents:  # type: ignore[attr-defined]
+    """Convert a TeamRow + HooperRows to domain Team model."""
+    hoopers = []
+    for a in team_row.hoopers:  # type: ignore[attr-defined]
         attrs = PlayerAttributes(**a.attributes)  # type: ignore[attr-defined]
-        agents.append(
-            Agent(
+        hoopers.append(
+            Hooper(
                 id=a.id,  # type: ignore[attr-defined]
                 name=a.name,  # type: ignore[attr-defined]
                 team_id=a.team_id,  # type: ignore[attr-defined]
@@ -68,7 +68,7 @@ def _row_to_team(team_row: object) -> Team:
         id=team_row.id,  # type: ignore[attr-defined]
         name=team_row.name,  # type: ignore[attr-defined]
         venue=venue,
-        agents=agents,
+        hoopers=hoopers,
     )
 
 
@@ -87,15 +87,15 @@ async def _run_evals(
 
     # Build grounding context
     team_data = [{"name": t.name} for t in teams_cache.values()]
-    agent_data = []
+    hooper_data = []
     for t in teams_cache.values():
-        for a in t.agents:
-            agent_data.append({"name": a.name})
+        for h in t.hoopers:
+            hooper_data.append({"name": h.name})
     season = await repo.get_season(season_id)
     ruleset_dict = season.current_ruleset if season else {}
     context = GroundingContext(
         team_names=[d["name"] for d in team_data],
-        agent_names=[d["name"] for d in agent_data],
+        agent_names=[d["name"] for d in hooper_data],
         rule_params=list((ruleset_dict or {}).keys()),
     )
 
@@ -239,7 +239,7 @@ async def step_round(
         for bs in result.box_scores:
             await repo.store_box_score(
                 game_id=game_row.id,
-                agent_id=bs.agent_id,
+                hooper_id=bs.hooper_id,
                 team_id=bs.team_id,
                 points=bs.points,
                 field_goals_made=bs.field_goals_made,

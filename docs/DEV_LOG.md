@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **473 tests**, zero lint errors
+- **480 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 27 (UX polish, richer mirrors, presentation cycle)
+- **Latest commit:** Session 28 (Substitution logic + Agent→Hooper rename)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -396,3 +396,48 @@ Each possession costs: `play_time = shot_clock_seconds * rng.uniform(0.4, 1.0)` 
 **473 tests, zero lint errors.**
 
 **What could have gone better:** Background agents couldn't write files due to permission denials — had to implement all 3 work items directly. The agents did valuable research (correct field names on GameResult/PossessionLog) even though they couldn't write code.
+
+---
+
+## Session 28 — Substitution Logic + Agent→Hooper Rename
+
+**What was asked:** Implement a two-part plan: (1) Add bench player substitution mechanics (foul-out and fatigue triggers). (2) System-wide rename from "Agent" to "Hooper" (basketball slang) — ~400+ occurrences across models, DB, API, templates, tests, docs. Also: change governance window default to 15 minutes, update /play page copy.
+
+**What was built:**
+
+### Substitution logic (Work Item 1)
+- `on_court: bool` field on `HooperState`, initialized from `is_starter`
+- `home_active`/`away_active`/`home_bench`/`away_bench` properties on `GameState`
+- `substitute(out, in_)` method on `GameState`
+- `_check_substitution(game_state, rules, log, reason)` in `simulation.py` — two triggers:
+  - **Foul-out:** Scans all players for ejected+on_court, subs in highest-stamina bench player
+  - **Fatigue:** At quarter breaks, swaps lowest-stamina active player if below `substitution_stamina_threshold`
+- `substitution_stamina_threshold: float = 0.35` added to `RuleSet` (Tier 1, governable)
+- Substitution logged as `PossessionLog` entries with `action="substitution"`
+- 7 new tests: foul-out sub, fatigue sub, no bench plays short-handed, bench stamina, log entries
+
+### Agent→Hooper rename (Work Item 2)
+Bottom-up through the full stack:
+- **Models:** `Hooper`, `HooperBoxScore`, `HooperTrade`, `HooperTradeStatus` (backward-compat aliases kept)
+- **State:** `HooperState` dataclass, `AgentState()` factory function for backward-compat
+- **Core:** `possession.py`, `defense.py`, `scoring.py`, `moves.py`, `hooks.py` — all `HooperState` types, `.hooper.*` property access
+- **Tokens:** `propose_hooper_trade()`, `vote_hooper_trade()`, `execute_hooper_trade()`
+- **DB:** `HooperRow`, table `hoopers`, `create_hooper`/`get_hooper`/`swap_hooper_team`
+- **Seeding:** `hoopers_per_team`, `Hooper()` constructor
+- **Game loop:** `_row_to_team` builds `Hooper` objects, `hoopers=` kwarg
+- **API routes:** `/hoopers/{hooper_id}` (was `/agents/{agent_id}`), bio edit/view endpoints
+- **Templates:** `agent.html` → `hooper.html`, team/game/play/rules/home templates updated
+- **CSS:** `.agent-*` → `.hooper-*` selectors
+- **Discord:** `bot.py`, `embeds.py`, `views.py` — trade commands, embeds, autocomplete
+- **Tests:** 12 test files updated
+- **Scripts:** `demo_seed.py` — `"hoopers"` keys, `create_hooper`
+
+### Config & copy changes
+- `pinwheel_gov_window` default: 120 → 900 (15 minutes)
+- Play/rules page: "You are not limited to tweaking config values. You can propose anything." → "Want to change the rules? Propose new ones — anything."
+
+**Files modified (~50):** Full stack — models, state, simulation, possession, defense, scoring, moves, hooks, tokens, seeding, game_loop, db/models, db/repository, api/pages, api/games, api/teams, config, discord/bot, discord/embeds, discord/views, templates (7), css, demo_seed, 12 test files
+
+**480 tests, zero lint errors.**
+
+**What could have gone better:** The rename required careful coordination across ~50 files. Parallel subagents (templates, discord, tests) worked well — the bottleneck was the sequential core rename that had to flow bottom-up through the dependency chain. The backward-compat aliases were essential for keeping tests green during the incremental rename.

@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% from "components/spider_chart.html" import spider %}
-{% block title %}{{ agent.name }} — Pinwheel Fates{% endblock %}
+{% block title %}{{ hooper.name }} — Pinwheel Fates{% endblock %}
 
 {% block content %}
 {# Header #}
-<div class="agent-page-header">
+<div class="hooper-page-header">
   <div>
-    <h1>{{ agent.name }}</h1>
+    <h1>{{ hooper.name }}</h1>
     <div class="flex items-center gap-1">
-      <span class="agent-archetype">{{ agent.archetype }}</span>
+      <span class="hooper-archetype">{{ hooper.archetype }}</span>
       {% if team %}
       <span class="text-muted">&middot;</span>
       <a href="/teams/{{ team.id }}" class="team-link-sm">
@@ -21,22 +21,22 @@
 </div>
 
 {# Bio #}
-<div id="agent-bio" class="agent-bio mb-2">
-  {% if agent.backstory %}
-  <p>{{ agent.backstory }}</p>
+<div id="hooper-bio" class="hooper-bio mb-2">
+  {% if hooper.backstory %}
+  <p>{{ hooper.backstory }}</p>
   {% else %}
   <p class="text-muted">No bio yet.</p>
   {% endif %}
   {% if can_edit_bio %}
   <button class="bio-edit-btn"
-          hx-get="/agents/{{ agent.id }}/bio/edit"
-          hx-target="#agent-bio"
+          hx-get="/hoopers/{{ hooper.id }}/bio/edit"
+          hx-target="#hooper-bio"
           hx-swap="innerHTML">Edit Bio</button>
   {% endif %}
 </div>
 
 {# Two-column: Spider chart + Season averages #}
-<div class="agent-detail-grid mb-2">
+<div class="hooper-detail-grid mb-2">
   {# Spider chart #}
   <div class="card">
     <div class="card-header">
@@ -141,13 +141,13 @@
 {% endif %}
 
 {# Moves #}
-{% if agent.moves %}
+{% if hooper.moves %}
 <div class="card mb-2">
   <div class="card-header">
     <h3>Special Moves</h3>
   </div>
   <div class="card-body">
-    {% for move in agent.moves %}
+    {% for move in hooper.moves %}
     <div class="move-item {% if not loop.last %}mb-1{% endif %}">
       <div class="move-name">{{ move.name if move is mapping else move }}</div>
       {% if move is mapping %}

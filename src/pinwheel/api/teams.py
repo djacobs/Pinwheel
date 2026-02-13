@@ -21,7 +21,7 @@ async def list_teams(season_id: str, repo: RepoDep) -> dict:
                 "color": t.color,
                 "motto": t.motto,
                 "venue": t.venue,
-                "agent_count": len(t.agents),
+                "hooper_count": len(t.hoopers),
             }
             for t in teams
         ],
@@ -30,7 +30,7 @@ async def list_teams(season_id: str, repo: RepoDep) -> dict:
 
 @router.get("/{team_id}")
 async def get_team(team_id: str, repo: RepoDep) -> dict:
-    """Get a single team with its agents."""
+    """Get a single team with its hoopers."""
     team = await repo.get_team(team_id)
     if not team:
         raise HTTPException(404, "Team not found")
@@ -41,15 +41,15 @@ async def get_team(team_id: str, repo: RepoDep) -> dict:
             "color": team.color,
             "motto": team.motto,
             "venue": team.venue,
-            "agents": [
+            "hoopers": [
                 {
-                    "id": a.id,
-                    "name": a.name,
-                    "archetype": a.archetype,
-                    "attributes": a.attributes,
-                    "is_active": a.is_active,
+                    "id": h.id,
+                    "name": h.name,
+                    "archetype": h.archetype,
+                    "attributes": h.attributes,
+                    "is_active": h.is_active,
                 }
-                for a in team.agents
+                for h in team.hoopers
             ],
         },
     }

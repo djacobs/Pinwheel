@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from pinwheel.db.models import (
-    AgentRow,
     BotStateRow,
     BoxScoreRow,
     EvalResultRow,
     GameResultRow,
     GovernanceEventRow,
+    HooperRow,
     LeagueRow,
     MirrorRow,
     PlayerRow,
@@ -81,7 +81,7 @@ class Repository:
         return row
 
     async def get_team(self, team_id: str) -> TeamRow | None:
-        stmt = select(TeamRow).where(TeamRow.id == team_id).options(selectinload(TeamRow.agents))
+        stmt = select(TeamRow).where(TeamRow.id == team_id).options(selectinload(TeamRow.hoopers))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -89,12 +89,12 @@ class Repository:
         stmt = (
             select(TeamRow)
             .where(TeamRow.season_id == season_id)
-            .options(selectinload(TeamRow.agents))
+            .options(selectinload(TeamRow.hoopers))
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def create_agent(
+    async def create_hooper(
         self,
         team_id: str,
         season_id: str,
@@ -103,8 +103,8 @@ class Repository:
         attributes: dict,
         moves: list | None = None,
         is_active: bool = True,
-    ) -> AgentRow:
-        row = AgentRow(
+    ) -> HooperRow:
+        row = HooperRow(
             team_id=team_id,
             season_id=season_id,
             name=name,
@@ -117,8 +117,15 @@ class Repository:
         await self.session.flush()
         return row
 
-    async def get_agent(self, agent_id: str) -> AgentRow | None:
-        return await self.session.get(AgentRow, agent_id)
+    # Backward-compatible alias
+    create_agent = create_hooper
+
+    async def get_hooper(self, hooper_id: str) -> HooperRow | None:
+        return await self.session.get(HooperRow, hooper_id)
+
+    # Backward-compatible alias
+    async def get_agent(self, agent_id: str) -> HooperRow | None:
+        return await self.get_hooper(agent_id)
 
     # --- Game Results ---
 
@@ -162,11 +169,14 @@ class Repository:
     async def store_box_score(
         self,
         game_id: str,
-        agent_id: str,
-        team_id: str,
+        hooper_id: str = "",
+        team_id: str = "",
+        agent_id: str = "",
         **stats: int | float,
     ) -> BoxScoreRow:
-        row = BoxScoreRow(game_id=game_id, agent_id=agent_id, team_id=team_id, **stats)
+        # Support both hooper_id and legacy agent_id parameter
+        _hooper_id = hooper_id or agent_id
+        row = BoxScoreRow(game_id=game_id, hooper_id=_hooper_id, team_id=team_id, **stats)
         self.session.add(row)
         await self.session.flush()
         return row
@@ -480,16 +490,17 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def swap_agent_team(self, agent_id: str, new_team_id: str) -> None:
-        """Move an agent to a different team."""
-        from pinwheel.db.models import AgentRow
-
-        agent = await self.session.get(AgentRow, agent_id)
-        if agent is None:
-            msg = f"Agent {agent_id} not found"
+    async def swap_hooper_team(self, hooper_id: str, new_team_id: str) -> None:
+        """Move a hooper to a different team."""
+        hooper = await self.session.get(HooperRow, hooper_id)
+        if hooper is None:
+            msg = f"Hooper {hooper_id} not found"
             raise ValueError(msg)
-        agent.team_id = new_team_id
+        hooper.team_id = new_team_id
         await self.session.flush()
+
+    # Backward-compatible alias
+    swap_agent_team = swap_hooper_team
 
     async def get_governors_for_team(
         self, team_id: str, season_id: str,
@@ -535,29 +546,32 @@ class Repository:
         team_name = team.name if team else player.team_id
         return (player.team_id, team_name)
 
-    # --- Agent Box Scores & League Averages ---
+    # --- Hooper Box Scores & League Averages ---
 
-    async def get_box_scores_for_agent(
-        self, agent_id: str
+    async def get_box_scores_for_hooper(
+        self, hooper_id: str
     ) -> list[tuple[BoxScoreRow, GameResultRow]]:
-        """Get all box scores for an agent joined with their game results.
+        """Get all box scores for a hooper joined with their game results.
 
         Returns list of (BoxScoreRow, GameResultRow) tuples ordered by round_number.
         """
         stmt = (
             select(BoxScoreRow, GameResultRow)
             .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
-            .where(BoxScoreRow.agent_id == agent_id)
+            .where(BoxScoreRow.hooper_id == hooper_id)
             .order_by(GameResultRow.round_number)
         )
         result = await self.session.execute(stmt)
         return list(result.tuples().all())
 
+    # Backward-compatible alias
+    get_box_scores_for_agent = get_box_scores_for_hooper
+
     async def get_league_attribute_averages(self, season_id: str) -> dict[str, float]:
-        """Average each of the 9 attributes across all agents in a season."""
-        stmt = select(AgentRow.attributes).where(
-            AgentRow.season_id == season_id,
-            AgentRow.is_active.is_(True),
+        """Average each of the 9 attributes across all hoopers in a season."""
+        stmt = select(HooperRow.attributes).where(
+            HooperRow.season_id == season_id,
+            HooperRow.is_active.is_(True),
         )
         result = await self.session.execute(stmt)
         all_attrs = list(result.scalars().all())
@@ -575,13 +589,16 @@ class Repository:
 
         return {a: round(totals[a] / count, 1) for a in ATTRIBUTE_ORDER}
 
-    async def update_agent_backstory(self, agent_id: str, backstory: str) -> AgentRow | None:
-        """Update an agent's backstory text."""
-        agent = await self.get_agent(agent_id)
-        if agent:
-            agent.backstory = backstory
+    async def update_hooper_backstory(self, hooper_id: str, backstory: str) -> HooperRow | None:
+        """Update a hooper's backstory text."""
+        hooper = await self.get_hooper(hooper_id)
+        if hooper:
+            hooper.backstory = backstory
             await self.session.flush()
-        return agent
+        return hooper
+
+    # Backward-compatible alias
+    update_agent_backstory = update_hooper_backstory
 
     # --- Eval Results ---
 

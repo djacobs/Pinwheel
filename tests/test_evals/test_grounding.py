@@ -6,7 +6,7 @@ from pinwheel.evals.grounding import GroundingContext, build_grounding_context, 
 def test_grounded_mirror():
     context = GroundingContext(
         team_names=["Rose City Thorns", "Burnside Breakers"],
-        agent_names=["Thorn Agent"],
+        agent_names=["Thorn Hooper"],
         rule_params=["elam_margin"],
     )
     result = check_grounding(
@@ -22,7 +22,7 @@ def test_grounded_mirror():
 def test_ungrounded_mirror():
     context = GroundingContext(
         team_names=["Rose City Thorns"],
-        agent_names=["Agent X"],
+        agent_names=["Hooper X"],
         rule_params=["elam_margin"],
     )
     result = check_grounding(
@@ -60,7 +60,7 @@ def test_case_insensitive_matching():
 
 def test_build_grounding_context():
     teams = [{"name": "Team A"}, {"name": "Team B"}]
-    agents = [{"name": "Agent 1"}, {"name": "Agent 2"}]
+    agents = [{"name": "Hooper 1"}, {"name": "Hooper 2"}]
     ruleset = {"elam_margin": 13, "shot_clock_seconds": 12}
     context = build_grounding_context(teams, agents, ruleset)
     assert len(context.team_names) == 2
