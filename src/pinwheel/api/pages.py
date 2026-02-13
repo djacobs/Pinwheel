@@ -15,7 +15,7 @@ from pinwheel.api.charts import (
 )
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
 from pinwheel.core.narrate import narrate_play, narrate_winner
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
@@ -400,12 +400,14 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                 "mirror": mirror,
             })
 
+    settings: Settings = request.app.state.settings
     return templates.TemplateResponse(
         request,
         "pages/arena.html",
         {
             "active_page": "arena",
             "rounds": rounds,
+            "auto_advance": settings.pinwheel_auto_advance,
             **_auth_context(request, current_user),
         },
     )

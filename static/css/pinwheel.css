@@ -2483,23 +2483,22 @@ h3 { font-size: 1.05rem; }
 }
 
 .advance-btn {
-  background: var(--bg-card);
-  color: var(--accent-governance);
-  border: 1px solid var(--accent-governance);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   padding: 0.5rem 1rem;
   border-radius: var(--radius);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
 }
 
 .advance-btn:hover:not(:disabled) {
-  background: var(--accent-governance);
-  color: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
 .advance-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }

@@ -12,11 +12,13 @@
 <!-- Live Games Container — populated dynamically when presentation starts -->
 <div id="live-container" class="live-container" style="display:none;"></div>
 
-<!-- Advance Round button -->
+<!-- Advance Round button — visible when auto_advance is off -->
+{% if not auto_advance %}
 <div style="margin-bottom:1rem;">
   <button id="advance-btn" class="advance-btn" onclick="advanceRound()">Advance Round</button>
   <span id="advance-status" style="margin-left:0.5rem; color:var(--text-muted); font-size:0.85rem;"></span>
 </div>
+{% endif %}
 
 {% if rounds %}
 <div hx-ext="sse" sse-connect="/api/events/stream">
