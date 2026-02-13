@@ -15,6 +15,8 @@ GovernanceEventType = Literal[
     "proposal.confirmed",
     "proposal.cancelled",
     "proposal.amended",
+    "proposal.pending_review",
+    "proposal.rejected",
     "vote.cast",
     "vote.revealed",
     "proposal.passed",
@@ -74,7 +76,8 @@ class Proposal(BaseModel):
     tier: int = Field(default=1, ge=1, le=7)
     token_cost: int = 1
     status: Literal[
-        "draft", "submitted", "confirmed", "amended", "voting", "passed", "failed", "cancelled"
+        "draft", "submitted", "confirmed", "amended", "voting",
+        "passed", "failed", "cancelled", "pending_review", "rejected",
     ] = "draft"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -128,3 +131,6 @@ class VoteTally(BaseModel):
     total_weight: float = 0.0
     passed: bool = False
     threshold: float = 0.5
+    yes_count: int = 0
+    no_count: int = 0
+    total_eligible: int = 0

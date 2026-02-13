@@ -653,6 +653,17 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
 
         league_avg = await repo.get_league_attribute_averages(season_id)
 
+    # Query latest team strategy from events
+    team_strategy = None
+    if season_id:
+        strategy_events = await repo.get_events_by_type(
+            season_id=season_id, event_types=["strategy.set"],
+        )
+        for e in reversed(strategy_events):
+            if e.team_id == team_id:
+                team_strategy = e.payload.get("raw_text", "")
+                break
+
     # Build hooper data with spider chart geometry
     grid_rings = compute_grid_rings()
     axes = axis_lines()
@@ -674,6 +685,16 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
             }
         )
 
+    # Get governors enrolled on this team
+    governors = []
+    if season_id:
+        governor_rows = await repo.get_governors_for_team(team_id, season_id)
+        for g in governor_rows:
+            governors.append({
+                "id": g.id,
+                "username": g.username,
+            })
+
     return templates.TemplateResponse(
         request,
         "pages/team.html",
@@ -681,9 +702,11 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
             "active_page": "standings",
             "team": team,
             "hoopers": hoopers,
+            "governors": governors,
             "team_standings": team_standings,
             "standing_position": standing_position,
             "league_name": league_name,
+            "team_strategy": team_strategy,
             "grid_rings": grid_rings,
             "axis_lines": axes,
             "avg_points": avg_points,
@@ -885,6 +908,45 @@ async def update_hooper_bio(
             hx-swap="innerHTML">Edit Bio</button>
     """
     return HTMLResponse(bio_html + edit_btn)
+
+
+@router.get("/governors/{player_id}", response_class=HTMLResponse)
+async def governor_profile_page(
+    request: Request, player_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Governor profile page -- governance record and activity history."""
+    player = await repo.get_player(player_id)
+    if not player:
+        raise HTTPException(404, "Governor not found")
+
+    season_id = await _get_active_season_id(repo)
+    team = None
+    activity: dict = {
+        "proposals_submitted": 0,
+        "proposals_passed": 0,
+        "proposals_failed": 0,
+        "votes_cast": 0,
+        "proposal_list": [],
+        "token_balance": None,
+    }
+
+    if player.team_id:
+        team = await repo.get_team(player.team_id)
+
+    if season_id:
+        activity = await repo.get_governor_activity(player_id, season_id)
+
+    return templates.TemplateResponse(
+        request,
+        "pages/governor.html",
+        {
+            "active_page": "governance",
+            "player": player,
+            "team": team,
+            "activity": activity,
+            **_auth_context(request, current_user),
+        },
+    )
 
 
 @router.get("/governance", response_class=HTMLResponse)
@@ -1198,6 +1260,71 @@ async def mirrors_page(request: Request, repo: RepoDep, current_user: OptionalUs
         request,
         "pages/mirrors.html",
         {"active_page": "mirrors", "mirrors": mirrors, **_auth_context(request, current_user)},
+    )
+
+
+@router.get("/seasons/archive", response_class=HTMLResponse)
+async def season_archives_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """List all archived seasons."""
+    archives = await repo.get_all_archives()
+    archive_list = []
+    for a in archives:
+        archive_list.append({
+            "season_id": a.season_id,
+            "season_name": a.season_name,
+            "champion_team_name": a.champion_team_name,
+            "total_games": a.total_games,
+            "total_proposals": a.total_proposals,
+            "total_rule_changes": a.total_rule_changes,
+            "governor_count": a.governor_count,
+            "created_at": a.created_at.isoformat() if a.created_at else "",
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "pages/season_archive.html",
+        {
+            "active_page": "archives",
+            "archives": archive_list,
+            "archive": None,
+            **_auth_context(request, current_user),
+        },
+    )
+
+
+@router.get("/seasons/archive/{season_id}", response_class=HTMLResponse)
+async def season_archive_detail(
+    request: Request, season_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """View a specific season's archive."""
+    archive = await repo.get_season_archive(season_id)
+    if not archive:
+        raise HTTPException(404, "Archive not found")
+
+    archive_data = {
+        "season_id": archive.season_id,
+        "season_name": archive.season_name,
+        "champion_team_id": archive.champion_team_id,
+        "champion_team_name": archive.champion_team_name,
+        "final_standings": archive.final_standings or [],
+        "final_ruleset": archive.final_ruleset or {},
+        "rule_change_history": archive.rule_change_history or [],
+        "total_games": archive.total_games,
+        "total_proposals": archive.total_proposals,
+        "total_rule_changes": archive.total_rule_changes,
+        "governor_count": archive.governor_count,
+        "created_at": archive.created_at.isoformat() if archive.created_at else "",
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "pages/season_archive.html",
+        {
+            "active_page": "archives",
+            "archives": None,
+            "archive": archive_data,
+            **_auth_context(request, current_user),
+        },
     )
 
 

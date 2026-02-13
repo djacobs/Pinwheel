@@ -103,6 +103,10 @@ class Settings(BaseSettings):
 
     # Governance
     pinwheel_governance_interval: int = 3  # Tally governance every N rounds
+    pinwheel_admin_discord_id: str = ""  # Discord user ID for admin review notifications
+
+    # Seasons
+    pinwheel_carry_forward_rules: bool = False  # Default: fresh rules each season
 
     # Evals
     pinwheel_evals_enabled: bool = True

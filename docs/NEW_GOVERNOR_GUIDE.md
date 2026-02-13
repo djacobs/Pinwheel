@@ -6,7 +6,7 @@ Welcome to Pinwheel Fates. This guide tells you exactly what to do, step by step
 
 Pinwheel Fates is an auto-simulated 3v3 basketball league. You don't play basketball — AI-controlled hoopers do that. You **govern the rules**. You propose rule changes in plain English, vote on other people's proposals, and watch what happens when the rules change.
 
-The game simulates itself. Games run automatically every few minutes. After every few rounds of games, the league tallies all the votes, changes the rules, and the next batch of games runs under the new rules. You watch the consequences of your governance decisions play out in real time.
+The game simulates itself. Games run automatically every few minutes. After every few rounds of games, the league tallies all the votes, changes the rules, and the next batch of games runs under the new rules. You watch the consequences of your Floor decisions play out in real time.
 
 It starts as basketball. Where it ends is up to you.
 
@@ -48,7 +48,7 @@ AMEND: 2
 BOOST: 2
 ```
 
-These are your governance tokens. They regenerate every time the league runs a governance tally (every 3 rounds of games by default). Here's what each one does:
+These are your Floor tokens. They regenerate every time the league runs a Floor tally (every 3 rounds of games by default). Here's what each one does:
 
 | Token | What It Does | Cost |
 |-------|-------------|------|
@@ -104,7 +104,7 @@ Read this carefully. The AI has mapped your plain-English request to a specific 
 
 **Three buttons appear beneath the embed:**
 
-- **Confirm** (green) — Submit the proposal as-is. Spends your PROPOSE token. Posts the proposal publicly to the governance floor for everyone to see and vote on.
+- **Confirm** (green) — Submit the proposal as-is. Spends your PROPOSE token. Posts the proposal publicly to the Floor for everyone to see and vote on.
 - **Revise** (blue) — Opens a text box where you can rewrite your proposal. The AI will re-interpret the new text and show you an updated embed. You can revise as many times as you want before confirming. No tokens are spent until you confirm.
 - **Cancel** (red) — Throws away the proposal. No tokens spent.
 
@@ -118,9 +118,9 @@ If you change your mind entirely, click **Cancel**.
 
 ### What Happens After You Confirm
 
-Your proposal is now public. It appears in the governance floor for all governors to see. It includes your original text, the AI's interpretation, the parameter change, and the impact analysis.
+Your proposal is now public. It appears on the Floor for all governors to see. It includes your original text, the AI's interpretation, the parameter change, and the impact analysis.
 
-The proposal stays open for voting until the next governance tally (every 3 rounds of games). During that time:
+The proposal stays open for voting until the next Floor tally (every 3 rounds of games). During that time:
 - Other governors can vote yes or no
 - Other governors can amend your proposal (costs them 1 AMEND token)
 - Everyone can discuss it
@@ -176,7 +176,7 @@ There are 33 governable parameters organized into 4 tiers. Here is every single 
 
 | Parameter | Default | Range | What It Does |
 |-----------|---------|-------|-------------|
-| `proposals_per_window` | 3 | 1-10 | Max proposals per governance period |
+| `proposals_per_window` | 3 | 1-10 | Max proposals per Floor period |
 | `vote_threshold` | 0.5 | 0.3-0.8 | Base vote threshold for passing proposals |
 
 **You can change the rules about changing rules.** Tier 4 lets you alter the voting threshold itself. Want to require 80% supermajority to pass anything? Propose it. But you'll need 60% support to pass a Tier 4 change.
@@ -199,7 +199,7 @@ or
 /vote no
 ```
 
-That's it. The bot confirms your vote with a private message. Nobody else can see how you voted until the governance tally.
+That's it. The bot confirms your vote with a private message. Nobody else can see how you voted until the Floor tally.
 
 ### Boosting a Vote
 
@@ -230,7 +230,7 @@ If you use BOOST, your weight doubles. So a governor on a 3-person team using BO
 
 ### How Tallying Works
 
-Governance tallies happen every 3 rounds of games. When a tally triggers:
+Floor tallies happen every 3 rounds of games. When a tally triggers:
 
 1. All confirmed proposals with votes are tallied
 2. For each proposal: sum of YES weights vs sum of NO weights
@@ -265,7 +265,7 @@ You can trade tokens with other governors:
 
 This sends a trade offer to `@OtherGovernor`. They receive a DM with Accept/Reject buttons. They have 1 hour to respond.
 
-**Why trade?** Maybe you don't plan to propose anything this cycle but want to boost two votes. Trade your PROPOSE tokens for someone else's BOOST tokens.
+**Why trade?** Maybe you don't plan to put anything on the Floor this cycle but want to boost two votes. Trade your PROPOSE tokens for someone else's BOOST tokens.
 
 ---
 
@@ -310,8 +310,8 @@ Click into any game for the full box score.
 After each round of games, the AI generates mirrors — observations about what's happening in the league:
 
 - **Simulation Mirror** (public): What happened in the games. Trends, upsets, stat leaders.
-- **Governance Mirror** (public): Patterns in how governors are governing. Who's proposing what, voting patterns, coalition formation.
-- **Private Mirror** (DM, only you see it): Personal observations about your governance behavior — voting patterns you might not notice, how your proposals have affected your team.
+- **Floor Mirror** (public): Patterns in how governors are governing. Who's proposing what, voting patterns, coalition formation.
+- **Private Mirror** (DM, only you see it): Personal observations about your Floor behavior — voting patterns you might not notice, how your proposals have affected your team.
 
 View the latest mirrors:
 
@@ -330,25 +330,68 @@ The mirrors are the game's feedback mechanism. They show you consequences you ca
 | `/standings` | Current league standings (win-loss records) |
 | `/schedule` | Upcoming game matchups |
 | `/mirrors` | Latest AI mirror reflection |
-| `/tokens` | Your current token balance |
+| `/tokens` | Your current Floor token balance |
 | `/join` | Join or view teams |
 
 ---
 
-## Quick Reference: The Governance Cycle
+## Quick Reference: The Floor Cycle
 
 1. **Games run** (automatically, every few minutes)
 2. **You watch** the results on the web dashboard or Discord
 3. **You propose** rule changes with `/propose` (costs 1 PROPOSE token)
-4. **You debate** in your team channel or the public governance floor
+4. **You debate** in your team channel or on the Floor
 5. **You vote** on active proposals with `/vote yes` or `/vote no` (free)
-6. **Every 3 rounds**, governance tallies: proposals pass or fail, rules change
+6. **Every 3 rounds**, the Floor tallies: proposals pass or fail, rules change
 7. **Tokens regenerate** (2 PROPOSE, 2 AMEND, 2 BOOST) after each tally
 8. **Next games run** under the new rules
-9. **AI mirrors** reflect what just happened — game patterns, governance patterns, your patterns
+9. **AI mirrors** reflect what just happened — game patterns, Floor patterns, your patterns
 10. **Repeat**
 
 The game is: watch what happens, decide what should change, convince others, vote, watch the consequences.
+
+---
+
+## Frequently Asked Questions
+
+**How do I see what's up for vote right now?**
+Use `/vote` — the bot will tell you the current active proposal. You can also check the Floor page on the web dashboard, which shows all open proposals with their status.
+
+**When does voting close?**
+Floor tallies happen every 3 rounds of games. There's no visible countdown yet — watch for the "round completed" notifications in Discord and count rounds. We're adding a countdown timer soon.
+
+**What happened to my proposal?**
+After the Floor tally, check the web dashboard's Floor page. It shows whether each proposal passed or failed, with the final vote totals. Discord posts a summary when the tally runs.
+
+**Can I change my vote?**
+No. Once you `/vote`, it's locked in. Think before you vote — or save a BOOST token for the votes that matter most.
+
+**What rules have already been changed?**
+The rules page on the web dashboard shows the current ruleset. Any parameter that differs from the default was changed by a Floor vote.
+
+**How do I talk to my team about strategy?**
+Your team has a private Discord channel (e.g., `#rose-city-thorns`). Only governors on your team can see it. Use it to debate proposals, coordinate votes, and plan trades before going public.
+
+**What does "2.50 Yes" mean in vote results?**
+Vote weights are fractional because each team's total voting power is 1.0, split among its governors. "2.50 Yes" means the weighted sum of all yes votes is 2.50 — roughly equivalent to 2.5 teams voting yes. The raw vote count is shown alongside.
+
+**Can I propose something weird like "the floor is lava"?**
+Yes. The AI will try to interpret it. If it can't map your idea to a specific game parameter, it becomes a Tier 5 proposal — costs 2 PROPOSE tokens, needs 67% supermajority, and even if it passes, it can't change the rules because there's no parameter to change. Creative proposals work best when you tie them to a real mechanic: "Make fatigue drain 10% faster" is something the game can actually do.
+
+**What's the Elam Ending?**
+A real basketball innovation. Instead of playing the 4th quarter on a clock, the game sets a target score (leading team's score + the Elam margin, default 15). First team to hit the target wins. No clock, no fouling to stop the clock, no garbage time. Every game ends on a made basket. The `elam_trigger_quarter` and `elam_margin` parameters are both governable — you can change when it kicks in and how big the margin is.
+
+**Where's my private mirror?**
+Private mirrors are sent to your Discord DMs after each round. Make sure you have DMs enabled from server members. If you're not receiving them, check your Discord privacy settings.
+
+**How do hooper trades work?**
+Use `/trade-hooper` to propose swapping one of your hoopers for a hooper on another team. The bot posts the trade to both teams' channels. Every governor on both teams votes Approve or Reject. The trade only goes through if both teams approve.
+
+**Do my tokens carry over between tallies?**
+Yes. Unspent tokens accumulate. You get 2 PROPOSE, 2 AMEND, and 2 BOOST added to your balance every time the Floor tallies (every 3 rounds). Save them up or spend them fast — your choice.
+
+**What if nobody on my team votes?**
+Your team's voting power (1.0) goes to waste. The proposal can still pass or fail based on other teams' votes, but your team had no say. Vote on everything — it's free.
 
 ---
 
@@ -358,6 +401,6 @@ The game is: watch what happens, decide what should change, convince others, vot
 - **Read the impact analysis.** The AI tells you what it thinks will happen. Sometimes it's wrong. That's interesting too.
 - **Vote on everything.** It's free. Your team's voting power goes to waste if you don't use it.
 - **Use your team channel.** Coordinate with your team before voting. Private strategy is part of the game.
-- **Watch the mirrors.** The governance mirror will tell you things about the league's power dynamics that aren't obvious from individual votes.
+- **Watch the mirrors.** The Floor mirror will tell you things about the league's power dynamics that aren't obvious from individual votes.
 - **Try weird proposals.** The parameter ranges are wide. Three-pointers worth 10 points? Shot clock of 60 seconds? Elam Ending starting in Q1? Go for it.
 - **Report bugs.** This is alpha. If something breaks, tell us.

@@ -59,6 +59,8 @@ class HooperTrade(BaseModel):
     proposed_by: str  # governor discord_id who proposed
     votes: dict[str, str] = Field(default_factory=dict)  # governor_id → "yes"/"no"
     required_voters: list[str] = Field(default_factory=list)  # all governor IDs on both teams
+    from_team_voters: list[str] = Field(default_factory=list)  # governor IDs on the offering team
+    to_team_voters: list[str] = Field(default_factory=list)  # governor IDs on the receiving team
     from_team_name: str = ""
     to_team_name: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

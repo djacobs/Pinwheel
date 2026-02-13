@@ -509,3 +509,47 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** Every play appeared twice in the live play-by-play feed. The arena template had two SSE connections: an HTMX `hx-ext="sse" sse-connect` attribute (vestigial, no `sse-swap` targets) and a manual `new EventSource()` in the script block. Both received every possession event and both appended lines.
 
 **Fix:** Removed the unused HTMX SSE attribute from the rounds wrapper div. The manual EventSource in the script block handles all live updates.
+
+---
+
+## Completed — Session 39 (Surface Team Identity + /bio Command)
+
+### 65. [DONE] Team strategy shown on team page
+**Problem:** Governors could set team strategies via `/strategy` in Discord, and the strategy was stored as a `strategy.set` governance event, but the team profile page never displayed it. Governors had no way to see their current strategy outside Discord.
+**Fix:** `team_page()` now queries `strategy.set` governance events, finds the latest one matching the team, and passes `team_strategy` to the template. A new "Current Strategy" card renders the strategy text in italic quotes, appearing between the roster and record sections. Only shows when a strategy exists.
+
+### 66. [DONE] Team motto in Discord welcome embed
+**Problem:** Teams have a `motto` field stored in the database, and the team page template already displayed it (lines 22-24), but the Discord `/join` welcome embed did not include it. New governors missed this piece of team identity.
+**Fix:** `build_welcome_embed()` now accepts a `motto` parameter. When non-empty, the motto is rendered as an italic quote below the team name in the embed description. The `/join` handler passes `motto=target_team.motto` to the builder.
+
+### 67. [DONE] Hooper backstories shown in Discord welcome embed
+**Problem:** Hoopers have a `backstory` field (editable via the web UI), but the Discord welcome embed only showed hooper name and archetype. New governors joining via Discord had no way to see hooper personality.
+**Fix:** `build_welcome_embed()` now renders backstory snippets under each hooper in the roster section. Backstories longer than 100 characters are truncated with "..." to keep the embed readable. Each backstory line is block-quoted (`> snippet`). The `/join` handler now includes `backstory` in the hooper dicts passed to the builder.
+
+### 68. [DONE] `/bio` slash command for writing hooper backstories
+**Problem:** The web UI had a bio editing feature (HTMX form on the hooper page), but Discord governors — the primary interaction surface — had no way to write hooper backstories without leaving Discord.
+**Fix:** Added `/bio` slash command with `hooper` (autocomplete, own team only) and `text` parameters. Validates: must be enrolled as governor, text must be non-empty, max 500 characters, hooper must be on governor's team. On success, calls `repo.update_hooper_backstory()` and returns an ephemeral confirmation embed showing the saved text. Quick Start section of the welcome embed now mentions `/bio`.
+
+---
+
+## Completed — Session 40 (9-Feature Parallel Build)
+
+### 69. [DONE] "Governance" renamed to "The Floor" across all UI
+**Problem:** "Governance" sounded bureaucratic and distant — the opposite of the game's energy. Players govern from the court, not a boardroom. Needed a name that's both basketball slang (the court is "the floor") and legislative language (taking "the floor" to speak).
+**Fix:** Renamed all user-facing strings: nav link "Governance" → "The Floor", page title "Governance" → "The Floor", section headers, embed titles ("Governance Mirror" → "The Floor — Mirror", "Governance Tokens" → "Floor Tokens"), template text across `base.html`, `governance.html`, `home.html`, `play.html`, `mirrors.html`, `privacy.html`, `terms.html`, `eval_dashboard.html`. Internal code names (module names, function names, event types, variable names) unchanged. "The Floor Has Spoken" used for vote result announcements.
+
+### 70. [DONE] Voting UX — proposal autocomplete, announcements, vote counts
+**Problem:** `/vote` had no way to select which proposal to vote on (just grabbed the latest), no public announcement when a proposal entered voting, and vote tallies showed only weighted scores with no raw counts — opaque and confusing.
+**Fix:** Three changes: (1) `/vote` now accepts an optional `proposal` parameter with autocomplete showing all pending proposals by title. (2) When a proposal is confirmed, a public announcement embed ("New Proposal on the Floor") is posted to the governance channel with proposal text and instructions. (3) `VoteTally` gained `yes_count`, `no_count`, and `total_eligible` fields; tally embeds now show "2.50 (3 votes)" instead of bare "2.50". Per-proposal results posted to Discord after tallying.
+
+### 71. [DONE] Admin review gate for wild proposals
+**Problem:** The AI interpreter handles wild proposals (Tier 5+ or low confidence), but there was no human-in-the-loop check before they entered voting. A proposal like "the floor is lava" could pass before the admin assessed whether the simulation could handle it.
+**Fix:** Added `pending_review` proposal status. Proposals flagged as Tier 5+ or with confidence < 0.5 are held instead of entering voting immediately. Admin receives a DM with an `AdminReviewView` (Approve/Reject buttons, 24h timeout). Approve transitions to confirmed + enters voting. Reject fires `proposal.rejected` event with a reason modal, refunds the governance token, and notifies the proposer. Config: `PINWHEEL_ADMIN_DISCORD_ID`.
+
+### 72. [DONE] Governor profile pages
+**Problem:** No web presence for individual governors. Team pages listed hoopers but not the humans who govern them. No way to see a governor's activity history.
+**Fix:** Added `/governors/{player_id}` route with profile page showing: governor name, team affiliation with color dot, join date, activity summary (proposals submitted, votes cast, trades initiated), and recent event timeline. Added `/profile` Discord command (ephemeral, shows link to web profile). Team pages now list enrolled governors with links to their profiles. New repository methods: `get_governor_activity()`, `get_events_by_governor()`.
+
+### 73. [DONE] Season lifecycle pages — archive list and detail
+**Problem:** No way to browse completed seasons or see historical records after a season ends.
+**Fix:** Added `/seasons/archive` list page and `/seasons/archive/{season_id}` detail page. Archive detail shows final standings, champion, final ruleset, rule change history, and aggregate stats (games played, proposals filed, mirrors generated). `SeasonArchiveRow` table stores the snapshot. Archive pages use the same dark theme with gold accents for champion highlights.

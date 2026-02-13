@@ -1,0 +1,433 @@
+"""Tests for the season management module (start_new_season, carry_over_teams)."""
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from pinwheel.core.season import (
+    carry_over_teams,
+    regenerate_all_governor_tokens,
+    start_new_season,
+)
+from pinwheel.core.tokens import get_token_balance
+from pinwheel.db.engine import create_engine, get_session
+from pinwheel.db.models import Base
+from pinwheel.db.repository import Repository
+from pinwheel.models.rules import DEFAULT_RULESET
+
+
+@pytest.fixture
+async def engine() -> AsyncEngine:
+    """Create an in-memory SQLite engine with all tables."""
+    eng = create_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng  # type: ignore[misc]
+    await eng.dispose()
+
+
+@pytest.fixture
+async def repo(engine: AsyncEngine) -> Repository:
+    """Yield a repository with a session bound to the in-memory database."""
+    async with get_session(engine) as session:
+        yield Repository(session)  # type: ignore[misc]
+
+
+async def _seed_completed_season(
+    repo: Repository,
+    league_id: str,
+    season_name: str = "Season 1",
+    ruleset_data: dict | None = None,
+) -> str:
+    """Create a completed season with teams, hoopers, and governors.
+
+    Returns the season ID.
+    """
+    if ruleset_data is None:
+        ruleset_data = DEFAULT_RULESET.model_dump()
+
+    season = await repo.create_season(
+        league_id=league_id,
+        name=season_name,
+        starting_ruleset=ruleset_data,
+    )
+    season.status = "completed"
+    from datetime import UTC, datetime
+
+    season.completed_at = datetime.now(UTC)
+    # Modify the ruleset to simulate governance changes
+    season.current_ruleset = ruleset_data
+    await repo.session.flush()
+
+    # Create teams with hoopers
+    team_a = await repo.create_team(
+        season_id=season.id,
+        name="Rose City Thorns",
+        color="#CC0000",
+        color_secondary="#FFFFFF",
+        motto="Bloom Where They Plant You",
+        venue={"name": "The Thorn Garden", "capacity": 18000},
+    )
+    await repo.create_hooper(
+        team_id=team_a.id,
+        season_id=season.id,
+        name="Sharpshooter-Alpha",
+        archetype="sharpshooter",
+        attributes={"scoring": 80, "passing": 40, "defense": 30},
+        moves=[{"name": "Heat Check", "trigger": "made_three", "effect": "+10% 3pt"}],
+    )
+    await repo.create_hooper(
+        team_id=team_a.id,
+        season_id=season.id,
+        name="Playmaker-Alpha",
+        archetype="playmaker",
+        attributes={"scoring": 50, "passing": 85, "defense": 40},
+    )
+
+    team_b = await repo.create_team(
+        season_id=season.id,
+        name="Burnside Breakers",
+        color="#0066CC",
+        color_secondary="#333333",
+        motto="Break the Pattern",
+        venue={"name": "Breaker Bay Arena", "capacity": 6200},
+    )
+    await repo.create_hooper(
+        team_id=team_b.id,
+        season_id=season.id,
+        name="Enforcer-Beta",
+        archetype="enforcer",
+        attributes={"scoring": 40, "passing": 30, "defense": 85},
+    )
+    await repo.create_hooper(
+        team_id=team_b.id,
+        season_id=season.id,
+        name="Wildcard-Beta",
+        archetype="wildcard",
+        attributes={"scoring": 60, "passing": 55, "defense": 50},
+    )
+
+    # Create governors (players enrolled in teams)
+    gov_a = await repo.get_or_create_player(
+        discord_id="111111",
+        username="governor_alpha",
+    )
+    await repo.enroll_player(gov_a.id, team_a.id, season.id)
+
+    gov_b = await repo.get_or_create_player(
+        discord_id="222222",
+        username="governor_beta",
+    )
+    await repo.enroll_player(gov_b.id, team_b.id, season.id)
+
+    return season.id
+
+
+class TestStartNewSeasonDefaultRules:
+    """Test new season creation with default rules."""
+
+    async def test_creates_season_with_default_ruleset(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=False,
+        )
+
+        assert new_season.name == "Season 2"
+        assert new_season.league_id == league.id
+        assert new_season.status == "active"
+        assert new_season.starting_ruleset == DEFAULT_RULESET.model_dump()
+        assert new_season.current_ruleset == DEFAULT_RULESET.model_dump()
+        assert new_season.id != old_season_id
+
+    async def test_raises_for_invalid_league(self, repo: Repository) -> None:
+        with pytest.raises(ValueError, match="not found"):
+            await start_new_season(
+                repo=repo,
+                league_id="nonexistent-league",
+                season_name="Season 2",
+            )
+
+
+class TestStartNewSeasonCarriedRules:
+    """Test new season creation with carried-forward rules."""
+
+    async def test_carries_forward_from_specified_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        custom_rules = DEFAULT_RULESET.model_dump()
+        custom_rules["three_point_value"] = 5
+        custom_rules["shot_clock_seconds"] = 20
+        old_season_id = await _seed_completed_season(
+            repo, league.id, ruleset_data=custom_rules,
+        )
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=True,
+            previous_season_id=old_season_id,
+        )
+
+        assert new_season.starting_ruleset is not None
+        assert new_season.starting_ruleset["three_point_value"] == 5
+        assert new_season.starting_ruleset["shot_clock_seconds"] == 20
+
+    async def test_carries_forward_from_latest_completed(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        custom_rules = DEFAULT_RULESET.model_dump()
+        custom_rules["three_point_value"] = 7
+        await _seed_completed_season(
+            repo, league.id, season_name="Season 1", ruleset_data=custom_rules,
+        )
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=True,
+            # No previous_season_id -- should auto-find latest
+        )
+
+        assert new_season.starting_ruleset is not None
+        assert new_season.starting_ruleset["three_point_value"] == 7
+
+    async def test_falls_back_to_defaults_when_no_completed_season(
+        self, repo: Repository,
+    ) -> None:
+        league = await repo.create_league("Test League")
+        # No previous seasons at all
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 1",
+            carry_forward_rules=True,
+        )
+
+        assert new_season.starting_ruleset == DEFAULT_RULESET.model_dump()
+
+    async def test_raises_for_invalid_previous_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+
+        with pytest.raises(ValueError, match="not found"):
+            await start_new_season(
+                repo=repo,
+                league_id=league.id,
+                season_name="Season 2",
+                carry_forward_rules=True,
+                previous_season_id="nonexistent-season",
+            )
+
+
+class TestTeamCarryOver:
+    """Test that team carry-over copies teams and hoopers."""
+
+    async def test_copies_teams_to_new_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        new_season = await repo.create_season(league.id, "Season 2")
+        new_team_ids = await carry_over_teams(repo, old_season_id, new_season.id)
+
+        assert len(new_team_ids) == 2
+
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        assert len(new_teams) == 2
+        new_team_names = {t.name for t in new_teams}
+        assert "Rose City Thorns" in new_team_names
+        assert "Burnside Breakers" in new_team_names
+
+    async def test_copies_hoopers_with_fresh_records(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        total_hoopers = sum(len(t.hoopers) for t in new_teams)
+        assert total_hoopers == 4  # 2 per team
+
+        # Check that hoopers have same names/archetypes but new IDs
+        old_teams = await repo.get_teams_for_season(old_season_id)
+        old_hooper_ids = {h.id for t in old_teams for h in t.hoopers}
+        new_hooper_ids = {h.id for t in new_teams for h in t.hoopers}
+        assert old_hooper_ids.isdisjoint(new_hooper_ids)
+
+        # Verify attributes carried over
+        for new_team in new_teams:
+            for hooper in new_team.hoopers:
+                assert hooper.archetype in {"sharpshooter", "playmaker", "enforcer", "wildcard"}
+                assert "scoring" in hooper.attributes
+
+    async def test_preserves_team_properties(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        thorns = next(t for t in new_teams if t.name == "Rose City Thorns")
+        assert thorns.color == "#CC0000"
+        assert thorns.color_secondary == "#FFFFFF"
+        assert thorns.motto == "Bloom Where They Plant You"
+        assert thorns.venue is not None
+        assert thorns.venue["name"] == "The Thorn Garden"
+
+
+class TestGovernorEnrollmentCarryOver:
+    """Test that governor enrollments are carried over."""
+
+    async def test_governors_enrolled_in_new_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        total_governors = 0
+        for team in new_teams:
+            govs = await repo.get_governors_for_team(team.id, new_season.id)
+            total_governors += len(govs)
+
+        assert total_governors == 2  # Both governors carried over
+
+
+class TestTokenRegeneration:
+    """Test that tokens are regenerated for the new season."""
+
+    async def test_tokens_regenerated_for_new_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        await _seed_completed_season(repo, league.id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+        )
+
+        # Check that governors have fresh tokens in the new season
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        for team in new_teams:
+            govs = await repo.get_governors_for_team(team.id, new_season.id)
+            for gov in govs:
+                balance = await get_token_balance(repo, gov.id, new_season.id)
+                assert balance.propose == 2  # DEFAULT_PROPOSE_PER_WINDOW
+                assert balance.amend == 2    # DEFAULT_AMEND_PER_WINDOW
+                assert balance.boost == 2    # DEFAULT_BOOST_PER_WINDOW
+
+    async def test_regenerate_all_governor_tokens(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        # Create new season and carry teams manually
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        count = await regenerate_all_governor_tokens(repo, new_season.id)
+        assert count == 2  # Two governors
+
+
+class TestScheduleGeneration:
+    """Test that schedule is generated for the new season."""
+
+    async def test_schedule_generated_for_new_season(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        await _seed_completed_season(repo, league.id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+        )
+
+        # With 2 teams, round-robin produces 1 round
+        # With default round_robins_per_season=3, that's 3 rounds
+        schedule_r1 = await repo.get_schedule_for_round(new_season.id, 1)
+        assert len(schedule_r1) >= 1
+
+    async def test_no_schedule_with_no_teams(self, repo: Repository) -> None:
+        league = await repo.create_league("Test League")
+        # No previous season means no teams to carry over
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 1",
+        )
+
+        schedule = await repo.get_schedule_for_round(new_season.id, 1)
+        assert len(schedule) == 0
+
+
+class TestStartNewSeasonIntegration:
+    """End-to-end integration tests for the full start_new_season flow."""
+
+    async def test_full_flow_with_defaults(self, repo: Repository) -> None:
+        """Complete season transition with default rules."""
+        league = await repo.create_league("Test League")
+        await _seed_completed_season(repo, league.id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=False,
+        )
+
+        # Season created with correct status
+        assert new_season.status == "active"
+
+        # Teams carried over
+        teams = await repo.get_teams_for_season(new_season.id)
+        assert len(teams) == 2
+
+        # Hoopers carried over
+        total_hoopers = sum(len(t.hoopers) for t in teams)
+        assert total_hoopers == 4
+
+        # Governors carried over
+        total_govs = 0
+        for team in teams:
+            govs = await repo.get_governors_for_team(team.id, new_season.id)
+            total_govs += len(govs)
+        assert total_govs == 2
+
+        # Schedule generated
+        schedule = await repo.get_schedule_for_round(new_season.id, 1)
+        assert len(schedule) >= 1
+
+        # Default rules applied
+        assert new_season.starting_ruleset == DEFAULT_RULESET.model_dump()
+
+    async def test_full_flow_with_carried_rules(self, repo: Repository) -> None:
+        """Complete season transition with carried-forward rules."""
+        league = await repo.create_league("Test League")
+        custom_rules = DEFAULT_RULESET.model_dump()
+        custom_rules["three_point_value"] = 4
+        custom_rules["shot_clock_seconds"] = 25
+        await _seed_completed_season(
+            repo, league.id, ruleset_data=custom_rules,
+        )
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=True,
+        )
+
+        # Carried-forward rules applied
+        assert new_season.starting_ruleset is not None
+        assert new_season.starting_ruleset["three_point_value"] == 4
+        assert new_season.starting_ruleset["shot_clock_seconds"] == 25
+
+        # Everything else still works
+        teams = await repo.get_teams_for_season(new_season.id)
+        assert len(teams) == 2

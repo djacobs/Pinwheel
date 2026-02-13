@@ -132,7 +132,7 @@ class TestEmptyPages:
         client, _ = app_client
         r = await client.get("/governance")
         assert r.status_code == 200
-        assert "Governance" in r.text
+        assert "The Floor" in r.text
 
     async def test_rules_empty(self, app_client):
         client, _ = app_client
@@ -276,7 +276,7 @@ class TestPopulatedPages:
         assert "Play" in r.text
         assert "Arena" in r.text
         assert "Standings" in r.text
-        assert "Governance" in r.text
+        assert "The Floor" in r.text
 
     async def test_static_css(self, app_client):
         client, _ = app_client
@@ -437,3 +437,114 @@ class TestHooperPages:
         client, _ = app_client
         r = await client.get("/hoopers/nonexistent")
         assert r.status_code == 404
+
+
+class TestGovernorPages:
+    """Tests for governor profile pages."""
+
+    async def test_governor_page_renders(self, app_client):
+        """Governor page should render with the governor's name and stats."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Create a player/governor enrolled on a team
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            player = await repo.get_or_create_player(
+                discord_id="111222333",
+                username="TestGovernor",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+            await session.commit()
+            player_id = player.id
+
+        r = await client.get(f"/governors/{player_id}")
+        assert r.status_code == 200
+        assert "TestGovernor" in r.text
+        assert "Governor" in r.text
+        assert "Floor Record" in r.text
+        assert "Team 1" in r.text
+
+    async def test_governor_page_shows_stats(self, app_client):
+        """Governor page should show proposal and vote counts."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            player = await repo.get_or_create_player(
+                discord_id="444555666",
+                username="ActiveGovernor",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+
+            # Submit a proposal event
+            await repo.append_event(
+                event_type="proposal.submitted",
+                aggregate_id="prop-1",
+                aggregate_type="proposal",
+                season_id=season_id,
+                governor_id=player.id,
+                team_id=team_ids[0],
+                round_number=1,
+                payload={
+                    "id": "prop-1",
+                    "raw_text": "Make three-pointers worth 5 points",
+                    "governor_id": player.id,
+                    "team_id": team_ids[0],
+                    "tier": 1,
+                    "status": "submitted",
+                },
+            )
+
+            # Submit a vote event
+            await repo.append_event(
+                event_type="vote.cast",
+                aggregate_id="vote-1",
+                aggregate_type="vote",
+                season_id=season_id,
+                governor_id=player.id,
+                team_id=team_ids[0],
+                payload={
+                    "proposal_id": "prop-1",
+                    "vote": "yes",
+                    "weight": 1.0,
+                },
+            )
+
+            await session.commit()
+            player_id = player.id
+
+        r = await client.get(f"/governors/{player_id}")
+        assert r.status_code == 200
+        assert "ActiveGovernor" in r.text
+        assert "Proposal History" in r.text
+        assert "three-pointers" in r.text
+
+    async def test_governor_page_404(self, app_client):
+        """Nonexistent governor ID should return 404."""
+        client, _ = app_client
+        r = await client.get("/governors/nonexistent")
+        assert r.status_code == 404
+
+    async def test_team_page_shows_governor_links(self, app_client):
+        """Team page should show governor names as links when governors exist."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Enroll a governor on team 1
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            player = await repo.get_or_create_player(
+                discord_id="777888999",
+                username="LinkedGovernor",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+            await session.commit()
+            player_id = player.id
+
+        r = await client.get(f"/teams/{team_ids[0]}")
+        assert r.status_code == 200
+        assert "Governors" in r.text
+        assert "LinkedGovernor" in r.text
+        assert f"/governors/{player_id}" in r.text

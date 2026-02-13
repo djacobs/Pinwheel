@@ -115,11 +115,36 @@ class ProposalConfirmView(discord.ui.View):
                 await session.commit()
 
             self._disable_all()
+
+            if proposal.status == "pending_review":
+                # Wild proposal held for admin review
+                embed = discord.Embed(
+                    title="Proposal Submitted -- Pending Admin Review",
+                    description=(
+                        f'"{self.raw_text}"\n\n'
+                        "Your proposal has been submitted but requires "
+                        "admin review before it can go to a vote. "
+                        "You will be notified once a decision is made."
+                    ),
+                    color=0xE67E22,
+                )
+                embed.set_footer(text="Pinwheel Fates")
+                await interaction.response.edit_message(
+                    embed=embed, view=self,
+                )
+
+                # Notify admin via DM
+                await _notify_admin_for_review(
+                    interaction, proposal, self.settings,
+                    governor_name=interaction.user.display_name,
+                )
+                return
+
             embed = discord.Embed(
                 title="Proposal Submitted",
                 description=(
                     f'"{self.raw_text}"\n\n'
-                    "Your proposal is now on the governance floor "
+                    "Your proposal is now on the Floor "
                     "and open for voting."
                 ),
                 color=0x2ECC71,
@@ -128,6 +153,38 @@ class ProposalConfirmView(discord.ui.View):
             await interaction.response.edit_message(
                 embed=embed, view=self,
             )
+
+            # Post public announcement to the channel
+            from pinwheel.core.governance import vote_threshold_for_tier
+            from pinwheel.discord.embeds import (
+                build_proposal_announcement_embed,
+            )
+
+            threshold = vote_threshold_for_tier(self.tier)
+            announcement = build_proposal_announcement_embed(
+                proposal_text=self.raw_text,
+                parameter=(
+                    self.interpretation.parameter
+                    if self.interpretation else None
+                ),
+                old_value=(
+                    self.interpretation.old_value
+                    if self.interpretation else None
+                ),
+                new_value=(
+                    self.interpretation.new_value
+                    if self.interpretation else None
+                ),
+                tier=self.tier,
+                threshold=threshold,
+            )
+            if interaction.channel is not None:
+                import contextlib
+
+                with contextlib.suppress(
+                    discord.Forbidden, discord.HTTPException,
+                ):
+                    await interaction.channel.send(embed=announcement)
         except Exception:
             logger.exception("proposal_confirm_failed")
             await interaction.response.send_message(
@@ -593,7 +650,7 @@ class HooperTradeView(discord.ui.View):
                     return
 
                 embed = self._make_embed()
-                embed.title = "Hooper Trade Approved"
+                embed.title = "Trade Approved -- Both teams voted in favor"
                 embed.color = 0x2ECC71
                 await interaction.response.edit_message(
                     embed=embed, view=self,
@@ -601,7 +658,16 @@ class HooperTradeView(discord.ui.View):
             else:
                 self.trade.status = "rejected"
                 embed = self._make_embed()
-                embed.title = "Hooper Trade Rejected"
+
+                from_name = self.trade.from_team_name or "Offering team"
+                to_name = self.trade.to_team_name or "Receiving team"
+                if not from_ok and not to_ok:
+                    embed.title = "Trade Rejected -- Both teams voted against"
+                elif not from_ok:
+                    embed.title = f"Trade Rejected -- {from_name} voted against"
+                else:
+                    embed.title = f"Trade Rejected -- {to_name} voted against"
+
                 embed.color = 0xE74C3C
                 await interaction.response.edit_message(
                     embed=embed, view=self,
@@ -610,4 +676,220 @@ class HooperTradeView(discord.ui.View):
             embed = self._make_embed()
             await interaction.response.edit_message(
                 embed=embed, view=self,
+            )
+
+
+async def _notify_admin_for_review(
+    interaction: discord.Interaction,
+    proposal: object,
+    settings: Settings,
+    governor_name: str = "",
+) -> None:
+    """Send a DM to the admin with an AdminReviewView for a pending proposal.
+
+    Tries settings.pinwheel_admin_discord_id first, falls back to guild owner.
+    """
+    import contextlib
+
+    from pinwheel.discord.embeds import build_admin_review_embed
+    from pinwheel.models.governance import Proposal as ProposalModel
+
+    if not isinstance(proposal, ProposalModel):
+        return
+
+    admin_user: discord.User | None = None
+
+    # Try configured admin ID first
+    if settings.pinwheel_admin_discord_id:
+        try:
+            admin_user = await interaction.client.fetch_user(
+                int(settings.pinwheel_admin_discord_id),
+            )
+        except Exception:
+            logger.warning(
+                "admin_review_fetch_admin_failed id=%s",
+                settings.pinwheel_admin_discord_id,
+            )
+
+    # Fall back to guild owner
+    if admin_user is None and interaction.guild is not None:
+        admin_user = interaction.guild.owner
+
+    if admin_user is None:
+        logger.warning("admin_review_no_admin_found proposal=%s", proposal.id)
+        return
+
+    embed = build_admin_review_embed(proposal, governor_name=governor_name)
+    view = AdminReviewView(
+        proposal=proposal,
+        proposer_discord_id=interaction.user.id,
+        engine=interaction.client.engine,  # type: ignore[attr-defined]
+    )
+
+    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+        await admin_user.send(embed=embed, view=view)
+        logger.info(
+            "admin_review_dm_sent admin=%s proposal=%s",
+            admin_user.id,
+            proposal.id,
+        )
+
+
+class AdminReviewView(discord.ui.View):
+    """Approve/Reject buttons for admin review of wild proposals.
+
+    Sent via DM to the admin when a Tier 5+ or low-confidence proposal
+    is submitted. Timeout: 24 hours.
+    """
+
+    def __init__(
+        self,
+        *,
+        proposal: object,
+        proposer_discord_id: int,
+        engine: AsyncEngine,
+    ) -> None:
+        super().__init__(timeout=86400)  # 24 hours
+        from pinwheel.models.governance import Proposal as ProposalModel
+
+        self.proposal: ProposalModel = proposal  # type: ignore[assignment]
+        self.proposer_discord_id = proposer_discord_id
+        self.engine = engine
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+    @discord.ui.button(
+        label="Approve", style=discord.ButtonStyle.green,
+    )
+    async def approve(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        import contextlib
+
+        from pinwheel.core.governance import admin_approve_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                await admin_approve_proposal(repo, self.proposal)
+                await session.commit()
+
+            self._disable_all()
+            embed = discord.Embed(
+                title="Proposal Approved",
+                description=(
+                    f'"{self.proposal.raw_text[:200]}"\n\n'
+                    "The proposal has been approved and is now "
+                    "open for voting."
+                ),
+                color=0x2ECC71,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(
+                embed=embed, view=self,
+            )
+
+            # DM the proposer
+            with contextlib.suppress(
+                discord.Forbidden, discord.HTTPException, Exception,
+            ):
+                proposer = await interaction.client.fetch_user(
+                    self.proposer_discord_id,
+                )
+                await proposer.send(
+                    "Your proposal has been approved and is now "
+                    "open for voting.",
+                )
+        except Exception:
+            logger.exception("admin_approve_failed")
+            await interaction.response.send_message(
+                "Something went wrong approving the proposal.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Reject", style=discord.ButtonStyle.red,
+    )
+    async def reject(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        modal = AdminRejectReasonModal(parent_view=self)
+        await interaction.response.send_modal(modal)
+
+
+class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
+    """Text input for admin to provide a rejection reason."""
+
+    reason = discord.ui.TextInput(
+        label="Rejection reason (optional)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Why is this proposal being rejected?",
+        required=False,
+        max_length=500,
+    )
+
+    def __init__(self, *, parent_view: AdminReviewView) -> None:
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(
+        self, interaction: discord.Interaction,
+    ) -> None:
+        import contextlib
+
+        from pinwheel.core.governance import admin_reject_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        reason = self.reason.value or ""
+
+        try:
+            async with get_session(self.parent_view.engine) as session:
+                repo = Repository(session)
+                await admin_reject_proposal(
+                    repo, self.parent_view.proposal, reason=reason,
+                )
+                await session.commit()
+
+            self.parent_view._disable_all()
+            embed = discord.Embed(
+                title="Proposal Rejected",
+                description=(
+                    f'"{self.parent_view.proposal.raw_text[:200]}"\n\n'
+                    f"Reason: {reason or 'No reason provided.'}"
+                ),
+                color=0xE74C3C,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(
+                embed=embed, view=self.parent_view,
+            )
+
+            # DM the proposer
+            with contextlib.suppress(
+                discord.Forbidden, discord.HTTPException, Exception,
+            ):
+                proposer = await interaction.client.fetch_user(
+                    self.parent_view.proposer_discord_id,
+                )
+                reason_msg = f" Reason: {reason}" if reason else ""
+                await proposer.send(
+                    "Your proposal was not approved."
+                    f"{reason_msg} "
+                    "Your PROPOSE token has been refunded.",
+                )
+        except Exception:
+            logger.exception("admin_reject_failed")
+            await interaction.response.send_message(
+                "Something went wrong rejecting the proposal.",
+                ephemeral=True,
             )

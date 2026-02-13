@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}{% if archive %}{{ archive.season_name }} Archive{% else %}Season Archives{% endif %} — Pinwheel Fates{% endblock %}
+
+{% block content %}
+{% if archive %}
+{# --- Single archive detail view --- #}
+<div class="page-header">
+  <h2>{{ archive.season_name }}</h2>
+  <p class="subtitle">
+    Archived Season
+    {% if archive.created_at %} &middot; {{ archive.created_at[:10] }}{% endif %}
+  </p>
+  <a href="/seasons/archive" style="font-size:0.85rem; color:var(--accent-highlight);">&larr; All Archives</a>
+</div>
+
+{% if archive.champion_team_name %}
+<div class="card" style="text-align:center; padding:1.5rem;">
+  <p style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:0.5rem;">Champion</p>
+  <h3 style="color:var(--accent-score); margin:0;">{{ archive.champion_team_name }}</h3>
+</div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:1rem; margin:1.5rem 0;">
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-highlight);">{{ archive.total_games }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Games</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-governance);">{{ archive.total_proposals }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Proposals</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-score);">{{ archive.total_rule_changes }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Rule Changes</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-mirror);">{{ archive.governor_count }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Governors</div>
+  </div>
+</div>
+
+{% if archive.final_standings %}
+<div class="card">
+  <h3 style="margin-bottom:1rem;">Final Standings</h3>
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th style="width:2rem">#</th>
+        <th>Team</th>
+        <th class="num">W</th>
+        <th class="num">L</th>
+        <th class="num">PCT</th>
+        <th class="num">PF</th>
+        <th class="num">PA</th>
+        <th class="num">DIFF</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for team in archive.final_standings %}
+      <tr>
+        <td class="rank rank-{{ loop.index }}">{{ loop.index }}</td>
+        <td>{{ team.team_name | default(team.team_id) }}</td>
+        <td class="num record">{{ team.wins }}</td>
+        <td class="num record">{{ team.losses }}</td>
+        <td class="num pct">
+          {% if team.wins + team.losses > 0 %}
+            {{ "%.3f"|format(team.wins / (team.wins + team.losses)) }}
+          {% else %}
+            .000
+          {% endif %}
+        </td>
+        <td class="num">{{ team.points_for }}</td>
+        <td class="num">{{ team.points_against }}</td>
+        <td class="num {% if team.point_diff > 0 %}diff-positive{% elif team.point_diff < 0 %}diff-negative{% endif %}">
+          {% if team.point_diff > 0 %}+{% endif %}{{ team.point_diff }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if archive.rule_change_history %}
+<div class="card">
+  <h3 style="margin-bottom:1rem;">Rule Change Timeline</h3>
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th>Parameter</th>
+        <th class="num">Old</th>
+        <th class="num">New</th>
+        <th class="num">Round</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rc in archive.rule_change_history %}
+      <tr>
+        <td>{{ rc.parameter | default("unknown") }}</td>
+        <td class="num">{{ rc.old_value | default("--") }}</td>
+        <td class="num" style="color:var(--accent-score);">{{ rc.new_value | default("--") }}</td>
+        <td class="num">{{ rc.round_enacted | default("--") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% else %}
+{# --- Archive list view --- #}
+<div class="page-header">
+  <h2>Season Archives</h2>
+  <p class="subtitle">Completed seasons, frozen in time.</p>
+</div>
+
+{% if archives %}
+<div style="display:grid; gap:1rem;">
+  {% for a in archives %}
+  <a href="/seasons/archive/{{ a.season_id }}" class="card" style="text-decoration:none; color:inherit; display:block; padding:1.25rem; transition:border-color 0.2s;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h3 style="margin:0 0 0.25rem;">{{ a.season_name }}</h3>
+        {% if a.champion_team_name %}
+        <p style="margin:0; font-size:0.85rem; color:var(--accent-score);">Champion: {{ a.champion_team_name }}</p>
+        {% endif %}
+      </div>
+      <div style="display:flex; gap:1.5rem; font-size:0.8rem; color:var(--text-muted);">
+        <span>{{ a.total_games }} games</span>
+        <span>{{ a.total_proposals }} proposals</span>
+        <span>{{ a.total_rule_changes }} rule changes</span>
+        <span>{{ a.governor_count }} governors</span>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No Archives Yet</h3>
+  <p>Completed seasons will appear here once they are archived.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

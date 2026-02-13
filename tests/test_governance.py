@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.ai.interpreter import interpret_proposal_mock
 from pinwheel.core.governance import (
+    admin_approve_proposal,
+    admin_reject_proposal,
     apply_rule_change,
     cancel_proposal,
     cast_vote,
@@ -258,6 +260,52 @@ class TestVoteTally:
         # 66.7% yes, but threshold is 0.75 → fails
         tally = tally_votes(votes, threshold=0.75)
         assert tally.passed is False
+
+    def test_yes_count_and_no_count(self):
+        """tally_votes returns correct yes_count and no_count."""
+        votes = [
+            Vote(proposal_id="p1", governor_id="g1", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g2", vote="yes", weight=0.5),
+            Vote(proposal_id="p1", governor_id="g3", vote="no", weight=1.0),
+        ]
+        tally = tally_votes(votes, threshold=0.5)
+        assert tally.yes_count == 2
+        assert tally.no_count == 1
+
+    def test_empty_votes_counts(self):
+        """Empty vote list has zero counts."""
+        tally = tally_votes([], threshold=0.5)
+        assert tally.yes_count == 0
+        assert tally.no_count == 0
+
+    def test_all_yes_counts(self):
+        """All yes votes counts correctly."""
+        votes = [
+            Vote(proposal_id="p1", governor_id="g1", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g2", vote="yes", weight=1.0),
+        ]
+        tally = tally_votes(votes, threshold=0.5)
+        assert tally.yes_count == 2
+        assert tally.no_count == 0
+
+    def test_all_no_counts(self):
+        """All no votes counts correctly."""
+        votes = [
+            Vote(proposal_id="p1", governor_id="g1", vote="no", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g2", vote="no", weight=1.0),
+        ]
+        tally = tally_votes(votes, threshold=0.5)
+        assert tally.yes_count == 0
+        assert tally.no_count == 2
+
+    def test_total_eligible_default_zero(self):
+        """VoteTally total_eligible defaults to 0."""
+        from pinwheel.models.governance import VoteTally as VT
+
+        tally = VT(proposal_id="p1")
+        assert tally.total_eligible == 0
+        assert tally.yes_count == 0
+        assert tally.no_count == 0
 
 
 # --- Rule Application Tests ---
@@ -602,3 +650,196 @@ class TestTallyGovernance:
             event_types=["window.closed"],
         )
         assert len(window_events) == 1
+
+
+# --- Admin Review / Veto Tests ---
+
+
+class TestAdminReview:
+    async def test_tier5_proposal_goes_to_pending_review(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """Tier 5 proposals (parameter=None) should be held for admin review."""
+        gov_id, team_id = seeded_governor
+        # Create a Tier 5 interpretation (parameter=None → uninterpretable)
+        interpretation = RuleInterpretation(
+            parameter=None,
+            confidence=0.8,
+            clarification_needed=True,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Make the game more fun and exciting",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        assert proposal.tier == 5  # No parameter → Tier 5
+
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "pending_review"
+
+        # Verify pending_review event was recorded
+        pending_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.pending_review"],
+        )
+        assert len(pending_events) == 1
+
+    async def test_low_confidence_proposal_goes_to_pending_review(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """Proposals with confidence < 0.5 should be held for admin review."""
+        gov_id, team_id = seeded_governor
+        # Create a low-confidence interpretation (valid param but low confidence)
+        interpretation = RuleInterpretation(
+            parameter="three_point_value",
+            new_value=5,
+            old_value=3,
+            confidence=0.3,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Maybe change three pointers?",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        assert proposal.tier == 1  # three_point_value is Tier 1
+
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "pending_review"
+
+    async def test_normal_proposal_skips_review(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """Normal proposals (Tier 1-4, confidence >= 0.5) go straight to confirmed."""
+        gov_id, team_id = seeded_governor
+        interpretation = RuleInterpretation(
+            parameter="three_point_value",
+            new_value=5,
+            old_value=3,
+            confidence=0.9,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Make three pointers worth 5",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        assert proposal.tier == 1
+
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "confirmed"
+
+        # No pending_review event should exist
+        pending_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.pending_review"],
+        )
+        assert len(pending_events) == 0
+
+    async def test_admin_approve_moves_to_confirmed(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """admin_approve_proposal should move a pending_review proposal to confirmed."""
+        gov_id, team_id = seeded_governor
+        interpretation = RuleInterpretation(parameter=None, confidence=0.8)
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Wild proposal",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "pending_review"
+
+        proposal = await admin_approve_proposal(repo, proposal)
+        assert proposal.status == "confirmed"
+
+        # Verify confirmed event was recorded
+        confirmed_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.confirmed"],
+        )
+        assert len(confirmed_events) == 1
+
+    async def test_admin_reject_moves_to_rejected_and_refunds_token(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """admin_reject_proposal should reject and refund the PROPOSE token."""
+        gov_id, team_id = seeded_governor
+
+        # Check initial balance
+        initial_balance = await get_token_balance(repo, gov_id, season_id)
+        assert initial_balance.propose == 2
+
+        interpretation = RuleInterpretation(parameter=None, confidence=0.8)
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Wild proposal",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+
+        # Token was spent on submission (tier 5 costs 2 tokens)
+        balance_after_submit = await get_token_balance(repo, gov_id, season_id)
+        assert balance_after_submit.propose == 0  # 2 - 2 (tier 5 cost)
+
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "pending_review"
+
+        proposal = await admin_reject_proposal(repo, proposal, reason="Too vague")
+        assert proposal.status == "rejected"
+
+        # Token should be refunded
+        balance_after_reject = await get_token_balance(repo, gov_id, season_id)
+        assert balance_after_reject.propose == 2  # Refunded the 2 tokens
+
+        # Verify rejected event was recorded with reason
+        rejected_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.rejected"],
+        )
+        assert len(rejected_events) == 1
+        assert rejected_events[0].payload.get("rejection_reason") == "Too vague"
+
+    async def test_tier4_with_high_confidence_skips_review(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """Tier 4 proposal with high confidence should skip admin review."""
+        gov_id, team_id = seeded_governor
+        interpretation = RuleInterpretation(
+            parameter="vote_threshold",
+            new_value=0.6,
+            old_value=0.5,
+            confidence=0.85,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Set vote threshold to 60%",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        assert proposal.tier == 4
+
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "confirmed"
+
+    async def test_confidence_exactly_0_5_skips_review(
+        self, repo: Repository, season_id: str, seeded_governor,
+    ):
+        """Confidence exactly 0.5 should NOT trigger review (< 0.5 is the threshold)."""
+        gov_id, team_id = seeded_governor
+        interpretation = RuleInterpretation(
+            parameter="three_point_value",
+            new_value=4,
+            old_value=3,
+            confidence=0.5,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
+            window_id="w-1", raw_text="Change three pointer value",
+            interpretation=interpretation, ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "confirmed"

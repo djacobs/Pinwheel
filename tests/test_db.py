@@ -41,6 +41,7 @@ class TestTableCreation:
             "governance_events",
             "schedule",
             "mirrors",
+            "season_archives",
         }
         assert expected.issubset(set(tables))
 
@@ -202,6 +203,42 @@ class TestGovernanceEvents:
         assert events[0].event_type == "proposal.submitted"
         assert events[1].event_type == "vote.cast"
         assert events[0].sequence_number < events[1].sequence_number
+
+
+class TestHooperBackstory:
+    async def test_update_hooper_backstory(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team = await repo.create_team(season.id, "Team A")
+        hooper = await repo.create_hooper(
+            team.id, season.id, "Star Player", "sharpshooter", {"scoring": 80},
+        )
+        assert hooper.backstory == ""
+
+        updated = await repo.update_hooper_backstory(hooper.id, "Born to ball.")
+        assert updated is not None
+        assert updated.backstory == "Born to ball."
+
+        # Verify persistence via fresh query
+        retrieved = await repo.get_hooper(hooper.id)
+        assert retrieved is not None
+        assert retrieved.backstory == "Born to ball."
+
+    async def test_update_hooper_backstory_nonexistent(self, repo: Repository):
+        result = await repo.update_hooper_backstory("nonexistent-id", "text")
+        assert result is None
+
+    async def test_update_hooper_backstory_empty(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team = await repo.create_team(season.id, "Team A")
+        hooper = await repo.create_hooper(
+            team.id, season.id, "Star Player", "sharpshooter", {"scoring": 80},
+        )
+        await repo.update_hooper_backstory(hooper.id, "Some bio")
+        await repo.update_hooper_backstory(hooper.id, "")
+        retrieved = await repo.get_hooper(hooper.id)
+        assert retrieved.backstory == ""
 
 
 class TestSchedule:

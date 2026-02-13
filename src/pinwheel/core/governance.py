@@ -173,8 +173,37 @@ async def submit_proposal(
     return proposal
 
 
+def _needs_admin_review(proposal: Proposal) -> bool:
+    """Check if a proposal requires admin review before going to vote.
+
+    Tier 5+ proposals (uninterpretable, parameter=None, or unknown params)
+    and proposals with low AI confidence (< 0.5) are held for admin approval.
+    """
+    if proposal.tier >= 5:
+        return True
+    return bool(
+        proposal.interpretation and proposal.interpretation.confidence < 0.5
+    )
+
+
 async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
-    """Governor confirms AI interpretation. Moves to voting."""
+    """Governor confirms AI interpretation. Moves to voting or pending_review.
+
+    Wild proposals (Tier 5+ or confidence < 0.5) are held for admin review
+    before they can proceed to voting.
+    """
+    if _needs_admin_review(proposal):
+        await repo.append_event(
+            event_type="proposal.pending_review",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=proposal.season_id,
+            governor_id=proposal.governor_id,
+            payload=proposal.model_dump(mode="json"),
+        )
+        proposal.status = "pending_review"
+        return proposal
+
     await repo.append_event(
         event_type="proposal.confirmed",
         aggregate_id=proposal.id,
@@ -184,6 +213,49 @@ async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
         payload={"proposal_id": proposal.id},
     )
     proposal.status = "confirmed"
+    return proposal
+
+
+async def admin_approve_proposal(repo: Repository, proposal: Proposal) -> Proposal:
+    """Admin approves a proposal held for review. Moves to confirmed status."""
+    proposal.status = "confirmed"
+    await repo.append_event(
+        event_type="proposal.confirmed",
+        aggregate_id=proposal.id,
+        aggregate_type="proposal",
+        season_id=proposal.season_id,
+        governor_id=proposal.governor_id,
+        payload=proposal.model_dump(mode="json"),
+    )
+    return proposal
+
+
+async def admin_reject_proposal(
+    repo: Repository, proposal: Proposal, reason: str = "",
+) -> Proposal:
+    """Admin rejects a proposal held for review. Refunds the PROPOSE token."""
+    proposal.status = "rejected"
+    await repo.append_event(
+        event_type="proposal.rejected",
+        aggregate_id=proposal.id,
+        aggregate_type="proposal",
+        season_id=proposal.season_id,
+        governor_id=proposal.governor_id,
+        payload={**proposal.model_dump(mode="json"), "rejection_reason": reason},
+    )
+    # Refund PROPOSE token
+    await repo.append_event(
+        event_type="token.regenerated",
+        aggregate_id=proposal.governor_id,
+        aggregate_type="token",
+        season_id=proposal.season_id,
+        governor_id=proposal.governor_id,
+        payload={
+            "token_type": "propose",
+            "amount": proposal.token_cost,
+            "reason": "admin_rejection_refund",
+        },
+    )
     return proposal
 
 
@@ -314,8 +386,10 @@ def tally_votes(votes: list[Vote], threshold: float) -> VoteTally:
 
     Strictly greater-than: ties fail.
     """
-    weighted_yes = sum(v.weight for v in votes if v.vote == "yes")
-    weighted_no = sum(v.weight for v in votes if v.vote == "no")
+    yes_votes = [v for v in votes if v.vote == "yes"]
+    no_votes = [v for v in votes if v.vote == "no"]
+    weighted_yes = sum(v.weight for v in yes_votes)
+    weighted_no = sum(v.weight for v in no_votes)
     total = weighted_yes + weighted_no
 
     passed = total > 0 and (weighted_yes / total) > threshold
@@ -327,6 +401,8 @@ def tally_votes(votes: list[Vote], threshold: float) -> VoteTally:
         total_weight=total,
         passed=passed,
         threshold=threshold,
+        yes_count=len(yes_votes),
+        no_count=len(no_votes),
     )
 
 

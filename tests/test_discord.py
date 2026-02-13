@@ -23,6 +23,7 @@ from pinwheel.discord.embeds import (
     build_schedule_embed,
     build_standings_embed,
     build_vote_tally_embed,
+    build_welcome_embed,
 )
 from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
 from pinwheel.models.mirror import Mirror
@@ -133,6 +134,7 @@ class TestPinwheelBotInit:
         assert "tokens" in command_names
         assert "trade" in command_names
         assert "strategy" in command_names
+        assert "bio" in command_names
 
     def test_bot_has_channel_ids_dict(
         self, settings_discord_enabled: Settings, event_bus: EventBus
@@ -425,10 +427,21 @@ class TestBuildVoteTallyEmbed:
             total_weight=8.0,
             passed=True,
             threshold=0.5,
+            yes_count=3,
+            no_count=2,
         )
         embed = build_vote_tally_embed(tally, "Make it rain")
         assert "PASSED" in embed.title
         assert "Make it rain" in (embed.description or "")
+        # Check vote count fields
+        yes_field = next(f for f in embed.fields if f.name == "Yes")
+        assert "3 votes" in yes_field.value
+        assert "5.00" in yes_field.value
+        no_field = next(f for f in embed.fields if f.name == "No")
+        assert "2 votes" in no_field.value
+        assert "3.00" in no_field.value
+        votes_cast_field = next(f for f in embed.fields if f.name == "Votes Cast")
+        assert "5 governors voted" in votes_cast_field.value
 
     def test_failed_tally(self) -> None:
         tally = VoteTally(
@@ -438,9 +451,110 @@ class TestBuildVoteTallyEmbed:
             total_weight=8.0,
             passed=False,
             threshold=0.5,
+            yes_count=1,
+            no_count=4,
         )
         embed = build_vote_tally_embed(tally)
         assert "FAILED" in embed.title
+        votes_cast_field = next(f for f in embed.fields if f.name == "Votes Cast")
+        assert "5 governors voted" in votes_cast_field.value
+
+    def test_single_vote_grammar(self) -> None:
+        """Single vote uses singular 'vote' not 'votes'."""
+        tally = VoteTally(
+            proposal_id="p-1",
+            weighted_yes=1.0,
+            weighted_no=0.0,
+            total_weight=1.0,
+            passed=True,
+            threshold=0.5,
+            yes_count=1,
+            no_count=0,
+        )
+        embed = build_vote_tally_embed(tally)
+        yes_field = next(f for f in embed.fields if f.name == "Yes")
+        assert "1 vote)" in yes_field.value
+        votes_cast_field = next(f for f in embed.fields if f.name == "Votes Cast")
+        assert "1 governor voted" in votes_cast_field.value
+
+    def test_participation_field_with_eligible(self) -> None:
+        """Participation field shows when total_eligible > 0."""
+        tally = VoteTally(
+            proposal_id="p-1",
+            weighted_yes=2.0,
+            weighted_no=1.0,
+            total_weight=3.0,
+            passed=True,
+            threshold=0.5,
+            yes_count=2,
+            no_count=1,
+            total_eligible=5,
+        )
+        embed = build_vote_tally_embed(tally)
+        field_names = [f.name for f in embed.fields]
+        assert "Participation" in field_names
+        part_field = next(f for f in embed.fields if f.name == "Participation")
+        assert "3 of 5" in part_field.value
+        assert "60%" in part_field.value
+
+    def test_no_participation_field_without_eligible(self) -> None:
+        """Participation field absent when total_eligible is 0."""
+        tally = VoteTally(
+            proposal_id="p-1",
+            weighted_yes=1.0,
+            weighted_no=0.0,
+            total_weight=1.0,
+            passed=True,
+            threshold=0.5,
+            yes_count=1,
+            no_count=0,
+            total_eligible=0,
+        )
+        embed = build_vote_tally_embed(tally)
+        field_names = [f.name for f in embed.fields]
+        assert "Participation" not in field_names
+
+
+class TestBuildProposalAnnouncementEmbed:
+    def test_basic_announcement(self) -> None:
+        from pinwheel.discord.embeds import build_proposal_announcement_embed
+
+        embed = build_proposal_announcement_embed(
+            proposal_text="Make three-pointers worth 5 points",
+            parameter="three_point_value",
+            old_value=3,
+            new_value=5,
+            tier=1,
+            threshold=0.5,
+        )
+        assert embed.title == "New Proposal on the Floor"
+        assert "Make three-pointers" in (embed.description or "")
+        field_names = [f.name for f in embed.fields]
+        assert "Parameter Change" in field_names
+        assert "Tier" in field_names
+        assert "Threshold" in field_names
+        assert embed.footer.text == "Use /vote to cast your vote"
+
+    def test_announcement_no_parameter(self) -> None:
+        from pinwheel.discord.embeds import build_proposal_announcement_embed
+
+        embed = build_proposal_announcement_embed(
+            proposal_text="Make the game more exciting",
+            tier=5,
+            threshold=0.67,
+        )
+        assert embed.title == "New Proposal on the Floor"
+        field_names = [f.name for f in embed.fields]
+        assert "Parameter Change" not in field_names
+        assert "Tier" in field_names
+
+    def test_announcement_color(self) -> None:
+        from pinwheel.discord.embeds import COLOR_GOVERNANCE, build_proposal_announcement_embed
+
+        embed = build_proposal_announcement_embed(
+            proposal_text="Test",
+        )
+        assert embed.color.value == COLOR_GOVERNANCE
 
 
 class TestBuildMirrorEmbed:
@@ -464,7 +578,7 @@ class TestBuildMirrorEmbed:
             content="A coalition is forming between two teams.",
         )
         embed = build_mirror_embed(mirror)
-        assert "Governance Mirror" in embed.title
+        assert "The Floor" in embed.title
 
 
 class TestBuildScheduleEmbed:
@@ -1288,7 +1402,7 @@ class TestTokensCommand:
         call_kwargs = interaction.response.send_message.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
-        assert "Governance Tokens" in embed.title
+        assert "Floor Tokens" in embed.title
         assert "PROPOSE" in embed.description
         await engine.dispose()
 
@@ -1441,6 +1555,7 @@ class TestHooperTradeCommand:
             id="t1", from_team_id="a", to_team_id="b",
             offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2"],
+            from_team_voters=["g1"], to_team_voters=["g2"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         vote_hooper_trade(trade, "g2", "yes")
@@ -1450,7 +1565,7 @@ class TestHooperTradeCommand:
         assert to_ok is True
 
     async def test_tally_majority_no_rejects(self) -> None:
-        """When majority votes no, the trade is rejected."""
+        """When one team votes no, the trade is rejected for that team."""
         from pinwheel.core.tokens import tally_hooper_trade, vote_hooper_trade
         from pinwheel.models.tokens import HooperTrade
 
@@ -1458,12 +1573,14 @@ class TestHooperTradeCommand:
             id="t1", from_team_id="a", to_team_id="b",
             offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2"],
+            from_team_voters=["g1"], to_team_voters=["g2"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         vote_hooper_trade(trade, "g2", "no")
         all_voted, from_ok, to_ok = tally_hooper_trade(trade)
         assert all_voted is True
-        assert from_ok is False
+        assert from_ok is True
+        assert to_ok is False
 
     async def test_tally_incomplete_votes(self) -> None:
         """Trade not tallied until all required voters have voted."""
@@ -1474,6 +1591,7 @@ class TestHooperTradeCommand:
             id="t1", from_team_id="a", to_team_id="b",
             offered_hooper_ids=["x"], requested_hooper_ids=["y"],
             proposed_by="g1", required_voters=["g1", "g2", "g3"],
+            from_team_voters=["g1"], to_team_voters=["g2", "g3"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         all_voted, _, _ = tally_hooper_trade(trade)
@@ -1630,6 +1748,206 @@ class TestStrategyCommand:
         call_kwargs = interaction.response.send_message.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# /bio
+# ---------------------------------------------------------------------------
+
+
+class TestBioCommand:
+    async def test_bio_not_enrolled(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Bio without enrollment returns ephemeral error."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test")
+            await repo.create_season(league.id, "S1")
+            await session.commit()
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
+        )
+        interaction = AsyncMock(spec=discord.Interaction)
+        interaction.response = AsyncMock()
+        interaction.user = MagicMock()
+        interaction.user.id = 999888777
+
+        await bot._handle_bio(interaction, "SomeHooper", "A backstory")
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        assert "join" in str(call_kwargs.args[0]).lower()
+        await engine.dispose()
+
+    async def test_bio_empty_text(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Empty bio text returns ephemeral error."""
+        bot, interaction, gov_data, engine = (
+            await _make_enrolled_bot_and_interaction(
+                settings_discord_enabled, event_bus,
+            )
+        )
+        await bot._handle_bio(interaction, "Briar Ashwood", "   ")
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        await engine.dispose()
+
+    async def test_bio_too_long(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Bio exceeding 500 chars returns ephemeral error."""
+        bot, interaction, gov_data, engine = (
+            await _make_enrolled_bot_and_interaction(
+                settings_discord_enabled, event_bus,
+            )
+        )
+        long_text = "A" * 501
+        await bot._handle_bio(interaction, "Briar Ashwood", long_text)
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        assert "500" in str(call_kwargs.args[0])
+        await engine.dispose()
+
+    async def test_bio_hooper_not_found(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Bio for nonexistent hooper returns error."""
+        bot, interaction, gov_data, engine = (
+            await _make_enrolled_bot_and_interaction(
+                settings_discord_enabled, event_bus,
+            )
+        )
+        await bot._handle_bio(interaction, "Nonexistent Player", "A bio")
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        assert "not found" in str(call_kwargs.args[0]).lower()
+        await engine.dispose()
+
+    async def test_bio_success(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Successful bio update returns confirmation embed."""
+        bot, interaction, gov_data, engine = (
+            await _make_enrolled_bot_and_interaction(
+                settings_discord_enabled, event_bus,
+            )
+        )
+        await bot._handle_bio(
+            interaction, "Briar Ashwood", "A sharpshooter from Portland.",
+        )
+        call_kwargs = interaction.response.send_message.call_args
+        embed = call_kwargs.kwargs.get("embed")
+        assert embed is not None
+        assert "Briar Ashwood" in embed.title
+        assert "sharpshooter from Portland" in embed.description
+        assert call_kwargs.kwargs.get("ephemeral") is True
+
+        # Verify persistence in DB
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            team = await repo.get_team(gov_data["team_id"])
+            hooper = next(
+                (h for h in team.hoopers if h.name == "Briar Ashwood"), None,
+            )
+            assert hooper is not None
+            assert hooper.backstory == "A sharpshooter from Portland."
+
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Welcome embed with motto and backstory
+# ---------------------------------------------------------------------------
+
+
+class TestWelcomeEmbedExtended:
+    def test_welcome_embed_with_motto(self) -> None:
+        """Welcome embed includes team motto when provided."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed(
+            "Thorns", "#E74C3C", hoopers, motto="Bloom or bust",
+        )
+        assert "Bloom or bust" in (embed.description or "")
+
+    def test_welcome_embed_without_motto(self) -> None:
+        """Welcome embed omits motto line when empty."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers, motto="")
+        # No motto marker in description
+        desc = embed.description or ""
+        assert "Thorns" in desc
+        assert '*"' not in desc
+
+    def test_welcome_embed_with_backstory(self) -> None:
+        """Welcome embed shows hooper backstory snippet."""
+        hoopers = [
+            {
+                "name": "Star",
+                "archetype": "Sharpshooter",
+                "backstory": "A deadly shooter from downtown.",
+            },
+        ]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "deadly shooter" in desc
+
+    def test_welcome_embed_backstory_truncation(self) -> None:
+        """Backstory longer than 100 chars is truncated with ellipsis."""
+        long_bio = "A" * 150
+        hoopers = [
+            {"name": "Star", "archetype": "Sharpshooter", "backstory": long_bio},
+        ]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "..." in desc
+        # The full 150-char string should NOT appear
+        assert long_bio not in desc
+
+    def test_welcome_embed_includes_bio_command(self) -> None:
+        """Welcome embed quick start lists /bio command."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "/bio" in desc
+
+
+# ---------------------------------------------------------------------------
+# Bio embed
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBioEmbed:
+    def test_bio_embed(self) -> None:
+        from pinwheel.discord.embeds import build_bio_embed
+
+        embed = build_bio_embed("Briar Ashwood", "A sharpshooter from Portland.")
+        assert "Briar Ashwood" in embed.title
+        assert "sharpshooter from Portland" in embed.description
 
 
 # ---------------------------------------------------------------------------

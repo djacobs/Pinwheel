@@ -21,6 +21,7 @@ from pinwheel.db.models import (
     MirrorRow,
     PlayerRow,
     ScheduleRow,
+    SeasonArchiveRow,
     SeasonRow,
     TeamRow,
 )
@@ -40,6 +41,10 @@ class Repository:
         await self.session.flush()
         return row
 
+    async def get_league(self, league_id: str) -> LeagueRow | None:
+        """Get a league by ID."""
+        return await self.session.get(LeagueRow, league_id)
+
     async def create_season(
         self,
         league_id: str,
@@ -58,6 +63,29 @@ class Repository:
 
     async def get_season(self, season_id: str) -> SeasonRow | None:
         return await self.session.get(SeasonRow, season_id)
+
+    async def get_latest_completed_season(self, league_id: str) -> SeasonRow | None:
+        """Get the most recently completed season in a league."""
+        stmt = (
+            select(SeasonRow)
+            .where(
+                SeasonRow.league_id == league_id,
+                SeasonRow.status.in_(["completed", "archived"]),
+            )
+            .order_by(SeasonRow.completed_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_players_for_season(self, season_id: str) -> list[PlayerRow]:
+        """Return all players enrolled in a season."""
+        stmt = select(PlayerRow).where(
+            PlayerRow.enrolled_season_id == season_id,
+            PlayerRow.team_id.isnot(None),
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     # --- Teams / Agents ---
 
@@ -307,6 +335,113 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_events_by_governor(
+        self,
+        season_id: str,
+        governor_id: str,
+    ) -> list[GovernanceEventRow]:
+        """Get all governance events for a governor in a season."""
+        stmt = (
+            select(GovernanceEventRow)
+            .where(
+                GovernanceEventRow.season_id == season_id,
+                GovernanceEventRow.governor_id == governor_id,
+            )
+            .order_by(GovernanceEventRow.sequence_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_governor_activity(self, governor_id: str, season_id: str) -> dict:
+        """Get a governor's governance activity summary.
+
+        Returns a dict with:
+        - proposals_submitted: int
+        - proposals_passed: int
+        - proposals_failed: int
+        - votes_cast: int
+        - proposal_list: list of dicts with proposal details + outcomes
+        - token_balance: TokenBalance (propose, amend, boost)
+        """
+        from pinwheel.core.tokens import get_token_balance
+
+        # Get proposals submitted by this governor
+        submitted_events = await self.get_events_by_type_and_governor(
+            season_id=season_id,
+            governor_id=governor_id,
+            event_types=["proposal.submitted"],
+        )
+
+        # Get votes cast by this governor
+        vote_events = await self.get_events_by_type_and_governor(
+            season_id=season_id,
+            governor_id=governor_id,
+            event_types=["vote.cast"],
+        )
+
+        # Get all outcome events to determine pass/fail for proposals
+        outcome_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.passed", "proposal.failed"],
+        )
+        outcomes: dict[str, str] = {}
+        for e in outcome_events:
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            outcomes[pid] = "passed" if e.event_type == "proposal.passed" else "failed"
+
+        # Get confirmed proposals to identify pending ones
+        confirmed_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.confirmed"],
+        )
+        confirmed_ids: set[str] = set()
+        for e in confirmed_events:
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            confirmed_ids.add(pid)
+
+        # Build proposal list with outcomes
+        proposals_passed = 0
+        proposals_failed = 0
+        proposal_list: list[dict] = []
+
+        for evt in submitted_events:
+            p_data = evt.payload
+            if "id" not in p_data or "raw_text" not in p_data:
+                continue
+            pid = p_data["id"]
+            status = outcomes.get(pid, "pending")
+            if pid in confirmed_ids and pid not in outcomes:
+                status = "confirmed"
+            if status == "passed":
+                proposals_passed += 1
+            elif status == "failed":
+                proposals_failed += 1
+
+            interp = p_data.get("interpretation")
+            parameter = None
+            if interp and isinstance(interp, dict):
+                parameter = interp.get("parameter")
+
+            proposal_list.append({
+                "id": pid,
+                "raw_text": p_data.get("raw_text", ""),
+                "status": status,
+                "parameter": parameter,
+                "round_number": evt.round_number,
+                "tier": p_data.get("tier", 1),
+            })
+
+        balance = await get_token_balance(self, governor_id, season_id)
+
+        return {
+            "proposals_submitted": len(proposal_list),
+            "proposals_passed": proposals_passed,
+            "proposals_failed": proposals_failed,
+            "votes_cast": len(vote_events),
+            "proposal_list": proposal_list,
+            "token_balance": balance,
+        }
+
     async def update_season_ruleset(self, season_id: str, ruleset_data: dict) -> None:
         """Update the cached current_ruleset on a season."""
         season = await self.get_season(season_id)
@@ -346,6 +481,25 @@ class Repository:
             )
             .order_by(ScheduleRow.matchup_index)
         )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_full_schedule(
+        self, season_id: str, phase: str | None = None,
+    ) -> list[ScheduleRow]:
+        """Get all schedule entries for a season, optionally filtered by phase.
+
+        Args:
+            season_id: The season to query.
+            phase: Filter by phase (e.g. "regular", "playoff"). None returns all.
+
+        Returns:
+            Schedule entries ordered by round_number and matchup_index.
+        """
+        stmt = select(ScheduleRow).where(ScheduleRow.season_id == season_id)
+        if phase:
+            stmt = stmt.where(ScheduleRow.phase == phase)
+        stmt = stmt.order_by(ScheduleRow.round_number, ScheduleRow.matchup_index)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -437,6 +591,10 @@ class Repository:
         return list(result.scalars().all())
 
     # --- Players (Discord OAuth) ---
+
+    async def get_player(self, player_id: str) -> PlayerRow | None:
+        """Look up a player by their internal ID."""
+        return await self.session.get(PlayerRow, player_id)
 
     async def get_player_by_discord_id(self, discord_id: str) -> PlayerRow | None:
         """Look up a player by their Discord user ID."""
@@ -674,3 +832,56 @@ class Repository:
             row = BotStateRow(key=key, value=value)
             self.session.add(row)
         await self.session.flush()
+
+    # --- Season Archives ---
+
+    async def get_all_games(self, season_id: str) -> list[GameResultRow]:
+        """Get all game results for a season."""
+        return await self.get_all_game_results_for_season(season_id)
+
+    async def get_all_governors_for_season(self, season_id: str) -> list[PlayerRow]:
+        """Return all players enrolled in a season (regardless of team)."""
+        stmt = select(PlayerRow).where(
+            PlayerRow.enrolled_season_id == season_id,
+            PlayerRow.team_id.isnot(None),
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_season_status(self, season_id: str, status: str) -> None:
+        """Update season status (setup, active, regular_season_complete, playoffs, completed)."""
+        season = await self.get_season(season_id)
+        if season:
+            season.status = status
+            if status == "completed":
+                from datetime import UTC, datetime
+
+                season.completed_at = datetime.now(UTC)
+            await self.session.flush()
+
+    async def get_season_row(self, season_id: str) -> SeasonRow | None:
+        """Get the raw season row. Alias for get_season."""
+        return await self.get_season(season_id)
+
+    async def store_season_archive(self, archive: SeasonArchiveRow) -> SeasonArchiveRow:
+        """Persist a season archive row."""
+        self.session.add(archive)
+        await self.session.flush()
+        return archive
+
+    async def get_season_archive(self, season_id: str) -> SeasonArchiveRow | None:
+        """Retrieve the archive for a given season."""
+        stmt = select(SeasonArchiveRow).where(
+            SeasonArchiveRow.season_id == season_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_all_archives(self) -> list[SeasonArchiveRow]:
+        """List all archived seasons, newest first."""
+        stmt = (
+            select(SeasonArchiveRow)
+            .order_by(SeasonArchiveRow.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}{{ player.username }} — Governor — Pinwheel Fates{% endblock %}
+
+{% block content %}
+{# Header #}
+<div class="hooper-page-header">
+  <div>
+    <h1>{{ player.username }}</h1>
+    <div class="flex items-center gap-1">
+      <span class="hooper-archetype">Governor</span>
+      {% if team %}
+      <span class="text-muted">&middot;</span>
+      <a href="/teams/{{ team.id }}" class="team-link-sm">
+        <span class="team-dot-sm" style="background: {{ team.color }};"></span>
+        {{ team.name }}
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# Stats Row #}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Floor Record</h3>
+  </div>
+  <div class="card-body">
+    <div class="flex gap-2">
+      <div>
+        <span class="text-muted text-xs">PROPOSALS</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ activity.proposals_submitted }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">PASSED</span><br>
+        <strong class="mono" style="font-size:1.5rem; color: var(--accent-score);">{{ activity.proposals_passed }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">FAILED</span><br>
+        <strong class="mono" style="font-size:1.5rem; color: var(--accent-game);">{{ activity.proposals_failed }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">VOTES CAST</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ activity.votes_cast }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Token Balance #}
+{% if activity.token_balance %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Token Balance</h3>
+  </div>
+  <div class="card-body">
+    <div class="flex gap-2">
+      <div>
+        <span class="text-muted text-xs">PROPOSE</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ activity.token_balance.propose }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">AMEND</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ activity.token_balance.amend }}</strong>
+      </div>
+      <div>
+        <span class="text-muted text-xs">BOOST</span><br>
+        <strong class="mono" style="font-size:1.5rem;">{{ activity.token_balance.boost }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# Proposal History #}
+{% if activity.proposal_list %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Proposal History</h3>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="box-score-table">
+      <thead>
+        <tr>
+          <th style="text-align:left">Proposal</th>
+          <th style="text-align:left">Parameter</th>
+          <th>Tier</th>
+          <th>Round</th>
+          <th>Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in activity.proposal_list %}
+        <tr>
+          <td style="text-align:left; font-family: var(--font-body); max-width: 300px;">
+            {{ p.raw_text[:80] }}{% if p.raw_text|length > 80 %}...{% endif %}
+          </td>
+          <td style="text-align:left;">
+            {% if p.parameter %}
+            <code>{{ p.parameter }}</code>
+            {% else %}
+            <span class="text-muted">--</span>
+            {% endif %}
+          </td>
+          <td>{{ p.tier }}</td>
+          <td>{{ p.round_number or '--' }}</td>
+          <td>
+            {% if p.status == 'passed' %}
+            <span class="status-badge status-passed">PASSED</span>
+            {% elif p.status == 'failed' %}
+            <span class="status-badge status-failed">FAILED</span>
+            {% elif p.status == 'confirmed' %}
+            <span class="status-badge status-confirmed">VOTING</span>
+            {% else %}
+            <span class="status-badge">PENDING</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No Proposals Yet</h3>
+  <p>This governor hasn't submitted any proposals yet.</p>
+</div>
+{% endif %}
+
+{% if team %}
+<a href="/teams/{{ team.id }}" class="nav-link">&larr; Back to {{ team.name }}</a>
+{% endif %}
+{% endblock %}

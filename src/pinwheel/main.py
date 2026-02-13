@@ -14,6 +14,7 @@ from pinwheel.api.governance import router as governance_router
 from pinwheel.api.mirrors import router as mirrors_router
 from pinwheel.api.pace import router as pace_router
 from pinwheel.api.pages import router as pages_router
+from pinwheel.api.seasons import router as seasons_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
 from pinwheel.auth.oauth import router as auth_router
@@ -191,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(events_router)
     app.include_router(eval_dashboard_router)
     app.include_router(pace_router)
+    app.include_router(seasons_router)
 
     # Page routes (must come after API routes so /api/ paths match first)
     app.include_router(pages_router)

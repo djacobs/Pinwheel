@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **539 tests**, zero lint errors (Session 38)
+- **627 tests**, zero lint errors (Session 40)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 38 (Token regen + GQI fix)
+- **Latest commit:** Session 40 (9-feature parallel build: The Floor, voting UX, admin veto, profiles, trades, seasons)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -168,20 +168,143 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ---
 
-## Tomorrow's Agenda: Doc Updates
+## Today's Agenda (Day 9)
 
-The doc audit (Session 38) identified these conflicts between product docs and implementation. All deferred to tomorrow.
+### P0: UX & Model — Decisions needed before alpha testers
 
-### High priority (docs describe dead/wrong behavior)
+- [x] **Rename "Governance" to "The Floor"** — 15 files renamed throughout UI, embeds, templates, docs. "The Floor Has Spoken." (Session 40)
+- [x] **Voting UX overhaul** — `/vote` with proposal autocomplete, announcement embeds, vote counts + participation, per-proposal results. (Session 40)
+- [x] **Admin veto for wild proposals** — `pending_review` status for Tier 5+ or confidence < 0.5, admin DM with Approve/Reject, token refund on reject. (Session 40)
+- [x] **Governor profiles** — `/governors/{id}` web page + `/profile` Discord command with Floor record. (Session 40)
+- [x] **Surface team identity** — Render team motto on team page + Discord embeds. Show team strategy on team page. Add `/bio` command for hooper bios from Discord. (Session 39)
+- [x] **Fix hooper trade per-team majority** — Per-team majority voting with team-specific rejection messages. (Session 40)
+
+### P1: Season lifecycle
+
+- [x] **Season end detection** — Auto-detects completion, computes standings, generates playoff bracket. (Session 40)
+- [x] **Season archiving** — `SeasonArchiveRow` table, `archive_season()`, web pages for archive list + detail. (Session 40)
+- [x] **New season flow** — `start_new_season()` with team/hooper/governor carry-over, `/new-season` admin command, `POST /api/seasons`. (Session 40)
+
+### P2: Doc updates (from Session 38 audit)
+
+#### High priority (docs describe dead/wrong behavior)
 - [ ] **GAME_LOOP.md** — Rewrite "Three Clocks" to remove governance window concept; describe interval-based tallying instead
 - [ ] **INTERFACE_CONTRACTS.md** — Fix SSE event names (`game_result` → `possession`, `quarter_end`, `game_end`), remove dead event store types (`window.opened`, `vote.revealed`), add missing types (`token.regenerated`, `token.spent`)
 - [ ] **DEMO_MODE.md** + **OPS.md** + **CLAUDE.md** — Add `PINWHEEL_GOVERNANCE_INTERVAL` env var, fix pace modes documentation
 - [ ] **GLOSSARY.md** — Rewrite "Window" and "Boost" definitions to match current implementation
 
-### Medium priority (docs propose features not yet built or describe wrong models)
+#### Medium priority
 - [ ] **RUN_OF_PLAY.md** — Replace twice-daily governance windows model with interval-based tallying
 - [ ] **SIMULATION.md** — Fix parameter name (`fatigue_recovery_rate` is actually `recovery_rate`), fix default shot clock (30s, not 24s)
 - [ ] **ACCEPTANCE_CRITERIA.md** — Update ~11 criteria that reference governance windows
 
-### Low priority (cleanup)
+#### Low priority (cleanup)
 - [ ] Remove dead code: `GovernanceWindow` model if no longer referenced, `window.opened`/`vote.revealed` event type constants in `models/governance.py`
+
+---
+
+## Session 39 — Surface Team Identity + /bio Command
+
+**What was asked:** Surface existing team identity features (motto, strategy, hooper bios) that are stored in the database but never displayed. Add a `/bio` Discord command for writing hooper backstories. Show motto in Discord welcome embed. Show team strategy on team page. Show hooper backstory snippets in welcome embed.
+
+**What was built:**
+
+### Team motto in Discord welcome embed
+- Modified `build_welcome_embed()` in `embeds.py` to accept `motto` parameter. Renders as italic quote below the team name in the embed description.
+- Updated `/join` handler in `bot.py` to pass `motto=target_team.motto` to the embed builder.
+
+### Team strategy on team page
+- Modified `team_page()` in `pages.py` to query `strategy.set` governance events, find the latest one matching the team, and pass `team_strategy` to the template context.
+- Added "Current Strategy" card to `team.html` template with italic quoted text.
+
+### `/bio` Discord slash command
+- Added `/bio` command registration in `_setup_commands()` with autocomplete for hooper names (own team only).
+- Added `_handle_bio()` method with validation: enrollment check, empty text check, 500-char limit, hooper must be on governor's team.
+- Calls `repo.update_hooper_backstory()` and returns ephemeral `build_bio_embed()` confirmation.
+- Added `build_bio_embed()` function in `embeds.py`.
+
+### Hooper backstories in welcome embed
+- Modified `build_welcome_embed()` to render backstory snippets (first 100 chars with "..." truncation) as block-quoted lines under each hooper in the roster section.
+- Updated `/join` handler to include `backstory` field in hooper dicts passed to the embed builder.
+- Added `/bio` mention to the Quick Start section of the welcome embed.
+
+### Tests (15 new)
+- `TestHooperBackstory` in `test_db.py` (3 tests): update backstory, nonexistent hooper returns None, clear backstory to empty.
+- `TestBioCommand` in `test_discord.py` (5 tests): not enrolled, empty text, text too long (500 chars), hooper not found, success with DB persistence verification.
+- `TestWelcomeEmbedExtended` in `test_discord.py` (5 tests): with motto, without motto, with backstory, backstory truncation at 100 chars, /bio in quick start.
+- `TestBuildBioEmbed` in `test_discord.py` (1 test): verifies embed title and description.
+- Updated `test_bot_has_slash_commands` to include "bio" in expected commands.
+
+### Pre-existing test fixes
+- Fixed `test_governance_mirror` assertion: embed title changed from "Governance Mirror" to "The Floor" in a previous session but test was not updated.
+- Fixed `test_tokens_shows_balance` assertion: embed title changed from "Governance Tokens" to "Floor Tokens" but test was not updated.
+
+**Files modified (6):** `src/pinwheel/discord/embeds.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/api/pages.py`, `templates/pages/team.html`, `tests/test_db.py`, `tests/test_discord.py`
+
+**627 tests, zero lint errors.**
+
+**What could have gone better:** Two pre-existing test failures (assertions referencing old "Governance" branding instead of "The Floor") had to be fixed before the new tests could run. These should have been caught in the session that renamed the branding. The `get_hoopers_for_team` method is referenced in `bot.py` but doesn't exist in `repository.py` -- hoopers are accessed through the team relationship instead. This inconsistency should be cleaned up.
+
+---
+
+## Session 40 — 9-Feature Parallel Build
+
+**What was asked:** Implement all 9 items from the Day 9 agenda: rename Governance to The Floor, voting UX overhaul, admin veto for wild proposals, governor profiles, surface team identity (done in S39), fix hooper trade per-team majority, season end detection, season archiving, new season flow. All launched as parallel background agents.
+
+**What was built:**
+
+### 1. Rename "Governance" → "The Floor"
+- 15 files updated: embeds, bot, views, 8 templates, glossary, governor guide, tests
+- User-facing strings only — internal code names unchanged
+- Vote results now say "The Floor Has Spoken"
+
+### 2. Voting UX overhaul
+- `/vote` now has optional `proposal` parameter with autocomplete listing all open proposals
+- Public "New Proposal on the Floor" announcement embed posted when proposals go live
+- Vote tally shows raw counts alongside weighted totals: "2.50 (3 votes)"
+- Participation field: "N of M possible voters (X%)"
+- Per-proposal result embeds posted to Discord + team channels (not just generic summary)
+- `VoteTally` model gained `yes_count`, `no_count`, `total_eligible` fields
+
+### 3. Admin veto for wild proposals
+- `pending_review` status for Tier 5+ or confidence < 0.5 proposals
+- `AdminReviewView` with Approve/Reject buttons DM'd to admin (24h timeout)
+- `AdminRejectReasonModal` for rejection with reason
+- Token refund on admin rejection
+- Config: `PINWHEEL_ADMIN_DISCORD_ID`
+
+### 4. Governor profiles
+- `/governors/{player_id}` web page with Floor record, proposal history, token balance
+- `/profile` Discord command (ephemeral embed)
+- Governor links on team pages
+- New `get_governor_activity()` and `get_events_by_governor()` repository methods
+
+### 5. Fix hooper trade per-team majority
+- `HooperTrade` model gained `from_team_voters` and `to_team_voters` fields
+- `tally_hooper_trade()` now checks per-team majority independently
+- Team-specific rejection messages: "Trade Rejected — {team_name} voted against"
+
+### 6. Season end detection + playoffs
+- `_check_season_complete()` detects when all scheduled rounds are played
+- `compute_standings_from_repo()` computes final W-L standings
+- `generate_playoff_bracket()` creates #1v#4, #2v#3 bracket
+- `season.regular_season_complete` event published with standings + bracket
+- `RoundResult` gained `season_complete`, `final_standings`, `playoff_bracket` fields
+
+### 7. Season archiving
+- `SeasonArchiveRow` table: standings, ruleset, rule history, champion, aggregate counts
+- `archive_season()` function gathers all data and creates snapshot
+- Web pages: `/seasons/archive` (list) and `/seasons/archive/{id}` (detail with standings + rule timeline)
+
+### 8. New season flow
+- `start_new_season()` with optional rule carry-forward
+- `carry_over_teams()` copies teams, hoopers, governor enrollments
+- `/new-season` admin-only Discord command
+- `POST /api/seasons` API endpoint
+- Config: `PINWHEEL_CARRY_FORWARD_RULES`
+
+**Files modified (~30+):** `config.py`, `core/governance.py`, `core/game_loop.py`, `core/tokens.py`, `core/season.py` (new), `db/models.py`, `db/repository.py`, `models/governance.py`, `models/tokens.py`, `discord/bot.py`, `discord/embeds.py`, `discord/views.py`, `api/pages.py`, `api/seasons.py` (new), `main.py`, 8 templates, `NEW_GOVERNOR_GUIDE.md`, `GLOSSARY.md`, 7 test files
+
+**627 tests, zero lint errors.**
+
+**What could have gone better:** Running 9 agents in parallel on overlapping files was risky — agents touching `bot.py`, `embeds.py`, and `views.py` could have conflicted. The fact that all changes integrated cleanly was fortunate — each agent edited different functions/sections. For future parallel builds, grouping by file ownership would be safer.

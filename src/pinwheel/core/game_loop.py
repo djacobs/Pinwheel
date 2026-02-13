@@ -34,6 +34,7 @@ from pinwheel.ai.mirror import (
 )
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import tally_governance
+from pinwheel.core.scheduler import compute_standings
 from pinwheel.core.simulation import simulate_game
 from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.repository import Repository
@@ -74,6 +75,136 @@ def _row_to_team(team_row: object) -> Team:
         venue=venue,
         hoopers=hoopers,
     )
+
+
+async def _check_season_complete(repo: Repository, season_id: str) -> bool:
+    """Check if all scheduled regular-season games have been played.
+
+    Compares the set of round numbers in the regular-season schedule against
+    the set of round numbers that have game results stored.  Returns True only
+    when every scheduled round has at least one played game.
+    """
+    schedule = await repo.get_full_schedule(season_id, phase="regular")
+    if not schedule:
+        return False
+    games = await repo.get_all_games(season_id)
+    played_rounds = {g.round_number for g in games}
+    scheduled_rounds = {s.round_number for s in schedule}
+    return scheduled_rounds.issubset(played_rounds)
+
+
+async def compute_standings_from_repo(repo: Repository, season_id: str) -> list[dict]:
+    """Compute W-L standings from game results stored in the database.
+
+    Reuses the existing ``compute_standings`` function from ``scheduler.py``,
+    enriching each entry with the team name.  Results are sorted by wins
+    descending, then point differential descending.
+    """
+    games = await repo.get_all_games(season_id)
+    results: list[dict] = []
+    for g in games:
+        results.append({
+            "home_team_id": g.home_team_id,
+            "away_team_id": g.away_team_id,
+            "home_score": g.home_score,
+            "away_score": g.away_score,
+            "winner_team_id": g.winner_team_id,
+        })
+    standings = compute_standings(results)
+    # Enrich with team names
+    for s in standings:
+        team = await repo.get_team(s["team_id"])
+        if team:
+            s["team_name"] = team.name
+    return standings
+
+
+async def generate_playoff_bracket(
+    repo: Repository,
+    season_id: str,
+    num_playoff_teams: int = 4,
+) -> list[dict]:
+    """Generate playoff matchups from final standings.
+
+    Standard bracket: #1 vs #4, #2 vs #3 (semis), winners play finals.
+    Stores playoff schedule entries in the database and returns the bracket
+    as a list of matchup dicts.
+
+    If fewer teams than ``num_playoff_teams`` exist, the bracket shrinks
+    accordingly.  Returns an empty list if fewer than 2 teams qualify.
+    """
+    standings = await compute_standings_from_repo(repo, season_id)
+    playoff_teams = standings[:num_playoff_teams]
+
+    if len(playoff_teams) < 2:
+        return []
+
+    # Determine first available round number for playoffs
+    full_schedule = await repo.get_full_schedule(season_id)
+    max_round = max((s.round_number for s in full_schedule), default=0) if full_schedule else 0
+    games = await repo.get_all_games(season_id)
+    max_played = max((g.round_number for g in games), default=0) if games else 0
+    playoff_round_start = max(max_round, max_played) + 1
+
+    bracket: list[dict] = []
+
+    if len(playoff_teams) >= 4:
+        # Standard 4-team bracket: semis then finals
+        semi_matchups = [
+            (playoff_teams[0], playoff_teams[3]),  # #1 vs #4
+            (playoff_teams[1], playoff_teams[2]),  # #2 vs #3
+        ]
+        for idx, (higher_seed, lower_seed) in enumerate(semi_matchups):
+            matchup = {
+                "playoff_round": "semifinal",
+                "matchup_index": idx,
+                "round_number": playoff_round_start,
+                "home_team_id": higher_seed["team_id"],
+                "away_team_id": lower_seed["team_id"],
+                "home_seed": idx * 3 + 1 if idx == 0 else 2,
+                "away_seed": 4 if idx == 0 else 3,
+            }
+            bracket.append(matchup)
+            await repo.create_schedule_entry(
+                season_id=season_id,
+                round_number=playoff_round_start,
+                matchup_index=idx,
+                home_team_id=higher_seed["team_id"],
+                away_team_id=lower_seed["team_id"],
+                phase="playoff",
+            )
+        # Finals placeholder (round_number = semis + 1)
+        bracket.append({
+            "playoff_round": "finals",
+            "matchup_index": 0,
+            "round_number": playoff_round_start + 1,
+            "home_team_id": "TBD",
+            "away_team_id": "TBD",
+            "home_seed": None,
+            "away_seed": None,
+        })
+    elif len(playoff_teams) >= 2:
+        # 2-team bracket: direct finals
+        matchup = {
+            "playoff_round": "finals",
+            "matchup_index": 0,
+            "round_number": playoff_round_start,
+            "home_team_id": playoff_teams[0]["team_id"],
+            "away_team_id": playoff_teams[1]["team_id"],
+            "home_seed": 1,
+            "away_seed": 2,
+        }
+        bracket.append(matchup)
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=playoff_round_start,
+            matchup_index=0,
+            home_team_id=playoff_teams[0]["team_id"],
+            away_team_id=playoff_teams[1]["team_id"],
+            phase="playoff",
+        )
+
+    return bracket
 
 
 async def _run_evals(
@@ -404,10 +535,22 @@ async def step_round(
                             rc["old_value"] = rc_event.payload.get("old_value")
                             rc["new_value"] = rc_event.payload.get("new_value")
 
+        # Build per-proposal tally data for Discord notifications
+        proposal_tallies = []
+        for tally in tallies:
+            tally_data = tally.model_dump(mode="json")
+            # Find the proposal text for this tally
+            for p in proposals:
+                if p.id == tally.proposal_id:
+                    tally_data["proposal_text"] = p.raw_text
+                    break
+            proposal_tallies.append(tally_data)
+
         governance_summary = {
             "round": round_number,
             "proposals_count": len(pending_proposal_ids),
             "rules_changed": len([t for t in tallies if t.passed]),
+            "tallies": proposal_tallies,
         }
 
         # Regenerate tokens for all enrolled governors
@@ -541,7 +684,55 @@ async def step_round(
     except Exception:
         logger.exception("eval_step_failed season=%s round=%d", season_id, round_number)
 
-    # 8. Publish round complete
+    # 8. Check if the regular season is complete
+    season_complete = False
+    final_standings: list[dict] | None = None
+    playoff_bracket: list[dict] | None = None
+
+    # Re-read season to get current status
+    season = await repo.get_season(season_id)
+    if season and season.status not in ("regular_season_complete", "playoffs", "completed"):
+        try:
+            season_complete = await _check_season_complete(repo, season_id)
+        except Exception:
+            logger.exception(
+                "season_complete_check_failed season=%s round=%d",
+                season_id, round_number,
+            )
+
+        if season_complete:
+            await repo.update_season_status(season_id, "regular_season_complete")
+            final_standings = await compute_standings_from_repo(repo, season_id)
+            logger.info(
+                "regular_season_complete season=%s round=%d teams=%d",
+                season_id, round_number, len(final_standings),
+            )
+
+            # Generate playoff bracket
+            try:
+                playoff_bracket = await generate_playoff_bracket(repo, season_id)
+                logger.info(
+                    "playoff_bracket_generated season=%s matchups=%d",
+                    season_id, len(playoff_bracket),
+                )
+            except Exception:
+                logger.exception(
+                    "playoff_bracket_failed season=%s", season_id,
+                )
+
+            # Publish season.regular_season_complete event
+            if event_bus:
+                await event_bus.publish(
+                    "season.regular_season_complete",
+                    {
+                        "season_id": season_id,
+                        "final_round": round_number,
+                        "standings": final_standings,
+                        "playoff_bracket": playoff_bracket,
+                    },
+                )
+
+    # 9. Publish round complete
     elapsed = time.monotonic() - start
     logger.info(
         "round_complete season=%s round=%d games=%d mirrors=%d elapsed_ms=%.1f",
@@ -560,6 +751,8 @@ async def step_round(
     }
     if highlight_reel:
         round_completed_data["highlight_reel"] = highlight_reel
+    if season_complete:
+        round_completed_data["season_complete"] = True
 
     if event_bus:
         await event_bus.publish("round.completed", round_completed_data)
@@ -573,6 +766,9 @@ async def step_round(
         game_row_ids=game_row_ids,
         teams_cache=teams_cache,
         governance_summary=governance_summary,
+        season_complete=season_complete,
+        final_standings=final_standings,
+        playoff_bracket=playoff_bracket,
     )
 
 
@@ -589,6 +785,9 @@ class RoundResult:
         game_row_ids: list[str] | None = None,
         teams_cache: dict | None = None,
         governance_summary: dict | None = None,
+        season_complete: bool = False,
+        final_standings: list[dict] | None = None,
+        playoff_bracket: list[dict] | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
@@ -598,3 +797,6 @@ class RoundResult:
         self.game_row_ids = game_row_ids or []
         self.teams_cache = teams_cache or {}
         self.governance_summary = governance_summary
+        self.season_complete = season_complete
+        self.final_standings = final_standings
+        self.playoff_bracket = playoff_bracket

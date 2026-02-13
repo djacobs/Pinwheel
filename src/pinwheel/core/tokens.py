@@ -226,6 +226,8 @@ async def propose_hooper_trade(
     to_team_name: str,
     required_voters: list[str],
     season_id: str,
+    from_team_voters: list[str] | None = None,
+    to_team_voters: list[str] | None = None,
 ) -> HooperTrade:
     """Create an agent trade proposal between two teams."""
     trade_id = str(uuid.uuid4())
@@ -239,6 +241,8 @@ async def propose_hooper_trade(
         requested_hooper_names=requested_hooper_names,
         proposed_by=proposer_id,
         required_voters=required_voters,
+        from_team_voters=from_team_voters or [],
+        to_team_voters=to_team_voters or [],
         from_team_name=from_team_name,
         to_team_name=to_team_name,
     )
@@ -267,22 +271,21 @@ def tally_hooper_trade(trade: HooperTrade) -> tuple[bool, bool, bool]:
     """Tally votes for an agent trade.
 
     Returns (all_voted, from_team_approved, to_team_approved).
-    Approval requires majority-yes among each team's governors.
+    Approval requires majority-yes among each team's governors independently.
+    A team cannot be forced into a trade they unanimously reject.
     """
     all_voted = len(trade.votes) >= len(trade.required_voters)
     if not all_voted:
         return False, False, False
 
-    # We need to split voters by team — voters whose governor_id was on
-    # the required_voters list. The trade stores required_voters as
-    # governor_ids (discord IDs). We don't store which team each voter is on
-    # in the trade model itself. But we can infer from the proposal:
-    # the proposer is from from_team, and we need external info for others.
-    # For simplicity, we'll check if total yes > total no.
-    yes_count = sum(1 for v in trade.votes.values() if v == "yes")
-    no_count = sum(1 for v in trade.votes.values() if v == "no")
-    approved = yes_count > no_count
-    return True, approved, approved
+    from_yes = sum(1 for vid in trade.from_team_voters if trade.votes.get(vid) == "yes")
+    from_no = sum(1 for vid in trade.from_team_voters if trade.votes.get(vid) == "no")
+    to_yes = sum(1 for vid in trade.to_team_voters if trade.votes.get(vid) == "yes")
+    to_no = sum(1 for vid in trade.to_team_voters if trade.votes.get(vid) == "no")
+
+    from_ok = from_yes > from_no
+    to_ok = to_yes > to_no
+    return True, from_ok, to_ok
 
 
 async def execute_hooper_trade(

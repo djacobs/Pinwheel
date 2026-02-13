@@ -5,7 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.ai.interpreter import interpret_proposal_mock
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.game_loop import step_round
+from pinwheel.core.game_loop import (
+    _check_season_complete,
+    compute_standings_from_repo,
+    generate_playoff_bracket,
+    step_round,
+)
 from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
 from pinwheel.core.scheduler import generate_round_robin
 from pinwheel.core.tokens import get_token_balance, regenerate_tokens
@@ -358,3 +363,264 @@ class TestGovernanceInterval:
         assert balance.propose == 0
         assert balance.amend == 0
         assert balance.boost == 0
+
+
+class TestSeasonEndDetection:
+    """Tests for detecting when the regular season is complete."""
+
+    async def test_season_detected_complete_when_all_rounds_played(self, repo: Repository):
+        """Season is detected as complete when all scheduled rounds have been played."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        # 4 teams => round-robin has 3 rounds
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+        assert total_rounds == 3
+
+        # Play all rounds
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        is_complete = await _check_season_complete(repo, season_id)
+        assert is_complete is True
+
+    async def test_season_not_complete_when_rounds_remain(self, repo: Repository):
+        """Season is NOT detected as complete when scheduled rounds have not been played."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Only play round 1 of 3
+        await step_round(repo, season_id, round_number=1)
+
+        is_complete = await _check_season_complete(repo, season_id)
+        assert is_complete is False
+
+    async def test_season_not_complete_with_no_schedule(self, repo: Repository):
+        """Returns False when no schedule exists."""
+        league = await repo.create_league("Empty League")
+        season = await repo.create_season(league.id, "Empty Season")
+
+        is_complete = await _check_season_complete(repo, season.id)
+        assert is_complete is False
+
+    async def test_step_round_sets_status_on_final_round(self, repo: Repository):
+        """step_round updates season status to 'regular_season_complete' on final round."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        # Set season status to active first
+        await repo.update_season_status(season_id, "active")
+
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        # Play all rounds
+        for rnd in range(1, total_rounds + 1):
+            result = await step_round(repo, season_id, round_number=rnd)
+
+        # The last round should detect season completion
+        assert result.season_complete is True
+        assert result.final_standings is not None
+        assert len(result.final_standings) == 4
+
+        # Season status in DB should be updated
+        season = await repo.get_season(season_id)
+        assert season.status == "regular_season_complete"
+
+    async def test_step_round_does_not_set_status_mid_season(self, repo: Repository):
+        """step_round does NOT set season_complete mid-season."""
+        season_id, _ = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        result = await step_round(repo, season_id, round_number=1)
+
+        assert result.season_complete is False
+        assert result.final_standings is None
+
+    async def test_season_complete_event_published(self, repo: Repository):
+        """season.regular_season_complete event is published on final round."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe(None) as sub:
+            for rnd in range(1, total_rounds + 1):
+                await step_round(repo, season_id, round_number=rnd, event_bus=bus)
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "season.regular_season_complete" in event_types
+
+        # Check the event data
+        season_event = [e for e in received if e["type"] == "season.regular_season_complete"][0]
+        assert season_event["data"]["season_id"] == season_id
+        assert season_event["data"]["standings"] is not None
+        assert len(season_event["data"]["standings"]) == 4
+
+
+class TestComputeStandings:
+    """Tests for standings computation from repository data."""
+
+    async def test_standings_after_one_round(self, repo: Repository):
+        """Standings are computed correctly after a single round."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await step_round(repo, season_id, round_number=1)
+
+        standings = await compute_standings_from_repo(repo, season_id)
+
+        assert len(standings) == 4
+        # Total wins should equal total losses (2 games = 2 winners + 2 losers)
+        total_wins = sum(s["wins"] for s in standings)
+        total_losses = sum(s["losses"] for s in standings)
+        assert total_wins == 2
+        assert total_losses == 2
+        # Each team should have played 1 game (1 win or 1 loss)
+        for s in standings:
+            assert s["wins"] + s["losses"] == 1
+
+    async def test_standings_sorted_by_wins(self, repo: Repository):
+        """Standings are sorted by wins descending."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        standings = await compute_standings_from_repo(repo, season_id)
+
+        # Verify sorted by wins descending
+        for i in range(len(standings) - 1):
+            assert standings[i]["wins"] >= standings[i + 1]["wins"]
+
+    async def test_standings_have_team_names(self, repo: Repository):
+        """Standings entries include team names."""
+        season_id, _ = await _setup_season_with_teams(repo)
+        await step_round(repo, season_id, round_number=1)
+
+        standings = await compute_standings_from_repo(repo, season_id)
+
+        for s in standings:
+            assert "team_name" in s
+            assert s["team_name"].startswith("Team ")
+
+
+class TestPlayoffBracket:
+    """Tests for playoff bracket generation."""
+
+    async def test_four_team_bracket_structure(self, repo: Repository):
+        """4-team playoff bracket has correct matchups: #1v4 and #2v3."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        # Play all regular season rounds
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        bracket = await generate_playoff_bracket(repo, season_id, num_playoff_teams=4)
+
+        # Should have 2 semifinals + 1 finals placeholder = 3
+        assert len(bracket) == 3
+
+        semis = [m for m in bracket if m["playoff_round"] == "semifinal"]
+        finals = [m for m in bracket if m["playoff_round"] == "finals"]
+        assert len(semis) == 2
+        assert len(finals) == 1
+
+        # Verify semis: #1 vs #4 and #2 vs #3
+        standings = await compute_standings_from_repo(repo, season_id)
+        seed_1 = standings[0]["team_id"]
+        seed_2 = standings[1]["team_id"]
+        seed_3 = standings[2]["team_id"]
+        seed_4 = standings[3]["team_id"]
+
+        semi_pairs = {
+            (m["home_team_id"], m["away_team_id"]) for m in semis
+        }
+        assert (seed_1, seed_4) in semi_pairs
+        assert (seed_2, seed_3) in semi_pairs
+
+    async def test_two_team_bracket(self, repo: Repository):
+        """With only 2 playoff teams, creates a direct finals matchup."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        bracket = await generate_playoff_bracket(repo, season_id, num_playoff_teams=2)
+
+        assert len(bracket) == 1
+        assert bracket[0]["playoff_round"] == "finals"
+        # Top 2 seeds play each other
+        standings = await compute_standings_from_repo(repo, season_id)
+        assert bracket[0]["home_team_id"] == standings[0]["team_id"]
+        assert bracket[0]["away_team_id"] == standings[1]["team_id"]
+
+    async def test_playoff_schedule_entries_created(self, repo: Repository):
+        """Playoff bracket stores schedule entries with phase='playoff'."""
+        # Use a separate season that won't auto-generate brackets via step_round
+        # by manually playing games and then calling generate_playoff_bracket
+        league = await repo.create_league("Bracket Test League")
+        s = await repo.create_season(
+            league.id, "Bracket S", starting_ruleset={"quarter_minutes": 3},
+        )
+        tids = []
+        for i in range(4):
+            t = await repo.create_team(
+                s.id, f"BT {i+1}", venue={"name": f"BT Arena {i+1}", "capacity": 5000},
+            )
+            tids.append(t.id)
+            for j in range(3):
+                await repo.create_hooper(
+                    team_id=t.id, season_id=s.id,
+                    name=f"BH-{i+1}-{j+1}", archetype="sharpshooter",
+                    attributes=_hooper_attrs(),
+                )
+        bt_matchups = generate_round_robin(tids)
+        bt_total_rounds = max(m.round_number for m in bt_matchups)
+        for m in bt_matchups:
+            await repo.create_schedule_entry(
+                season_id=s.id, round_number=m.round_number,
+                matchup_index=m.matchup_index,
+                home_team_id=m.home_team_id, away_team_id=m.away_team_id,
+            )
+        # Set status to something that skips auto-bracket in step_round
+        await repo.update_season_status(s.id, "regular_season_complete")
+        for rnd in range(1, bt_total_rounds + 1):
+            await step_round(repo, s.id, round_number=rnd)
+
+        bracket = await generate_playoff_bracket(repo, s.id, num_playoff_teams=4)
+        assert len(bracket) == 3
+
+        playoff_schedule = await repo.get_full_schedule(s.id, phase="playoff")
+        assert len(playoff_schedule) == 2  # 2 semifinal matchups stored
+
+        for entry in playoff_schedule:
+            assert entry.phase == "playoff"
+            # Playoff rounds should be after regular season
+            assert entry.round_number > bt_total_rounds
+
+    async def test_bracket_with_completed_season_via_step_round(self, repo: Repository):
+        """step_round generates playoff bracket when season completes."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        matchups = generate_round_robin(team_ids)
+        total_rounds = max(m.round_number for m in matchups)
+
+        result = None
+        for rnd in range(1, total_rounds + 1):
+            result = await step_round(repo, season_id, round_number=rnd)
+
+        assert result is not None
+        assert result.season_complete is True
+        assert result.playoff_bracket is not None
+        assert len(result.playoff_bracket) == 3  # 2 semis + 1 finals placeholder

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.discord.embeds import (
     build_game_result_embed,
+    build_governor_profile_embed,
     build_interpretation_embed,
     build_mirror_embed,
     build_round_summary_embed,
@@ -29,6 +30,7 @@ from pinwheel.discord.embeds import (
     build_strategy_embed,
     build_token_balance_embed,
     build_trade_offer_embed,
+    build_vote_tally_embed,
 )
 
 if TYPE_CHECKING:
@@ -77,7 +79,7 @@ class PinwheelBot(commands.Bot):
         async def standings_command(interaction: discord.Interaction) -> None:
             await self._handle_standings(interaction)
 
-        @self.tree.command(name="propose", description="Submit a rule change proposal")
+        @self.tree.command(name="propose", description="Put a rule change on the Floor")
         @app_commands.describe(text="Your rule change proposal in natural language")
         async def propose_command(interaction: discord.Interaction, text: str) -> None:
             await self._handle_propose(interaction, text)
@@ -105,11 +107,12 @@ class PinwheelBot(commands.Bot):
 
         @self.tree.command(
             name="vote",
-            description="Vote on the current active proposal",
+            description="Vote on a proposal on the Floor",
         )
         @app_commands.describe(
             choice="Your vote: yes or no",
             boost="Use a BOOST token to double your vote weight",
+            proposal="Which proposal to vote on (defaults to latest)",
         )
         @app_commands.choices(choice=[
             app_commands.Choice(name="Yes", value="yes"),
@@ -119,12 +122,19 @@ class PinwheelBot(commands.Bot):
             interaction: discord.Interaction,
             choice: app_commands.Choice[str],
             boost: bool = False,
+            proposal: str = "",
         ) -> None:
-            await self._handle_vote(interaction, choice.value, boost)
+            await self._handle_vote(interaction, choice.value, boost, proposal)
+
+        @vote_command.autocomplete("proposal")
+        async def _proposal_autocomplete(
+            interaction: discord.Interaction, current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_proposals(interaction, current)
 
         @self.tree.command(
             name="tokens",
-            description="Check your governance token balance",
+            description="Check your Floor token balance",
         )
         async def tokens_command(
             interaction: discord.Interaction,
@@ -206,6 +216,51 @@ class PinwheelBot(commands.Bot):
             interaction: discord.Interaction, text: str,
         ) -> None:
             await self._handle_strategy(interaction, text)
+
+        @self.tree.command(
+            name="bio",
+            description="Write a backstory for one of your team's hoopers",
+        )
+        @app_commands.describe(
+            hooper="The hooper to write a bio for",
+            text="The backstory text",
+        )
+        async def bio_command(
+            interaction: discord.Interaction, hooper: str, text: str,
+        ) -> None:
+            await self._handle_bio(interaction, hooper, text)
+
+        @bio_command.autocomplete("hooper")
+        async def _bio_hooper_autocomplete(
+            interaction: discord.Interaction, current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_hoopers(
+                interaction, current, own_team=True,
+            )
+
+        @self.tree.command(
+            name="profile",
+            description="View your governor profile and Floor record",
+        )
+        async def profile_command(
+            interaction: discord.Interaction,
+        ) -> None:
+            await self._handle_profile(interaction)
+
+        @self.tree.command(
+            name="new-season",
+            description="Start a new season (admin only)",
+        )
+        @app_commands.describe(
+            name="Name for the new season",
+            carry_rules="Carry forward rules from last season (default: fresh start)",
+        )
+        async def new_season_command(
+            interaction: discord.Interaction,
+            name: str,
+            carry_rules: bool = False,
+        ) -> None:
+            await self._handle_new_season(interaction, name, carry_rules)
 
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
@@ -520,8 +575,8 @@ class PinwheelBot(commands.Bot):
             "- Pick a team with `/join [team name]` -- "
             "you'll govern with them for the whole season\n"
             "- Watch games unfold in #play-by-play and see highlights in #big-plays\n"
-            "- Propose rule changes with `/propose` -- the AI interprets your natural language "
-            "into game parameters\n"
+            "- Put rule changes on the Floor with `/propose` -- "
+            "the AI interprets your natural language into game parameters\n"
             "- Check standings with `/standings`, schedule with `/schedule`\n\n"
             f"**The teams:**\n{team_lines}\n\n"
             "Choose wisely. Your team's hoopers are counting on you."
@@ -562,6 +617,67 @@ class PinwheelBot(commands.Bot):
                 ][:25]
         except Exception:
             logger.exception("discord_team_autocomplete_failed")
+            return []
+
+    async def _autocomplete_proposals(
+        self, interaction: discord.Interaction, current: str,
+    ) -> list[app_commands.Choice[str]]:
+        """Return open proposal choices matching the current input."""
+        if not self.engine:
+            return []
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+            from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+            try:
+                gov = await get_governor(self.engine, str(interaction.user.id))
+            except GovernorNotFound:
+                return []
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                confirmed = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.confirmed"],
+                )
+                resolved = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.passed", "proposal.failed"],
+                )
+                resolved_ids = {e.aggregate_id for e in resolved}
+                pending = [
+                    c for c in confirmed
+                    if c.payload.get("proposal_id", c.aggregate_id)
+                    not in resolved_ids
+                ]
+                if not pending:
+                    return []
+
+                # Get proposal texts from submitted events
+                submitted = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.submitted"],
+                )
+                proposal_texts: dict[str, str] = {}
+                for evt in submitted:
+                    pid = evt.payload.get("id", evt.aggregate_id)
+                    raw = evt.payload.get("raw_text", "")
+                    proposal_texts[pid] = raw
+
+                lowered = current.lower()
+                choices: list[app_commands.Choice[str]] = []
+                for p in pending:
+                    pid = p.payload.get("proposal_id", p.aggregate_id)
+                    raw_text = proposal_texts.get(pid, pid)
+                    display = raw_text[:80] if raw_text else pid
+                    if lowered in display.lower() or lowered in pid.lower():
+                        choices.append(
+                            app_commands.Choice(name=display, value=pid),
+                        )
+                return choices[:25]
+        except Exception:
+            logger.exception("discord_proposal_autocomplete_failed")
             return []
 
     async def _handle_join(self, interaction: discord.Interaction, team_name: str) -> None:
@@ -671,10 +787,19 @@ class PinwheelBot(commands.Bot):
             from pinwheel.discord.embeds import build_welcome_embed
 
             hoopers = [
-                {"name": h.name, "archetype": h.archetype or "Hooper"}
+                {
+                    "name": h.name,
+                    "archetype": h.archetype or "Hooper",
+                    "backstory": h.backstory or "",
+                }
                 for h in target_team.hoopers
             ]
-            embed = build_welcome_embed(target_team.name, target_team.color, hoopers)
+            embed = build_welcome_embed(
+                target_team.name,
+                target_team.color,
+                hoopers,
+                motto=target_team.motto or "",
+            )
             await interaction.response.send_message(embed=embed)
 
             # Send welcome DM with quick-start info
@@ -794,7 +919,7 @@ class PinwheelBot(commands.Bot):
             rules_changed = data.get("rules_changed", 0)
             round_num = data.get("round", "?")
             embed = discord.Embed(
-                title=f"Governance Window Closed -- Round {round_num}",
+                title=f"The Floor Has Spoken -- Round {round_num}",
                 description=(
                     f"**{proposals_count}** proposals reviewed\n"
                     f"**{rules_changed}** rules changed"
@@ -802,20 +927,47 @@ class PinwheelBot(commands.Bot):
                 color=0x3498DB,
             )
             embed.set_footer(text="Pinwheel Fates")
+
+            # Build per-proposal result embeds from tally data
+            from pinwheel.models.governance import VoteTally as VoteTallyModel
+
+            tally_embeds: list[discord.Embed] = []
+            tallies_data = data.get("tallies", [])
+            if isinstance(tallies_data, list):
+                for td in tallies_data:
+                    if isinstance(td, dict):
+                        tally_obj = VoteTallyModel(**{
+                            k: v for k, v in td.items()
+                            if k != "proposal_text"
+                        })
+                        proposal_text = str(td.get("proposal_text", ""))
+                        tally_embed = build_vote_tally_embed(
+                            tally_obj, proposal_text,
+                        )
+                        tally_embeds.append(tally_embed)
+
             channel = self._get_channel_for("main")
             if channel:
                 await channel.send(embed=embed)
+                for te in tally_embeds:
+                    with contextlib.suppress(
+                        discord.Forbidden, discord.HTTPException,
+                    ):
+                        await channel.send(embed=te)
             # Post to all team channels too
             for key, chan_id in self.channel_ids.items():
                 if key.startswith("team_"):
                     ch = self.get_channel(chan_id)
                     if isinstance(ch, discord.TextChannel):
-                        import contextlib
-
                         with contextlib.suppress(
                             discord.Forbidden, discord.HTTPException,
                         ):
                             await ch.send(embed=embed)
+                        for te in tally_embeds:
+                            with contextlib.suppress(
+                                discord.Forbidden, discord.HTTPException,
+                            ):
+                                await ch.send(embed=te)
 
     # --- Slash command handlers ---
 
@@ -1111,6 +1263,7 @@ class PinwheelBot(commands.Bot):
         interaction: discord.Interaction,
         choice: str,
         boost: bool = False,
+        proposal_selector: str = "",
     ) -> None:
         """Handle the /vote slash command. Votes are hidden until window closes."""
         if not self.engine:
@@ -1164,10 +1317,42 @@ class PinwheelBot(commands.Bot):
                     )
                     return
 
-                latest = pending[-1]
-                proposal_id = latest.payload.get(
-                    "proposal_id", latest.aggregate_id,
-                )
+                # Select proposal: by selector or default to latest
+                proposal_id: str | None = None
+                if proposal_selector:
+                    # Try direct aggregate_id match first
+                    for p in pending:
+                        pid = p.payload.get("proposal_id", p.aggregate_id)
+                        if pid == proposal_selector:
+                            proposal_id = pid
+                            break
+                    # Try text match via submitted events
+                    if not proposal_id:
+                        submitted_for_match = await repo.get_events_by_type(
+                            season_id=gov.season_id,
+                            event_types=["proposal.submitted"],
+                        )
+                        for p in pending:
+                            pid = p.payload.get("proposal_id", p.aggregate_id)
+                            for se in submitted_for_match:
+                                if se.aggregate_id == pid:
+                                    raw = se.payload.get("raw_text", "")
+                                    if proposal_selector.lower() in raw.lower():
+                                        proposal_id = pid
+                                        break
+                            if proposal_id:
+                                break
+                    if not proposal_id:
+                        await interaction.response.send_message(
+                            "Could not find a matching open proposal.",
+                            ephemeral=True,
+                        )
+                        return
+                else:
+                    latest = pending[-1]
+                    proposal_id = latest.payload.get(
+                        "proposal_id", latest.aggregate_id,
+                    )
 
                 # Reconstruct proposal from submitted event
                 submitted = await repo.get_events_by_type(
@@ -1237,8 +1422,8 @@ class PinwheelBot(commands.Bot):
                 description=(
                     f"Your **{choice.upper()}**{boost_note} vote on "
                     f'"{proposal.raw_text[:80]}" has been recorded.\n\n'
-                    "Votes are hidden until the governance "
-                    "window closes."
+                    "Votes are hidden until the Floor "
+                    "closes."
                 ),
                 color=0x3498DB,
             )
@@ -1296,6 +1481,51 @@ class PinwheelBot(commands.Bot):
             logger.exception("discord_tokens_failed")
             await interaction.response.send_message(
                 "Something went wrong checking your tokens.",
+                ephemeral=True,
+            )
+
+    async def _handle_profile(
+        self, interaction: discord.Interaction,
+    ) -> None:
+        """Handle the /profile slash command -- show governor's governance record."""
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database not available.", ephemeral=True,
+            )
+            return
+
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        try:
+            gov = await get_governor(self.engine, str(interaction.user.id))
+        except GovernorNotFound:
+            await interaction.response.send_message(
+                "You need to `/join` a team first.", ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                activity = await repo.get_governor_activity(
+                    gov.player_id, gov.season_id,
+                )
+
+            embed = build_governor_profile_embed(
+                governor_name=interaction.user.display_name,
+                team_name=gov.team_name,
+                activity=activity,
+            )
+            await interaction.response.send_message(
+                embed=embed, ephemeral=True,
+            )
+        except Exception:
+            logger.exception("discord_profile_failed")
+            await interaction.response.send_message(
+                "Something went wrong loading your profile.",
                 ephemeral=True,
             )
 
@@ -1518,9 +1748,9 @@ class PinwheelBot(commands.Bot):
                 to_govs = await repo.get_governors_for_team(
                     target_team.id, gov.season_id,
                 )
-                all_voters = [p.discord_id for p in from_govs] + [
-                    p.discord_id for p in to_govs
-                ]
+                from_voter_ids = [p.discord_id for p in from_govs]
+                to_voter_ids = [p.discord_id for p in to_govs]
+                all_voters = from_voter_ids + to_voter_ids
 
                 if len(all_voters) < 2:
                     await interaction.response.send_message(
@@ -1546,6 +1776,8 @@ class PinwheelBot(commands.Bot):
                     from_team_name=my_team.name if my_team else gov.team_id,
                     to_team_name=target_team.name,
                     required_voters=all_voters,
+                    from_team_voters=from_voter_ids,
+                    to_team_voters=to_voter_ids,
                     season_id=gov.season_id,
                 )
                 await session.commit()
@@ -1638,6 +1870,195 @@ class PinwheelBot(commands.Bot):
         await interaction.response.send_message(
             embed=embed, view=view, ephemeral=True,
         )
+
+    async def _handle_bio(
+        self,
+        interaction: discord.Interaction,
+        hooper_name: str,
+        text: str,
+    ) -> None:
+        """Handle the /bio slash command."""
+        if not text.strip():
+            await interaction.response.send_message(
+                "Provide a backstory for the hooper. "
+                "Example: `/bio Briar Ashwood A sharpshooter from Portland...`",
+                ephemeral=True,
+            )
+            return
+
+        if len(text) > 500:
+            await interaction.response.send_message(
+                f"Bio is too long ({len(text)} chars). Max 500 characters.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database not available.", ephemeral=True,
+            )
+            return
+
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        try:
+            gov = await get_governor(
+                self.engine, str(interaction.user.id),
+            )
+        except GovernorNotFound:
+            await interaction.response.send_message(
+                "You need to `/join` a team first.", ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                team = await repo.get_team(gov.team_id)
+                if not team:
+                    await interaction.response.send_message(
+                        "Team not found.", ephemeral=True,
+                    )
+                    return
+
+                target_hooper = None
+                for h in team.hoopers:
+                    if h.name.lower() == hooper_name.lower():
+                        target_hooper = h
+                        break
+
+                if not target_hooper:
+                    available = ", ".join(h.name for h in team.hoopers)
+                    await interaction.response.send_message(
+                        f"Hooper not found on your team. Your hoopers: {available}",
+                        ephemeral=True,
+                    )
+                    return
+
+                await repo.update_hooper_backstory(target_hooper.id, text)
+                await session.commit()
+
+            from pinwheel.discord.embeds import build_bio_embed
+
+            embed = build_bio_embed(target_hooper.name, text)
+            await interaction.response.send_message(
+                embed=embed, ephemeral=True,
+            )
+        except Exception:
+            logger.exception("discord_bio_failed")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Something went wrong setting the bio.",
+                    ephemeral=True,
+                )
+
+    async def _handle_new_season(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        carry_rules: bool = False,
+    ) -> None:
+        """Handle the /new-season slash command (admin only)."""
+        # Check admin permissions
+        if not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True,
+            )
+            return
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Admin only.", ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database not available.", ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            from sqlalchemy import select
+
+            from pinwheel.core.season import start_new_season
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.models import SeasonRow
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                # Find the league from the current/latest season
+                result = await session.execute(
+                    select(SeasonRow).order_by(SeasonRow.created_at.desc()).limit(1),
+                )
+                latest_season = result.scalar_one_or_none()
+                if not latest_season:
+                    await interaction.followup.send(
+                        "No existing season found. Seed a league first.",
+                        ephemeral=True,
+                    )
+                    return
+
+                league_id = latest_season.league_id
+
+                new_season = await start_new_season(
+                    repo=repo,
+                    league_id=league_id,
+                    season_name=name,
+                    carry_forward_rules=carry_rules,
+                )
+
+                teams = await repo.get_teams_for_season(new_season.id)
+                await session.commit()
+
+            rules_note = "carried forward" if carry_rules else "default"
+            embed = discord.Embed(
+                title=f"New Season: {name}",
+                description=(
+                    f"Season **{name}** has been created!\n\n"
+                    f"**Teams:** {len(teams)}\n"
+                    f"**Rules:** {rules_note}\n"
+                    f"**Status:** {new_season.status}\n\n"
+                    "Teams, hoopers, and governor enrollments have been "
+                    "carried over. All governors have received fresh tokens."
+                ),
+                color=0x2ECC71,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.followup.send(embed=embed)
+
+            # Announce in the main channel
+            channel = self._get_channel_for("play_by_play")
+            if not channel:
+                channel = self._get_channel_for("main")
+            if channel:
+                announce_embed = discord.Embed(
+                    title=f"New Season: {name}",
+                    description=(
+                        f"A new season has begun! **{name}** is now active.\n\n"
+                        f"**{len(teams)} teams** are ready to compete.\n"
+                        f"Rules: {rules_note}.\n\n"
+                        "Fresh tokens have been distributed to all governors."
+                    ),
+                    color=0x2ECC71,
+                )
+                announce_embed.set_footer(text="Pinwheel Fates")
+                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                    await channel.send(embed=announce_embed)
+
+        except Exception:
+            logger.exception("discord_new_season_failed")
+            await interaction.followup.send(
+                "Something went wrong creating the new season.",
+                ephemeral=True,
+            )
 
     async def _send_private_mirror(self, data: dict) -> None:
         """DM a private mirror to the governor."""

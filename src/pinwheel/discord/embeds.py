@@ -22,6 +22,7 @@ COLOR_GOVERNANCE = 0x3498DB  # Blue — governance
 COLOR_MIRROR = 0x9B59B6  # Purple — AI mirrors
 COLOR_SCHEDULE = 0x2ECC71  # Green — schedule
 COLOR_STANDINGS = 0xF39C12  # Gold — standings
+COLOR_WARNING = 0xE67E22  # Orange — admin review / warnings
 
 
 def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
@@ -140,14 +141,17 @@ def build_vote_tally_embed(tally: VoteTally, proposal_text: str = "") -> discord
     if proposal_text:
         embed.description = proposal_text[:200]
 
+    total_votes = tally.yes_count + tally.no_count
+    yes_label = "vote" if tally.yes_count == 1 else "votes"
+    no_label = "vote" if tally.no_count == 1 else "votes"
     embed.add_field(
         name="Yes",
-        value=f"{tally.weighted_yes:.2f}",
+        value=f"{tally.weighted_yes:.2f} ({tally.yes_count} {yes_label})",
         inline=True,
     )
     embed.add_field(
         name="No",
-        value=f"{tally.weighted_no:.2f}",
+        value=f"{tally.weighted_no:.2f} ({tally.no_count} {no_label})",
         inline=True,
     )
     embed.add_field(
@@ -155,7 +159,55 @@ def build_vote_tally_embed(tally: VoteTally, proposal_text: str = "") -> discord
         value=f"{tally.threshold:.0%}",
         inline=True,
     )
+    embed.add_field(
+        name="Votes Cast",
+        value=f"{total_votes} governor{'s' if total_votes != 1 else ''} voted",
+        inline=True,
+    )
+    if tally.total_eligible > 0:
+        participation_pct = total_votes / tally.total_eligible * 100
+        eligible = tally.total_eligible
+        embed.add_field(
+            name="Participation",
+            value=(
+                f"{total_votes} of {eligible}"
+                f" possible voters ({participation_pct:.0f}%)"
+            ),
+            inline=True,
+        )
     embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_proposal_announcement_embed(
+    proposal_text: str,
+    parameter: str | None = None,
+    old_value: object = None,
+    new_value: object = None,
+    tier: int = 1,
+    threshold: float = 0.5,
+) -> discord.Embed:
+    """Build a public embed announcing a proposal is open for voting.
+
+    Args:
+        proposal_text: The raw text of the proposal.
+        parameter: The rule parameter being changed (if any).
+        old_value: Current value of the parameter.
+        new_value: Proposed new value.
+        tier: Governance tier of the proposal.
+        threshold: Vote threshold needed to pass.
+    """
+    embed = discord.Embed(
+        title="New Proposal on the Floor",
+        description=proposal_text,
+        color=COLOR_GOVERNANCE,
+    )
+    if parameter:
+        change_str = f"`{parameter}`: {old_value} -> {new_value}"
+        embed.add_field(name="Parameter Change", value=change_str, inline=False)
+    embed.add_field(name="Tier", value=str(tier), inline=True)
+    embed.add_field(name="Threshold", value=f"{threshold:.0%}", inline=True)
+    embed.set_footer(text="Use /vote to cast your vote")
     return embed
 
 
@@ -167,7 +219,7 @@ def build_mirror_embed(mirror: Mirror) -> discord.Embed:
     """
     type_labels = {
         "simulation": "Simulation Mirror",
-        "governance": "Governance Mirror",
+        "governance": "The Floor \u2014 Mirror",
         "private": "Private Mirror",
         "series": "Series Mirror",
         "season": "Season Mirror",
@@ -283,7 +335,7 @@ def build_token_balance_embed(
 ) -> discord.Embed:
     """Build an embed showing a governor's token balances."""
     embed = discord.Embed(
-        title="Governance Tokens",
+        title="Floor Tokens",
         color=COLOR_GOVERNANCE,
     )
     embed.description = (
@@ -369,6 +421,7 @@ def build_welcome_embed(
     team_name: str,
     team_color: str,
     hoopers: list[dict[str, str]],
+    motto: str = "",
 ) -> discord.Embed:
     """Build a welcome DM embed for a newly enrolled governor.
 
@@ -376,24 +429,57 @@ def build_welcome_embed(
         team_name: Name of the team joined.
         team_color: Hex color string (e.g. "#E74C3C").
         hoopers: List of dicts with 'name' and 'archetype' keys.
+            Each dict may also have a 'backstory' key.
+        motto: Optional team motto.
     """
-    roster = "\n".join(
-        f"**{h['name']}** -- {h['archetype']}" for h in hoopers
-    )
+    roster_lines: list[str] = []
+    for h in hoopers:
+        line = f"**{h['name']}** -- {h['archetype']}"
+        backstory = h.get("backstory", "")
+        if backstory:
+            snippet = backstory[:100] + "..." if len(backstory) > 100 else backstory
+            line += f"\n> {snippet}"
+        roster_lines.append(line)
+    roster = "\n".join(roster_lines)
+
+    team_header = f"You're now a governor of **{team_name}**."
+    if motto:
+        team_header += f'\n*"{motto}"*'
+
     embed = discord.Embed(
         title=f"Welcome to {team_name}!",
         description=(
-            f"You're now a governor of **{team_name}**.\n\n"
+            f"{team_header}\n\n"
             f"**Your roster:**\n{roster}\n\n"
             "**Quick start:**\n"
             "`/propose` -- Submit a rule change\n"
             "`/vote` -- Vote on active proposals\n"
             "`/strategy` -- Set your team's strategy\n"
-            "`/tokens` -- Check your governance tokens"
+            "`/bio` -- Write a backstory for a hooper\n"
+            "`/tokens` -- Check your Floor tokens"
         ),
         color=discord.Color(int(team_color.lstrip("#"), 16)),
     )
     embed.set_footer(text="Pinwheel Fates -- Lead wisely.")
+    return embed
+
+
+def build_bio_embed(
+    hooper_name: str,
+    backstory: str,
+) -> discord.Embed:
+    """Build an embed confirming a hooper bio was set.
+
+    Args:
+        hooper_name: Name of the hooper.
+        backstory: The bio text that was set.
+    """
+    embed = discord.Embed(
+        title=f"Bio Set -- {hooper_name}",
+        description=backstory,
+        color=COLOR_GOVERNANCE,
+    )
+    embed.set_footer(text="Pinwheel Fates")
     return embed
 
 
@@ -493,6 +579,57 @@ def build_team_game_result_embed(
     return embed
 
 
+def build_governor_profile_embed(
+    governor_name: str,
+    team_name: str,
+    activity: dict[str, object],
+) -> discord.Embed:
+    """Build an embed showing a governor's governance profile.
+
+    Args:
+        governor_name: Discord display name.
+        team_name: Name of the governor's team.
+        activity: Dict from get_governor_activity with proposals_submitted,
+            proposals_passed, proposals_failed, votes_cast, token_balance.
+    """
+    proposals_submitted = activity.get("proposals_submitted", 0)
+    proposals_passed = activity.get("proposals_passed", 0)
+    proposals_failed = activity.get("proposals_failed", 0)
+    votes_cast = activity.get("votes_cast", 0)
+    balance = activity.get("token_balance")
+
+    embed = discord.Embed(
+        title=f"Governor Profile: {governor_name}",
+        color=COLOR_GOVERNANCE,
+    )
+    embed.add_field(name="Team", value=team_name, inline=True)
+    proposal_summary = (
+        f"{proposals_submitted} submitted / "
+        f"{proposals_passed} passed / {proposals_failed} failed"
+    )
+    embed.add_field(
+        name="Proposals",
+        value=proposal_summary,
+        inline=False,
+    )
+    embed.add_field(name="Votes Cast", value=str(votes_cast), inline=True)
+
+    if balance:
+        embed.add_field(
+            name="Token Balance",
+            value=(
+                f"PROPOSE: {balance.propose} | "
+                f"AMEND: {balance.amend} | "
+                f"BOOST: {balance.boost}"
+            ),
+            inline=False,
+        )
+
+    embed.set_author(name=governor_name)
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
 def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
     """Build an embed summarizing a completed round.
 
@@ -513,4 +650,36 @@ def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
         color=COLOR_GAME,
     )
     embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> discord.Embed:
+    """Build an embed for admin review of a wild proposal.
+
+    Shown to the admin when a Tier 5+ or low-confidence proposal needs approval.
+
+    Args:
+        proposal: The Proposal model instance needing review.
+        governor_name: Display name of the proposing governor.
+    """
+    embed = discord.Embed(
+        title="Proposal Needs Review",
+        description=proposal.raw_text[:2000],
+        color=COLOR_WARNING,
+    )
+
+    param_value = "None -- uninterpretable"
+    if proposal.interpretation and proposal.interpretation.parameter:
+        param_value = f"`{proposal.interpretation.parameter}`"
+
+    confidence_value = "N/A"
+    if proposal.interpretation:
+        confidence_value = f"{proposal.interpretation.confidence:.0%}"
+
+    embed.add_field(name="Parameter", value=param_value, inline=True)
+    embed.add_field(name="Confidence", value=confidence_value, inline=True)
+    embed.add_field(name="Tier", value=str(proposal.tier), inline=True)
+    if governor_name:
+        embed.add_field(name="Governor", value=governor_name, inline=True)
+    embed.set_footer(text="Pinwheel Fates -- Admin Review Required")
     return embed

@@ -269,6 +269,26 @@ class BotStateRow(Base):
     )
 
 
+class SeasonArchiveRow(Base):
+    """Frozen snapshot of a completed season."""
+
+    __tablename__ = "season_archives"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    season_id: Mapped[str] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    season_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    final_standings: Mapped[dict] = mapped_column(JSON, nullable=False)
+    final_ruleset: Mapped[dict] = mapped_column(JSON, nullable=False)
+    rule_change_history: Mapped[list] = mapped_column(JSON, default=list)
+    champion_team_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    champion_team_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    total_games: Mapped[int] = mapped_column(Integer, default=0)
+    total_proposals: Mapped[int] = mapped_column(Integer, default=0)
+    total_rule_changes: Mapped[int] = mapped_column(Integer, default=0)
+    governor_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
 class EvalResultRow(Base):
     """Stored eval results. Never contains private mirror content."""
 
