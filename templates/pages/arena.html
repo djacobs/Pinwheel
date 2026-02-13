@@ -286,7 +286,7 @@ function advanceRound() {
     .then(function(r) {
       if (r.status === 409) { status.textContent = 'Already running'; btn.disabled = false; return; }
       if (!r.ok) { status.textContent = 'Error: ' + r.status; btn.disabled = false; return; }
-      status.textContent = 'Games are live!';
+      status.textContent = 'Round advancing\u2026';
     })
     .catch(function() { status.textContent = 'Failed'; btn.disabled = false; });
 }

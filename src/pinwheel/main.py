@@ -56,46 +56,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # vanish after a deploy-during-game crash.
     from sqlalchemy import func, select, update
 
-    from pinwheel.db.models import GameResultRow, SeasonRow
+    from pinwheel.db.models import GameResultRow
 
     async with engine.begin() as conn:
-        # Find active season
-        season_result = await conn.execute(select(SeasonRow).limit(1))
-        season_row = season_result.first()
-        if season_row is not None:
-            season_id = season_row[0]  # id column
-            # Find max round
-            max_round_result = await conn.execute(
-                select(func.coalesce(func.max(GameResultRow.round_number), 0)).where(
-                    GameResultRow.season_id == season_id
-                )
+        # Mark ALL unpresented games as presented so they show on the arena.
+        # This handles: deploy-during-game, games created before the presented
+        # column existed, or any other gap.
+        count_result = await conn.execute(
+            select(func.count()).where(GameResultRow.presented.is_(False))
+        )
+        unpresented = count_result.scalar_one()
+        if unpresented > 0:
+            await conn.execute(
+                update(GameResultRow)
+                .where(GameResultRow.presented.is_(False))
+                .values(presented=True)
             )
-            max_round = max_round_result.scalar_one()
-            if max_round > 0:
-                # Count unpresented games in the latest round
-                count_result = await conn.execute(
-                    select(func.count()).where(
-                        GameResultRow.season_id == season_id,
-                        GameResultRow.round_number == max_round,
-                        GameResultRow.presented.is_(False),
-                    )
-                )
-                unpresented = count_result.scalar_one()
-                if unpresented > 0:
-                    await conn.execute(
-                        update(GameResultRow)
-                        .where(
-                            GameResultRow.season_id == season_id,
-                            GameResultRow.round_number == max_round,
-                            GameResultRow.presented.is_(False),
-                        )
-                        .values(presented=True)
-                    )
-                    logger.info(
-                        "startup_recovery: marked %d games as presented (round %d)",
-                        unpresented,
-                        max_round,
-                    )
+            logger.info(
+                "startup_recovery: marked %d games as presented", unpresented,
+            )
 
     # Start Discord bot if configured
     discord_bot = None
