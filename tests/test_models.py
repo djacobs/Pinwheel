@@ -24,7 +24,7 @@ class TestRuleSet:
         assert rules.quarter_minutes == 10
         assert rules.shot_clock_seconds == 15
         assert rules.three_point_value == 3
-        assert rules.elam_margin == 25
+        assert rules.elam_margin == 15
 
     def test_custom_values(self):
         rules = RuleSet(three_point_value=4, elam_margin=10)

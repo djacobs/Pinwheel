@@ -125,6 +125,7 @@ class GameResultRow(Base):
     elam_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_possessions: Mapped[int] = mapped_column(Integer, nullable=False)
     play_by_play: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    presented: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     box_scores: Mapped[list[BoxScoreRow]] = relationship(back_populates="game")

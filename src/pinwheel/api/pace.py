@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -22,6 +24,21 @@ class PaceRequest(BaseModel):
     """Request model for changing pace."""
 
     pace: str
+
+
+class AdvanceResponse(BaseModel):
+    """Response model for advance trigger."""
+
+    status: str
+    round: int | None = None
+
+
+class PaceStatusResponse(BaseModel):
+    """Response model for presentation status."""
+
+    is_active: bool
+    current_round: int
+    current_game_index: int
 
 
 def _get_settings(request: Request) -> Settings:
@@ -60,4 +77,55 @@ async def set_pace(body: PaceRequest, request: Request) -> PaceResponse:
         pace=body.pace,
         cron=cron,
         auto_advance=cron is not None,
+    )
+
+
+@router.post("/advance", response_model=AdvanceResponse)
+async def advance_round(
+    request: Request, quarter_seconds: int = 15, game_gap_seconds: int = 5,
+) -> AdvanceResponse:
+    """Trigger a round advance within the server process.
+
+    Forces presentation_mode="replay" with demo-friendly timing defaults.
+    Returns 409 if a presentation is already active.
+    """
+    from pinwheel.core.presenter import PresentationState
+    from pinwheel.core.scheduler_runner import tick_round
+
+    presentation_state: PresentationState = request.app.state.presentation_state
+    if presentation_state.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="A presentation is already active. Wait for it to finish.",
+        )
+
+    engine = request.app.state.engine
+    event_bus = request.app.state.event_bus
+    settings = _get_settings(request)
+
+    asyncio.create_task(
+        tick_round(
+            engine=engine,
+            event_bus=event_bus,
+            api_key=settings.anthropic_api_key,
+            presentation_state=presentation_state,
+            presentation_mode="replay",
+            game_interval_seconds=game_gap_seconds,
+            quarter_replay_seconds=quarter_seconds,
+        )
+    )
+
+    return AdvanceResponse(status="started")
+
+
+@router.get("/status", response_model=PaceStatusResponse)
+async def pace_status(request: Request) -> PaceStatusResponse:
+    """Return current presentation state."""
+    from pinwheel.core.presenter import PresentationState
+
+    presentation_state: PresentationState = request.app.state.presentation_state
+    return PaceStatusResponse(
+        is_active=presentation_state.is_active,
+        current_round=presentation_state.current_round,
+        current_game_index=presentation_state.current_game_index,
     )

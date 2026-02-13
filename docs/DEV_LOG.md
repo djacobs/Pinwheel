@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **480 tests**, zero lint errors
+- **488 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 28 (Substitution logic + Agent→Hooper rename)
+- **Latest commit:** Session 29 (Live play-by-play streaming)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -441,3 +441,55 @@ Bottom-up through the full stack:
 **480 tests, zero lint errors.**
 
 **What could have gone better:** The rename required careful coordination across ~50 files. Parallel subagents (templates, discord, tests) worked well — the bottleneck was the sequential core rename that had to flow bottom-up through the dependency chain. The backward-compat aliases were essential for keeping tests green during the incremental rename.
+
+---
+
+## Session 29 — Live Play-by-Play Streaming
+
+**What was asked:** Wire up live play-by-play streaming. The simulation engine runs instantly, but players should experience games in human time. The presenter layer already drips possession events through the EventBus, and the SSE endpoint already streams them, but the frontend doesn't consume them. Also, `demo_seed.py step` runs in a separate process so its EventBus events never reach the web server. Build `POST /api/pace/advance` to trigger simulation within the server process, enrich presenter events with names and narration, add a live zone to the arena page, and mark games as presented.
+
+**What was built:**
+
+### Schema + repository (Step 1)
+- Added `presented: Mapped[bool]` column to `GameResultRow` — games start hidden, marked presented after replay
+- Added `mark_game_presented(game_id)` to `Repository`
+- Added `presented_only` kwarg to `get_games_for_round()` — filters to `presented=True OR presented IS NULL` (NULL = legacy data)
+
+### Game loop changes (Step 2)
+- `step_round()` now collects `game_row.id` into `game_row_ids` list during simulation
+- Added `game_row_ids: list[str]` and `teams_cache: dict` to `RoundResult`
+
+### Presenter enrichment (Step 3)
+- Added `name_cache` and `on_game_finished` params to `present_round()`
+- Resolves `ball_handler_id` → player name, `offense_team_id` → team name using `name_cache`
+- Generates narration server-side via `narrate_play()` and includes in `presentation.possession` payload
+- Added `home_team_name`, `away_team_name` to `game_starting` and `game_finished` payloads
+- Calls `on_game_finished(game_index)` after publishing each `game_finished` event
+
+### Scheduler runner wiring (Step 4)
+- `_build_name_cache()` builds flat `{id: name}` mapping from `teams_cache`
+- `mark_presented(game_index)` callback opens a DB session and calls `mark_game_presented()`
+- Both passed to `present_round()` in replay mode
+
+### API endpoints (Step 5)
+- `POST /api/pace/advance` — triggers `tick_round()` within server process with `presentation_mode="replay"`, demo-friendly defaults (`quarter_replay_seconds=15`, `game_interval_seconds=5`), optional query params, returns 409 if already active
+- `GET /api/pace/status` — returns `{is_active, current_round, current_game_index}`
+
+### Arena live zone (Step 7)
+- Hidden `<div id="live-zone">` with scoreboard, quarter indicator, game clock, play-by-play feed
+- `EventSource` JS (~60 lines) handling `game_starting`, `possession`, `game_finished`, `round_finished`
+- Live zone shows pulsing "LIVE" badge, team names, updating scores, narrated play-by-play lines
+- "Advance Round" button (hidden in production) that POSTs to `/api/pace/advance`
+- Auto-reloads page 2 seconds after `round_finished`
+- ~120 lines of CSS: pulsing border animation, blinking LIVE badge, scrollable play feed
+
+### Pre-existing fix
+- Fixed `test_models.py::TestRuleSet::test_defaults` — test expected `elam_margin == 25` but RuleSet default is `15` (changed in Session 19)
+
+**Files modified (9):** `db/models.py`, `db/repository.py`, `core/game_loop.py`, `core/presenter.py`, `core/scheduler_runner.py`, `api/pace.py`, `templates/pages/arena.html`, `static/css/pinwheel.css`, `tests/test_models.py`
+
+**Tests added (8):** 4 in `test_presenter.py` (enriched names, on_game_finished callback, callback error resilience, fallback without name_cache), 4 in `test_pace.py` (status endpoint, advance endpoint, 409 when active, timing params)
+
+**488 tests, zero lint errors.**
+
+**What could have gone better:** The original plan included filtering the arena page to `presented_only=True`, but the user clarified that all games should be visible — live games should just be *presented as live*. Adjusted on the fly.

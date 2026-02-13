@@ -353,3 +353,28 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** "You are not limited to tweaking config values. You can propose anything." felt awkward and indirect — too much preamble before the exciting part.
 
 **Fix:** Changed to "Want to change the rules? Propose new ones — anything." Shorter, more direct, puts the action first. Updated on both `/play` and `/rules` pages.
+
+---
+
+## Completed — Session 29 (Live Play-by-Play Streaming)
+
+### 39. [DONE] Arena live zone — real-time game streaming via SSE
+**Problem:** The simulation engine ran instantly and showed final scores immediately — spoiling results. Players never experienced the drama of a game unfolding in real time. The presenter layer existed but the frontend didn't consume its events.
+
+**Fix:** Added a hidden `<div id="live-zone">` at the top of the arena page that activates during live presentations. JavaScript opens an `EventSource('/api/events/stream')` and handles four event types:
+- `presentation.game_starting` — shows the live zone with team names, resets scores to 0-0
+- `presentation.possession` — updates live scores, quarter indicator, game clock; prepends narrated play-by-play lines
+- `presentation.game_finished` — shows "FINAL" status with final score
+- `presentation.round_finished` — hides live zone, auto-reloads page after 2 seconds
+
+**Visual design:** Pulsing cyan border (`@keyframes live-pulse`), blinking "LIVE" badge (`@keyframes live-blink`) in red, large mono scoreboard with team names, scrolling play-by-play feed with quarter/clock labels. "Advance Round" button visible in dev/staging only.
+
+### 40. [DONE] Presenter enrichment — names and narration in SSE events
+**Problem:** Presenter events only contained entity IDs (`ball_handler_id`, `offense_team_id`). The frontend would have needed a separate lookup to show player/team names.
+
+**Fix:** Added `name_cache` parameter to `present_round()` and `_present_game()`. The scheduler runner builds a name cache from `teams_cache` (mapping team IDs and hooper IDs to display names). Each `presentation.possession` event now includes `ball_handler_name`, `offense_team_name`, and a `narration` field generated server-side via `narrate_play()`. Game starting/finished events include `home_team_name` and `away_team_name`.
+
+### 41. [DONE] In-process round advance endpoint
+**Problem:** `demo_seed.py step` ran in a separate process, so its EventBus events never reached SSE clients connected to the web server. No way to trigger a round and see it stream live.
+
+**Fix:** Added `POST /api/pace/advance` endpoint that triggers `tick_round()` within the server process via `asyncio.create_task()`. Forces `presentation_mode="replay"` with demo-friendly timing (15s per quarter, 5s between games). Returns 409 if a presentation is already active. Added `GET /api/pace/status` for polling presentation state.

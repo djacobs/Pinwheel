@@ -147,3 +147,73 @@ class TestPaceAPI:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post("/api/pace", json={})
             assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /api/pace/advance and /api/pace/status endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def advance_app():
+    """Create a test app with engine/event_bus initialized for advance tests."""
+    from pinwheel.core.event_bus import EventBus
+    from pinwheel.core.presenter import PresentationState
+    from pinwheel.db.engine import create_engine
+    from pinwheel.db.models import Base
+
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        pinwheel_auto_advance=False,
+    )
+    app = create_app(settings)
+
+    engine = create_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.engine = engine
+    app.state.event_bus = EventBus()
+    app.state.presentation_state = PresentationState()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client, app
+
+    await engine.dispose()
+
+
+class TestPaceAdvanceAPI:
+    """Tests for POST /api/pace/advance and GET /api/pace/status."""
+
+    async def test_status_returns_inactive(self, advance_app) -> None:
+        client, _ = advance_app
+        resp = await client.get("/api/pace/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_active"] is False
+        assert data["current_round"] == 0
+        assert data["current_game_index"] == 0
+
+    async def test_advance_returns_started(self, advance_app) -> None:
+        """Advance should return status=started (even with no season, it won't error)."""
+        client, _ = advance_app
+        resp = await client.post("/api/pace/advance")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "started"
+
+    async def test_advance_returns_409_when_active(self, advance_app) -> None:
+        """Should return 409 if a presentation is already running."""
+        client, app = advance_app
+        app.state.presentation_state.is_active = True
+
+        resp = await client.post("/api/pace/advance")
+        assert resp.status_code == 409
+        assert "already active" in resp.json()["detail"]
+
+    async def test_advance_accepts_timing_params(self, advance_app) -> None:
+        """Query params for timing should be accepted."""
+        client, _ = advance_app
+        resp = await client.post("/api/pace/advance?quarter_seconds=5&game_gap_seconds=2")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"

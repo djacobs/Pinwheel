@@ -29,7 +29,7 @@ class RuleSet(BaseModel):
     team_foul_bonus_threshold: int = Field(default=4, ge=3, le=10)
     three_point_distance: float = Field(default=22.15, ge=15.0, le=30.0)
     elam_trigger_quarter: int = Field(default=3, ge=1, le=4)
-    elam_margin: int = Field(default=25, ge=5, le=40)
+    elam_margin: int = Field(default=15, ge=5, le=40)
     halftime_stamina_recovery: float = Field(default=0.40, ge=0.0, le=0.6)
     quarter_break_stamina_recovery: float = Field(default=0.15, ge=0.0, le=0.3)
     safety_cap_possessions: int = Field(default=300, ge=50, le=500)

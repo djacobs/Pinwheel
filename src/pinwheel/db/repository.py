@@ -6,7 +6,7 @@ Game results and box scores are stored directly (immutable outputs).
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -190,7 +190,9 @@ class Repository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_games_for_round(self, season_id: str, round_number: int) -> list[GameResultRow]:
+    async def get_games_for_round(
+        self, season_id: str, round_number: int, *, presented_only: bool = False,
+    ) -> list[GameResultRow]:
         stmt = (
             select(GameResultRow)
             .where(
@@ -199,8 +201,22 @@ class Repository:
             )
             .options(selectinload(GameResultRow.box_scores))
         )
+        if presented_only:
+            stmt = stmt.where(
+                or_(
+                    GameResultRow.presented.is_(True),
+                    GameResultRow.presented.is_(None),
+                )
+            )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def mark_game_presented(self, game_id: str) -> None:
+        """Mark a game result as presented (visible to players)."""
+        game = await self.session.get(GameResultRow, game_id)
+        if game:
+            game.presented = True
+            await self.session.flush()
 
     # --- Governance Events (append-only) ---
 

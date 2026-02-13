@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from pinwheel.core.narrate import narrate_play
 from pinwheel.models.game import GameResult
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,8 @@ async def present_round(
     state: PresentationState,
     game_interval_seconds: int = 1800,
     quarter_replay_seconds: int = 300,
+    name_cache: dict[str, str] | None = None,
+    on_game_finished: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
     """Replay a round's games over real time via EventBus.
 
@@ -52,6 +56,8 @@ async def present_round(
         state: Shared PresentationState for re-entry guard.
         game_interval_seconds: Wall-clock seconds between game starts.
         quarter_replay_seconds: Wall-clock seconds to replay each quarter.
+        name_cache: Mapping of entity IDs to display names (team IDs, hooper IDs).
+        on_game_finished: Async callback invoked with game_index after each game finishes.
     """
     if state.is_active:
         logger.warning(
@@ -60,6 +66,7 @@ async def present_round(
         )
         return
 
+    names = name_cache or {}
     state.is_active = True
     state.cancel_event.clear()
     games_presented = 0
@@ -79,10 +86,12 @@ async def present_round(
                     "total_games": len(game_results),
                     "home_team_id": game_result.home_team_id,
                     "away_team_id": game_result.away_team_id,
+                    "home_team_name": names.get(game_result.home_team_id, game_result.home_team_id),
+                    "away_team_name": names.get(game_result.away_team_id, game_result.away_team_id),
                 },
             )
 
-            await _present_game(game_result, event_bus, state, quarter_replay_seconds)
+            await _present_game(game_result, event_bus, state, quarter_replay_seconds, names)
 
             if state.cancel_event.is_set():
                 break
@@ -93,10 +102,18 @@ async def present_round(
                     "game_index": game_idx,
                     "home_team_id": game_result.home_team_id,
                     "away_team_id": game_result.away_team_id,
+                    "home_team_name": names.get(game_result.home_team_id, game_result.home_team_id),
+                    "away_team_name": names.get(game_result.away_team_id, game_result.away_team_id),
                     "home_score": game_result.home_score,
                     "away_score": game_result.away_score,
                 },
             )
+
+            if on_game_finished is not None:
+                try:
+                    await on_game_finished(game_idx)
+                except Exception:
+                    logger.exception("on_game_finished callback failed for game %d", game_idx)
 
             games_presented = game_idx + 1
 
@@ -126,6 +143,7 @@ async def _present_game(
     event_bus: object,
     state: PresentationState,
     quarter_replay_seconds: int,
+    names: dict[str, str],
 ) -> None:
     """Drip a single game's possessions over real time."""
     possessions = game_result.possession_log
@@ -152,18 +170,38 @@ async def _present_game(
             if state.cancel_event.is_set():
                 return
 
+            player_name = names.get(possession.ball_handler_id, possession.ball_handler_id)
+            offense_name = names.get(possession.offense_team_id, possession.offense_team_id)
+            defender_name = (
+                names.get(possession.defender_id, possession.defender_id)
+                if possession.defender_id else ""
+            )
+
+            narration = narrate_play(
+                player=player_name,
+                defender=defender_name,
+                action=possession.action,
+                result=possession.result,
+                points=possession.points_scored,
+                move=possession.move_activated,
+                seed=possession.possession_number,
+            )
+
             await event_bus.publish(
                 "presentation.possession",
                 {
                     "quarter": possession.quarter,
                     "offense_team_id": possession.offense_team_id,
+                    "offense_team_name": offense_name,
                     "ball_handler_id": possession.ball_handler_id,
+                    "ball_handler_name": player_name,
                     "action": possession.action,
                     "result": possession.result,
                     "points_scored": possession.points_scored,
                     "home_score": possession.home_score,
                     "away_score": possession.away_score,
                     "game_clock": possession.game_clock,
+                    "narration": narration,
                 },
             )
 

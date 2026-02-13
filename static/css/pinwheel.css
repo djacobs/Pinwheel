@@ -2333,3 +2333,166 @@ h3 { font-size: 1.05rem; }
   color: var(--text-secondary);
   font-weight: 700;
 }
+
+/* ===== Live Zone (Arena) ===== */
+.live-zone {
+  background: var(--bg-card);
+  border: 2px solid var(--accent-highlight);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { border-color: var(--accent-highlight); }
+  50% { border-color: var(--accent-score); }
+}
+
+.live-zone-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.live-badge {
+  background: var(--accent-highlight);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  animation: live-blink 1.5s step-end infinite;
+}
+
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.live-game-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.live-quarter {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-score);
+}
+
+.live-clock {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.live-zone-scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.live-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 100px;
+}
+
+.live-team-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.live-score {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent-score);
+}
+
+.live-vs {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.live-status {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.live-final {
+  color: var(--accent-highlight);
+  font-weight: 800;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.live-plays {
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+
+.live-play-line {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+
+.live-play-line:first-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.live-play-clock {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-right: 0.3rem;
+}
+
+.live-play-pts {
+  color: var(--accent-score);
+  font-weight: 700;
+}
+
+.advance-btn {
+  background: var(--bg-card);
+  color: var(--accent-governance);
+  border: 1px solid var(--accent-governance);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.advance-btn:hover:not(:disabled) {
+  background: var(--accent-governance);
+  color: var(--bg-primary);
+}
+
+.advance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

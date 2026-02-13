@@ -202,6 +202,7 @@ async def step_round(
     # 4. Simulate games
     game_summaries = []
     game_results: list[GameResult] = []
+    game_row_ids: list[str] = []
     for entry in schedule:
         home = teams_cache.get(entry.home_team_id)
         away = teams_cache.get(entry.away_team_id)
@@ -234,6 +235,8 @@ async def step_round(
             elam_target=result.elam_target_score,
             play_by_play=[p.model_dump() for p in result.possession_log],
         )
+
+        game_row_ids.append(game_row.id)
 
         # Store box scores
         for bs in result.box_scores:
@@ -549,6 +552,8 @@ async def step_round(
         mirrors=mirrors,
         tallies=tallies,
         game_results=game_results,
+        game_row_ids=game_row_ids,
+        teams_cache=teams_cache,
     )
 
 
@@ -562,9 +567,13 @@ class RoundResult:
         mirrors: list[Mirror],
         tallies: list[VoteTally],
         game_results: list[GameResult] | None = None,
+        game_row_ids: list[str] | None = None,
+        teams_cache: dict | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
         self.mirrors = mirrors
         self.tallies = tallies
         self.game_results = game_results or []
+        self.game_row_ids = game_row_ids or []
+        self.teams_cache = teams_cache or {}

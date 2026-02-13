@@ -164,3 +164,110 @@ async def test_present_round_multiple_games():
     assert event_types.count("presentation.game_finished") == 2
     assert event_types.count("presentation.round_finished") == 1
     assert not state.is_active
+
+
+@pytest.mark.asyncio
+async def test_present_round_enriched_with_names():
+    """Presenter should include team and player names from name_cache."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    name_cache = {
+        "team-a": "Thunderbolts",
+        "team-b": "Storm",
+        "hooper-1": "Flash Johnson",
+    }
+
+    await present_round(
+        [game], bus, state,
+        game_interval_seconds=0,
+        quarter_replay_seconds=0.01,
+        name_cache=name_cache,
+    )
+
+    # Check game_starting has team names
+    starting = [e for e in bus.events if e[0] == "presentation.game_starting"]
+    assert len(starting) == 1
+    assert starting[0][1]["home_team_name"] == "Thunderbolts"
+    assert starting[0][1]["away_team_name"] == "Storm"
+
+    # Check game_finished has team names
+    finished = [e for e in bus.events if e[0] == "presentation.game_finished"]
+    assert len(finished) == 1
+    assert finished[0][1]["home_team_name"] == "Thunderbolts"
+    assert finished[0][1]["away_team_name"] == "Storm"
+
+    # Check possession events have narration and names
+    possessions = [e for e in bus.events if e[0] == "presentation.possession"]
+    assert len(possessions) == 3
+    for p in possessions:
+        assert "narration" in p[1]
+        assert len(p[1]["narration"]) > 0
+        assert p[1]["ball_handler_name"] == "Flash Johnson"
+        assert p[1]["offense_team_name"] == "Thunderbolts"
+
+
+@pytest.mark.asyncio
+async def test_present_round_on_game_finished_callback():
+    """on_game_finished should be called with game_index after each game."""
+    bus = MockEventBus()
+    state = PresentationState()
+
+    callback_indices: list[int] = []
+
+    async def track_callback(game_index: int) -> None:
+        callback_indices.append(game_index)
+
+    games = [_make_game(), _make_game()]
+
+    await present_round(
+        games, bus, state,
+        game_interval_seconds=0,
+        quarter_replay_seconds=0.01,
+        on_game_finished=track_callback,
+    )
+
+    assert callback_indices == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_present_round_callback_error_does_not_break():
+    """If on_game_finished raises, presentation should continue."""
+    bus = MockEventBus()
+    state = PresentationState()
+
+    async def failing_callback(game_index: int) -> None:
+        raise RuntimeError("callback exploded")
+
+    games = [_make_game(), _make_game()]
+
+    await present_round(
+        games, bus, state,
+        game_interval_seconds=0,
+        quarter_replay_seconds=0.01,
+        on_game_finished=failing_callback,
+    )
+
+    # Both games should still complete despite callback failures
+    event_types = [e[0] for e in bus.events]
+    assert event_types.count("presentation.game_finished") == 2
+    assert event_types.count("presentation.round_finished") == 1
+
+
+@pytest.mark.asyncio
+async def test_present_round_without_name_cache():
+    """Without name_cache, IDs should be used as fallback names."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round(
+        [game], bus, state,
+        game_interval_seconds=0,
+        quarter_replay_seconds=0.01,
+    )
+
+    starting = [e for e in bus.events if e[0] == "presentation.game_starting"]
+    assert starting[0][1]["home_team_name"] == "team-a"
+    assert starting[0][1]["away_team_name"] == "team-b"

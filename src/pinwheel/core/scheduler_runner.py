@@ -25,6 +25,16 @@ from pinwheel.db.repository import Repository
 logger = logging.getLogger(__name__)
 
 
+def _build_name_cache(teams_cache: dict) -> dict[str, str]:
+    """Build a flat {id: name} mapping from teams_cache for the presenter."""
+    names: dict[str, str] = {}
+    for team in teams_cache.values():
+        names[team.id] = team.name
+        for hooper in team.hoopers:
+            names[hooper.id] = hooper.name
+    return names
+
+
 async def tick_round(
     engine: AsyncEngine,
     event_bus: EventBus,
@@ -89,6 +99,19 @@ async def tick_round(
                 and not presentation_state.is_active
             ):
                 presentation_state.current_round = next_round
+
+                # Build name cache from teams_cache for human-readable events
+                name_cache = _build_name_cache(round_result.teams_cache)
+
+                # Create callback to mark games as presented in the DB
+                game_row_ids = round_result.game_row_ids
+
+                async def mark_presented(game_index: int) -> None:
+                    async with get_session(engine) as mark_session:
+                        mark_repo = Repository(mark_session)
+                        if game_index < len(game_row_ids):
+                            await mark_repo.mark_game_presented(game_row_ids[game_index])
+
                 asyncio.create_task(
                     present_round(
                         game_results=round_result.game_results,
@@ -96,6 +119,8 @@ async def tick_round(
                         state=presentation_state,
                         game_interval_seconds=game_interval_seconds,
                         quarter_replay_seconds=quarter_replay_seconds,
+                        name_cache=name_cache,
+                        on_game_finished=mark_presented,
                     )
                 )
                 logger.info(

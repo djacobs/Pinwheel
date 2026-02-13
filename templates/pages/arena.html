@@ -9,6 +9,37 @@
   {% endif %}
 </div>
 
+<!-- Live Zone — hidden until presentation starts -->
+<div id="live-zone" class="live-zone" style="display:none;">
+  <div class="live-zone-header">
+    <span class="live-badge">LIVE</span>
+    <span id="live-game-label" class="live-game-label">Game 1 of 2</span>
+    <span id="live-quarter" class="live-quarter">Q1</span>
+    <span id="live-clock" class="live-clock"></span>
+  </div>
+  <div class="live-zone-scoreboard">
+    <div class="live-team">
+      <span id="live-home-name" class="live-team-name">Home</span>
+      <span id="live-home-score" class="live-score">0</span>
+    </div>
+    <div class="live-vs">vs</div>
+    <div class="live-team">
+      <span id="live-away-name" class="live-team-name">Away</span>
+      <span id="live-away-score" class="live-score">0</span>
+    </div>
+  </div>
+  <div id="live-status" class="live-status"></div>
+  <div id="live-plays" class="live-plays"></div>
+</div>
+
+<!-- Advance Round button (dev/staging) -->
+{% if pinwheel_env != 'production' %}
+<div style="margin-bottom:1rem;">
+  <button id="advance-btn" class="advance-btn" onclick="advanceRound()">Advance Round</button>
+  <span id="advance-status" style="margin-left:0.5rem; color:var(--text-muted); font-size:0.85rem;"></span>
+</div>
+{% endif %}
+
 {% if rounds %}
 <div hx-ext="sse" sse-connect="/api/events/stream">
   {% for round in rounds %}
@@ -94,4 +125,89 @@
   <p>The season hasn't started. Games will appear here once the first round is simulated.</p>
 </div>
 {% endif %}
+
+<script>
+(function() {
+  var es = new EventSource('/api/events/stream');
+  var liveZone = document.getElementById('live-zone');
+  var livePlays = document.getElementById('live-plays');
+  var maxPlays = 20;
+
+  es.addEventListener('presentation.game_starting', function(e) {
+    var d = JSON.parse(e.data).data;
+    liveZone.style.display = '';
+    document.getElementById('live-home-name').textContent = d.home_team_name || d.home_team_id;
+    document.getElementById('live-away-name').textContent = d.away_team_name || d.away_team_id;
+    document.getElementById('live-home-score').textContent = '0';
+    document.getElementById('live-away-score').textContent = '0';
+    document.getElementById('live-quarter').textContent = 'Q1';
+    document.getElementById('live-clock').textContent = '';
+    document.getElementById('live-game-label').textContent =
+      'Game ' + (d.game_index + 1) + ' of ' + d.total_games;
+    document.getElementById('live-status').textContent = '';
+    livePlays.innerHTML = '';
+    var btn = document.getElementById('advance-btn');
+    if (btn) btn.disabled = true;
+  });
+
+  es.addEventListener('presentation.possession', function(e) {
+    var d = JSON.parse(e.data).data;
+    document.getElementById('live-home-score').textContent = d.home_score;
+    document.getElementById('live-away-score').textContent = d.away_score;
+    document.getElementById('live-quarter').textContent = 'Q' + d.quarter;
+    if (d.game_clock) {
+      document.getElementById('live-clock').textContent = d.game_clock;
+    }
+    if (d.narration) {
+      var line = document.createElement('div');
+      line.className = 'live-play-line';
+      var pts = d.points_scored > 0 ? ' <span class="live-play-pts">+' + d.points_scored + '</span>' : '';
+      line.innerHTML = '<span class="live-play-clock">' + (d.game_clock || '') + '</span> ' + d.narration + pts;
+      livePlays.insertBefore(line, livePlays.firstChild);
+      while (livePlays.children.length > maxPlays) {
+        livePlays.removeChild(livePlays.lastChild);
+      }
+    }
+  });
+
+  es.addEventListener('presentation.game_finished', function(e) {
+    var d = JSON.parse(e.data).data;
+    document.getElementById('live-home-score').textContent = d.home_score;
+    document.getElementById('live-away-score').textContent = d.away_score;
+    document.getElementById('live-status').textContent = 'FINAL';
+    document.getElementById('live-status').className = 'live-status live-final';
+  });
+
+  es.addEventListener('presentation.round_finished', function(e) {
+    setTimeout(function() {
+      window.location.reload();
+    }, 2000);
+  });
+})();
+
+function advanceRound() {
+  var btn = document.getElementById('advance-btn');
+  var status = document.getElementById('advance-status');
+  btn.disabled = true;
+  status.textContent = 'Starting...';
+  fetch('/api/pace/advance', { method: 'POST' })
+    .then(function(r) {
+      if (r.status === 409) {
+        status.textContent = 'Already running';
+        btn.disabled = false;
+        return;
+      }
+      if (!r.ok) {
+        status.textContent = 'Error: ' + r.status;
+        btn.disabled = false;
+        return;
+      }
+      status.textContent = 'Round advancing...';
+    })
+    .catch(function(err) {
+      status.textContent = 'Failed';
+      btn.disabled = false;
+    });
+}
+</script>
 {% endblock %}
