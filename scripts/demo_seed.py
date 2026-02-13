@@ -317,7 +317,7 @@ async def step(rounds: int = 1):
         for i in range(rounds):
             rn = current_round + 1 + i
             result = await step_round(repo, season.id, round_number=rn)
-            print(f"Round {rn}: {len(result.games)} games, {len(result.mirrors)} mirrors")
+            print(f"Round {rn}: {len(result.games)} games, {len(result.reports)} reports")
             for g in result.games:
                 winner = "HOME" if g["winner_team_id"] == g.get("home_team_id") else "AWAY"
                 elam = " [ELAM]" if g["elam_activated"] else ""
@@ -325,9 +325,9 @@ async def step(rounds: int = 1):
                     f"  {g['home_team']} {g['home_score']} - "
                     f"{g['away_score']} {g['away_team']} ({winner}){elam}"
                 )
-            for m in result.mirrors:
-                if m.mirror_type != "private":
-                    print(f"  Mirror ({m.mirror_type}): {m.content[:80]}...")
+            for m in result.reports:
+                if m.report_type != "private":
+                    print(f"  Report ({m.report_type}): {m.content[:80]}...")
 
         await session.commit()
 

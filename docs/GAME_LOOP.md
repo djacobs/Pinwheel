@@ -2,99 +2,128 @@
 
 ## Overview
 
-Pinwheel Fates runs continuously. Games simulate on a cron schedule. Governance windows open and close on a cadence. AI mirrors generate after each phase. The system breathes — simulate, govern, reflect, repeat.
+Pinwheel Fates runs continuously. Games simulate on a cron schedule. Governance tallies every Nth round. AI reports generate after each phase. The system breathes — simulate, govern, reflect, repeat.
 
 This document defines how those pieces coordinate.
 
-## The Three Clocks
+## The Two Clocks
 
-Pinwheel has three independent schedules that interleave:
+Pinwheel has two schedules: one explicit (game rounds) and one derived (governance tallying tied to the round cadence).
 
-### 1. Game Clock (`PINWHEEL_GAME_CRON`)
+### 1. Game Clock (`PINWHEEL_PRESENTATION_PACE`)
 
-Games run at fixed times (e.g., top of every hour). When the game clock fires:
+The presentation pace determines how often rounds advance. Pace modes map to cron intervals:
 
-1. **Snapshot the current ruleset.** Rules are immutable for the duration of a simulation block. If a governance window passes new rules mid-block, they take effect at the *next* block.
-2. **Generate matchups.** The scheduler produces pairings for this block based on the current `schedule_format` and `games_per_round` parameters.
-3. **Simulate all games.** Each game is an independent pure function call: `simulate_game(home, away, rules, seed)`. Games within a block can run in parallel (no shared state).
-4. **Store results.** Batch insert all GameResults into the database.
-5. **Start presenting.** Hand each GameResult to the game presenter, which streams play-by-play to fans over 20-30 minutes via SSE. Standings update when each game's presentation completes (final score revealed).
-6. **Trigger simulation mirror.** Queue an AI call to analyze results in context of recent rule changes. (Mirror sees the full results immediately, even while presentation is still streaming to fans.)
+| Pace | Cron | Round cadence |
+|------|------|---------------|
+| `fast` | `*/1 * * * *` | Every 1 minute |
+| `normal` | `*/5 * * * *` | Every 5 minutes |
+| `slow` | `*/15 * * * *` | Every 15 minutes |
+| `manual` | (none) | Admin-triggered only |
 
-### 2. Governance Clock (`PINWHEEL_GOV_WINDOW`)
+An explicit cron can override via `PINWHEEL_GAME_CRON`. When the game clock fires (`tick_round()`):
 
-Governance windows open on a schedule (e.g., twice daily, or every 15 minutes in demo mode). A governance window has three phases:
+1. **Call `step_round()`** — the core orchestrator in `core/game_loop.py`. This:
+   1. **Snapshots the current ruleset.** Rules are immutable for the duration of a simulation block.
+   2. **Generates matchups.** The scheduler produces pairings for this round.
+   3. **Simulates all games.** Each game is an independent pure function call: `simulate_game(home, away, rules, seed)`. Games within a round can run in parallel (no shared state).
+   4. **Stores results.** Batch insert all GameResults into the database.
+   5. **Tallies governance (if interval round).** See below.
+   6. **Regenerates tokens** for all governors (on governance tally rounds only).
+   7. **Generates reports.** Simulation report, and governance/private reports on tally rounds.
+   8. **Runs evals** (if enabled).
+   9. **Generates AI commentary** for each game.
+2. **Present the round.** In replay mode (`PINWHEEL_PRESENTATION_MODE=replay`), the presenter streams play-by-play to fans via SSE over real time. In instant mode, results are available immediately.
+3. **Publish events.** After presentation finishes (not during simulation), publish `presentation.game_finished`, `presentation.round_finished`, and `governance.window_closed` events. Discord notifications and standings updates fire from these events.
 
-**Window Open:**
-- Token regeneration runs (PROPOSE, AMEND, BOOST replenished per rates).
-- Proposal submission, amendment, voting, and trading are enabled.
-- Players interact with the governance panel.
+### 2. Governance Tallying (Interval-Based, Not Window-Based)
 
-**Window Close:**
-- Voting on active proposals resolves. Passed proposals are enacted — their structured rule changes are validated and applied to the RuleSet.
-- The governance event log captures all actions as immutable events.
-- Trading closes.
+Governance is **not** a separate clock. It's integrated into `step_round()` and triggers every Nth round, controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 3).
 
-**Post-Window:**
-- Trigger governance mirror: AI analyzes voting patterns, coalitions, power dynamics.
-- Trigger private mirrors: per-player reflections on their governance behavior.
-- Broadcast mirror updates via SSE.
+**How it works:**
 
-### 3. Mirror Clock (Event-Driven, Not Scheduled)
+Proposals, amendments, votes, and trades happen asynchronously via Discord commands at any time — there is no "open" or "close" window. When a tally round arrives (`round_number % governance_interval == 0`), `step_round()`:
 
-Mirrors don't run on their own clock. They're triggered by the other two clocks and by season-level transitions. Opus 4.6's role is not just to report stats — it's to surface the social dynamics, governance patterns, and emergent narratives that players can't see from inside the system. Every mirror connects individual actions to the collective story.
+1. **Gathers unresolved proposals.** Finds all `proposal.confirmed` events with no matching `proposal.passed` or `proposal.failed`.
+2. **Tallies votes.** Weighted voting with per-team normalization. BOOST tokens double a governor's vote weight.
+3. **Enacts passed proposals.** Validated rule changes applied to the RuleSet.
+4. **Regenerates tokens.** 2 PROPOSE, 2 AMEND, 2 BOOST per governor per tally cycle.
+5. **Generates governance + private reports.** AI analyzes voting patterns, coalitions, and individual behavior.
 
-| Trigger | Mirror Type | What It Analyzes |
+The governance interval is itself a governable parameter (`governance_rounds_interval` in Tier 4). Players can vote to make tallying more or less frequent.
+
+### 3. Report Clock (Event-Driven, Not Scheduled)
+
+Reports don't run on their own clock. They're triggered by the other two clocks and by season-level transitions. Opus 4.6's role is not just to report stats — it's to surface the social dynamics, governance patterns, and emergent narratives that players can't see from inside the system. Every report connects individual actions to the collective story.
+
+| Trigger | Report Type | What It Analyzes |
 |---------|-------------|-----------------|
-| Game block completes | **Simulation mirror** (shared) | Game outcomes in context of recent rule changes. Did the rule change do what its proponents claimed? Who benefited? Which teams are rising/falling and why? Emerging matchup narratives. |
-| Governance window closes | **Governance mirror** (shared) | Voting patterns, coalitions, power dynamics. Who voted together? Who traded tokens and why? How do governance actions connect to game outcomes? Is the social contract evolving or calcifying? Are some players gaming the system? |
-| Governance window closes | **Private mirrors** (per-player) | Individual governance behavior, trading patterns, blind spots. "You voted for X, which benefited team Y — was that intentional?" Connects your actions to their consequences. Only you see this. |
-| Tiebreaker game + governance | **Tiebreaker mirror** (shared) | The extra governance round before a tiebreaker — what did players change and why? The tiebreaker game result in context of those changes. |
-| Playoff series ends | **Series mirror** (shared) | The arc of the series: how did governance between games shift the dynamics? Did the losing team try to rule-change their way to a win? What was the turning point? |
-| Championship decided | **Season mirror** (shared) | The definitive season narrative. How the rules evolved from opening day. Which coalitions formed and broke. What governance strategies worked. The arc of the social contract. Awards (MVP, most chaotic, etc.) with narrative context. |
-| Offseason governance closes | **Offseason mirror** (shared) | What carried forward, what was reset, and what that says about the community. Did the winners entrench their advantage or did the league vote for balance? |
+| Game block completes | **Simulation report** (shared) | Game outcomes in context of recent rule changes. Did the rule change do what its proponents claimed? Who benefited? Which teams are rising/falling and why? Emerging matchup narratives. |
+| Governance tally round | **Governance report** (shared) | Voting patterns, coalitions, power dynamics. Who voted together? Who traded tokens and why? How do governance actions connect to game outcomes? Is the social contract evolving or calcifying? Are some players gaming the system? |
+| Governance tally round | **Private reports** (per-player) | Individual governance behavior, trading patterns, blind spots. "You voted for X, which benefited team Y — was that intentional?" Connects your actions to their consequences. Only you see this. |
+| Tiebreaker game + governance | **Tiebreaker report** (shared) | The extra governance round before a tiebreaker — what did players change and why? The tiebreaker game result in context of those changes. |
+| Playoff series ends | **Series report** (shared) | The arc of the series: how did governance between games shift the dynamics? Did the losing team try to rule-change their way to a win? What was the turning point? |
+| Championship decided | **Season report** (shared) | The definitive season narrative. How the rules evolved from opening day. Which coalitions formed and broke. What governance strategies worked. The arc of the social contract. Awards (MVP, most chaotic, etc.) with narrative context. |
+| Offseason governance closes | **Offseason report** (shared) | What carried forward, what was reset, and what that says about the community. Did the winners entrench their advantage or did the league vote for balance? |
 | Every 7 rounds (1 RR) | **State of the League** (shared) | Periodic zoom-out. League-wide trends, power balance, rule evolution trajectory, emerging storylines. The AI as beat reporter. |
 
-Mirror generation is I/O-bound (Opus 4.6 API calls). All mirrors for a trigger event can be generated in parallel. Private mirrors for all players can also be generated in parallel since they're independent.
+Report generation is I/O-bound (Opus 4.6 API calls). All reports for a trigger event can be generated in parallel. Private reports for all players can also be generated in parallel since they're independent.
 
 ## State Machine
+
+Each round follows a sequential pipeline within `step_round()`, then hands off to the presenter:
 
 ```
                     ┌──────────────┐
                     │   IDLE       │
                     │ (waiting for │
-                    │  next event) │
+                    │  cron tick)  │
                     └──────┬───────┘
                            │
-         ┌─────────────────┼─────────────────┐
-         ▼                 ▼                 ▼
-┌──────────────┐   ┌───────────┐     ┌──────────┐
-│ SIMULATING   │   │ GOVERNING │     │ MIRRORING│
-│              │   │           │     │          │
-│ Run games    │   │ Window is │     │ AI calls │
-│ (instant)    │   │ open for  │     │ running  │
-│ Store results│   │ players   │     │          │
-└──────┬───────┘   └─────┬─────┘     └────┬─────┘
-       │                 │                │
-       ▼                 ▼                │
-┌──────────────┐  ┌────────────┐          │
-│ PRESENTING   │  │ ENACTING   │          │
-│              │  │            │          │
-│ Stream play- │  │ Resolve    │          │
-│ by-play via  │  │ votes,     │          │
-│ SSE (20-30m) │  │ apply rules│          │
-└──────┬───────┘  └─────┬──────┘          │
-       │                │                 │
-       └────────────────┼─────────────────┘
-                        ▼
+                           ▼
                     ┌──────────────┐
+                    │ SIMULATING   │
+                    │ Run games,   │
+                    │ store results│
+                    └──────┬───────┘
+                           │
+                  (if tally round)
+                           │
+                    ┌──────┴───────┐
+                    │ TALLYING     │
+                    │ Resolve votes│
+                    │ Enact rules  │
+                    │ Regen tokens │
+                    └──────┬───────┘
+                           │
+                    ┌──────┴───────┐
+                    │ REPORTING    │
+                    │ AI calls     │
+                    │ (parallel)   │
+                    └──────┬───────┘
+                           │
+                    ┌──────┴───────┐
+                    │ PRESENTING   │
+                    │ Stream play- │
+                    │ by-play via  │
+                    │ SSE          │
+                    └──────┬───────┘
+                           │
+                    ┌──────┴───────┐
+                    │ NOTIFY       │
+                    │ Discord +    │
+                    │ standings    │
+                    └──────┬───────┘
+                           │
+                    ┌──────┴───────┐
                     │   IDLE       │
                     └──────────────┘
 ```
 
-These states can overlap. Simulation is instant; presentation runs long (20-30 minutes per game). A governance window can be open while games are being presented. Mirrors can generate while games are streaming. The only hard constraints:
-- **Rule enactment happens atomically between simulation blocks, never during one.**
+Simulation, tallying, and reporting are sequential within `step_round()`. Presentation runs after `step_round()` returns. Discord notifications fire after presentation completes (not during simulation) to avoid spoiling results. The only hard constraints:
+- **Rule enactment happens atomically during the tally step, before the next simulation.**
 - **Presentation starts after simulation completes** — you can't stream a game that hasn't been computed yet.
+- **Discord notifications fire after presentation** — fans see the live show before getting spoilers.
 
 ## Implementation Architecture
 
@@ -103,7 +132,7 @@ These states can overlap. Simulation is instant; presentation runs long (20-30 m
 The game loop is a long-running background process, not a request handler. Options:
 
 **Option A: FastAPI BackgroundTasks + APScheduler**
-- APScheduler handles cron scheduling. FastAPI BackgroundTasks handle one-off async work (mirror generation, SSE broadcast).
+- APScheduler handles cron scheduling. FastAPI BackgroundTasks handle one-off async work (report generation, SSE broadcast).
 - Lightweight. No external infrastructure. Runs in the same process as the API.
 - Risk: if the process dies, the loop stops. Fine for hackathon, needs a process supervisor for production.
 
@@ -155,40 +184,31 @@ The presenter works in concert with the **Commentary Engine** (`ai/commentary.py
 
 ### SSE Architecture
 
-Server-Sent Events push real-time updates to connected clients. The presenter is the primary producer of game-related SSE events:
+Server-Sent Events push real-time updates to connected clients. The presenter is the primary producer of game-related SSE events. The EventBus (`core/event_bus.py`) is the central pub/sub system — all events flow through it.
+
+**Actually implemented events** (as of Session 40):
 
 ```
-FastAPI SSE Endpoint (/events/stream)
+EventBus (in-process pub/sub)
     │
-    ├── game.possession   → Possession result (paced by presenter)
-    ├── game.move         → A Move triggered during a possession
-    ├── game.highlight    → Presenter-flagged dramatic moment
-    ├── game.commentary   → AI-generated commentary line (see VIEWER.md)
-    ├── game.quarter_end  → Quarter completed
-    ├── game.elam_start   → Elam Ending activated, target score set
-    ├── game.result       → Final score (game presentation complete)
-    ├── game.boxscore     → Full box score available
-    ├── standings.update  → Standings changed
-    ├── governance.open   → Governance window opened
-    ├── governance.close  → Window closed, results available
-    ├── governance.proposal → New proposal submitted
-    ├── governance.vote    → Vote cast (anonymized until window close)
-    ├── mirror.simulation  → New simulation mirror available
-    ├── mirror.governance  → New governance mirror available
-    ├── mirror.private     → Private mirror updated (per-player, filtered)
-    ├── mirror.series      → Playoff series mirror available
-    ├── mirror.season      → Full-season narrative mirror available
-    ├── mirror.league      → State of the League periodic mirror
-    ├── season.round       → Round completed, standings updated
-    ├── season.tiebreaker  → Tiebreaker game scheduled
-    ├── season.playoffs    → Playoff bracket set
-    ├── season.series      → Series update (game result within a series)
-    ├── season.champion    → Championship decided
-    ├── season.awards      → Season awards announced
-    └── season.offseason   → Offseason governance window opened
+    ├── presentation.possession      → Possession result (paced by presenter)
+    ├── presentation.game_starting   → Game presentation begins
+    ├── presentation.game_finished   → Game presentation complete (triggers Discord)
+    ├── presentation.round_finished  → Round presentation complete (triggers Discord)
+    │
+    ├── game.completed               → Game simulation finished (internal, before presentation)
+    ├── round.completed              → Round simulation finished (internal)
+    │
+    ├── governance.window_closed     → Governance tally complete, results available
+    │
+    ├── report.generated             → Report (sim, gov, or private) generated
+    │
+    └── season.regular_season_complete → All scheduled rounds played
 ```
 
-Each SSE event carries a type and a JSON payload. Clients subscribe once and filter by event type. Private mirror events are filtered server-side — a player only receives their own.
+The SSE endpoint (`/api/events/stream`) subscribes to the EventBus and forwards events to connected web clients. Discord bot handlers subscribe to `presentation.*` events (not `game.*`) to avoid spoiling results before the live show finishes.
+
+**Key design decision:** Discord notifications fire from `presentation.game_finished` and `presentation.round_finished`, not from `game.completed` or `round.completed`. In instant mode (no presenter), `tick_round()` publishes the presentation events directly so Discord still works.
 
 ### Seed Generation
 
@@ -205,7 +225,7 @@ This means: the same matchup under the same rules in the same round always produ
 
 ## Season Structure
 
-A season is the complete competitive arc: regular season → tiebreakers → playoffs → championship → offseason governance. The season is the unit of narrative — rules evolve, rivalries deepen, and the AI mirror tracks the whole story.
+A season is the complete competitive arc: regular season → tiebreakers → playoffs → championship → offseason governance. The season is the unit of narrative — rules evolve, rivalries deepen, and the AI reporter tracks the whole story.
 
 ### Regular Season
 
@@ -218,20 +238,19 @@ Round-Robin 1 (Rounds 1-7)     Round-Robin 2 (Rounds 8-14)    Round-Robin 3 (Rou
 Every team plays every other   Repeat, flipped home/away      Repeat, original home/away
 team once. 4 games per round.  assignments.                    assignments.
 
-  ↕ governance window            ↕ governance window             ↕ governance window
-  between rounds (default:       between rounds                  between rounds
-  every round, configurable)
+  ↕ governance tally every       ↕ governance tally every        ↕ governance tally every
+  N rounds (default 3,           N rounds                        N rounds
+  configurable)
 ```
 
-**Governance frequency:** How often governance windows open is controlled by `governance_rounds_interval` (default 1 = every round, governable). At interval 1, there are 21 governance windows per season. At interval 3, there are 7. Players can vote to make governance more or less frequent — more frequent means more reactive, chaotic play. Less frequent means more strategic, deliberate governance.
+**Governance frequency:** How often governance tallies is controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 3, governable via `governance_rounds_interval`). At interval 1, there are 21 tallies per season. At interval 3, there are 7. Players can vote to make tallying more or less frequent — more frequent means more reactive, chaotic play. Less frequent means more strategic, deliberate governance.
 
-**Rhythm:** Each round = 1 simulation block. When `governance_rounds_interval` rounds have elapsed, a governance window opens. The cycle:
+**Rhythm:** Each round = 1 simulation block. Proposals, votes, and trades happen asynchronously between rounds. When a tally round arrives, unresolved proposals are tallied and enacted. The cycle:
 
 ```
-SIMULATE round N → PRESENT 4 games → MIRROR analyzes →
-  if N % governance_rounds_interval == 0:
-    GOVERNANCE window opens → players react → window closes → rules update →
-SIMULATE round N+1 → ...
+SIMULATE round N → TALLY (if N % interval == 0) → REPORT → PRESENT 4 games → NOTIFY Discord
+  ↑                                                                                    │
+  └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 This is the heartbeat. Early season: players explore the rule space, test proposals, see what happens. Mid season: coalitions form, targeted rule changes, strategic trading. Late season: playoff positioning, high-stakes governance, desperate moves.
@@ -272,15 +291,15 @@ SEMIFINALS (Best-of-5)                    CHAMPIONSHIP (Best-of-7)
 
 **Home court:** Higher seed has home court advantage (more games at their venue). In a best-of-5: games 1, 2, 5 at higher seed's venue. In a best-of-7: games 1, 2, 5, 7 at higher seed's venue.
 
-**Governance during playoffs:** Active. This is where Pinwheel gets truly strange — the rules can change between playoff games. A governance window opens between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI mirror tracks every move.
+**Governance during playoffs:** Active. This is where Pinwheel gets truly strange — the rules can change between playoff games. A governance window opens between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI reporter tracks every move.
 
 ### Championship & End of Season
 
 When the finals conclude:
 
 1. **Champion crowned.** Final standings: champion, runner-up, semifinalists, non-qualifiers.
-2. **Season awards.** MVP, best defender, most improved, most chaotic — the mirror generates these with narrative context, not just stats.
-3. **Full-season mirror.** Opus 4.6 writes the definitive season narrative: how the rules evolved, which coalitions formed, what governance strategies worked, the arc from opening day to championship.
+2. **Season awards.** MVP, best defender, most improved, most chaotic — the reporter generates these with narrative context, not just stats.
+3. **Full-season report.** Opus 4.6 writes the definitive season narrative: how the rules evolved, which coalitions formed, what governance strategies worked, the arc from opening day to championship.
 4. **Stats compilation.** Complete statistical record for every agent, team, and governance action.
 
 ### Offseason Governance
@@ -300,10 +319,11 @@ The offseason governance window is longer than regular windows. It's the constit
 ```
 REGULAR SEASON (21 rounds × ~1 hour = ~21 hours)
 │
-├── Round 1:  4 games → governance window → mirrors
-├── Round 2:  4 games → governance window → mirrors
+├── Round 1:  4 games → reports
+├── Round 2:  4 games → reports
+├── Round 3:  4 games → governance tally → token regen → reports (tally round)
 ├── ...
-├── Round 21: 4 games → governance window → mirrors
+├── Round 21: 4 games → governance tally → reports (tally round)
 │
 ├── STANDINGS FINALIZED
 │   └── Tiebreakers if needed (extra governance round + tiebreaker game)
@@ -313,7 +333,7 @@ REGULAR SEASON (21 rounds × ~1 hour = ~21 hours)
 │   └── Finals: Best-of-7 (up to 7 games, governance between each)
 │
 ├── CHAMPIONSHIP
-│   └── Season mirrors, awards, narrative
+│   └── Season reports, awards, narrative
 │
 └── OFFSEASON GOVERNANCE
     └── Extended window: carry-forward vote, roster changes, next season params
@@ -325,16 +345,15 @@ Total season duration in production mode: ~25-30 hours of active play (21 rounds
 
 | Parameter | Dev/Staging | Production |
 |-----------|-------------|------------|
-| `PINWHEEL_GAME_CRON` | `*/2 * * * *` (every 2 min) | `0 * * * *` (hourly) |
-| `PINWHEEL_GOV_WINDOW` | 120 (2 min) | 1800 (30 min) |
-| Teams | 8 | 8 |
+| `PINWHEEL_PRESENTATION_PACE` | `fast` (1 min rounds) | `slow` (15 min rounds) |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | `3` (every 3 rounds) | `3` (every 3 rounds, governable) |
+| `PINWHEEL_PRESENTATION_MODE` | `instant` or `replay` | `replay` |
+| Teams | 4-8 | 8 |
 | Round-robins per season | 1 (7 rounds) | 3 (21 rounds) |
-| Games per round | 4 (every team plays once) | 4 (every team plays once) |
-| `governance_rounds_interval` | 1 (every round) | 1 (every round, governable) |
+| Games per round | 2-4 (every team plays once) | 4 (every team plays once) |
 | Playoffs | Best-of-1 semis, best-of-3 finals | Best-of-5 semis, best-of-7 finals |
-| Presentation pace | Fast (1-2 min per game) | Full (20-30 min per game) |
-| Mirror latency target | <5s | <15s (can batch) |
-| Token regen | Every window | Twice daily |
+| Report latency target | <5s | <15s (can batch) |
+| Token regen | Every tally round | Every tally round |
 | Full season duration | ~30 minutes | ~25-30 hours |
 
 Dev/staging mode runs a complete season (regular season → tiebreakers → playoffs → championship → offseason governance) in roughly 30 minutes. Good for testing the full arc, validating governance interactions, and producing video content for the hackathon.
@@ -342,12 +361,12 @@ Dev/staging mode runs a complete season (regular season → tiebreakers → play
 ## Error Handling
 
 - **Simulation failure:** If a game throws an exception, log it, skip that matchup, continue the block. Never let one bad game stop the league.
-- **AI call failure:** If mirror generation fails, log it and serve stale mirrors with a "mirror unavailable" indicator. The game continues without mirrors.
+- **AI call failure:** If report generation fails, log it and serve stale reports with a "report unavailable" indicator. The game continues without reports.
 - **SSE disconnect:** Clients that disconnect and reconnect get a catch-up payload of events since their last received event ID.
 - **Rule enactment failure:** If a passed proposal produces an invalid ruleset (should be caught by validation, but belt-and-suspenders), reject the enactment, log the error, notify players, and keep the previous ruleset.
 
-## Open Questions
+## Resolved Questions
 
-1. **Governance window timing:** Should windows be cron-scheduled too, or opened manually by an admin during the hackathon? Cron is more autonomous; manual gives more control during demos.
+1. ~~**Governance window timing:**~~ **Resolved (Session 37).** Governance is interval-based, not window-based. Tallying happens every Nth round (`PINWHEEL_GOVERNANCE_INTERVAL`, default 3). No separate governance clock.
 2. **Concurrent simulation blocks:** If a game clock fires while the previous block is still simulating, should we queue, skip, or run concurrently? Queue is safest.
-3. **Mirror priority:** If mirror generation is slow, should simulation mirrors take priority over private mirrors? Shared content serves more players.
+3. **Report priority:** If report generation is slow, should simulation reports take priority over private reports? Shared content serves more players.

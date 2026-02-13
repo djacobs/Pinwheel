@@ -18,8 +18,8 @@ from pinwheel.db.models import (
     GovernanceEventRow,
     HooperRow,
     LeagueRow,
-    MirrorRow,
     PlayerRow,
+    ReportRow,
     ScheduleRow,
     SeasonArchiveRow,
     SeasonRow,
@@ -221,7 +221,11 @@ class Repository:
         return result.scalar_one_or_none()
 
     async def get_games_for_round(
-        self, season_id: str, round_number: int, *, presented_only: bool = False,
+        self,
+        season_id: str,
+        round_number: int,
+        *,
+        presented_only: bool = False,
     ) -> list[GameResultRow]:
         stmt = (
             select(GameResultRow)
@@ -422,14 +426,16 @@ class Repository:
             if interp and isinstance(interp, dict):
                 parameter = interp.get("parameter")
 
-            proposal_list.append({
-                "id": pid,
-                "raw_text": p_data.get("raw_text", ""),
-                "status": status,
-                "parameter": parameter,
-                "round_number": evt.round_number,
-                "tier": p_data.get("tier", 1),
-            })
+            proposal_list.append(
+                {
+                    "id": pid,
+                    "raw_text": p_data.get("raw_text", ""),
+                    "status": status,
+                    "parameter": parameter,
+                    "round_number": evt.round_number,
+                    "tier": p_data.get("tier", 1),
+                }
+            )
 
         balance = await get_token_balance(self, governor_id, season_id)
 
@@ -485,7 +491,9 @@ class Repository:
         return list(result.scalars().all())
 
     async def get_full_schedule(
-        self, season_id: str, phase: str | None = None,
+        self,
+        season_id: str,
+        phase: str | None = None,
     ) -> list[ScheduleRow]:
         """Get all schedule entries for a season, optionally filtered by phase.
 
@@ -503,21 +511,21 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    # --- Mirrors ---
+    # --- Reports ---
 
-    async def store_mirror(
+    async def store_report(
         self,
         season_id: str,
-        mirror_type: str,
+        report_type: str,
         round_number: int,
         content: str,
         team_id: str = "",
         governor_id: str = "",
         metadata_json: dict | None = None,
-    ) -> MirrorRow:
-        row = MirrorRow(
+    ) -> ReportRow:
+        row = ReportRow(
             season_id=season_id,
-            mirror_type=mirror_type,
+            report_type=report_type,
             round_number=round_number,
             content=content,
             team_id=team_id,
@@ -528,52 +536,52 @@ class Repository:
         await self.session.flush()
         return row
 
-    async def get_mirrors_for_round(
+    async def get_reports_for_round(
         self,
         season_id: str,
         round_number: int,
-        mirror_type: str | None = None,
-    ) -> list[MirrorRow]:
-        stmt = select(MirrorRow).where(
-            MirrorRow.season_id == season_id,
-            MirrorRow.round_number == round_number,
+        report_type: str | None = None,
+    ) -> list[ReportRow]:
+        stmt = select(ReportRow).where(
+            ReportRow.season_id == season_id,
+            ReportRow.round_number == round_number,
         )
-        if mirror_type:
-            stmt = stmt.where(MirrorRow.mirror_type == mirror_type)
-        stmt = stmt.order_by(MirrorRow.created_at)
+        if report_type:
+            stmt = stmt.where(ReportRow.report_type == report_type)
+        stmt = stmt.order_by(ReportRow.created_at)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_private_mirrors(
+    async def get_private_reports(
         self,
         season_id: str,
         governor_id: str,
         round_number: int | None = None,
-    ) -> list[MirrorRow]:
-        """Get private mirrors for a specific governor."""
-        stmt = select(MirrorRow).where(
-            MirrorRow.season_id == season_id,
-            MirrorRow.governor_id == governor_id,
-            MirrorRow.mirror_type == "private",
+    ) -> list[ReportRow]:
+        """Get private reports for a specific governor."""
+        stmt = select(ReportRow).where(
+            ReportRow.season_id == season_id,
+            ReportRow.governor_id == governor_id,
+            ReportRow.report_type == "private",
         )
         if round_number is not None:
-            stmt = stmt.where(MirrorRow.round_number == round_number)
-        stmt = stmt.order_by(MirrorRow.created_at.desc())
+            stmt = stmt.where(ReportRow.round_number == round_number)
+        stmt = stmt.order_by(ReportRow.created_at.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_latest_mirror(
+    async def get_latest_report(
         self,
         season_id: str,
-        mirror_type: str,
-    ) -> MirrorRow | None:
+        report_type: str,
+    ) -> ReportRow | None:
         stmt = (
-            select(MirrorRow)
+            select(ReportRow)
             .where(
-                MirrorRow.season_id == season_id,
-                MirrorRow.mirror_type == mirror_type,
+                ReportRow.season_id == season_id,
+                ReportRow.report_type == report_type,
             )
-            .order_by(MirrorRow.created_at.desc())
+            .order_by(ReportRow.created_at.desc())
             .limit(1)
         )
         result = await self.session.execute(stmt)
@@ -634,9 +642,7 @@ class Repository:
 
     # --- Player Enrollment ---
 
-    async def enroll_player(
-        self, player_id: str, team_id: str, season_id: str
-    ) -> PlayerRow:
+    async def enroll_player(self, player_id: str, team_id: str, season_id: str) -> PlayerRow:
         """Set a player's team enrollment for a season.
 
         Raises ValueError if the player is already enrolled on a different
@@ -679,7 +685,9 @@ class Repository:
     swap_agent_team = swap_hooper_team
 
     async def get_governors_for_team(
-        self, team_id: str, season_id: str,
+        self,
+        team_id: str,
+        season_id: str,
     ) -> list[PlayerRow]:
         """Return all enrolled governors on a team for a given season."""
         stmt = select(PlayerRow).where(
@@ -787,7 +795,7 @@ class Repository:
         eval_subtype: str = "",
         details_json: dict | None = None,
     ) -> EvalResultRow:
-        """Store an eval result. Never stores private mirror content."""
+        """Store an eval result. Never stores private report content."""
         row = EvalResultRow(
             season_id=season_id,
             round_number=round_number,
@@ -879,9 +887,6 @@ class Repository:
 
     async def get_all_archives(self) -> list[SeasonArchiveRow]:
         """List all archived seasons, newest first."""
-        stmt = (
-            select(SeasonArchiveRow)
-            .order_by(SeasonArchiveRow.created_at.desc())
-        )
+        stmt = select(SeasonArchiveRow).order_by(SeasonArchiveRow.created_at.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

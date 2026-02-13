@@ -61,15 +61,15 @@
 
 ---
 
-## Day 3: The Mirrors + Game Loop
+## Day 3: The Reports + Game Loop
 
 **Goal:** AI reflections are live. Games auto-run on schedule. The system feels alive.
 
 ### Morning
-- [ ] Simulation mirror: after each game batch, Opus 4.6 analyzes results in context of recent rule changes
-- [ ] Governance mirror: after each governance window, Opus 4.6 analyzes voting patterns, coalitions, power dynamics
-- [ ] Private mirror: per-player reflections on their governance behavior, trading patterns, and how others respond to them
-- [ ] Mirror models and storage
+- [ ] Simulation report: after each game batch, Opus 4.6 analyzes results in context of recent rule changes
+- [ ] Governance report: after each governance window, Opus 4.6 analyzes voting patterns, coalitions, power dynamics
+- [ ] Private report: per-player reflections on their governance behavior, trading patterns, and how others respond to them
+- [ ] Report models and storage
 
 ### Afternoon
 - [ ] Game loop scheduler: auto-run simulation rounds at configurable intervals
@@ -80,18 +80,18 @@
 - [ ] WebSocket or SSE endpoint for real-time game result streaming
 
 ### Evening
-- [ ] Tests for mirror generation: verify reflections reference actual game/governance data
+- [ ] Tests for report generation: verify reflections reference actual game/governance data
 - [ ] Tests for scheduler: correct timing, proper rule application between windows
-- [ ] End-to-end test: start system, auto-run games, open governance window, pass rule, see mirrors update
+- [ ] End-to-end test: start system, auto-run games, open governance window, pass rule, see reports update
 - [ ] Run the system for 30 minutes and observe
 
-**Day 3 deliverable:** The system runs autonomously. Games simulate, mirrors reflect, governance windows open and close. It breathes.
+**Day 3 deliverable:** The system runs autonomously. Games simulate, reports reflect, governance windows open and close. It breathes.
 
 ---
 
 ## Day 4: The Player Experience
 
-**Goal:** A frontend that makes governance feel tactile and mirrors feel personal.
+**Goal:** A frontend that makes governance feel tactile and reports feel personal.
 
 ### Morning
 - [ ] Dashboard: league standings, recent results, box score viewer
@@ -105,12 +105,12 @@
 - [ ] Amendment flow: modify active proposals
 
 ### Evening
-- [ ] Private mirror panel: per-player reflections, behavioral patterns, history
-- [ ] Governance mirror display in the shared feed
+- [ ] Private report panel: per-player reflections, behavioral patterns, history
+- [ ] Governance report display in the shared feed
 - [ ] Team channel / discussion space (can be simple chat or text feed)
 - [ ] Polish: loading states, error handling, responsive layout
 
-**Day 4 deliverable:** A player can open their browser and play Pinwheel. See games, read mirrors, propose rules, vote, trade tokens.
+**Day 4 deliverable:** A player can open their browser and play Pinwheel. See games, read reports, propose rules, vote, trade tokens.
 
 ---
 
@@ -126,12 +126,12 @@
 ### Afternoon
 - [ ] Demo script: a 10-minute walkthrough that shows the full loop
   - Show a game in progress
-  - Show AI simulation mirror observation
+  - Show AI simulation report observation
   - Propose a rule change, show AI interpretation
   - Vote, pass the rule
   - Show games under new rules
-  - Show governance mirror noting the pattern
-  - Show a private mirror reflection
+  - Show governance report noting the pattern
+  - Show a private report reflection
 - [ ] README for open source release
 - [ ] Clean up code, ensure all tests pass, remove debug artifacts
 
@@ -153,7 +153,7 @@
 | Risk | Mitigation |
 |------|------------|
 | Simulation engine too slow for tight loop | Profile early Day 1. numpy/vectorized math. Can always reduce games-per-round. |
-| Opus 4.6 latency delays mirrors | Async calls, cache aggressively, generate mirrors in background not on-demand. |
+| Opus 4.6 latency delays reports | Async calls, cache aggressively, generate reports in background not on-demand. |
 | Prompt injection in proposals | Sandboxed interpretation pipeline. Rule space validation. Day 2 priority. |
 | Not enough real players for demo | Can simulate governance with scripted "bot governors" that propose/vote with different personalities. |
 | Frontend takes too long | Day 4 scope can shrink to a functional but minimal UI. The backend is the star. |
@@ -164,7 +164,7 @@
 The project succeeds if a judge watches the demo and:
 1. Understands the thesis (AI amplifies governance, doesn't replace it) within 60 seconds
 2. Sees a full governance cycle play out with real consequences
-3. Reads a private mirror reflection and thinks "I'd want to know that about myself"
+3. Reads a private report reflection and thinks "I'd want to know that about myself"
 4. Leaves wanting to play
 
 ## Post-Demo Steps

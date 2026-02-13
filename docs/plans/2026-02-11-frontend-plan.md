@@ -14,7 +14,7 @@ HTMX + SSE + Jinja2 templates. No JS build step. The aesthetic is retro, bold, c
 
 - **Jinja2** for server-side rendering (FastAPI native support)
 - **HTMX** for dynamic updates without full page reloads
-- **SSE** (via HTMX `hx-ext="sse"`) for real-time game/governance/mirror updates
+- **SSE** (via HTMX `hx-ext="sse"`) for real-time game/governance/report updates
 - **CSS** — hand-written, no framework. Full aesthetic control required.
 - **No JavaScript build step.** HTMX and any small utility scripts served as static files.
 
@@ -33,7 +33,7 @@ templates/
 │   ├── proposal_card.html    # Governance proposal with interpretation
 │   ├── vote_widget.html      # Vote yes/no/boost controls
 │   ├── token_balance.html    # Token balance display
-│   ├── mirror_card.html      # Mirror reflection display
+│   ├── report_card.html      # Report reflection display
 │   ├── standings_table.html  # League standings table
 │   └── rule_change.html      # Rule change diff display
 ├── pages/
@@ -44,7 +44,7 @@ templates/
 │   ├── agent.html            # Agent profile page
 │   ├── governance.html       # Active proposals, voting, history
 │   ├── rules.html            # Current ruleset + change timeline
-│   ├── mirrors.html          # Mirror archive
+│   ├── reports.html          # Report archive
 │   ├── season.html           # Season history / narrative
 │   └── login.html            # Discord OAuth login
 ├── admin/
@@ -119,7 +119,7 @@ Navigation between pages uses HTMX to swap the main content area without full pa
   <a hx-get="/arena" hx-target="#main" hx-push-url="true">Arena</a>
   <a hx-get="/standings" hx-target="#main" hx-push-url="true">Standings</a>
   <a hx-get="/governance" hx-target="#main" hx-push-url="true">Governance</a>
-  <a hx-get="/mirrors" hx-target="#main" hx-push-url="true">Mirrors</a>
+  <a hx-get="/reports" hx-target="#main" hx-push-url="true">Reports</a>
 </nav>
 <main id="main">
   {% block content %}{% endblock %}
@@ -202,7 +202,7 @@ This means the server renders HTML and the client just inserts it. Zero client-s
   --accent-score: #f0c040;       /* Gold for scores */
   --accent-highlight: #e94560;   /* Hot pink for highlights/alerts */
   --accent-governance: #53d8fb;  /* Cyan for governance elements */
-  --accent-mirror: #b794f4;      /* Purple for mirrors/AI */
+  --accent-report: #b794f4;      /* Purple for reports/AI */
   --accent-success: #48bb78;     /* Green for passed proposals */
   --accent-danger: #fc5c65;      /* Red for failed/ejections */
 
@@ -221,7 +221,7 @@ This means the server renders HTML and the client just inserts it. Zero client-s
 │ ▸ Nakamura from 25 feet...  │  ← Play-by-play, monospace
 │   BANG! 🔥                   │  ← Highlight styling
 │──────────────────────────────│
-│ 🎙️ "She had no business     │  ← Commentary, italic, --accent-mirror
+│ 🎙️ "She had no business     │  ← Commentary, italic, --accent-report
 │    taking that shot."        │
 └─────────────────────────────┘
 ```
@@ -269,7 +269,7 @@ async def arena_page(request: Request):
 
 ## Discord OAuth
 
-For personalized dashboard (private mirrors, team highlighting):
+For personalized dashboard (private reports, team highlighting):
 
 ```python
 # api/auth.py
@@ -292,7 +292,7 @@ async def discord_callback(code: str):
     ...
 ```
 
-Logged-in governors see: their team highlighted in standings, their private mirror on the dashboard, their governance history, and the proposal submission form.
+Logged-in governors see: their team highlighted in standings, their private report on the dashboard, their governance history, and the proposal submission form.
 
 ## Implementation Priority
 
@@ -302,7 +302,7 @@ Logged-in governors see: their team highlighted in standings, their private mirr
 4. **Single game page** — Full play-by-play, box score, commentary, rule context.
 5. **Governance page** — Active proposals, voting (if logged in), history.
 6. **Team/agent pages** — Roster, stats, venue info.
-7. **Mirrors page** — Mirror archive with type filtering.
+7. **Reports page** — Report archive with type filtering.
 8. **Rules page** — Current ruleset with change timeline.
 9. **Discord OAuth** — Login, session, personalization.
 10. **Admin dashboard** — Performance metrics (INSTRUMENTATION.md).
@@ -314,7 +314,7 @@ Logged-in governors see: their team highlighted in standings, their private mirr
 - [ ] Standings page updates without full page reload
 - [ ] Governance page shows proposals with AI interpretations
 - [ ] Logged-in governors can submit proposals and vote from the web
-- [ ] Private mirrors visible only to authenticated governor
+- [ ] Private reports visible only to authenticated governor
 - [ ] CSS achieves retro sports broadcast aesthetic (dark, bold, community-focused)
 - [ ] Works without JavaScript beyond HTMX (progressive enhancement)
 - [ ] Pages load in < 200ms server-side render time

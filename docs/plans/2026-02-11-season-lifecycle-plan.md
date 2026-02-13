@@ -42,7 +42,7 @@ class SeasonPhase(str, Enum):
                               │ Round N:          │  governance   │
                               │  simulate 4 games │  window       │
                               │  present results  │  (if interval │
-                              │  mirrors          │   allows)     │
+                              │  reports          │   allows)     │
                               │                   ├───────────────┘
                               │ N < 21 → next round
                               │ N == 21 → check ties
@@ -67,7 +67,7 @@ class SeasonPhase(str, Enum):
           │ Extra governance │               │
           │ round            │               │
           │ Tiebreaker game  │               │
-          │ Mirror           │               │
+          │ Report           │               │
           │                  │               │
           │ Resolved → check │               │
           │ again (3+ teams  │               │
@@ -82,18 +82,18 @@ class SeasonPhase(str, Enum):
           │ Semifinal 1: #1 vs #4 (best-of-5)│
           │ Semifinal 2: #2 vs #3 (best-of-5)│
           │   governance window between games │
-          │   series mirror after series ends │
+          │   series report after series ends │
           │                                   │
           │ Finals: winners (best-of-7)       │
           │   governance window between games │
-          │   series mirror after series ends │
+          │   series report after series ends │
           └──────────┬────────────────────────┘
                      │
                      ▼
           ┌──────────────────┐
           │ CHAMPIONSHIP     │
           │                  │
-          │ Season mirror    │
+          │ Season report    │
           │ Awards           │
           │ Stats compilation│
           │ Narrative        │
@@ -108,7 +108,7 @@ class SeasonPhase(str, Enum):
           │ Carry-forward    │
           │ vote             │
           │ Roster changes   │
-          │ Offseason mirror │
+          │ Offseason report │
           └──────────┬───────┘
                      │
                      ▼
@@ -148,14 +148,14 @@ async def run_round(season, round_number):
     # 2. Present (runs in background, 20-30 min)
     start_presentation(results)
 
-    # 3. Simulation mirror
-    generate_simulation_mirror(results)
+    # 3. Simulation report
+    generate_simulation_report(results)
 
     # 4. Governance (if interval allows)
     if round_number % season.config.governance_rounds_interval == 0:
         open_governance_window(season, round_number)
         # Window stays open for PINWHEEL_GOV_WINDOW seconds
-        # On close: resolve votes, enact rules, governance mirror, private mirrors
+        # On close: resolve votes, enact rules, governance report, private reports
 
     # 5. Advance
     if round_number < 21:
@@ -213,8 +213,8 @@ async def run_tiebreaker(season, tied_teams):
         # Mini round-robin among tied teams
         results = simulate_tiebreaker_round_robin(tied_teams, rules)
 
-    # 3. Tiebreaker mirror
-    generate_tiebreaker_mirror(results)
+    # 3. Tiebreaker report
+    generate_tiebreaker_report(results)
 
     # 4. Re-check — might need more tiebreakers
     new_standings = recompute_with_tiebreakers(season)
@@ -262,7 +262,7 @@ async def run_playoff_game(series: PlayoffSeries, game_number: int):
     if series.higher_seed_wins >= wins_needed or series.lower_seed_wins >= wins_needed:
         series.status = "complete"
         series.winner = ...
-        generate_series_mirror(series)
+        generate_series_report(series)
         publish("season.series", series)
     else:
         # Governance window before next game
@@ -315,12 +315,12 @@ def determine_home_court(series: PlayoffSeries, game_number: int) -> Team:
 
 ```python
 async def run_championship(season, finals_winner, finals_loser):
-    # 1. Season mirror (comprehensive narrative)
-    season_mirror = await generate_season_mirror(season)
+    # 1. Season report (comprehensive narrative)
+    season_report = await generate_season_report(season)
 
     # 2. Awards
     awards = compute_awards(season)  # MVP, best defender, most chaotic, etc.
-    awards_mirror = await generate_awards_mirror(awards, season)
+    awards_report = await generate_awards_report(awards, season)
 
     # 3. Stats compilation
     compile_season_stats(season)
@@ -346,8 +346,8 @@ async def run_offseason(season):
     # Window closes, votes resolve
     await close_governance_window()
 
-    # Offseason mirror
-    generate_offseason_mirror(season)
+    # Offseason report
+    generate_offseason_report(season)
 
     # Apply carry-forward decision
     if carry_forward_passed:
@@ -375,7 +375,7 @@ For the 5-day hackathon, the minimum viable season lifecycle:
 **Nice to have:**
 - TIEBREAKER_CHECK and TIEBREAKERS
 - Full playoff series with governance between games
-- CHAMPIONSHIP (season mirror, awards)
+- CHAMPIONSHIP (season report, awards)
 - OFFSEASON
 
 **Post-hackathon:**
@@ -412,7 +412,7 @@ core/
 ## Acceptance Criteria
 
 - [ ] Season progresses through phases correctly
-- [ ] Round cycle: simulate → present → mirror → governance → next round
+- [ ] Round cycle: simulate → present → report → governance → next round
 - [ ] Standings computed correctly after each round
 - [ ] Tiebreaker detection at playoff cutoff
 - [ ] Playoff bracket seeded from standings

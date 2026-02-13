@@ -4,29 +4,29 @@ import pytest
 from pydantic import ValidationError
 
 from pinwheel.evals.models import RubricScore
-from pinwheel.evals.rubric import export_rubric_csv, get_rubric_summary, score_average, score_mirror
+from pinwheel.evals.rubric import export_rubric_csv, get_rubric_summary, score_average, score_report
 
 
 def test_rubric_rejects_private():
-    """RubricScore must reject mirror_type='private' at the Pydantic level."""
+    """RubricScore must reject report_type='private' at the Pydantic level."""
     with pytest.raises(ValidationError):
-        RubricScore(mirror_id="m-1", mirror_type="private")
+        RubricScore(report_id="m-1", report_type="private")
 
 
 def test_rubric_accepts_simulation():
-    score = RubricScore(mirror_id="m-1", mirror_type="simulation")
-    assert score.mirror_type == "simulation"
+    score = RubricScore(report_id="m-1", report_type="simulation")
+    assert score.report_type == "simulation"
 
 
 def test_rubric_accepts_governance():
-    score = RubricScore(mirror_id="m-2", mirror_type="governance")
-    assert score.mirror_type == "governance"
+    score = RubricScore(report_id="m-2", report_type="governance")
+    assert score.report_type == "governance"
 
 
 def test_score_average():
     score = RubricScore(
-        mirror_id="m-1",
-        mirror_type="simulation",
+        report_id="m-1",
+        report_type="simulation",
         accuracy=5,
         insight=4,
         tone=3,
@@ -38,26 +38,26 @@ def test_score_average():
 
 
 def test_score_average_default():
-    score = RubricScore(mirror_id="m-1", mirror_type="simulation")
+    score = RubricScore(report_id="m-1", report_type="simulation")
     avg = score_average(score)
     assert avg == 3.0
 
 
 @pytest.mark.asyncio
-async def test_score_mirror(repo):
+async def test_score_report(repo):
     league = await repo.create_league("Test")
     season = await repo.create_season(league.id, "S1")
 
     rubric = RubricScore(
-        mirror_id="m-1",
-        mirror_type="simulation",
+        report_id="m-1",
+        report_type="simulation",
         accuracy=5,
         insight=4,
         tone=4,
         conciseness=3,
         non_prescriptive=5,
     )
-    avg = await score_mirror(repo, season.id, 1, rubric)
+    avg = await score_report(repo, season.id, 1, rubric)
     assert avg == pytest.approx(4.2)
 
     # Verify stored
@@ -79,8 +79,8 @@ async def test_rubric_summary_empty(repo):
 def test_export_csv():
     data = [
         {
-            "mirror_id": "m-1",
-            "mirror_type": "simulation",
+            "report_id": "m-1",
+            "report_type": "simulation",
             "scorer_id": "s-1",
             "accuracy": 4,
             "insight": 3,
@@ -91,5 +91,5 @@ def test_export_csv():
         }
     ]
     csv_str = export_rubric_csv(data)
-    assert "mirror_id" in csv_str
+    assert "report_id" in csv_str
     assert "m-1" in csv_str

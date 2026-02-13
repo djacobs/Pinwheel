@@ -1,6 +1,6 @@
 """Prescriptive language detector (S.2c).
 
-Scans mirror content for directive phrases ("should", "must", "needs to", etc.).
+Scans report content for directive phrases ("should", "must", "needs to", etc.).
 Returns count only — never the matched text. Privacy: the count is the signal.
 """
 
@@ -10,8 +10,8 @@ import re
 
 from pinwheel.evals.models import PrescriptiveResult
 
-# Patterns that indicate prescriptive (directive) language in mirrors.
-# Mirrors should DESCRIBE, never PRESCRIBE.
+# Patterns that indicate prescriptive (directive) language in reports.
+# Reports should DESCRIBE, never PRESCRIBE.
 PRESCRIPTIVE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bshould\b", re.IGNORECASE),
     re.compile(r"\bmust\b", re.IGNORECASE),
@@ -28,15 +28,15 @@ PRESCRIPTIVE_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def scan_prescriptive(content: str, mirror_id: str, mirror_type: str) -> PrescriptiveResult:
-    """Scan mirror content for prescriptive language. Returns count, never matched text."""
+def scan_prescriptive(content: str, report_id: str, report_type: str) -> PrescriptiveResult:
+    """Scan report content for prescriptive language. Returns count, never matched text."""
     count = 0
     for pattern in PRESCRIPTIVE_PATTERNS:
         count += len(pattern.findall(content))
 
     return PrescriptiveResult(
-        mirror_id=mirror_id,
-        mirror_type=mirror_type,
+        report_id=report_id,
+        report_type=report_type,
         prescriptive_count=count,
         flagged=count > 0,
     )

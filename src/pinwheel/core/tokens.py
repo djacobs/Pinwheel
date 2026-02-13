@@ -88,9 +88,7 @@ async def regenerate_tokens(
         )
 
 
-async def has_token(
-    repo: Repository, governor_id: str, season_id: str, token_type: str
-) -> bool:
+async def has_token(repo: Repository, governor_id: str, season_id: str, token_type: str) -> bool:
     """Check if governor has at least 1 token of the given type."""
     balance = await get_token_balance(repo, governor_id, season_id)
     return getattr(balance, token_type, 0) > 0

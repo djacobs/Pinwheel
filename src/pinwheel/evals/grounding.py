@@ -1,7 +1,7 @@
 """Grounding check (S.2b) — entity reference validation.
 
 Builds a GroundingContext from known entities (team names, agent names, rule params),
-then checks whether mirror content references them. Returns pass/fail + counts.
+then checks whether report content references them. Returns pass/fail + counts.
 Content is never stored in the result.
 """
 
@@ -15,7 +15,7 @@ from pinwheel.evals.models import GroundingResult
 
 @dataclass
 class GroundingContext:
-    """Known entities that mirrors should reference."""
+    """Known entities that reports should reference."""
 
     team_names: list[str] = field(default_factory=list)
     agent_names: list[str] = field(default_factory=list)
@@ -45,15 +45,15 @@ def build_grounding_context(
 def check_grounding(
     content: str,
     context: GroundingContext,
-    mirror_id: str,
-    mirror_type: str,
+    report_id: str,
+    report_type: str,
 ) -> GroundingResult:
-    """Check how many known entities a mirror references. Content never stored."""
+    """Check how many known entities a report references. Content never stored."""
     entities = context.all_entities
     if not entities:
         return GroundingResult(
-            mirror_id=mirror_id,
-            mirror_type=mirror_type,
+            report_id=report_id,
+            report_type=report_type,
             entities_expected=0,
             entities_found=0,
             grounded=True,
@@ -68,8 +68,8 @@ def check_grounding(
             found += 1
 
     return GroundingResult(
-        mirror_id=mirror_id,
-        mirror_type=mirror_type,
+        report_id=report_id,
+        report_type=report_type,
         entities_expected=len(entities),
         entities_found=found,
         grounded=found > 0,

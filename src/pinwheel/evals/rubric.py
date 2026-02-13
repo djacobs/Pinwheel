@@ -1,6 +1,6 @@
-"""Manual rubric scoring (S.1) — for PUBLIC mirrors only.
+"""Manual rubric scoring (S.1) — for PUBLIC reports only.
 
-RubricScore.mirror_type is Literal["simulation", "governance"] — Pydantic
+RubricScore.report_type is Literal["simulation", "governance"] — Pydantic
 rejects "private" at the type level, enforcing the privacy boundary.
 """
 
@@ -25,23 +25,23 @@ def score_average(rubric: RubricScore) -> float:
     return sum(values) / len(values)
 
 
-async def score_mirror(
+async def score_report(
     repo: Repository,
     season_id: str,
     round_number: int,
     rubric: RubricScore,
 ) -> float:
-    """Score a public mirror and store the result. Returns average score."""
+    """Score a public report and store the result. Returns average score."""
     avg = score_average(rubric)
     await repo.store_eval_result(
         season_id=season_id,
         round_number=round_number,
         eval_type="rubric",
-        eval_subtype=rubric.mirror_type,
+        eval_subtype=rubric.report_type,
         score=avg,
         details_json={
-            "mirror_id": rubric.mirror_id,
-            "mirror_type": rubric.mirror_type,
+            "report_id": rubric.report_id,
+            "report_type": rubric.report_type,
             "scorer_id": rubric.scorer_id,
             "accuracy": rubric.accuracy,
             "insight": rubric.insight,
@@ -89,7 +89,7 @@ def export_rubric_csv(results: list[dict]) -> str:
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["mirror_id", "mirror_type", "scorer_id"] + DIMENSIONS + ["average"],
+        fieldnames=["report_id", "report_type", "scorer_id"] + DIMENSIONS + ["average"],
     )
     writer.writeheader()
     for r in results:

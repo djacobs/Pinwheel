@@ -27,7 +27,7 @@ READ PATH:
   Vote tally = COUNT(vote events) for proposal_id
 ```
 
-Game results, teams, agents, and mirrors are stored directly — they're already immutable outputs (games are pure function results, mirrors are point-in-time snapshots).
+Game results, teams, agents, and reports are stored directly — they're already immutable outputs (games are pure function results, reports are point-in-time snapshots).
 
 ## Schema
 
@@ -170,16 +170,16 @@ CREATE INDEX idx_box_scores_game ON box_scores(game_id);
 CREATE INDEX idx_box_scores_agent ON box_scores(agent_id);
 ```
 
-### Mirrors (stored directly)
+### Reports (stored directly)
 
 ```sql
-CREATE TABLE mirrors (
+CREATE TABLE reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     season_id UUID NOT NULL REFERENCES seasons(id),
     round_number INTEGER,
-    mirror_type VARCHAR(30) NOT NULL,  -- simulation, governance, private, series, season, league, tiebreaker, offseason
-    team_id UUID REFERENCES teams(id),  -- NULL for shared mirrors
-    governor_id UUID REFERENCES governors(id),  -- only for private mirrors
+    report_type VARCHAR(30) NOT NULL,  -- simulation, governance, private, series, season, league, tiebreaker, offseason
+    team_id UUID REFERENCES teams(id),  -- NULL for shared reports
+    governor_id UUID REFERENCES governors(id),  -- only for private reports
     content TEXT NOT NULL,
     context_snapshot JSONB,  -- what data the AI was given
     token_count_input INTEGER,
@@ -187,8 +187,8 @@ CREATE TABLE mirrors (
     latency_ms INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_mirrors_season_type ON mirrors(season_id, mirror_type);
-CREATE INDEX idx_mirrors_governor ON mirrors(governor_id);
+CREATE INDEX idx_reports_season_type ON reports(season_id, report_type);
+CREATE INDEX idx_reports_governor ON reports(governor_id);
 ```
 
 ### Commentary (cached with games)
@@ -277,12 +277,12 @@ class Repository:
     async def get_standings(self, season_id: UUID) -> Standings: ...
     async def get_team(self, team_id: UUID) -> Team: ...
     async def get_agent(self, agent_id: UUID) -> Agent: ...
-    async def get_mirror(self, mirror_id: UUID) -> Mirror: ...
+    async def get_report(self, report_id: UUID) -> Report: ...
 
     # Writes
     async def append_event(self, event: GovernanceEvent) -> GovernanceEvent: ...
     async def store_game_result(self, result: GameResult) -> GameResult: ...
-    async def store_mirror(self, mirror: Mirror) -> Mirror: ...
+    async def store_report(self, report: Report) -> Report: ...
 ```
 
 ## Performance Considerations
@@ -290,7 +290,7 @@ class Repository:
 - **Current ruleset** is cached on the `seasons.current_ruleset` column, updated on each `rule.enacted` event. Avoids replaying the full event log on every API request.
 - **Token balances** could be similarly cached in a `token_balances` materialized table, updated on token events. For hackathon scale (< 50 governors), computing from events is fast enough.
 - **Game results batch insert** — a round produces 4 games + 12-16 box scores. Use `insert_many` in a single transaction.
-- **Event log indexing** — the compound index on `(aggregate_type, aggregate_id)` handles most queries. Season+round index for mirror generation context.
+- **Event log indexing** — the compound index on `(aggregate_type, aggregate_id)` handles most queries. Season+round index for report generation context.
 
 ## SQLAlchemy Model Structure
 
@@ -327,7 +327,7 @@ For local dev, SQLite differences:
 - [ ] All tables created via Alembic migration
 - [ ] Repository can append governance events and read projections
 - [ ] Repository can store and retrieve game results with box scores
-- [ ] Repository can store and retrieve mirrors
+- [ ] Repository can store and retrieve reports
 - [ ] SQLite works for local dev, Postgres for production
 - [ ] Event log is truly append-only (no UPDATE/DELETE in repository)
 - [ ] Current ruleset cache updated on rule.enacted events

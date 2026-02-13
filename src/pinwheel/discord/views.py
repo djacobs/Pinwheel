@@ -57,7 +57,8 @@ class ProposalConfirmView(discord.ui.View):
         self.settings = settings
 
     async def _check_user(
-        self, interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
     ) -> bool:
         if interaction.user.id != self.original_user_id:
             await interaction.response.send_message(
@@ -73,7 +74,9 @@ class ProposalConfirmView(discord.ui.View):
                 item.disabled = True
 
     @discord.ui.button(
-        label="Confirm", style=discord.ButtonStyle.green, emoji="\u2705",
+        label="Confirm",
+        style=discord.ButtonStyle.green,
+        emoji="\u2705",
     )
     async def confirm(
         self,
@@ -130,12 +133,15 @@ class ProposalConfirmView(discord.ui.View):
                 )
                 embed.set_footer(text="Pinwheel Fates")
                 await interaction.response.edit_message(
-                    embed=embed, view=self,
+                    embed=embed,
+                    view=self,
                 )
 
                 # Notify admin via DM
                 await _notify_admin_for_review(
-                    interaction, proposal, self.settings,
+                    interaction,
+                    proposal,
+                    self.settings,
                     governor_name=interaction.user.display_name,
                 )
                 return
@@ -143,15 +149,14 @@ class ProposalConfirmView(discord.ui.View):
             embed = discord.Embed(
                 title="Proposal Submitted",
                 description=(
-                    f'"{self.raw_text}"\n\n'
-                    "Your proposal is now on the Floor "
-                    "and open for voting."
+                    f'"{self.raw_text}"\n\nYour proposal is now on the Floor and open for voting.'
                 ),
                 color=0x2ECC71,
             )
             embed.set_footer(text="Pinwheel Fates")
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
 
             # Post public announcement to the channel
@@ -163,18 +168,9 @@ class ProposalConfirmView(discord.ui.View):
             threshold = vote_threshold_for_tier(self.tier)
             announcement = build_proposal_announcement_embed(
                 proposal_text=self.raw_text,
-                parameter=(
-                    self.interpretation.parameter
-                    if self.interpretation else None
-                ),
-                old_value=(
-                    self.interpretation.old_value
-                    if self.interpretation else None
-                ),
-                new_value=(
-                    self.interpretation.new_value
-                    if self.interpretation else None
-                ),
+                parameter=(self.interpretation.parameter if self.interpretation else None),
+                old_value=(self.interpretation.old_value if self.interpretation else None),
+                new_value=(self.interpretation.new_value if self.interpretation else None),
                 tier=self.tier,
                 threshold=threshold,
             )
@@ -182,7 +178,8 @@ class ProposalConfirmView(discord.ui.View):
                 import contextlib
 
                 with contextlib.suppress(
-                    discord.Forbidden, discord.HTTPException,
+                    discord.Forbidden,
+                    discord.HTTPException,
                 ):
                     await interaction.channel.send(embed=announcement)
         except Exception:
@@ -208,7 +205,9 @@ class ProposalConfirmView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(
-        label="Cancel", style=discord.ButtonStyle.red, emoji="\u274c",
+        label="Cancel",
+        style=discord.ButtonStyle.red,
+        emoji="\u274c",
     )
     async def cancel(
         self,
@@ -225,7 +224,8 @@ class ProposalConfirmView(discord.ui.View):
         )
         embed.set_footer(text="Pinwheel Fates")
         await interaction.response.edit_message(
-            embed=embed, view=self,
+            embed=embed,
+            view=self,
         )
 
 
@@ -244,12 +244,14 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
         self.parent_view = parent_view
 
     async def on_submit(
-        self, interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
     ) -> None:
         new_text = self.revised_text.value
         if not new_text or not new_text.strip():
             await interaction.response.send_message(
-                "Proposal text cannot be empty.", ephemeral=True,
+                "Proposal text cannot be empty.",
+                ephemeral=True,
             )
             return
 
@@ -280,10 +282,7 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 )
 
                 classification = await classify_injection(new_text, api_key)
-                if (
-                    classification.classification == "injection"
-                    and classification.confidence > 0.8
-                ):
+                if classification.classification == "injection" and classification.confidence > 0.8:
                     interpretation = RI(
                         confidence=0.0,
                         injection_flagged=True,
@@ -292,7 +291,9 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                     )
                 else:
                     interpretation = await interpret_proposal(
-                        new_text, ruleset, api_key,
+                        new_text,
+                        ruleset,
+                        api_key,
                     )
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
@@ -301,7 +302,8 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                         )
             else:
                 interpretation = interpret_proposal_mock(
-                    new_text, ruleset,
+                    new_text,
+                    ruleset,
                 )
 
             tier = detect_tier(interpretation, ruleset)
@@ -322,7 +324,8 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 governor_name=interaction.user.display_name,
             )
             await interaction.response.edit_message(
-                embed=embed, view=self.parent_view,
+                embed=embed,
+                view=self.parent_view,
             )
         except Exception:
             logger.exception("proposal_revise_failed")
@@ -354,7 +357,9 @@ class TradeOfferView(discord.ui.View):
         self.engine = engine
 
     @discord.ui.button(
-        label="Accept", style=discord.ButtonStyle.green, emoji="\u2705",
+        label="Accept",
+        style=discord.ButtonStyle.green,
+        emoji="\u2705",
     )
     async def accept(
         self,
@@ -363,7 +368,8 @@ class TradeOfferView(discord.ui.View):
     ) -> None:
         if interaction.user.id != self.target_user_id:
             await interaction.response.send_message(
-                "Only the recipient can accept.", ephemeral=True,
+                "Only the recipient can accept.",
+                ephemeral=True,
             )
             return
 
@@ -375,7 +381,9 @@ class TradeOfferView(discord.ui.View):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 await accept_trade(
-                    repo, self.trade, self.season_id,
+                    repo,
+                    self.trade,
+                    self.season_id,
                 )
                 await session.commit()
 
@@ -384,12 +392,15 @@ class TradeOfferView(discord.ui.View):
                     item.disabled = True
 
             embed = build_trade_offer_embed(
-                self.trade, self.from_name, self.to_name,
+                self.trade,
+                self.from_name,
+                self.to_name,
             )
             embed.title = "Trade Accepted"
             embed.color = 0x2ECC71
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
         except Exception:
             logger.exception("trade_accept_failed")
@@ -399,7 +410,9 @@ class TradeOfferView(discord.ui.View):
             )
 
     @discord.ui.button(
-        label="Reject", style=discord.ButtonStyle.red, emoji="\u274c",
+        label="Reject",
+        style=discord.ButtonStyle.red,
+        emoji="\u274c",
     )
     async def reject(
         self,
@@ -408,7 +421,8 @@ class TradeOfferView(discord.ui.View):
     ) -> None:
         if interaction.user.id != self.target_user_id:
             await interaction.response.send_message(
-                "Only the recipient can reject.", ephemeral=True,
+                "Only the recipient can reject.",
+                ephemeral=True,
             )
             return
 
@@ -433,12 +447,15 @@ class TradeOfferView(discord.ui.View):
                     item.disabled = True
 
             embed = build_trade_offer_embed(
-                self.trade, self.from_name, self.to_name,
+                self.trade,
+                self.from_name,
+                self.to_name,
             )
             embed.title = "Trade Rejected"
             embed.color = 0xE74C3C
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
         except Exception:
             logger.exception("trade_reject_failed")
@@ -468,7 +485,9 @@ class StrategyConfirmView(discord.ui.View):
         self.engine = engine
 
     @discord.ui.button(
-        label="Confirm", style=discord.ButtonStyle.green, emoji="\u2705",
+        label="Confirm",
+        style=discord.ButtonStyle.green,
+        emoji="\u2705",
     )
     async def confirm(
         self,
@@ -507,12 +526,14 @@ class StrategyConfirmView(discord.ui.View):
                     item.disabled = True
 
             embed = build_strategy_embed(
-                self.raw_text, self.team_name,
+                self.raw_text,
+                self.team_name,
             )
             embed.title = f"Strategy Active -- {self.team_name}"
             embed.color = 0x2ECC71
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
         except Exception:
             logger.exception("strategy_confirm_failed")
@@ -522,7 +543,9 @@ class StrategyConfirmView(discord.ui.View):
             )
 
     @discord.ui.button(
-        label="Cancel", style=discord.ButtonStyle.red, emoji="\u274c",
+        label="Cancel",
+        style=discord.ButtonStyle.red,
+        emoji="\u274c",
     )
     async def cancel(
         self,
@@ -547,7 +570,8 @@ class StrategyConfirmView(discord.ui.View):
         )
         embed.set_footer(text="Pinwheel Fates")
         await interaction.response.edit_message(
-            embed=embed, view=self,
+            embed=embed,
+            view=self,
         )
 
 
@@ -580,7 +604,8 @@ class HooperTradeView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="Approve", style=discord.ButtonStyle.green,
+        label="Approve",
+        style=discord.ButtonStyle.green,
     )
     async def approve(
         self,
@@ -590,7 +615,8 @@ class HooperTradeView(discord.ui.View):
         await self._handle_vote(interaction, "yes")
 
     @discord.ui.button(
-        label="Reject", style=discord.ButtonStyle.red,
+        label="Reject",
+        style=discord.ButtonStyle.red,
     )
     async def reject(
         self,
@@ -600,7 +626,9 @@ class HooperTradeView(discord.ui.View):
         await self._handle_vote(interaction, "no")
 
     async def _handle_vote(
-        self, interaction: discord.Interaction, vote: str,
+        self,
+        interaction: discord.Interaction,
+        vote: str,
     ) -> None:
         voter_id = str(interaction.user.id)
         if voter_id not in self.trade.required_voters:
@@ -612,7 +640,8 @@ class HooperTradeView(discord.ui.View):
 
         if voter_id in self.trade.votes:
             await interaction.response.send_message(
-                "You've already voted on this trade.", ephemeral=True,
+                "You've already voted on this trade.",
+                ephemeral=True,
             )
             return
 
@@ -638,7 +667,9 @@ class HooperTradeView(discord.ui.View):
                     async with get_session(self.engine) as session:
                         repo = Repository(session)
                         await execute_hooper_trade(
-                            repo, self.trade, self.season_id,
+                            repo,
+                            self.trade,
+                            self.season_id,
                         )
                         await session.commit()
                 except Exception:
@@ -653,7 +684,8 @@ class HooperTradeView(discord.ui.View):
                 embed.title = "Trade Approved -- Both teams voted in favor"
                 embed.color = 0x2ECC71
                 await interaction.response.edit_message(
-                    embed=embed, view=self,
+                    embed=embed,
+                    view=self,
                 )
             else:
                 self.trade.status = "rejected"
@@ -670,12 +702,14 @@ class HooperTradeView(discord.ui.View):
 
                 embed.color = 0xE74C3C
                 await interaction.response.edit_message(
-                    embed=embed, view=self,
+                    embed=embed,
+                    view=self,
                 )
         else:
             embed = self._make_embed()
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
 
 
@@ -762,7 +796,8 @@ class AdminReviewView(discord.ui.View):
                 item.disabled = True
 
     @discord.ui.button(
-        label="Approve", style=discord.ButtonStyle.green,
+        label="Approve",
+        style=discord.ButtonStyle.green,
     )
     async def approve(
         self,
@@ -793,19 +828,21 @@ class AdminReviewView(discord.ui.View):
             )
             embed.set_footer(text="Pinwheel Fates")
             await interaction.response.edit_message(
-                embed=embed, view=self,
+                embed=embed,
+                view=self,
             )
 
             # DM the proposer
             with contextlib.suppress(
-                discord.Forbidden, discord.HTTPException, Exception,
+                discord.Forbidden,
+                discord.HTTPException,
+                Exception,
             ):
                 proposer = await interaction.client.fetch_user(
                     self.proposer_discord_id,
                 )
                 await proposer.send(
-                    "Your proposal has been approved and is now "
-                    "open for voting.",
+                    "Your proposal has been approved and is now open for voting.",
                 )
         except Exception:
             logger.exception("admin_approve_failed")
@@ -815,7 +852,8 @@ class AdminReviewView(discord.ui.View):
             )
 
     @discord.ui.button(
-        label="Reject", style=discord.ButtonStyle.red,
+        label="Reject",
+        style=discord.ButtonStyle.red,
     )
     async def reject(
         self,
@@ -842,7 +880,8 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
         self.parent_view = parent_view
 
     async def on_submit(
-        self, interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
     ) -> None:
         import contextlib
 
@@ -856,7 +895,9 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
             async with get_session(self.parent_view.engine) as session:
                 repo = Repository(session)
                 await admin_reject_proposal(
-                    repo, self.parent_view.proposal, reason=reason,
+                    repo,
+                    self.parent_view.proposal,
+                    reason=reason,
                 )
                 await session.commit()
 
@@ -871,12 +912,15 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
             )
             embed.set_footer(text="Pinwheel Fates")
             await interaction.response.edit_message(
-                embed=embed, view=self.parent_view,
+                embed=embed,
+                view=self.parent_view,
             )
 
             # DM the proposer
             with contextlib.suppress(
-                discord.Forbidden, discord.HTTPException, Exception,
+                discord.Forbidden,
+                discord.HTTPException,
+                Exception,
             ):
                 proposer = await interaction.client.fetch_user(
                     self.parent_view.proposer_discord_id,

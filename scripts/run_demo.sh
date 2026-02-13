@@ -40,7 +40,7 @@ rm -f demo_pinwheel.db  # Fresh database
 # ---- Init the demo document ----
 uvx showboat init "$DEMO_FILE" "Pinwheel Fates -- Full Cycle Demo"
 
-INTRO_TEXT="**Pinwheel Fates** is a simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules. Starts out as basketball, finishes as ???. The AI serves as a social mirror -- surfacing patterns in gameplay and governance that players cannot see from inside the system.
+INTRO_TEXT="**Pinwheel Fates** is a simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules. Starts out as basketball, finishes as ???. The AI serves as a reporter -- surfacing patterns in gameplay and governance that players cannot see from inside the system.
 
 This document proves the full **Govern > Simulate > Observe > Reflect** cycle works end-to-end. Every command below was executed live; every screenshot was captured from the running application."
 
@@ -81,7 +81,7 @@ uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py step 1"
 
 # ---- Step 5: Screenshot the Arena ----
 uvx showboat note "$DEMO_FILE" "## Step 5: The Arena"
-uvx showboat note "$DEMO_FILE" "Game results appear in the Arena across multiple rounds with vivid Elam banner narration and per-round simulation mirrors. Each game panel shows the final score, possession count, and Elam Ending status."
+uvx showboat note "$DEMO_FILE" "Game results appear in the Arena across multiple rounds with vivid Elam banner narration and per-round simulation reports. Each game panel shows the final score, possession count, and Elam Ending status."
 
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
@@ -125,7 +125,7 @@ uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/04_game_detail.
 
 # ---- Step 8: Run more rounds ----
 uvx showboat note "$DEMO_FILE" "## Step 8: Advance the Season"
-uvx showboat note "$DEMO_FILE" "Run 2 more rounds to build up standings and mirror data."
+uvx showboat note "$DEMO_FILE" "Run 2 more rounds to build up standings and report data."
 
 uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py step 2"
 
@@ -139,14 +139,14 @@ uvx rodney waitstable
 sleep 1
 uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/05_standings_r3.png -w 1280 -h 900"
 
-# ---- Step 10: Mirrors ----
-uvx showboat note "$DEMO_FILE" "## Step 10: AI Mirrors"
-uvx showboat note "$DEMO_FILE" "Narrative mirrors that reference specific teams and game details. The mirror system reflects on gameplay and governance. AI-generated observations describe patterns -- they never prescribe actions."
+# ---- Step 10: Reports ----
+uvx showboat note "$DEMO_FILE" "## Step 10: AI Reports"
+uvx showboat note "$DEMO_FILE" "Narrative reports that reference specific teams and game details. The reporting system reflects on gameplay and governance. AI-generated observations describe patterns -- they never prescribe actions."
 
-uvx rodney open "http://localhost:$PORT/mirrors"
+uvx rodney open "http://localhost:$PORT/reports"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/06_mirrors.png -w 1280 -h 1200"
+uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/06_reports.png -w 1280 -h 1200"
 
 # ---- Step 11: Submit a proposal ----
 uvx showboat note "$DEMO_FILE" "## Step 11: Governance -- Submit a Proposal"
@@ -194,7 +194,7 @@ uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/09_team.png -w 
 
 # ---- Step 14: Evals Dashboard ----
 uvx showboat note "$DEMO_FILE" "## Step 14: Evals Dashboard"
-uvx showboat note "$DEMO_FILE" "The admin-facing evals dashboard shows aggregate mirror quality metrics, scenario flags, and AI rule evaluation. No individual mirror text is ever displayed -- only counts, rates, and composite scores."
+uvx showboat note "$DEMO_FILE" "The admin-facing evals dashboard shows aggregate report quality metrics, scenario flags, and AI rule evaluation. No individual report text is ever displayed -- only counts, rates, and composite scores."
 
 uvx rodney open "http://localhost:$PORT/admin/evals"
 uvx rodney waitstable

@@ -71,7 +71,7 @@ Now a proper table with:
 - `--text-secondary` brightened from `#8888aa` to `#9898b4` for better readability
 - `--text-muted` brightened from `#555577` to `#606080`
 - Status badge backgrounds reduced to 0.15 opacity (from 0.2)
-- Mirror content color changed to `--text-secondary` for softer feel
+- Report content color changed to `--text-secondary` for softer feel
 - Border radius increased from 6px to 8px
 
 ---
@@ -84,17 +84,17 @@ Added `.page-header` with team count and league name subtitle.
 ### 5. [DONE] Multi-round arena view
 **Problem:** Arena only showed the latest round. With 8+ games/day, users need to catch up on what they missed.
 
-**Fix:** Arena now shows up to 4 recent rounds (newest first), each with its own section header ("Round 3") and simulation mirror. Data structure changed from flat `games` list to `rounds` list of `{round_number, games, mirror}`.
+**Fix:** Arena now shows up to 4 recent rounds (newest first), each with its own section header ("Round 3") and simulation report. Data structure changed from flat `games` list to `rounds` list of `{round_number, games, report}`.
 
 ### 6. [DONE] Vivid Elam banner narration
 **Problem:** "Game Winner: Wren Silvas — mid-range jumper" is boring. Shot descriptions should be exciting and specific.
 
 **Fix:** Created `core/narrate.py` with `narrate_winner()` function. 15 templates across 3 shot types with move-specific flourishes. Now reads: "Wren Silvas hits the mid-range dagger from the elbow" or "Ember Kine drains the dagger three" or "Steel Voss attacks the rim — finishes through contact — leaving the defender on the floor".
 
-### 7. [DONE] Narrative mock mirrors (not generic stats)
+### 7. [DONE] Narrative mock reports (not generic stats)
 **Problem:** "Round 3 delivered 2 games with 128 total points. The Elam Ending activated in 2 game(s), adding dramatic tension." The Elam always activates — that's not remarkable. Generic stat summaries tell you nothing.
 
-**Fix:** Rewrote `generate_simulation_mirror_mock()` to use team names, scores, margins. Close games get nail-biter language, blowouts get domination language. Specific and remarkable, not generic.
+**Fix:** Rewrote `generate_simulation_report_mock()` to use team names, scores, margins. Close games get nail-biter language, blowouts get domination language. Specific and remarkable, not generic.
 
 ### 8. [DONE] Cache busting on static assets
 **Problem:** Deploying CSS/JS changes didn't take effect for users with cached assets.
@@ -111,7 +111,7 @@ Added `.page-header` with team count and league name subtitle.
 **Fix:** Wired `narrate_play()` into `game_page()` in `pages.py`. Builds an agent-name cache from box scores, then enriches each play dict with a `narration` field using player names, defender names, action, move, and possession number as seed. Template now shows `{{ play.narration }}` instead of raw action/result.
 
 ### 10. [DONE] Home page needs more life
-**Problem:** Landing page was just four card links and an optional mirror.
+**Problem:** Landing page was just four card links and an optional report.
 
 **Fix:** Added league snapshot to home page — shows standings leader (team name, W-L record) and total games played. Data loaded via `_get_standings()` in `home_page()`. Template displays it as a compact mono line between the tagline and nav cards.
 
@@ -135,10 +135,10 @@ Added `.page-header` with team count and league name subtitle.
 
 **Fix:** Changed empty state text to "No proposals yet. Use the `/propose` command in Discord to submit a rule change." with `/propose` in `<code>` tags.
 
-### 15. [DONE] Mirrors page — long text formatting
+### 15. [DONE] Reports page — long text formatting
 **Problem:** `white-space: pre-wrap` made long AI reflections hard to read.
 
-**Fix:** Changed `.mirror-content` to `white-space: normal` with `word-wrap: break-word` and `max-width: 720px` for comfortable reading width.
+**Fix:** Changed `.report-content` to `white-space: normal` with `word-wrap: break-word` and `max-width: 720px` for comfortable reading width.
 
 ---
 
@@ -199,7 +199,7 @@ Added `.page-header` with team count and league name subtitle.
 ## Completed — Session 20 (Home Page Redesign)
 
 ### 22. [DONE] Home page redesigned as living league dashboard
-**Problem:** Home page was a centered title, one-line snapshot, four nav cards, and an optional mirror. It felt like a giant nav menu — no sense that this is a living game with active competition, evolving rules, and AI observation.
+**Problem:** Home page was a centered title, one-line snapshot, four nav cards, and an optional report. It felt like a giant nav menu — no sense that this is a living game with active competition, evolving rules, and AI observation.
 
 **Fix:** Complete redesign as a dashboard that tells the story of the league:
 
@@ -207,13 +207,13 @@ Added `.page-header` with team count and league name subtitle.
 
 2. **Latest Results** — Score cards for the most recent round. Each card shows team color dots, team names (winner bolded), final scores (winner in gold), the game-winning play narrated ("Briar Ashwood buries the three from deep — ballgame"), and an Elam target badge. Cards link to full game detail.
 
-3. **Two-column layout** — Left: mini standings table (rank, color dot, team name, W-L record, +/- differential, each row links to team page). Right: "The AI Sees" — latest simulation mirror in a purple-bordered card.
+3. **Two-column layout** — Left: mini standings table (rank, color dot, team name, W-L record, +/- differential, each row links to team page). Right: "The AI Sees" — latest simulation report in a purple-bordered card.
 
 4. **Coming Up** — Next round's scheduled matchups with team color dots. Appears only when there are unplayed rounds in the schedule.
 
 5. **How Pinwheel Works** — 4-card explainer grid (numbered 01-04): "Games Simulate" (highlight), "You Govern" (cyan), "AI Reflects" (purple), "Rules Evolve" (gold). Each with a short description. Helps new visitors understand the game.
 
-6. **Explore** — Compact icon grid: Arena, Governance, Rules, Mirrors. Each with a unicode icon, label, and one-line description. Replaces the old oversized nav cards.
+6. **Explore** — Compact icon grid: Arena, Governance, Rules, Reports. Each with a unicode icon, label, and one-line description. Replaces the old oversized nav cards.
 
 **CSS additions (~300 lines):**
 - `.home-hero` with `.hero-glow` (radial gradient accent)
@@ -222,7 +222,7 @@ Added `.page-header` with team count and league name subtitle.
 - `.score-card` with `.sc-team`, `.sc-dot`, `.sc-score`, `.sc-play` (game-winning play narration), `.sc-elam` (Elam target pill)
 - `.home-columns` two-column grid (stacks on mobile)
 - `.mini-standings` with `.ms-row`, `.ms-rank`, `.ms-dot`, `.ms-name`, `.ms-record`, `.ms-diff`
-- `.home-mirror` with purple left border accent
+- `.home-report` with purple left border accent
 - `.upcoming-strip` with `.upcoming-card`, `.uc-team`, `.uc-vs`
 - `.how-grid` (4-col, 2-col on tablet, 1-col on mobile) with `.how-card`, `.how-number`, `.how-title`, `.how-desc`
 - `.explore-grid` (4-col) with `.explore-card`, `.explore-icon`, `.explore-label`, `.explore-desc`
@@ -251,7 +251,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** Copy was AI-centric and passive. User feedback: "This copy is terrible!!!! The players rewrite the rules." The taglines positioned the AI as the protagonist instead of the players.
 
 **Fix:** Rewrote all taglines and explanatory text to center the player:
-- **Home:** "3-on-3 basketball where the players rewrite the rules. Propose changes. Vote with your team. Shape the game. The AI is your mirror — but the fates are yours."
+- **Home:** "3-on-3 basketball where the players rewrite the rules. Propose changes. Vote with your team. Shape the game. The AI is your report — but the fates are yours."
 - **Rules:** "Every number below shapes how this league plays. Between rounds, you propose changes in plain English and vote with your team."
 - **Governance:** "Every rule change starts with a proposal from a player."
 - **How It Works cards:** Player as subject of every sentence.
@@ -265,9 +265,9 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 
 **Fix:** Created `/play` page with comprehensive onboarding:
 
-**The Rhythm** — 4-step cycle explaining the round structure: Games Play Out → Governance Window Opens → Mirror Reflects → Rules Change. Each step gets a numbered card with a detailed description. Shows current pace ("Rounds advance every 5 minutes") and governance window duration.
+**The Rhythm** — 4-step cycle explaining the round structure: Games Play Out → Governance Window Opens → Report Reflects → Rules Change. Each step gets a numbered card with a detailed description. Shows current pace ("Rounds advance every 5 minutes") and governance window duration.
 
-**What You Do** — 4-card grid answering "what's my job?": Watch (follow games, study agents), Propose (use /propose in Discord), Vote (team votes, strategy matters), Reflect (read the mirrors).
+**What You Do** — 4-card grid answering "what's my job?": Watch (follow games, study agents), Propose (use /propose in Discord), Vote (team votes, strategy matters), Reflect (read the reports).
 
 **Discord Commands** — Reference list: `/join`, `/propose`, `/vote`, `/strategy`, `/tokens`, `/trade`. Each with one-line description. This is the practical "how do I actually do things" section.
 
@@ -332,17 +332,17 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 34. [DONE] Remove "Rules" from nav
 **Problem:** Rules page was a nav item, but its content was dense parameter tables — not something players need in the main navigation. Better to surface the interesting parts (wild card proposals, key parameters) on the Play page and keep the full rules accessible via direct URL.
 
-**Fix:** Removed the Rules link from `base.html` nav. The `/rules` route still works — FAQ and other pages still link to it. The nav is now: Play, Arena, Standings, Governance, Mirrors.
+**Fix:** Removed the Rules link from `base.html` nav. The `/rules` route still works — FAQ and other pages still link to it. The nav is now: Play, Arena, Standings, Governance, Reports.
 
 ### 35. [DONE] Play page hero cleanup + wild card + key params
 **Problem:** Play page hero had "The AI watches and reflects — but every decision is yours." — centering the AI when the page should center the player. Also, the best copy about proposing anything was buried on the rules page.
 
 **Fix:** Removed the AI sentence. Migrated the "Beyond the Numbers" wild card section (6 example proposals + flow strip) from rules page to play page. Added a "Current Game Parameters" section showing 6 key rules (shot clock, three-point value, quarter length, Elam margin, free throw value, foul limit) in the existing `rule-card` grid. Shows community change count when rules have been modified. `play_page()` now loads the current RuleSet and passes `key_params` to the template.
 
-### 36. [DONE] Richer mirror output
-**Problem:** Mirrors were too brief (2-3 paragraphs) and didn't mention specific rule changes, governance outcomes, or timing of next governance window. Governors couldn't easily see what changed and what it meant.
+### 36. [DONE] Richer report output
+**Problem:** Reports were too brief (2-3 paragraphs) and didn't mention specific rule changes, governance outcomes, or timing of next governance window. Governors couldn't easily see what changed and what it meant.
 
-**Fix:** Updated all 3 mirror prompt templates: simulation (3-5 paragraphs), governance (3-5 paragraphs), private (2-3 paragraphs). Added prompt rules for referencing specific parameter changes with old/new values, summarizing governance window outcomes, and mentioning next window timing. Increased `max_tokens` from 800 to 1500. Enriched `governance_data["rules_changed"]` with actual `RuleChange` data from `rule.enacted` events. Updated mock generators to show detailed parameter changes.
+**Fix:** Updated all 3 report prompt templates: simulation (3-5 paragraphs), governance (3-5 paragraphs), private (2-3 paragraphs). Added prompt rules for referencing specific parameter changes with old/new values, summarizing governance window outcomes, and mentioning next window timing. Increased `max_tokens` from 800 to 1500. Enriched `governance_data["rules_changed"]` with actual `RuleChange` data from `rule.enacted` events. Updated mock generators to show detailed parameter changes.
 
 ### 37. [DONE] Agent → Hooper rename across all UI
 **Problem:** "Agent" reads as "AI agent" in an AI project, confusing visitors. These are simulated basketball players, not AI actors. "Hooper" is basketball slang — unambiguous, fun, domain-appropriate.
@@ -480,8 +480,8 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 
 **Fix:** Changed the nav link text from "Arena" to "Games" in `base.html`. Route remains `/arena`.
 
-### 59. [DONE] Commentary variance — simulation mirror mock
-**Problem:** The simulation mirror mock had only 2 hardcoded templates: "The courts ran hot" for high-scoring rounds (>=60 PPG) and "Someone tightened the screws" for low-scoring rounds (<=40 PPG). Mid-range scoring (41-59 PPG) produced no commentary at all. Every high-scoring round showed identical text.
+### 59. [DONE] Commentary variance — simulation report mock
+**Problem:** The simulation report mock had only 2 hardcoded templates: "The courts ran hot" for high-scoring rounds (>=60 PPG) and "Someone tightened the screws" for low-scoring rounds (<=40 PPG). Mid-range scoring (41-59 PPG) produced no commentary at all. Every high-scoring round showed identical text.
 
 **Fix:** Replaced with randomized variant arrays using the existing seeded RNG: 5 high-scoring variants, 4 low-scoring variants, and 3 mid-range variants. Examples: "Pace was relentless", "Buckets fell at an N-point clip", "Defense locked in", "Every bucket earned", "The meta feels unsettled". Deterministic per round (seeded by round number) but varied between rounds.
 
@@ -536,7 +536,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 
 ### 69. [DONE] "Governance" renamed to "The Floor" across all UI
 **Problem:** "Governance" sounded bureaucratic and distant — the opposite of the game's energy. Players govern from the court, not a boardroom. Needed a name that's both basketball slang (the court is "the floor") and legislative language (taking "the floor" to speak).
-**Fix:** Renamed all user-facing strings: nav link "Governance" → "The Floor", page title "Governance" → "The Floor", section headers, embed titles ("Governance Mirror" → "The Floor — Mirror", "Governance Tokens" → "Floor Tokens"), template text across `base.html`, `governance.html`, `home.html`, `play.html`, `mirrors.html`, `privacy.html`, `terms.html`, `eval_dashboard.html`. Internal code names (module names, function names, event types, variable names) unchanged. "The Floor Has Spoken" used for vote result announcements.
+**Fix:** Renamed all user-facing strings: nav link "Governance" → "The Floor", page title "Governance" → "The Floor", section headers, embed titles ("Governance Report" → "The Floor — Report", "Governance Tokens" → "Floor Tokens"), template text across `base.html`, `governance.html`, `home.html`, `play.html`, `reports.html`, `privacy.html`, `terms.html`, `eval_dashboard.html`. Internal code names (module names, function names, event types, variable names) unchanged. "The Floor Has Spoken" used for vote result announcements.
 
 ### 70. [DONE] Voting UX — proposal autocomplete, announcements, vote counts
 **Problem:** `/vote` had no way to select which proposal to vote on (just grabbed the latest), no public announcement when a proposal entered voting, and vote tallies showed only weighted scores with no raw counts — opaque and confusing.
@@ -552,4 +552,4 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 
 ### 73. [DONE] Season lifecycle pages — archive list and detail
 **Problem:** No way to browse completed seasons or see historical records after a season ends.
-**Fix:** Added `/seasons/archive` list page and `/seasons/archive/{season_id}` detail page. Archive detail shows final standings, champion, final ruleset, rule change history, and aggregate stats (games played, proposals filed, mirrors generated). `SeasonArchiveRow` table stores the snapshot. Archive pages use the same dark theme with gold accents for champion highlights.
+**Fix:** Added `/seasons/archive` list page and `/seasons/archive/{season_id}` detail page. Archive detail shows final standings, champion, final ruleset, rule change history, and aggregate stats (games played, proposals filed, reports generated). `SeasonArchiveRow` table stores the snapshot. Archive pages use the same dark theme with gold accents for champion highlights.

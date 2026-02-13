@@ -2,7 +2,7 @@
 
 Runs alongside FastAPI using the same event loop. Subscribes to EventBus
 for real-time game updates and posts results, governance outcomes, and
-mirrors to configured channels.
+reports to configured channels.
 
 The bot is optional: if DISCORD_BOT_TOKEN is not set, nothing starts.
 """
@@ -23,7 +23,7 @@ from pinwheel.discord.embeds import (
     build_game_result_embed,
     build_governor_profile_embed,
     build_interpretation_embed,
-    build_mirror_embed,
+    build_report_embed,
     build_round_summary_embed,
     build_schedule_embed,
     build_standings_embed,
@@ -45,7 +45,7 @@ class PinwheelBot(commands.Bot):
 
     Runs in-process with FastAPI. Subscribes to EventBus events and
     posts updates to the configured Discord channel. Provides slash
-    commands for standings, proposals, schedule, and mirrors.
+    commands for standings, proposals, schedule, and reports.
     """
 
     def __init__(
@@ -88,20 +88,22 @@ class PinwheelBot(commands.Bot):
         async def schedule_command(interaction: discord.Interaction) -> None:
             await self._handle_schedule(interaction)
 
-        @self.tree.command(name="mirrors", description="View the latest AI mirror reflections")
-        async def mirrors_command(interaction: discord.Interaction) -> None:
-            await self._handle_mirrors(interaction)
+        @self.tree.command(name="reports", description="View the latest AI reports")
+        async def reports_command(interaction: discord.Interaction) -> None:
+            await self._handle_reports(interaction)
 
         @self.tree.command(name="join", description="Join a team as a governor for this season")
         @app_commands.describe(team="The team name to join (leave blank to see all teams)")
         async def join_command(
-            interaction: discord.Interaction, team: str = "",
+            interaction: discord.Interaction,
+            team: str = "",
         ) -> None:
             await self._handle_join(interaction, team)
 
         @join_command.autocomplete("team")
         async def _team_autocomplete(
-            interaction: discord.Interaction, current: str,
+            interaction: discord.Interaction,
+            current: str,
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_teams(current)
 
@@ -114,10 +116,12 @@ class PinwheelBot(commands.Bot):
             boost="Use a BOOST token to double your vote weight",
             proposal="Which proposal to vote on (defaults to latest)",
         )
-        @app_commands.choices(choice=[
-            app_commands.Choice(name="Yes", value="yes"),
-            app_commands.Choice(name="No", value="no"),
-        ])
+        @app_commands.choices(
+            choice=[
+                app_commands.Choice(name="Yes", value="yes"),
+                app_commands.Choice(name="No", value="no"),
+            ]
+        )
         async def vote_command(
             interaction: discord.Interaction,
             choice: app_commands.Choice[str],
@@ -128,7 +132,8 @@ class PinwheelBot(commands.Bot):
 
         @vote_command.autocomplete("proposal")
         async def _proposal_autocomplete(
-            interaction: discord.Interaction, current: str,
+            interaction: discord.Interaction,
+            current: str,
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_proposals(interaction, current)
 
@@ -173,9 +178,12 @@ class PinwheelBot(commands.Bot):
             request_amount: int,
         ) -> None:
             await self._handle_trade(
-                interaction, target,
-                offer_type.value, offer_amount,
-                request_type.value, request_amount,
+                interaction,
+                target,
+                offer_type.value,
+                offer_amount,
+                request_type.value,
+                request_amount,
             )
 
         @self.tree.command(
@@ -195,13 +203,15 @@ class PinwheelBot(commands.Bot):
 
         @trade_hooper_command.autocomplete("offer_hooper")
         async def _offer_hooper_autocomplete(
-            interaction: discord.Interaction, current: str,
+            interaction: discord.Interaction,
+            current: str,
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_hoopers(interaction, current, own_team=True)
 
         @trade_hooper_command.autocomplete("request_hooper")
         async def _request_hooper_autocomplete(
-            interaction: discord.Interaction, current: str,
+            interaction: discord.Interaction,
+            current: str,
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_hoopers(interaction, current, own_team=False)
 
@@ -213,7 +223,8 @@ class PinwheelBot(commands.Bot):
             text="Your team's strategy in natural language",
         )
         async def strategy_command(
-            interaction: discord.Interaction, text: str,
+            interaction: discord.Interaction,
+            text: str,
         ) -> None:
             await self._handle_strategy(interaction, text)
 
@@ -226,16 +237,21 @@ class PinwheelBot(commands.Bot):
             text="The backstory text",
         )
         async def bio_command(
-            interaction: discord.Interaction, hooper: str, text: str,
+            interaction: discord.Interaction,
+            hooper: str,
+            text: str,
         ) -> None:
             await self._handle_bio(interaction, hooper, text)
 
         @bio_command.autocomplete("hooper")
         async def _bio_hooper_autocomplete(
-            interaction: discord.Interaction, current: str,
+            interaction: discord.Interaction,
+            current: str,
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_hoopers(
-                interaction, current, own_team=True,
+                interaction,
+                current,
+                own_team=True,
             )
 
         @self.tree.command(
@@ -268,9 +284,7 @@ class PinwheelBot(commands.Bot):
             guild = discord.Object(id=int(self.settings.discord_guild_id))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            logger.info(
-                "discord_commands_synced guild_id=%s", self.settings.discord_guild_id
-            )
+            logger.info("discord_commands_synced guild_id=%s", self.settings.discord_guild_id)
         else:
             await self.tree.sync()
             logger.info("discord_commands_synced globally")
@@ -335,7 +349,11 @@ class PinwheelBot(commands.Bot):
         for ch_name, ch_topic in channel_defs:
             key = ch_name.replace("-", "_")
             channel = await self._get_or_create_shared_channel(
-                guild, category, ch_name, ch_topic, key,
+                guild,
+                category,
+                ch_name,
+                ch_topic,
+                key,
             )
             if channel is not None:
                 self.channel_ids[key] = channel.id
@@ -358,7 +376,9 @@ class PinwheelBot(commands.Bot):
                         teams = await repo.get_teams_for_season(season.id)
                         for team in teams:
                             await self._setup_team_channel_and_role(
-                                guild, category, team,
+                                guild,
+                                category,
+                                team,
                             )
             except Exception:
                 logger.exception("discord_setup_team_channels_failed")
@@ -443,7 +463,10 @@ class PinwheelBot(commands.Bot):
             allow_everyone = discord.PermissionOverwrite(read_messages=True)
             overwrites = {guild.default_role: allow_everyone}
             new_ch = await guild.create_text_channel(
-                ch_name, category=category, topic=ch_topic, overwrites=overwrites,
+                ch_name,
+                category=category,
+                topic=ch_topic,
+                overwrites=overwrites,
             )
             logger.info("discord_setup_created channel=%s id=%d", ch_name, new_ch.id)
             return new_ch
@@ -492,7 +515,9 @@ class PinwheelBot(commands.Bot):
         # 2. Look up by name
         if team_ch is None:
             team_ch = discord.utils.get(
-                guild.text_channels, name=slug, category=category,
+                guild.text_channels,
+                name=slug,
+                category=category,
             )
             if team_ch is not None:
                 logger.info("discord_setup_found_by_name team_channel=%s id=%d", slug, team_ch.id)
@@ -502,7 +527,8 @@ class PinwheelBot(commands.Bot):
             try:
                 deny = discord.PermissionOverwrite(read_messages=False)
                 allow = discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True,
+                    read_messages=True,
+                    send_messages=True,
                 )
                 overwrites = {
                     guild.default_role: deny,
@@ -620,7 +646,9 @@ class PinwheelBot(commands.Bot):
             return []
 
     async def _autocomplete_proposals(
-        self, interaction: discord.Interaction, current: str,
+        self,
+        interaction: discord.Interaction,
+        current: str,
     ) -> list[app_commands.Choice[str]]:
         """Return open proposal choices matching the current input."""
         if not self.engine:
@@ -647,9 +675,9 @@ class PinwheelBot(commands.Bot):
                 )
                 resolved_ids = {e.aggregate_id for e in resolved}
                 pending = [
-                    c for c in confirmed
-                    if c.payload.get("proposal_id", c.aggregate_id)
-                    not in resolved_ids
+                    c
+                    for c in confirmed
+                    if c.payload.get("proposal_id", c.aggregate_id) not in resolved_ids
                 ]
                 if not pending:
                     return []
@@ -684,7 +712,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /join slash command for team enrollment."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available. Try again later.", ephemeral=True,
+                "Database not available. Try again later.",
+                ephemeral=True,
             )
             return
 
@@ -701,7 +730,8 @@ class PinwheelBot(commands.Bot):
                 season = result.scalar_one_or_none()
                 if not season:
                     await interaction.response.send_message(
-                        "No active season.", ephemeral=True,
+                        "No active season.",
+                        ephemeral=True,
                     )
                     return
 
@@ -721,10 +751,12 @@ class PinwheelBot(commands.Bot):
                         for t in teams
                     ]
                     embed = build_team_list_embed(
-                        team_data, season.name or "this season",
+                        team_data,
+                        season.name or "this season",
                     )
                     await interaction.response.send_message(
-                        embed=embed, ephemeral=True,
+                        embed=embed,
+                        ephemeral=True,
                     )
                     return
 
@@ -778,7 +810,8 @@ class PinwheelBot(commands.Bot):
             # Assign Discord role if in a guild
             if interaction.guild:
                 role = discord.utils.get(
-                    interaction.guild.roles, name=target_team.name,
+                    interaction.guild.roles,
+                    name=target_team.name,
                 )
                 if role and isinstance(interaction.user, discord.Member):
                     await interaction.user.add_roles(role)
@@ -812,7 +845,8 @@ class PinwheelBot(commands.Bot):
             logger.exception("discord_join_failed")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Something went wrong joining the team.", ephemeral=True,
+                    "Something went wrong joining the team.",
+                    ephemeral=True,
                 )
 
     def _get_channel_for(self, key: str) -> discord.TextChannel | None:
@@ -836,7 +870,9 @@ class PinwheelBot(commands.Bot):
         return None
 
     async def _send_to_team_channel(
-        self, team_id: str, embed: discord.Embed,
+        self,
+        team_id: str,
+        embed: discord.Embed,
     ) -> None:
         """Send an embed to a team's private channel (if available)."""
         ch = self._get_team_channel(team_id)
@@ -893,21 +929,21 @@ class PinwheelBot(commands.Bot):
             if play_channel:
                 await play_channel.send(embed=embed)
 
-        elif event_type == "mirror.generated":
-            mirror_type = data.get("mirror_type", "")
+        elif event_type == "report.generated":
+            report_type = data.get("report_type", "")
             excerpt = str(data.get("excerpt", ""))
-            if mirror_type == "private":
-                await self._send_private_mirror(data)
+            if report_type == "private":
+                await self._send_private_report(data)
             elif excerpt:
-                from pinwheel.models.mirror import Mirror
+                from pinwheel.models.report import Report
 
-                mirror = Mirror(
+                report = Report(
                     id="",
-                    mirror_type=mirror_type,  # type: ignore[arg-type]
+                    report_type=report_type,  # type: ignore[arg-type]
                     round_number=int(data.get("round", 0)),
                     content=excerpt,
                 )
-                embed = build_mirror_embed(mirror)
+                embed = build_report_embed(report)
                 channel = self._get_channel_for("play_by_play")
                 if not channel:
                     channel = self._get_channel_for("main")
@@ -921,8 +957,7 @@ class PinwheelBot(commands.Bot):
             embed = discord.Embed(
                 title=f"The Floor Has Spoken -- Round {round_num}",
                 description=(
-                    f"**{proposals_count}** proposals reviewed\n"
-                    f"**{rules_changed}** rules changed"
+                    f"**{proposals_count}** proposals reviewed\n**{rules_changed}** rules changed"
                 ),
                 color=0x3498DB,
             )
@@ -936,13 +971,13 @@ class PinwheelBot(commands.Bot):
             if isinstance(tallies_data, list):
                 for td in tallies_data:
                     if isinstance(td, dict):
-                        tally_obj = VoteTallyModel(**{
-                            k: v for k, v in td.items()
-                            if k != "proposal_text"
-                        })
+                        tally_obj = VoteTallyModel(
+                            **{k: v for k, v in td.items() if k != "proposal_text"}
+                        )
                         proposal_text = str(td.get("proposal_text", ""))
                         tally_embed = build_vote_tally_embed(
-                            tally_obj, proposal_text,
+                            tally_obj,
+                            proposal_text,
                         )
                         tally_embeds.append(tally_embed)
 
@@ -951,7 +986,8 @@ class PinwheelBot(commands.Bot):
                 await channel.send(embed=embed)
                 for te in tally_embeds:
                     with contextlib.suppress(
-                        discord.Forbidden, discord.HTTPException,
+                        discord.Forbidden,
+                        discord.HTTPException,
                     ):
                         await channel.send(embed=te)
             # Post to all team channels too
@@ -960,12 +996,14 @@ class PinwheelBot(commands.Bot):
                     ch = self.get_channel(chan_id)
                     if isinstance(ch, discord.TextChannel):
                         with contextlib.suppress(
-                            discord.Forbidden, discord.HTTPException,
+                            discord.Forbidden,
+                            discord.HTTPException,
                         ):
                             await ch.send(embed=embed)
                         for te in tally_embeds:
                             with contextlib.suppress(
-                                discord.Forbidden, discord.HTTPException,
+                                discord.Forbidden,
+                                discord.HTTPException,
                             ):
                                 await ch.send(embed=te)
 
@@ -1002,13 +1040,15 @@ class PinwheelBot(commands.Bot):
                     if not games:
                         break
                     for g in games:
-                        all_results.append({
-                            "home_team_id": g.home_team_id,
-                            "away_team_id": g.away_team_id,
-                            "home_score": g.home_score,
-                            "away_score": g.away_score,
-                            "winner_team_id": g.winner_team_id,
-                        })
+                        all_results.append(
+                            {
+                                "home_team_id": g.home_team_id,
+                                "away_team_id": g.away_team_id,
+                                "home_score": g.home_score,
+                                "away_score": g.away_score,
+                                "winner_team_id": g.winner_team_id,
+                            }
+                        )
                 standings = compute_standings(all_results)
                 for s in standings:
                     team = await repo.get_team(s["team_id"])
@@ -1031,7 +1071,8 @@ class PinwheelBot(commands.Bot):
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available. Try again later.", ephemeral=True,
+                "Database not available. Try again later.",
+                ephemeral=True,
             )
             return
 
@@ -1041,7 +1082,8 @@ class PinwheelBot(commands.Bot):
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1065,7 +1107,10 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 if not await has_token(
-                    repo, gov.player_id, gov.season_id, "propose",
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
+                    "propose",
                 ):
                     await interaction.followup.send(
                         "You don't have any PROPOSE tokens left.",
@@ -1074,7 +1119,9 @@ class PinwheelBot(commands.Bot):
                     return
 
                 balance = await get_token_balance(
-                    repo, gov.player_id, gov.season_id,
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
                 )
                 season = await repo.get_season(gov.season_id)
                 rs_data = (season.current_ruleset or {}) if season else {}
@@ -1085,10 +1132,7 @@ class PinwheelBot(commands.Bot):
                 from pinwheel.ai.classifier import classify_injection
 
                 classification = await classify_injection(text, api_key)
-                if (
-                    classification.classification == "injection"
-                    and classification.confidence > 0.8
-                ):
+                if classification.classification == "injection" and classification.confidence > 0.8:
                     from pinwheel.models.governance import (
                         RuleInterpretation as RI,
                     )
@@ -1101,7 +1145,9 @@ class PinwheelBot(commands.Bot):
                     )
                 else:
                     interpretation = await interpret_proposal(
-                        text, ruleset, api_key,
+                        text,
+                        ruleset,
+                        api_key,
                     )
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
@@ -1110,7 +1156,8 @@ class PinwheelBot(commands.Bot):
                         )
             else:
                 interpretation = interpret_proposal_mock(
-                    text, ruleset,
+                    text,
+                    ruleset,
                 )
 
             tier = detect_tier(interpretation, ruleset)
@@ -1138,7 +1185,9 @@ class PinwheelBot(commands.Bot):
                 governor_name=interaction.user.display_name,
             )
             await interaction.followup.send(
-                embed=embed, view=view, ephemeral=True,
+                embed=embed,
+                view=view,
+                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_propose_failed")
@@ -1181,30 +1230,32 @@ class PinwheelBot(commands.Bot):
                         break
 
                 matchups = await repo.get_schedule_for_round(
-                    season.id, next_round,
+                    season.id,
+                    next_round,
                 )
                 schedule = []
                 for m in matchups:
                     home = await repo.get_team(m.home_team_id)
                     away = await repo.get_team(m.away_team_id)
-                    schedule.append({
-                        "home_team_name": home.name if home else m.home_team_id,
-                        "away_team_name": away.name if away else m.away_team_id,
-                    })
+                    schedule.append(
+                        {
+                            "home_team_name": home.name if home else m.home_team_id,
+                            "away_team_name": away.name if away else m.away_team_id,
+                        }
+                    )
                 return schedule, next_round
         except Exception:
             logger.exception("discord_schedule_query_failed")
             return [], 0
 
-    async def _handle_mirrors(self, interaction: discord.Interaction) -> None:
-        """Handle the /mirrors slash command."""
-        mirrors = await self._query_latest_mirrors()
-        if not mirrors:
+    async def _handle_reports(self, interaction: discord.Interaction) -> None:
+        """Handle the /reports slash command."""
+        reports = await self._query_latest_reports()
+        if not reports:
             embed = discord.Embed(
-                title="Latest Mirrors",
+                title="Latest Reports",
                 description=(
-                    "No mirrors have been generated yet. "
-                    "Mirrors appear after each round."
+                    "No reports have been generated yet. Reports appear after each round."
                 ),
                 color=0x9B59B6,
             )
@@ -1212,21 +1263,21 @@ class PinwheelBot(commands.Bot):
             await interaction.response.send_message(embed=embed)
             return
 
-        # Send the most recent public mirror
-        from pinwheel.models.mirror import Mirror
+        # Send the most recent public report
+        from pinwheel.models.report import Report
 
-        m = mirrors[0]
-        mirror = Mirror(
+        m = reports[0]
+        report = Report(
             id=m["id"],
-            mirror_type=m["mirror_type"],  # type: ignore[arg-type]
+            report_type=m["report_type"],  # type: ignore[arg-type]
             round_number=m["round_number"],
             content=m["content"],
         )
-        embed = build_mirror_embed(mirror)
+        embed = build_report_embed(report)
         await interaction.response.send_message(embed=embed)
 
-    async def _query_latest_mirrors(self) -> list[dict]:
-        """Query the most recent public mirrors."""
+    async def _query_latest_reports(self) -> list[dict]:
+        """Query the most recent public reports."""
         if not self.engine:
             return []
         try:
@@ -1243,19 +1294,21 @@ class PinwheelBot(commands.Bot):
                 if not season:
                     return []
 
-                # Try simulation mirror first, then governance
+                # Try simulation report first, then governance
                 for mtype in ("simulation", "governance"):
-                    m = await repo.get_latest_mirror(season.id, mtype)
+                    m = await repo.get_latest_report(season.id, mtype)
                     if m:
-                        return [{
-                            "id": m.id,
-                            "mirror_type": m.mirror_type,
-                            "round_number": m.round_number,
-                            "content": m.content,
-                        }]
+                        return [
+                            {
+                                "id": m.id,
+                                "report_type": m.report_type,
+                                "round_number": m.round_number,
+                                "content": m.content,
+                            }
+                        ]
                 return []
         except Exception:
-            logger.exception("discord_mirrors_query_failed")
+            logger.exception("discord_reports_query_failed")
             return []
 
     async def _handle_vote(
@@ -1268,7 +1321,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /vote slash command. Votes are hidden until window closes."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1278,7 +1332,8 @@ class PinwheelBot(commands.Bot):
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1306,9 +1361,9 @@ class PinwheelBot(commands.Bot):
                 )
                 resolved_ids = {e.aggregate_id for e in resolved}
                 pending = [
-                    c for c in confirmed
-                    if c.payload.get("proposal_id", c.aggregate_id)
-                    not in resolved_ids
+                    c
+                    for c in confirmed
+                    if c.payload.get("proposal_id", c.aggregate_id) not in resolved_ids
                 ]
                 if not pending:
                     await interaction.response.send_message(
@@ -1351,7 +1406,8 @@ class PinwheelBot(commands.Bot):
                 else:
                     latest = pending[-1]
                     proposal_id = latest.payload.get(
-                        "proposal_id", latest.aggregate_id,
+                        "proposal_id",
+                        latest.aggregate_id,
                     )
 
                 # Reconstruct proposal from submitted event
@@ -1390,7 +1446,10 @@ class PinwheelBot(commands.Bot):
 
                 # Check boost token if requested
                 if boost and not await has_token(
-                    repo, gov.player_id, gov.season_id, "boost",
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
+                    "boost",
                 ):
                     await interaction.response.send_message(
                         "You don't have any BOOST tokens.",
@@ -1429,7 +1488,8 @@ class PinwheelBot(commands.Bot):
             )
             embed.set_footer(text="Pinwheel Fates")
             await interaction.response.send_message(
-                embed=embed, ephemeral=True,
+                embed=embed,
+                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_vote_failed")
@@ -1440,12 +1500,14 @@ class PinwheelBot(commands.Bot):
                 )
 
     async def _handle_tokens(
-        self, interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
     ) -> None:
         """Handle the /tokens slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1455,7 +1517,8 @@ class PinwheelBot(commands.Bot):
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1467,7 +1530,9 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 balance = await get_token_balance(
-                    repo, gov.player_id, gov.season_id,
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
                 )
 
             embed = build_token_balance_embed(
@@ -1475,7 +1540,8 @@ class PinwheelBot(commands.Bot):
                 governor_name=interaction.user.display_name,
             )
             await interaction.response.send_message(
-                embed=embed, ephemeral=True,
+                embed=embed,
+                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_tokens_failed")
@@ -1485,12 +1551,14 @@ class PinwheelBot(commands.Bot):
             )
 
     async def _handle_profile(
-        self, interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
     ) -> None:
         """Handle the /profile slash command -- show governor's governance record."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1500,7 +1568,8 @@ class PinwheelBot(commands.Bot):
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1511,7 +1580,8 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 activity = await repo.get_governor_activity(
-                    gov.player_id, gov.season_id,
+                    gov.player_id,
+                    gov.season_id,
                 )
 
             embed = build_governor_profile_embed(
@@ -1520,7 +1590,8 @@ class PinwheelBot(commands.Bot):
                 activity=activity,
             )
             await interaction.response.send_message(
-                embed=embed, ephemeral=True,
+                embed=embed,
+                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_profile_failed")
@@ -1541,13 +1612,15 @@ class PinwheelBot(commands.Bot):
         """Handle the /trade slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
         if target.id == interaction.user.id:
             await interaction.response.send_message(
-                "You can't trade with yourself.", ephemeral=True,
+                "You can't trade with yourself.",
+                ephemeral=True,
             )
             return
 
@@ -1555,17 +1628,20 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(
-                self.engine, str(interaction.user.id),
+                self.engine,
+                str(interaction.user.id),
             )
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
         try:
             target_gov = await get_governor(
-                self.engine, str(target.id),
+                self.engine,
+                str(target.id),
             )
         except GovernorNotFound:
             await interaction.response.send_message(
@@ -1582,13 +1658,14 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 balance = await get_token_balance(
-                    repo, gov.player_id, gov.season_id,
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
                 )
                 available = getattr(balance, offer_type, 0)
                 if available < offer_amount:
                     await interaction.response.send_message(
-                        f"You only have {available} "
-                        f"{offer_type.upper()} tokens.",
+                        f"You only have {available} {offer_type.upper()} tokens.",
                         ephemeral=True,
                     )
                     return
@@ -1627,8 +1704,7 @@ class PinwheelBot(commands.Bot):
                 await target.send(embed=embed, view=view)
 
             await interaction.response.send_message(
-                f"Trade offer sent to "
-                f"**{target.display_name}**!",
+                f"Trade offer sent to **{target.display_name}**!",
                 ephemeral=True,
             )
         except Exception:
@@ -1640,7 +1716,11 @@ class PinwheelBot(commands.Bot):
                 )
 
     async def _autocomplete_hoopers(
-        self, interaction: discord.Interaction, current: str, *, own_team: bool,
+        self,
+        interaction: discord.Interaction,
+        current: str,
+        *,
+        own_team: bool,
     ) -> list[app_commands.Choice[str]]:
         """Autocomplete hooper names for trade-hooper command."""
         if not self.engine:
@@ -1683,7 +1763,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /trade-hooper slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1743,10 +1824,12 @@ class PinwheelBot(commands.Bot):
 
                 # Get all governors on both teams
                 from_govs = await repo.get_governors_for_team(
-                    gov.team_id, gov.season_id,
+                    gov.team_id,
+                    gov.season_id,
                 )
                 to_govs = await repo.get_governors_for_team(
-                    target_team.id, gov.season_id,
+                    target_team.id,
+                    gov.season_id,
                 )
                 from_voter_ids = [p.discord_id for p in from_govs]
                 to_voter_ids = [p.discord_id for p in to_govs]
@@ -1762,7 +1845,8 @@ class PinwheelBot(commands.Bot):
                 from pinwheel.core.tokens import propose_hooper_trade
 
                 my_team = next(
-                    (t for t in teams if t.id == gov.team_id), None,
+                    (t for t in teams if t.id == gov.team_id),
+                    None,
                 )
                 trade = await propose_hooper_trade(
                     repo=repo,
@@ -1787,7 +1871,9 @@ class PinwheelBot(commands.Bot):
             from pinwheel.discord.views import HooperTradeView
 
             view = HooperTradeView(
-                trade=trade, season_id=gov.season_id, engine=self.engine,
+                trade=trade,
+                season_id=gov.season_id,
+                engine=self.engine,
             )
             embed = build_hooper_trade_embed(
                 from_team=trade.from_team_name,
@@ -1807,7 +1893,9 @@ class PinwheelBot(commands.Bot):
             if to_ch:
                 # New view instance for second channel (views can't be reused)
                 view2 = HooperTradeView(
-                    trade=trade, season_id=gov.season_id, engine=self.engine,
+                    trade=trade,
+                    season_id=gov.season_id,
+                    engine=self.engine,
                 )
                 await to_ch.send(embed=embed, view=view2)
 
@@ -1821,24 +1909,27 @@ class PinwheelBot(commands.Bot):
             logger.exception("discord_trade_hooper_failed")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Something went wrong with the trade.", ephemeral=True,
+                    "Something went wrong with the trade.",
+                    ephemeral=True,
                 )
 
     async def _handle_strategy(
-        self, interaction: discord.Interaction, text: str,
+        self,
+        interaction: discord.Interaction,
+        text: str,
     ) -> None:
         """Handle the /strategy slash command."""
         if not text.strip():
             await interaction.response.send_message(
-                "Describe your team's strategy. "
-                "Example: `/strategy Focus on three-point shooting`",
+                "Describe your team's strategy. Example: `/strategy Focus on three-point shooting`",
                 ephemeral=True,
             )
             return
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1846,11 +1937,13 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(
-                self.engine, str(interaction.user.id),
+                self.engine,
+                str(interaction.user.id),
             )
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1868,7 +1961,9 @@ class PinwheelBot(commands.Bot):
             text="Pinwheel Fates -- Confirm or Cancel",
         )
         await interaction.response.send_message(
-            embed=embed, view=view, ephemeral=True,
+            embed=embed,
+            view=view,
+            ephemeral=True,
         )
 
     async def _handle_bio(
@@ -1895,7 +1990,8 @@ class PinwheelBot(commands.Bot):
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -1903,11 +1999,13 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(
-                self.engine, str(interaction.user.id),
+                self.engine,
+                str(interaction.user.id),
             )
         except GovernorNotFound:
             await interaction.response.send_message(
-                "You need to `/join` a team first.", ephemeral=True,
+                "You need to `/join` a team first.",
+                ephemeral=True,
             )
             return
 
@@ -1920,7 +2018,8 @@ class PinwheelBot(commands.Bot):
                 team = await repo.get_team(gov.team_id)
                 if not team:
                     await interaction.response.send_message(
-                        "Team not found.", ephemeral=True,
+                        "Team not found.",
+                        ephemeral=True,
                     )
                     return
 
@@ -1945,7 +2044,8 @@ class PinwheelBot(commands.Bot):
 
             embed = build_bio_embed(target_hooper.name, text)
             await interaction.response.send_message(
-                embed=embed, ephemeral=True,
+                embed=embed,
+                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_bio_failed")
@@ -1965,19 +2065,22 @@ class PinwheelBot(commands.Bot):
         # Check admin permissions
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                "This command can only be used in a server.", ephemeral=True,
+                "This command can only be used in a server.",
+                ephemeral=True,
             )
             return
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
-                "Admin only.", ephemeral=True,
+                "Admin only.",
+                ephemeral=True,
             )
             return
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.", ephemeral=True,
+                "Database not available.",
+                ephemeral=True,
             )
             return
 
@@ -2060,8 +2163,8 @@ class PinwheelBot(commands.Bot):
                 ephemeral=True,
             )
 
-    async def _send_private_mirror(self, data: dict) -> None:
-        """DM a private mirror to the governor."""
+    async def _send_private_report(self, data: dict) -> None:
+        """DM a private report to the governor."""
         governor_id = str(data.get("governor_id", ""))
         excerpt = str(data.get("excerpt", ""))
         round_num = int(data.get("round", 0))
@@ -2082,20 +2185,20 @@ class PinwheelBot(commands.Bot):
             if user is None:
                 user = await self.fetch_user(int(discord_id))
 
-            from pinwheel.models.mirror import Mirror
+            from pinwheel.models.report import Report
 
-            mirror = Mirror(
-                id=str(data.get("mirror_id", "")),
-                mirror_type="private",
+            report = Report(
+                id=str(data.get("report_id", "")),
+                report_type="private",
                 round_number=round_num,
                 content=excerpt,
             )
-            embed = build_mirror_embed(mirror)
-            embed.title = f"Private Mirror -- Round {round_num}"
+            embed = build_report_embed(report)
+            embed.title = f"Private Report -- Round {round_num}"
             await user.send(embed=embed)
         except Exception:
             logger.exception(
-                "private_mirror_dm_failed governor=%s",
+                "private_report_dm_failed governor=%s",
                 governor_id,
             )
 

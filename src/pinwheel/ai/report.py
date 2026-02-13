@@ -1,11 +1,11 @@
-"""AI mirror generation — Claude-powered reflections on gameplay and governance.
+"""AI report generation — Claude-powered reports on gameplay and governance.
 
-Three mirror types for Day 3:
-- Simulation mirror: reflects on game results, statistical patterns, emergent behavior
-- Governance mirror: reflects on proposal patterns, voting dynamics, rule evolution
-- Private mirror: reflects on a single governor's behavior (visible only to them)
+Three report types for Day 3:
+- Simulation report: reflects on game results, statistical patterns, emergent behavior
+- Governance report: reflects on proposal patterns, voting dynamics, rule evolution
+- Private report: reflects on a single governor's behavior (visible only to them)
 
-All mirrors follow the same constraint: they DESCRIBE patterns, never PRESCRIBE actions.
+All reports follow the same constraint: they DESCRIBE patterns, never PRESCRIBE actions.
 The AI observes; humans decide.
 """
 
@@ -17,12 +17,12 @@ import uuid
 
 import anthropic
 
-from pinwheel.models.mirror import Mirror
+from pinwheel.models.report import Report
 
 logger = logging.getLogger(__name__)
 
 
-SIMULATION_MIRROR_PROMPT = """\
+SIMULATION_REPORT_PROMPT = """\
 You are the Social Mirror for Pinwheel Fates, a 3v3 basketball governance game.
 
 Your job: reflect on the round's game results. Describe patterns, surprises, and emergent behavior.
@@ -43,7 +43,7 @@ Reference specific changes (e.g., "With three-pointers now worth 4, perimeter sh
 {round_data}
 """
 
-GOVERNANCE_MIRROR_PROMPT = """\
+GOVERNANCE_REPORT_PROMPT = """\
 You are the Governance Mirror for Pinwheel Fates, a 3v3 basketball governance game.
 
 Your job: reflect on governance activity this round. Describe voting patterns, proposal themes, \
@@ -64,7 +64,7 @@ explicitly (e.g., "three_point_value changed from 3 to 4").
 {governance_data}
 """
 
-PRIVATE_MIRROR_PROMPT = """\
+PRIVATE_REPORT_PROMPT = """\
 You are generating a Private Mirror for governor "{governor_id}" in Pinwheel Fates.
 
 A private mirror reflects a governor's OWN behavior back to them. Only they see this.
@@ -85,7 +85,7 @@ It helps them understand their patterns without telling them what to do.
 
 # --- Variant B prompts for A/B comparison (M.2) ---
 
-SIMULATION_MIRROR_PROMPT_B = """\
+SIMULATION_REPORT_PROMPT_B = """\
 You are a keen-eyed sports analyst for Pinwheel Fates, a 3v3 basketball governance game.
 
 Reflect on this round's results. Focus on what the numbers reveal about the current meta.
@@ -101,7 +101,7 @@ Reflect on this round's results. Focus on what the numbers reveal about the curr
 {round_data}
 """
 
-GOVERNANCE_MIRROR_PROMPT_B = """\
+GOVERNANCE_REPORT_PROMPT_B = """\
 You are a governance analyst for Pinwheel Fates, a 3v3 basketball governance game.
 
 Analyze this round's governance activity. Focus on coalition dynamics and power shifts.
@@ -116,7 +116,7 @@ Analyze this round's governance activity. Focus on coalition dynamics and power 
 {governance_data}
 """
 
-PRIVATE_MIRROR_PROMPT_B = """\
+PRIVATE_REPORT_PROMPT_B = """\
 You are writing a behavioral snapshot for governor "{governor_id}" in Pinwheel Fates.
 
 This is private — only they see it. Show them their pattern.
@@ -133,93 +133,93 @@ This is private — only they see it. Show them their pattern.
 """
 
 
-async def generate_mirror_with_prompt(
+async def generate_report_with_prompt(
     prompt_template: str,
     data: dict,
     format_kwargs: dict,
-    mirror_type: str,
-    mirror_id_prefix: str,
+    report_type: str,
+    report_id_prefix: str,
     round_number: int,
     api_key: str,
     governor_id: str = "",
-) -> Mirror:
-    """Generate a mirror using a specific prompt template (for A/B testing)."""
+) -> Report:
+    """Generate a report using a specific prompt template (for A/B testing)."""
     formatted = prompt_template.format(**format_kwargs)
     content = await _call_claude(
         system=formatted,
-        user_message=f"Generate a {mirror_type} mirror for this round.",
+        user_message=f"Generate a {report_type} report for this round.",
         api_key=api_key,
     )
-    return Mirror(
-        id=f"{mirror_id_prefix}-{round_number}-{uuid.uuid4().hex[:8]}",
-        mirror_type=mirror_type,
+    return Report(
+        id=f"{report_id_prefix}-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type=report_type,
         round_number=round_number,
         governor_id=governor_id,
         content=content,
     )
 
 
-async def generate_simulation_mirror(
+async def generate_simulation_report(
     round_data: dict,
     season_id: str,
     round_number: int,
     api_key: str,
-) -> Mirror:
-    """Generate a simulation mirror using Claude."""
+) -> Report:
+    """Generate a simulation report using Claude."""
     content = await _call_claude(
-        system=SIMULATION_MIRROR_PROMPT.format(round_data=json.dumps(round_data, indent=2)),
-        user_message="Generate a simulation mirror for this round.",
+        system=SIMULATION_REPORT_PROMPT.format(round_data=json.dumps(round_data, indent=2)),
+        user_message="Generate a simulation report for this round.",
         api_key=api_key,
     )
-    return Mirror(
-        id=f"m-sim-{round_number}-{uuid.uuid4().hex[:8]}",
-        mirror_type="simulation",
+    return Report(
+        id=f"r-sim-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type="simulation",
         round_number=round_number,
         content=content,
     )
 
 
-async def generate_governance_mirror(
+async def generate_governance_report(
     governance_data: dict,
     season_id: str,
     round_number: int,
     api_key: str,
-) -> Mirror:
-    """Generate a governance mirror using Claude."""
+) -> Report:
+    """Generate a governance report using Claude."""
     content = await _call_claude(
-        system=GOVERNANCE_MIRROR_PROMPT.format(
+        system=GOVERNANCE_REPORT_PROMPT.format(
             governance_data=json.dumps(governance_data, indent=2)
         ),
-        user_message="Generate a governance mirror for this round.",
+        user_message="Generate a governance report for this round.",
         api_key=api_key,
     )
-    return Mirror(
-        id=f"m-gov-{round_number}-{uuid.uuid4().hex[:8]}",
-        mirror_type="governance",
+    return Report(
+        id=f"r-gov-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type="governance",
         round_number=round_number,
         content=content,
     )
 
 
-async def generate_private_mirror(
+async def generate_private_report(
     governor_data: dict,
     governor_id: str,
     season_id: str,
     round_number: int,
     api_key: str,
-) -> Mirror:
-    """Generate a private mirror for a specific governor."""
+) -> Report:
+    """Generate a private report for a specific governor."""
     content = await _call_claude(
-        system=PRIVATE_MIRROR_PROMPT.format(
+        system=PRIVATE_REPORT_PROMPT.format(
             governor_id=governor_id,
             governor_data=json.dumps(governor_data, indent=2),
         ),
-        user_message=f"Generate a private mirror for governor {governor_id}.",
+        user_message=f"Generate a private report for governor {governor_id}.",
         api_key=api_key,
     )
-    return Mirror(
-        id=f"m-priv-{round_number}-{uuid.uuid4().hex[:8]}",
-        mirror_type="private",
+    return Report(
+        id=f"r-priv-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type="private",
         round_number=round_number,
         governor_id=governor_id,
         content=content,
@@ -227,7 +227,7 @@ async def generate_private_mirror(
 
 
 async def _call_claude(system: str, user_message: str, api_key: str) -> str:
-    """Make a Claude API call for mirror generation."""
+    """Make a Claude API call for report generation."""
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
@@ -238,26 +238,26 @@ async def _call_claude(system: str, user_message: str, api_key: str) -> str:
         )
         return response.content[0].text
     except anthropic.APIError as e:
-        logger.error("Mirror generation API error: %s", e)
-        return f"[Mirror generation failed: {e}]"
+        logger.error("Report generation API error: %s", e)
+        return f"[Report generation failed: {e}]"
 
 
 # --- Mock implementations for testing ---
 
 
-def generate_simulation_mirror_mock(
+def generate_simulation_report_mock(
     round_data: dict,
     season_id: str,
     round_number: int,
-) -> Mirror:
-    """Mock simulation mirror — narrative, specific, never generic."""
+) -> Report:
+    """Mock simulation report — narrative, specific, never generic."""
     import random as _rng
 
     games = round_data.get("games", [])
     if not games:
-        return Mirror(
-            id=f"m-sim-{round_number}-mock",
-            mirror_type="simulation",
+        return Report(
+            id=f"r-sim-{round_number}-mock",
+            report_type="simulation",
             round_number=round_number,
             content="Silence from the courts. No games this round.",
         )
@@ -276,9 +276,12 @@ def generate_simulation_mirror_mock(
         loser = away if hs > aws else home
         w_score, l_score = max(hs, aws), min(hs, aws)
         entry = {
-            "winner": winner, "loser": loser,
-            "w_score": w_score, "l_score": l_score,
-            "margin": margin, "total": hs + aws,
+            "winner": winner,
+            "loser": loser,
+            "w_score": w_score,
+            "l_score": l_score,
+            "margin": margin,
+            "total": hs + aws,
         }
         if margin >= 10:
             blowouts.append(entry)
@@ -316,14 +319,8 @@ def generate_simulation_mirror_mock(
         w, lo = g["winner"], g["loser"]
         ws, ls, m = g["w_score"], g["l_score"], g["margin"]
         openers = [
-            (
-                f"{w} dismantled {lo} by {m}. "
-                "It wasn't close after the first quarter."
-            ),
-            (
-                f"A {m}-point demolition: {w} {ws}, {lo} {ls}. "
-                "The Elam target was a formality."
-            ),
+            (f"{w} dismantled {lo} by {m}. It wasn't close after the first quarter."),
+            (f"A {m}-point demolition: {w} {ws}, {lo} {ls}. The Elam target was a formality."),
         ]
         lines.append(rng.choice(openers))
     else:
@@ -366,14 +363,8 @@ def generate_simulation_mirror_mock(
                     f"Only {avg_total} points per game this round. "
                     "Someone tightened the screws. The game is getting physical."
                 ),
-                (
-                    f"Defense locked in. {avg_total} PPG — "
-                    "that's a lockdown night across the board."
-                ),
-                (
-                    f"{avg_total} points per game. Every bucket earned, "
-                    "nothing came easy."
-                ),
+                (f"Defense locked in. {avg_total} PPG — that's a lockdown night across the board."),
+                (f"{avg_total} points per game. Every bucket earned, nothing came easy."),
                 (
                     f"A grind-it-out round at {avg_total} PPG. "
                     "Possessions felt precious — nobody was giving anything away."
@@ -386,10 +377,7 @@ def generate_simulation_mirror_mock(
                     f"The pace settled at {avg_total} points per game — "
                     "neither runaway offense nor suffocating defense dominated."
                 ),
-                (
-                    f"{avg_total} PPG. A balanced round where "
-                    "matchups mattered more than systems."
-                ),
+                (f"{avg_total} PPG. A balanced round where matchups mattered more than systems."),
                 (
                     f"Scoring landed at {avg_total} per game. "
                     "The meta feels unsettled — teams are still figuring each other out."
@@ -398,9 +386,7 @@ def generate_simulation_mirror_mock(
             lines.append(rng.choice(mid_scoring))
 
     if blowouts and close_games:
-        lines.append(
-            "A round of extremes: blowouts and nail-biters sharing the same scorecard."
-        )
+        lines.append("A round of extremes: blowouts and nail-biters sharing the same scorecard.")
 
     # Note rule changes if present in round data
     rule_changes = round_data.get("rule_changes", [])
@@ -417,20 +403,20 @@ def generate_simulation_mirror_mock(
                 f"adjusted heading into the round. The effects are starting to show."
             )
 
-    return Mirror(
-        id=f"m-sim-{round_number}-mock",
-        mirror_type="simulation",
+    return Report(
+        id=f"r-sim-{round_number}-mock",
+        report_type="simulation",
         round_number=round_number,
         content=" ".join(lines),
     )
 
 
-def generate_governance_mirror_mock(
+def generate_governance_report_mock(
     governance_data: dict,
     season_id: str,
     round_number: int,
-) -> Mirror:
-    """Mock governance mirror for testing."""
+) -> Report:
+    """Mock governance report for testing."""
     proposals = governance_data.get("proposals", [])
     votes = governance_data.get("votes", [])
     rules_changed = governance_data.get("rules_changed", [])
@@ -463,21 +449,21 @@ def generate_governance_mirror_mock(
                 lines.append(f"  A rule was changed (proposal {rc.get('proposal_id', '?')}).")
         lines.append("The next round plays under these new conditions.")
 
-    return Mirror(
-        id=f"m-gov-{round_number}-mock",
-        mirror_type="governance",
+    return Report(
+        id=f"r-gov-{round_number}-mock",
+        report_type="governance",
         round_number=round_number,
         content=" ".join(lines) if lines else "Governance was silent this round.",
     )
 
 
-def generate_private_mirror_mock(
+def generate_private_report_mock(
     governor_data: dict,
     governor_id: str,
     season_id: str,
     round_number: int,
-) -> Mirror:
-    """Mock private mirror for testing."""
+) -> Report:
+    """Mock private report for testing."""
     proposals = governor_data.get("proposals_submitted", 0)
     votes = governor_data.get("votes_cast", 0)
     tokens_spent = governor_data.get("tokens_spent", 0)
@@ -497,9 +483,9 @@ def generate_private_mirror_mock(
             parts.append(f"spent {tokens_spent} token(s)")
         content = f"Governor {governor_id} {', '.join(parts)} this round."
 
-    return Mirror(
-        id=f"m-priv-{round_number}-{governor_id[:8]}-mock",
-        mirror_type="private",
+    return Report(
+        id=f"r-priv-{round_number}-{governor_id[:8]}-mock",
+        report_type="private",
         round_number=round_number,
         governor_id=governor_id,
         content=content,

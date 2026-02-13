@@ -149,8 +149,7 @@ async def detect_participation_collapse(
     )
     all_governors = {e.governor_id for e in all_events if e.governor_id}
     active_this_round = {
-        e.governor_id for e in all_events
-        if e.governor_id and e.round_number == round_number
+        e.governor_id for e in all_events if e.governor_id and e.round_number == round_number
     }
 
     if not all_governors:

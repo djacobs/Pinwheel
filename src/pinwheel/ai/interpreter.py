@@ -2,7 +2,7 @@
 
 The interpreter receives ONLY: the proposal text, the current ruleset parameters,
 and their valid ranges. It has NO access to simulation state, game results,
-player data, or mirror content. This is both a security boundary and a design choice.
+player data, or report content. This is both a security boundary and a design choice.
 """
 
 from __future__ import annotations

@@ -38,13 +38,15 @@ async def _persist_presentation_start(
     quarter_replay_seconds: int,
 ) -> None:
     """Store presentation metadata in DB so it survives a deploy."""
-    data = json.dumps({
-        "season_id": season_id,
-        "round_number": round_number,
-        "started_at": datetime.now(UTC).isoformat(),
-        "game_row_ids": game_row_ids,
-        "quarter_replay_seconds": quarter_replay_seconds,
-    })
+    data = json.dumps(
+        {
+            "season_id": season_id,
+            "round_number": round_number,
+            "started_at": datetime.now(UTC).isoformat(),
+            "game_row_ids": game_row_ids,
+            "quarter_replay_seconds": quarter_replay_seconds,
+        }
+    )
     async with get_session(engine) as session:
         repo = Repository(session)
         await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
@@ -194,38 +196,42 @@ async def resume_presentation(
             # Rebuild box scores
             box_scores = []
             for bs in row.box_scores:
-                box_scores.append(HooperBoxScore(
-                    hooper_id=bs.hooper_id,
-                    hooper_name="",  # Will be filled from name_cache
-                    team_id=bs.team_id,
-                    points=bs.points,
-                    field_goals_made=bs.field_goals_made,
-                    field_goals_attempted=bs.field_goals_attempted,
-                    three_pointers_made=bs.three_pointers_made,
-                    three_pointers_attempted=bs.three_pointers_attempted,
-                    free_throws_made=bs.free_throws_made,
-                    free_throws_attempted=bs.free_throws_attempted,
-                    assists=bs.assists,
-                    steals=bs.steals,
-                    turnovers=bs.turnovers,
-                    minutes=bs.minutes,
-                ))
+                box_scores.append(
+                    HooperBoxScore(
+                        hooper_id=bs.hooper_id,
+                        hooper_name="",  # Will be filled from name_cache
+                        team_id=bs.team_id,
+                        points=bs.points,
+                        field_goals_made=bs.field_goals_made,
+                        field_goals_attempted=bs.field_goals_attempted,
+                        three_pointers_made=bs.three_pointers_made,
+                        three_pointers_attempted=bs.three_pointers_attempted,
+                        free_throws_made=bs.free_throws_made,
+                        free_throws_attempted=bs.free_throws_attempted,
+                        assists=bs.assists,
+                        steals=bs.steals,
+                        turnovers=bs.turnovers,
+                        minutes=bs.minutes,
+                    )
+                )
 
-            game_results.append(GameResult(
-                game_id=row.id,
-                home_team_id=row.home_team_id,
-                away_team_id=row.away_team_id,
-                home_score=row.home_score,
-                away_score=row.away_score,
-                winner_team_id=row.winner_team_id,
-                seed=row.seed,
-                total_possessions=row.total_possessions,
-                elam_activated=row.elam_target is not None,
-                elam_target_score=row.elam_target,
-                quarter_scores=quarter_scores,
-                box_scores=box_scores,
-                possession_log=possession_log,
-            ))
+            game_results.append(
+                GameResult(
+                    game_id=row.id,
+                    home_team_id=row.home_team_id,
+                    away_team_id=row.away_team_id,
+                    home_score=row.home_score,
+                    away_score=row.away_score,
+                    winner_team_id=row.winner_team_id,
+                    seed=row.seed,
+                    total_possessions=row.total_possessions,
+                    elam_activated=row.elam_target is not None,
+                    elam_target_score=row.elam_target,
+                    quarter_scores=quarter_scores,
+                    box_scores=box_scores,
+                    possession_log=possession_log,
+                )
+            )
 
         if not game_results:
             logger.warning("resume: no game results reconstructed, clearing state")
@@ -251,18 +257,20 @@ async def resume_presentation(
         # Build game summaries for Discord (minimal — just what embeds need)
         game_summaries: list[dict] = []
         for gr in game_results:
-            game_summaries.append({
-                "home_team": name_cache.get(gr.home_team_id, gr.home_team_id),
-                "away_team": name_cache.get(gr.away_team_id, gr.away_team_id),
-                "home_team_name": name_cache.get(gr.home_team_id, gr.home_team_id),
-                "away_team_name": name_cache.get(gr.away_team_id, gr.away_team_id),
-                "home_score": gr.home_score,
-                "away_score": gr.away_score,
-                "winner_team_id": gr.winner_team_id,
-                "elam_activated": gr.elam_activated,
-                "total_possessions": gr.total_possessions,
-                "commentary": "",
-            })
+            game_summaries.append(
+                {
+                    "home_team": name_cache.get(gr.home_team_id, gr.home_team_id),
+                    "away_team": name_cache.get(gr.away_team_id, gr.away_team_id),
+                    "home_team_name": name_cache.get(gr.home_team_id, gr.home_team_id),
+                    "away_team_name": name_cache.get(gr.away_team_id, gr.away_team_id),
+                    "home_score": gr.home_score,
+                    "away_score": gr.away_score,
+                    "winner_team_id": gr.winner_team_id,
+                    "elam_activated": gr.elam_activated,
+                    "total_possessions": gr.total_possessions,
+                    "commentary": "",
+                }
+            )
 
     # Set up presentation state
     presentation_state.current_round = round_number
@@ -313,7 +321,7 @@ async def tick_round(
     * Finds the first season in the database.
     * Determines the next round number from max(round_number) of existing
       game results + 1.
-    * Calls ``step_round`` to execute simulation, governance, mirrors, and evals.
+    * Calls ``step_round`` to execute simulation, governance, reports, and evals.
     * Commits on success; rolls back on error.
 
     If no season exists the tick is silently skipped.
@@ -358,10 +366,7 @@ async def tick_round(
 
             # If instant mode (dev only), mark all games presented immediately
             # and publish presentation events so Discord notifications fire
-            if (
-                presentation_mode != "replay"
-                and round_result.game_results
-            ):
+            if presentation_mode != "replay" and round_result.game_results:
                 for gid in round_result.game_row_ids:
                     await repo.mark_game_presented(gid)
                 await session.commit()
@@ -369,7 +374,8 @@ async def tick_round(
                 # Publish presentation.game_finished for each game
                 for summary in round_result.games:
                     await event_bus.publish(
-                        "presentation.game_finished", dict(summary),
+                        "presentation.game_finished",
+                        dict(summary),
                     )
                 # Publish presentation.round_finished
                 await event_bus.publish(
@@ -416,8 +422,11 @@ async def tick_round(
 
                 # Persist start time so we can resume after deploy
                 await _persist_presentation_start(
-                    engine, season_id, next_round,
-                    round_result.game_row_ids, quarter_replay_seconds,
+                    engine,
+                    season_id,
+                    next_round,
+                    round_result.game_row_ids,
+                    quarter_replay_seconds,
                 )
 
                 asyncio.create_task(

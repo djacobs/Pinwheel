@@ -29,7 +29,7 @@ async def sse_stream(
     """Server-Sent Events stream.
 
     Query params:
-        event_type: optional filter (e.g. "game.completed", "mirror.generated")
+        event_type: optional filter (e.g. "game.completed", "report.generated")
                     If omitted, receives all events.
 
     Returns an SSE stream that stays open until the client disconnects.

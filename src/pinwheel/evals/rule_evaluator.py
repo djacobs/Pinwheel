@@ -1,7 +1,7 @@
 """AI Rule Evaluator (M.7) — admin-facing Opus analysis.
 
 After each round, Opus reviews the current state and generates admin-facing
-analysis. This is the "expansive" AI — where mirrors constrain themselves to
+analysis. This is the "expansive" AI — where reports constrain themselves to
 observation, the evaluator explores freely.
 
 Runs only when ANTHROPIC_API_KEY is set. Mock version for tests.
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 RULE_EVALUATOR_PROMPT = """\
 You are the Rule Evaluator for Pinwheel Fates, a 3v3 basketball governance game.
 
-Unlike the Social Mirror (which DESCRIBES and never PRESCRIBES), you are the admin-facing \
+Unlike the Social Reporter (which DESCRIBES and never PRESCRIBES), you are the admin-facing \
 analyst. You DO prescribe. Your job is to review the current state of the game and suggest \
 rule experiments, identify stale parameters, and flag degenerate equilibria.
 
@@ -80,9 +80,7 @@ async def evaluate_rules(
         "avg_possessions": (
             sum(g.total_possessions for g in recent_games) / max(len(recent_games), 1)
         ),
-        "elam_rate": (
-            sum(1 for g in recent_games if g.elam_target) / max(len(recent_games), 1)
-        ),
+        "elam_rate": (sum(1 for g in recent_games if g.elam_target) / max(len(recent_games), 1)),
     }
 
     # Governance trends
@@ -101,7 +99,9 @@ async def evaluate_rules(
 
     # Active flags
     flag_results = await repo.get_eval_results(
-        season_id, eval_type="flag", round_number=round_number,
+        season_id,
+        eval_type="flag",
+        round_number=round_number,
     )
     flags = [r.details_json for r in flag_results if r.details_json]
 
@@ -191,11 +191,7 @@ def _parse_evaluation(
         if not stripped:
             continue
 
-        is_list_item = (
-            stripped.startswith("-")
-            or stripped.startswith("*")
-            or stripped[0].isdigit()
-        )
+        is_list_item = stripped.startswith("-") or stripped.startswith("*") or stripped[0].isdigit()
         clean = stripped.lstrip("-*0123456789. ")
 
         if current_section == "experiments" and is_list_item:

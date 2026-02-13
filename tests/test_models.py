@@ -10,7 +10,7 @@ from pinwheel.models.game import (
     PossessionLog,
 )
 from pinwheel.models.governance import Amendment, GovernanceEvent, Proposal, Vote
-from pinwheel.models.mirror import Mirror, MirrorUpdate
+from pinwheel.models.report import Report, ReportUpdate
 from pinwheel.models.rules import DEFAULT_RULESET, RuleChange, RuleSet
 from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
 from pinwheel.models.tokens import TokenBalance, Trade
@@ -259,20 +259,20 @@ class TestTokenModels:
             )
 
 
-# --- Mirror ---
+# --- Report ---
 
 
-class TestMirrorModels:
-    def test_mirror(self):
-        m = Mirror(id="m-1", mirror_type="simulation", round_number=14)
+class TestReportModels:
+    def test_report(self):
+        m = Report(id="m-1", report_type="simulation", round_number=14)
         assert m.content == ""
 
-    def test_private_mirror(self):
-        m = Mirror(id="m-2", mirror_type="private", governor_id="gov-1", round_number=14)
+    def test_private_report(self):
+        m = Report(id="m-2", report_type="private", governor_id="gov-1", round_number=14)
         assert m.governor_id == "gov-1"
 
-    def test_mirror_update(self):
-        mu = MirrorUpdate(mirror_id="m-1", mirror_type="governance", round_number=14)
+    def test_report_update(self):
+        mu = ReportUpdate(report_id="m-1", report_type="governance", round_number=14)
         assert mu.excerpt == ""
 
 
@@ -281,4 +281,4 @@ class TestMirrorModels:
 
 def test_no_circular_imports():
     """All model modules can be imported together without circular dependency."""
-    from pinwheel.models import game, governance, mirror, rules, team, tokens  # noqa: F401
+    from pinwheel.models import game, governance, report, rules, team, tokens  # noqa: F401

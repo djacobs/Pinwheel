@@ -1,6 +1,6 @@
-"""A/B mirror comparison (M.2).
+"""A/B report comparison (M.2).
 
-Generate two prompt variants for the same input. For private mirrors,
+Generate two prompt variants for the same input. For private reports,
 content is None in review context (privacy enforcement). Track win rates
 by prompt version.
 """
@@ -19,26 +19,26 @@ if TYPE_CHECKING:
 
 
 def build_variant(
-    mirror_id: str,
-    mirror_type: str,
+    report_id: str,
+    report_type: str,
     prompt_version: str,
     content: str,
     context: GroundingContext | None = None,
 ) -> ABVariant:
-    """Build an ABVariant, stripping content for private mirrors."""
+    """Build an ABVariant, stripping content for private reports."""
     grounding_score = 0.0
     if context:
-        result = check_grounding(content, context, mirror_id, mirror_type)
+        result = check_grounding(content, context, report_id, report_type)
         grounding_score = result.entities_found / max(result.entities_expected, 1)
 
-    presc = scan_prescriptive(content, mirror_id, mirror_type)
+    presc = scan_prescriptive(content, report_id, report_type)
 
     return ABVariant(
         variant="A" if "A" in prompt_version else "B",
-        mirror_id=mirror_id,
-        mirror_type=mirror_type,
+        report_id=report_id,
+        report_type=report_type,
         prompt_version=prompt_version,
-        content=None if mirror_type == "private" else content,
+        content=None if report_type == "private" else content,
         grounding_score=grounding_score,
         prescriptive_count=presc.prescriptive_count,
         length=len(content),
@@ -49,7 +49,7 @@ def compare_variants(
     variant_a: ABVariant,
     variant_b: ABVariant,
 ) -> ABComparison:
-    """Compare two variants. For private mirrors, only structural metrics matter."""
+    """Compare two variants. For private reports, only structural metrics matter."""
     comparison_id = str(uuid.uuid4())
 
     # Score each variant
@@ -103,7 +103,7 @@ async def store_ab_comparison(
         season_id=season_id,
         round_number=round_number,
         eval_type="ab_comparison",
-        eval_subtype=comparison.variant_a.mirror_type,
+        eval_subtype=comparison.variant_a.report_type,
         score=1.0 if comparison.winner == "A" else (0.0 if comparison.winner == "B" else 0.5),
         details_json={
             "comparison_id": comparison.comparison_id,

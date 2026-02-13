@@ -233,8 +233,14 @@ async def _present_full_game(
     )
 
     await _present_game(
-        game_idx, game_result, event_bus, state, quarter_replay_seconds, names,
-        colors, skip_quarters=skip_quarters,
+        game_idx,
+        game_result,
+        event_bus,
+        state,
+        quarter_replay_seconds,
+        names,
+        colors,
+        skip_quarters=skip_quarters,
     )
 
     if state.cancel_event.is_set():
@@ -261,14 +267,16 @@ async def _present_full_game(
     # Attach game summary fields so Discord gets full context
     if game_idx < len(state.game_summaries):
         summary = state.game_summaries[game_idx]
-        finished_data.update({
-            "home_team": summary.get("home_team", home_name),
-            "away_team": summary.get("away_team", away_name),
-            "winner_team_id": summary.get("winner_team_id", ""),
-            "elam_activated": summary.get("elam_activated", False),
-            "total_possessions": summary.get("total_possessions", 0),
-            "commentary": summary.get("commentary", ""),
-        })
+        finished_data.update(
+            {
+                "home_team": summary.get("home_team", home_name),
+                "away_team": summary.get("away_team", away_name),
+                "winner_team_id": summary.get("winner_team_id", ""),
+                "elam_activated": summary.get("elam_activated", False),
+                "total_possessions": summary.get("total_possessions", 0),
+                "commentary": summary.get("commentary", ""),
+            }
+        )
 
     await event_bus.publish("presentation.game_finished", finished_data)
 
@@ -276,9 +284,7 @@ async def _present_full_game(
         try:
             await on_game_finished(game_idx)
         except Exception:
-            logger.exception(
-                "on_game_finished callback failed for game %d", game_idx
-            )
+            logger.exception("on_game_finished callback failed for game %d", game_idx)
 
 
 async def _present_game(
@@ -345,12 +351,8 @@ async def _present_game(
             if state.cancel_event.is_set():
                 return
 
-            player_name = names.get(
-                possession.ball_handler_id, possession.ball_handler_id
-            )
-            offense_name = names.get(
-                possession.offense_team_id, possession.offense_team_id
-            )
+            player_name = names.get(possession.ball_handler_id, possession.ball_handler_id)
+            offense_name = names.get(possession.offense_team_id, possession.offense_team_id)
             defender_name = (
                 names.get(possession.defender_id, possession.defender_id)
                 if possession.defender_id
@@ -378,9 +380,7 @@ async def _present_game(
                 "quarter": possession.quarter,
                 "offense_team_id": possession.offense_team_id,
                 "offense_team_name": offense_name,
-                "offense_color": colors.get(
-                    possession.offense_team_id, ("#888",)
-                )[0],
+                "offense_color": colors.get(possession.offense_team_id, ("#888",))[0],
                 "ball_handler_id": possession.ball_handler_id,
                 "ball_handler_name": player_name,
                 "action": possession.action,

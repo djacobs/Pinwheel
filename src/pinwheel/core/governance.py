@@ -68,20 +68,36 @@ def detect_tier(interpretation: RuleInterpretation, ruleset: RuleSet) -> int:
         return 5  # Game Effect or uninterpretable
     param = interpretation.parameter
     tier1 = {
-        "quarter_minutes", "shot_clock_seconds", "three_point_value",
-        "two_point_value", "free_throw_value", "personal_foul_limit",
-        "team_foul_bonus_threshold", "three_point_distance",
-        "elam_trigger_quarter", "elam_margin", "halftime_stamina_recovery",
+        "quarter_minutes",
+        "shot_clock_seconds",
+        "three_point_value",
+        "two_point_value",
+        "free_throw_value",
+        "personal_foul_limit",
+        "team_foul_bonus_threshold",
+        "three_point_distance",
+        "elam_trigger_quarter",
+        "elam_margin",
+        "halftime_stamina_recovery",
         "safety_cap_possessions",
     }
     tier2 = {
-        "max_shot_share", "min_pass_per_possession", "home_court_enabled",
-        "home_crowd_boost", "away_fatigue_factor", "crowd_pressure",
-        "altitude_stamina_penalty", "travel_fatigue_enabled", "travel_fatigue_per_mile",
+        "max_shot_share",
+        "min_pass_per_possession",
+        "home_court_enabled",
+        "home_crowd_boost",
+        "away_fatigue_factor",
+        "crowd_pressure",
+        "altitude_stamina_penalty",
+        "travel_fatigue_enabled",
+        "travel_fatigue_per_mile",
     }
     tier3 = {
-        "teams_count", "round_robins_per_season", "playoff_teams",
-        "playoff_semis_best_of", "playoff_finals_best_of",
+        "teams_count",
+        "round_robins_per_season",
+        "playoff_teams",
+        "playoff_semis_best_of",
+        "playoff_finals_best_of",
     }
     tier4 = {"proposals_per_window", "vote_threshold"}
     if param in tier1:
@@ -181,9 +197,7 @@ def _needs_admin_review(proposal: Proposal) -> bool:
     """
     if proposal.tier >= 5:
         return True
-    return bool(
-        proposal.interpretation and proposal.interpretation.confidence < 0.5
-    )
+    return bool(proposal.interpretation and proposal.interpretation.confidence < 0.5)
 
 
 async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
@@ -231,7 +245,9 @@ async def admin_approve_proposal(repo: Repository, proposal: Proposal) -> Propos
 
 
 async def admin_reject_proposal(
-    repo: Repository, proposal: Proposal, reason: str = "",
+    repo: Repository,
+    proposal: Proposal,
+    reason: str = "",
 ) -> Proposal:
     """Admin rejects a proposal held for review. Refunds the PROPOSE token."""
     proposal.status = "rejected"

@@ -1,7 +1,5 @@
 """Tests for the in-memory async EventBus."""
 
-
-
 from pinwheel.core.event_bus import EventBus
 
 
@@ -30,19 +28,19 @@ class TestEventBusPublish:
 
         async with bus.subscribe(None) as sub:
             await bus.publish("game.completed", {"id": "g-1"})
-            await bus.publish("mirror.generated", {"id": "m-1"})
+            await bus.publish("report.generated", {"id": "m-1"})
 
             e1 = await sub.get(timeout=1.0)
             e2 = await sub.get(timeout=1.0)
 
         assert e1["type"] == "game.completed"
-        assert e2["type"] == "mirror.generated"
+        assert e2["type"] == "report.generated"
 
     async def test_typed_subscriber_filters(self):
         bus = EventBus()
 
         async with bus.subscribe("game.completed") as sub:
-            await bus.publish("mirror.generated", {"id": "m-1"})
+            await bus.publish("report.generated", {"id": "m-1"})
             await bus.publish("game.completed", {"id": "g-1"})
 
             event = await sub.get(timeout=1.0)

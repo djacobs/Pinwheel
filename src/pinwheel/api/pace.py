@@ -82,7 +82,9 @@ async def set_pace(body: PaceRequest, request: Request) -> PaceResponse:
 
 @router.post("/advance", response_model=AdvanceResponse)
 async def advance_round(
-    request: Request, quarter_seconds: int = 300, game_gap_seconds: int = 0,
+    request: Request,
+    quarter_seconds: int = 300,
+    game_gap_seconds: int = 0,
 ) -> AdvanceResponse:
     """Trigger a round advance within the server process.
 

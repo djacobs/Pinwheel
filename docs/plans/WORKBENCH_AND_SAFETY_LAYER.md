@@ -8,7 +8,7 @@ Two planned improvements to Pinwheel Fates' AI subsystem: systematic prompt iter
 
 ### The Problem
 
-The interpreter prompt (`ai/interpreter.py`, lines 20–50) and all six mirror prompts (`ai/mirror.py`, lines 25–126) are iterated entirely in-code. There is no structured eval dataset, no side-by-side comparison across prompt versions, and no grading rubric that persists outside of the test suite. The A/B variant prompts in `mirror.py` were written by hand without Workbench tooling.
+The interpreter prompt (`ai/interpreter.py`, lines 20–50) and all six report prompts (`ai/report.py`, lines 25–126) are iterated entirely in-code. There is no structured eval dataset, no side-by-side comparison across prompt versions, and no grading rubric that persists outside of the test suite. The A/B variant prompts in `report.py` were written by hand without Workbench tooling.
 
 ### What Workbench Gives You
 
@@ -36,11 +36,11 @@ With one variable: `{{parameters}}` (the parameter description string).
 
 User message template: `Proposal: {{raw_text}}`
 
-**Project: Mirrors** (one prompt per mirror type, six total)
+**Project: Reports** (one prompt per report type, six total)
 
-Each mirror prompt becomes its own entry. For example, the simulation mirror:
+Each report prompt becomes its own entry. For example, the simulation report:
 ```
-You are the Social Mirror for Pinwheel Fates...
+You are the Social Report for Pinwheel Fates...
 ```
 With variable: `{{round_data}}`
 
@@ -58,8 +58,8 @@ With variable: `{{round_data}}`
 
 Aim for 30–50 cases covering: clear proposals, ambiguous proposals, out-of-range values, injection attempts (direct, indirect, Unicode obfuscation, multi-step), and edge cases (empty strings, maximum length, special characters).
 
-**Mirror eval cases** — create datasets from actual round data (or use the mock generators to produce synthetic round data). Grade on:
-- Does the mirror DESCRIBE only? (never prescribes)
+**Report eval cases** — create datasets from actual round data (or use the mock generators to produce synthetic round data). Grade on:
+- Does the report DESCRIBE only? (never prescribes)
 - Does it reference specific teams/agents/rules from the data?
 - Is it concise (within the paragraph limits)?
 - Does it surface genuine patterns vs. generic filler?
@@ -73,11 +73,11 @@ Feed each prompt through the Prompt Improver. Compare the improved version again
 
 #### Step 4: A/B Test Systematically
 
-The mirror system already has variant B prompts. Use Workbench's side-by-side comparison to evaluate A vs. B against the same round data, graded by human raters on the 5-point scale. This replaces the current ad-hoc M.2 eval with a structured workflow.
+The report system already has variant B prompts. Use Workbench's side-by-side comparison to evaluate A vs. B against the same round data, graded by human raters on the 5-point scale. This replaces the current ad-hoc M.2 eval with a structured workflow.
 
 #### Step 5: Close the Loop Back to Code
 
-Once a prompt version wins in Workbench, update the corresponding constant in `interpreter.py` or `mirror.py`. The Prompt Registry gives you version history, so you can always roll back if a production prompt regresses.
+Once a prompt version wins in Workbench, update the corresponding constant in `interpreter.py` or `report.py`. The Prompt Registry gives you version history, so you can always roll back if a production prompt regresses.
 
 **Optional automation**: Write a small script that pulls the current "active" prompt version from the Workbench API and compares it to the in-code constant, flagging drift.
 

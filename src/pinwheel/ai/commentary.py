@@ -71,14 +71,17 @@ def _build_game_context(
 
     # Key moments from possession log (sample up to 8 notable plays)
     notable = [
-        p for p in game_result.possession_log
+        p
+        for p in game_result.possession_log
         if p.points_scored >= 3 or p.result == "turnover" or p.move_activated
     ][:8]
     if notable:
         lines.append("\nKey plays:")
         for p in notable:
-            lines.append(f"  Q{p.quarter} #{p.possession_number}: {p.action} -> {p.result}"
-                         f" ({p.points_scored}pts)")
+            lines.append(
+                f"  Q{p.quarter} #{p.possession_number}: {p.action} -> {p.result}"
+                f" ({p.points_scored}pts)"
+            )
 
     return "\n".join(lines)
 
@@ -128,15 +131,13 @@ def generate_game_commentary_mock(
 
     # Find top scorer
     top_scorer = (
-        max(game_result.box_scores, key=lambda b: b.points)
-        if game_result.box_scores
-        else None
+        max(game_result.box_scores, key=lambda b: b.points) if game_result.box_scores else None
     )
 
     # Find top assist leader
-    top_assist = max(
-        game_result.box_scores, key=lambda b: b.assists
-    ) if game_result.box_scores else None
+    top_assist = (
+        max(game_result.box_scores, key=lambda b: b.assists) if game_result.box_scores else None
+    )
 
     paragraphs = []
 
@@ -170,17 +171,13 @@ def generate_game_commentary_mock(
 
     # Star performer paragraph
     if top_scorer:
-        scorer_team = (
-            home_team.name if top_scorer.team_id == home_team.id else away_team.name
-        )
+        scorer_team = home_team.name if top_scorer.team_id == home_team.id else away_team.name
         star_line = (
             f"{top_scorer.agent_name} of the {scorer_team} led all scorers with "
             f"{top_scorer.points} points"
         )
         if top_assist and top_assist.agent_id != top_scorer.agent_id and top_assist.assists > 0:
-            assist_team = (
-                home_team.name if top_assist.team_id == home_team.id else away_team.name
-            )
+            assist_team = home_team.name if top_assist.team_id == home_team.id else away_team.name
             star_line += (
                 f", while {top_assist.agent_name} ({assist_team}) orchestrated the offense "
                 f"with {top_assist.assists} assists"
@@ -263,12 +260,13 @@ def generate_highlight_reel_mock(
             )
         elif margin <= 3:
             lines.append(
-                f"A razor-thin finish: {home} {hs}, {away} {aws}. "
-                f"Every possession mattered."
+                f"A razor-thin finish: {home} {hs}, {away} {aws}. Every possession mattered."
             )
         else:
-            lines.append(f"The {winner} handled the {away if winner == home else home} "
-                         f"{max(hs, aws)}-{min(hs, aws)}.")
+            lines.append(
+                f"The {winner} handled the {away if winner == home else home} "
+                f"{max(hs, aws)}-{min(hs, aws)}."
+            )
 
     total_points = sum(g.get("home_score", 0) + g.get("away_score", 0) for g in game_summaries)
     elam_count = sum(1 for g in game_summaries if g.get("elam_activated"))

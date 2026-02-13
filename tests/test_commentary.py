@@ -48,34 +48,70 @@ def _make_game_result(
         ],
         box_scores=[
             HooperBoxScore(
-                hooper_id="a-1", hooper_name="Briar Ashwood", team_id="team-home",
-                points=20, assists=5, steals=2, turnovers=1,
-                field_goals_made=8, field_goals_attempted=15,
+                hooper_id="a-1",
+                hooper_name="Briar Ashwood",
+                team_id="team-home",
+                points=20,
+                assists=5,
+                steals=2,
+                turnovers=1,
+                field_goals_made=8,
+                field_goals_attempted=15,
             ),
             HooperBoxScore(
-                hooper_id="a-2", hooper_name="Rowan Dusk", team_id="team-home",
-                points=15, assists=3, steals=1, turnovers=2,
-                field_goals_made=6, field_goals_attempted=12,
+                hooper_id="a-2",
+                hooper_name="Rowan Dusk",
+                team_id="team-home",
+                points=15,
+                assists=3,
+                steals=1,
+                turnovers=2,
+                field_goals_made=6,
+                field_goals_attempted=12,
             ),
             HooperBoxScore(
-                hooper_id="a-3", hooper_name="Shade Twilight", team_id="team-home",
-                points=10, assists=2, steals=0, turnovers=1,
-                field_goals_made=4, field_goals_attempted=10,
+                hooper_id="a-3",
+                hooper_name="Shade Twilight",
+                team_id="team-home",
+                points=10,
+                assists=2,
+                steals=0,
+                turnovers=1,
+                field_goals_made=4,
+                field_goals_attempted=10,
             ),
             HooperBoxScore(
-                hooper_id="a-4", hooper_name="Kai Sunder", team_id="team-away",
-                points=18, assists=4, steals=3, turnovers=2,
-                field_goals_made=7, field_goals_attempted=14,
+                hooper_id="a-4",
+                hooper_name="Kai Sunder",
+                team_id="team-away",
+                points=18,
+                assists=4,
+                steals=3,
+                turnovers=2,
+                field_goals_made=7,
+                field_goals_attempted=14,
             ),
             HooperBoxScore(
-                hooper_id="a-5", hooper_name="Zephyr Flame", team_id="team-away",
-                points=12, assists=2, steals=1, turnovers=3,
-                field_goals_made=5, field_goals_attempted=11,
+                hooper_id="a-5",
+                hooper_name="Zephyr Flame",
+                team_id="team-away",
+                points=12,
+                assists=2,
+                steals=1,
+                turnovers=3,
+                field_goals_made=5,
+                field_goals_attempted=11,
             ),
             HooperBoxScore(
-                hooper_id="a-6", hooper_name="Nix Cinder", team_id="team-away",
-                points=8, assists=1, steals=0, turnovers=1,
-                field_goals_made=3, field_goals_attempted=9,
+                hooper_id="a-6",
+                hooper_name="Nix Cinder",
+                team_id="team-away",
+                points=8,
+                assists=1,
+                steals=0,
+                turnovers=1,
+                field_goals_made=3,
+                field_goals_attempted=9,
             ),
         ],
     )
@@ -85,20 +121,42 @@ def _make_home_team():
     from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
 
     attrs = PlayerAttributes(
-        scoring=50, passing=40, defense=35, speed=45,
-        stamina=40, iq=50, ego=30, chaotic_alignment=40, fate=30,
+        scoring=50,
+        passing=40,
+        defense=35,
+        speed=45,
+        stamina=40,
+        iq=50,
+        ego=30,
+        chaotic_alignment=40,
+        fate=30,
     )
     return Team(
         id="team-home",
         name="Rose City Thorns",
         venue=Venue(name="Thorn Arena", capacity=5000),
         hoopers=[
-            Hooper(id="a-1", name="Briar Ashwood", team_id="team-home",
-                   archetype="sharpshooter", attributes=attrs),
-            Hooper(id="a-2", name="Rowan Dusk", team_id="team-home",
-                   archetype="playmaker", attributes=attrs),
-            Hooper(id="a-3", name="Shade Twilight", team_id="team-home",
-                   archetype="enforcer", attributes=attrs),
+            Hooper(
+                id="a-1",
+                name="Briar Ashwood",
+                team_id="team-home",
+                archetype="sharpshooter",
+                attributes=attrs,
+            ),
+            Hooper(
+                id="a-2",
+                name="Rowan Dusk",
+                team_id="team-home",
+                archetype="playmaker",
+                attributes=attrs,
+            ),
+            Hooper(
+                id="a-3",
+                name="Shade Twilight",
+                team_id="team-home",
+                archetype="enforcer",
+                attributes=attrs,
+            ),
         ],
     )
 
@@ -107,20 +165,42 @@ def _make_away_team():
     from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
 
     attrs = PlayerAttributes(
-        scoring=50, passing=40, defense=35, speed=45,
-        stamina=40, iq=50, ego=30, chaotic_alignment=40, fate=30,
+        scoring=50,
+        passing=40,
+        defense=35,
+        speed=45,
+        stamina=40,
+        iq=50,
+        ego=30,
+        chaotic_alignment=40,
+        fate=30,
     )
     return Team(
         id="team-away",
         name="Burnside Breakers",
         venue=Venue(name="Breaker Court", capacity=4000),
         hoopers=[
-            Hooper(id="a-4", name="Kai Sunder", team_id="team-away",
-                   archetype="sharpshooter", attributes=attrs),
-            Hooper(id="a-5", name="Zephyr Flame", team_id="team-away",
-                   archetype="playmaker", attributes=attrs),
-            Hooper(id="a-6", name="Nix Cinder", team_id="team-away",
-                   archetype="enforcer", attributes=attrs),
+            Hooper(
+                id="a-4",
+                name="Kai Sunder",
+                team_id="team-away",
+                archetype="sharpshooter",
+                attributes=attrs,
+            ),
+            Hooper(
+                id="a-5",
+                name="Zephyr Flame",
+                team_id="team-away",
+                archetype="playmaker",
+                attributes=attrs,
+            ),
+            Hooper(
+                id="a-6",
+                name="Nix Cinder",
+                team_id="team-away",
+                archetype="enforcer",
+                attributes=attrs,
+            ),
         ],
     )
 
@@ -209,13 +289,15 @@ class TestGameCommentaryMock:
 
 class TestHighlightReelMock:
     def test_single_game(self) -> None:
-        summaries = [{
-            "home_team": "Rose City Thorns",
-            "away_team": "Burnside Breakers",
-            "home_score": 55,
-            "away_score": 48,
-            "elam_activated": False,
-        }]
+        summaries = [
+            {
+                "home_team": "Rose City Thorns",
+                "away_team": "Burnside Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            }
+        ]
 
         reel = generate_highlight_reel_mock(summaries, round_number=3)
 
@@ -249,39 +331,45 @@ class TestHighlightReelMock:
         assert "2 games" in reel
 
     def test_elam_game_highlighted(self) -> None:
-        summaries = [{
-            "home_team": "Thorns",
-            "away_team": "Breakers",
-            "home_score": 55,
-            "away_score": 50,
-            "elam_activated": True,
-        }]
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 50,
+                "elam_activated": True,
+            }
+        ]
 
         reel = generate_highlight_reel_mock(summaries, round_number=1)
 
         assert "Elam" in reel
 
     def test_blowout_noted(self) -> None:
-        summaries = [{
-            "home_team": "Thorns",
-            "away_team": "Breakers",
-            "home_score": 70,
-            "away_score": 40,
-            "elam_activated": False,
-        }]
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 70,
+                "away_score": 40,
+                "elam_activated": False,
+            }
+        ]
 
         reel = generate_highlight_reel_mock(summaries, round_number=2)
 
         assert "blew out" in reel.lower() or "never close" in reel.lower()
 
     def test_close_game_noted(self) -> None:
-        summaries = [{
-            "home_team": "Thorns",
-            "away_team": "Breakers",
-            "home_score": 42,
-            "away_score": 41,
-            "elam_activated": False,
-        }]
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 42,
+                "away_score": 41,
+                "elam_activated": False,
+            }
+        ]
 
         reel = generate_highlight_reel_mock(summaries, round_number=2)
 
@@ -295,10 +383,20 @@ class TestHighlightReelMock:
 
     def test_total_points_reported(self) -> None:
         summaries = [
-            {"home_team": "A", "away_team": "B", "home_score": 50, "away_score": 45,
-             "elam_activated": False},
-            {"home_team": "C", "away_team": "D", "home_score": 60, "away_score": 55,
-             "elam_activated": False},
+            {
+                "home_team": "A",
+                "away_team": "B",
+                "home_score": 50,
+                "away_score": 45,
+                "elam_activated": False,
+            },
+            {
+                "home_team": "C",
+                "away_team": "D",
+                "home_score": 60,
+                "away_score": 55,
+                "elam_activated": False,
+            },
         ]
 
         reel = generate_highlight_reel_mock(summaries, round_number=4)
@@ -367,8 +465,15 @@ async def repo(engine: AsyncEngine) -> Repository:
 
 def _hooper_attrs() -> dict:
     return {
-        "scoring": 50, "passing": 40, "defense": 35, "speed": 45,
-        "stamina": 40, "iq": 50, "ego": 30, "chaotic_alignment": 40, "fate": 30,
+        "scoring": 50,
+        "passing": 40,
+        "defense": 35,
+        "speed": 45,
+        "stamina": 40,
+        "iq": 50,
+        "ego": 30,
+        "chaotic_alignment": 40,
+        "fate": 30,
     }
 
 
@@ -376,14 +481,16 @@ async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
     """Create a league, season, 4 teams with 3 hoopers each, and a schedule."""
     league = await repo.create_league("Commentary Test League")
     season = await repo.create_season(
-        league.id, "Season 1",
+        league.id,
+        "Season 1",
         starting_ruleset={"quarter_minutes": 3},
     )
 
     team_ids = []
     for i in range(4):
         team = await repo.create_team(
-            season.id, f"Team {i + 1}",
+            season.id,
+            f"Team {i + 1}",
             venue={"name": f"Arena {i + 1}", "capacity": 5000},
         )
         team_ids.append(team.id)
@@ -435,7 +542,7 @@ class TestCommentaryGameLoopIntegration:
         # Core game loop functionality should still work
         assert result.round_number == 1
         assert len(result.games) == 2
-        assert len(result.mirrors) >= 2  # sim + gov mirrors
+        assert len(result.reports) >= 2  # sim + gov reports
 
     async def test_event_bus_receives_commentary(self, repo: Repository) -> None:
         """The game.completed event should include commentary."""

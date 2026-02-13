@@ -19,14 +19,16 @@ from pinwheel.evals.models import (
 
 def test_grounding_result():
     r = GroundingResult(
-        mirror_id="m-1", mirror_type="simulation",
-        entities_found=3, entities_expected=5,
+        report_id="m-1",
+        report_type="simulation",
+        entities_found=3,
+        entities_expected=5,
     )
     assert r.grounded is False
 
 
 def test_prescriptive_result():
-    r = PrescriptiveResult(mirror_id="m-1", mirror_type="simulation", prescriptive_count=0)
+    r = PrescriptiveResult(report_id="m-1", report_type="simulation", prescriptive_count=0)
     assert r.flagged is False
 
 
@@ -36,35 +38,35 @@ def test_behavioral_shift_result():
 
 
 def test_rubric_score_valid():
-    r = RubricScore(mirror_id="m-1", mirror_type="simulation", accuracy=5, insight=4)
+    r = RubricScore(report_id="m-1", report_type="simulation", accuracy=5, insight=4)
     assert r.accuracy == 5
 
 
 def test_rubric_score_rejects_private():
     with pytest.raises(ValidationError):
-        RubricScore(mirror_id="m-1", mirror_type="private")
+        RubricScore(report_id="m-1", report_type="private")
 
 
 def test_rubric_score_range():
     with pytest.raises(ValidationError):
-        RubricScore(mirror_id="m-1", mirror_type="simulation", accuracy=6)
+        RubricScore(report_id="m-1", report_type="simulation", accuracy=6)
     with pytest.raises(ValidationError):
-        RubricScore(mirror_id="m-1", mirror_type="simulation", accuracy=0)
+        RubricScore(report_id="m-1", report_type="simulation", accuracy=0)
 
 
 def test_golden_case():
-    c = GoldenCase(id="g-1", mirror_type="private", structural_only=True)
+    c = GoldenCase(id="g-1", report_type="private", structural_only=True)
     assert c.expected_patterns == []
 
 
 def test_ab_variant_private():
-    v = ABVariant(variant="A", mirror_id="m-1", mirror_type="private", content=None)
+    v = ABVariant(variant="A", report_id="m-1", report_type="private", content=None)
     assert v.content is None
 
 
 def test_ab_comparison():
-    a = ABVariant(variant="A", mirror_id="m-a", mirror_type="simulation")
-    b = ABVariant(variant="B", mirror_id="m-b", mirror_type="simulation")
+    a = ABVariant(variant="A", report_id="m-a", report_type="simulation")
+    b = ABVariant(variant="B", report_id="m-b", report_type="simulation")
     c = ABComparison(comparison_id="c-1", variant_a=a, variant_b=b, winner="A")
     assert c.winner == "A"
 

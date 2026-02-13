@@ -3,7 +3,7 @@
 import pytest
 
 from pinwheel.evals.behavioral import (
-    compute_mirror_impact_rate,
+    compute_report_impact_rate,
     detect_behavioral_shift,
 )
 
@@ -15,9 +15,7 @@ async def test_no_shift_no_baseline(repo):
     league = await repo.create_league("Test")
     season = await repo.create_season(league.id, "S1")
 
-    result = await detect_behavioral_shift(
-        repo, season.id, "gov-1", round_number=1
-    )
+    result = await detect_behavioral_shift(repo, season.id, "gov-1", round_number=1)
     assert result.shifted is False
     assert result.actions_this_round == 0
     assert result.baseline_avg == 0.0
@@ -40,18 +38,16 @@ async def test_shift_from_zero(repo):
         governor_id="gov-1",
     )
 
-    result = await detect_behavioral_shift(
-        repo, season.id, "gov-1", round_number=3
-    )
+    result = await detect_behavioral_shift(repo, season.id, "gov-1", round_number=3)
     assert result.shifted is True
     assert result.actions_this_round == 1
 
 
 @pytest.mark.asyncio
-async def test_mirror_impact_rate_no_mirrors(repo):
-    """No private mirrors means impact rate is 0."""
+async def test_report_impact_rate_no_reports(repo):
+    """No private reports means impact rate is 0."""
     league = await repo.create_league("Test")
     season = await repo.create_season(league.id, "S1")
 
-    rate = await compute_mirror_impact_rate(repo, season.id, round_number=1)
+    rate = await compute_report_impact_rate(repo, season.id, round_number=1)
     assert rate == 0.0

@@ -1,6 +1,6 @@
 """Eval dashboard route — GET /admin/evals.
 
-Shows aggregate stats only. No individual mirror text. No private content.
+Shows aggregate stats only. No individual report text. No private content.
 Visible in dev/staging only.
 """
 
@@ -42,7 +42,7 @@ async def _get_active_season_id(repo: RepoDep) -> str | None:
 
 @router.get("/evals", response_class=HTMLResponse)
 async def eval_dashboard(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Eval dashboard — aggregate stats, no mirror text.
+    """Eval dashboard — aggregate stats, no report text.
 
     Auth-gated: redirects to login if OAuth is enabled and user is not
     authenticated. In dev mode without OAuth credentials the page is
@@ -81,16 +81,14 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
     prescriptive_flagged = sum(
         1 for r in prescriptive_results if (r.details_json or {}).get("flagged", False)
     )
-    prescriptive_count = sum(
-        (r.details_json or {}).get("count", 0) for r in prescriptive_results
-    )
+    prescriptive_count = sum((r.details_json or {}).get("count", 0) for r in prescriptive_results)
 
-    # Behavioral results (Mirror Impact Rate)
+    # Behavioral results (Report Impact Rate)
     behavioral_results = await repo.get_eval_results(season_id, eval_type="behavioral")
     latest_mir = behavioral_results[0] if behavioral_results else None
-    mirror_impact_rate = 0.0
+    report_impact_rate = 0.0
     if latest_mir:
-        mirror_impact_rate = (latest_mir.details_json or {}).get("mirror_impact_rate", 0.0)
+        report_impact_rate = (latest_mir.details_json or {}).get("report_impact_rate", 0.0)
 
     # Rubric summary
     from pinwheel.evals.rubric import get_rubric_summary
@@ -114,29 +112,34 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
     gqi_trend = []
     for r in sorted(gqi_results, key=lambda x: x.round_number)[-5:]:
         details = r.details_json or {}
-        gqi_trend.append({
-            "round": r.round_number,
-            "composite": details.get("composite", 0.0),
-            "diversity": details.get("proposal_diversity", 0.0),
-            "breadth": details.get("participation_breadth", 0.0),
-            "awareness": details.get("consequence_awareness", 0.0),
-            "deliberation": details.get("vote_deliberation", 0.0),
-        })
+        gqi_trend.append(
+            {
+                "round": r.round_number,
+                "composite": details.get("composite", 0.0),
+                "diversity": details.get("proposal_diversity", 0.0),
+                "breadth": details.get("participation_breadth", 0.0),
+                "awareness": details.get("consequence_awareness", 0.0),
+                "deliberation": details.get("vote_deliberation", 0.0),
+            }
+        )
 
     # Active scenario flags
     flag_results = await repo.get_eval_results(season_id, eval_type="flag")
     active_flags = []
     for r in sorted(flag_results, key=lambda x: x.created_at, reverse=True)[:10]:
         details = r.details_json or {}
-        active_flags.append({
-            "type": details.get("flag_type", r.eval_subtype),
-            "severity": details.get("severity", "info"),
-            "round": r.round_number,
-            "details": {
-                k: v for k, v in details.items()
-                if k not in ("flag_type", "severity", "created_at")
-            },
-        })
+        active_flags.append(
+            {
+                "type": details.get("flag_type", r.eval_subtype),
+                "severity": details.get("severity", "info"),
+                "round": r.round_number,
+                "details": {
+                    k: v
+                    for k, v in details.items()
+                    if k not in ("flag_type", "severity", "created_at")
+                },
+            }
+        )
 
     # Latest rule evaluation
     rule_eval_results = await repo.get_eval_results(season_id, eval_type="rule_evaluation")
@@ -162,7 +165,7 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
             "prescriptive_flagged": prescriptive_flagged,
             "prescriptive_total": prescriptive_total,
             "prescriptive_count": prescriptive_count,
-            "mirror_impact_rate": mirror_impact_rate,
+            "report_impact_rate": report_impact_rate,
             "rubric_summary": rubric_summary,
             "golden_pass_rate": golden_pass_rate,
             "ab_rates": ab_rates,

@@ -46,9 +46,7 @@ def _oauth_enabled(request: Request) -> bool:
 
 
 def _serializer(request: Request) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        _settings(request).session_secret_key, salt="pinwheel-session"
-    )
+    return URLSafeTimedSerializer(_settings(request).session_secret_key, salt="pinwheel-session")
 
 
 # ---- Routes ---------------------------------------------------------------

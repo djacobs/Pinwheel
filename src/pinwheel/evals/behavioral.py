@@ -1,8 +1,8 @@
 """Behavioral shift detection (S.2a).
 
-For each governor who got a private mirror, compare this round's governance
-actions to a rolling baseline. Never reads MirrorRow.content — only queries
-GovernanceEventRow and MirrorRow.governor_id.
+For each governor who got a private report, compare this round's governance
+actions to a rolling baseline. Never reads ReportRow.content — only queries
+GovernanceEventRow and ReportRow.governor_id.
 """
 
 from __future__ import annotations
@@ -62,10 +62,10 @@ async def detect_behavioral_shift(
     round_number: int,
     threshold: float = 1.5,
 ) -> BehavioralShiftResult:
-    """Detect if a governor's actions shifted after receiving a private mirror.
+    """Detect if a governor's actions shifted after receiving a private report.
 
     A 'shift' means this round's action count differs from baseline by more
-    than the threshold ratio. Never reads mirror content.
+    than the threshold ratio. Never reads report content.
     """
     actions = await get_governor_action_count(repo, season_id, governor_id, round_number)
     baseline = await compute_baseline(repo, season_id, governor_id, round_number)
@@ -85,17 +85,17 @@ async def detect_behavioral_shift(
     )
 
 
-async def compute_mirror_impact_rate(
+async def compute_report_impact_rate(
     repo: Repository,
     season_id: str,
     round_number: int,
 ) -> float:
-    """Compute Mirror Impact Rate = shifted / total governors with private mirrors.
+    """Compute Report Impact Rate = shifted / total governors with private reports.
 
-    Never reads mirror content — only checks governor_id on MirrorRow.
+    Never reads report content — only checks governor_id on ReportRow.
     """
-    mirrors = await repo.get_mirrors_for_round(season_id, round_number, mirror_type="private")
-    governor_ids = {m.governor_id for m in mirrors if m.governor_id}
+    reports = await repo.get_reports_for_round(season_id, round_number, report_type="private")
+    governor_ids = {m.governor_id for m in reports if m.governor_id}
 
     if not governor_ids:
         return 0.0

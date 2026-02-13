@@ -76,8 +76,16 @@ class Proposal(BaseModel):
     tier: int = Field(default=1, ge=1, le=7)
     token_cost: int = 1
     status: Literal[
-        "draft", "submitted", "confirmed", "amended", "voting",
-        "passed", "failed", "cancelled", "pending_review", "rejected",
+        "draft",
+        "submitted",
+        "confirmed",
+        "amended",
+        "voting",
+        "passed",
+        "failed",
+        "cancelled",
+        "pending_review",
+        "rejected",
     ] = "draft"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

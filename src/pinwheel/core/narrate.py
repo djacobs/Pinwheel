@@ -165,9 +165,7 @@ def narrate_play(
         shot_desc = {"three_point": "three", "mid_range": "jumper", "at_rim": "drive"}.get(
             action, "shot"
         )
-        text = rng.choice(_FOUL).format(
-            player=player, defender=defender, shot_desc=shot_desc
-        )
+        text = rng.choice(_FOUL).format(player=player, defender=defender, shot_desc=shot_desc)
         if points > 0:
             text += f" — hits {points} from the stripe"
         else:

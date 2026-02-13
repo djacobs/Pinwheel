@@ -209,7 +209,7 @@ Event types and payload structures for the event store.
 
 ### 2.5 models/tokens.py — TokenBalance, Trade
 
-### 2.6 models/mirror.py — Mirror, MirrorUpdate
+### 2.6 models/report.py — Report, ReportUpdate
 
 **Commit point:** `feat: Pydantic models for all domain types`
 
@@ -637,7 +637,7 @@ simulation.py
 - [ ] `ruff check . && ruff format --check .` passes clean
 
 ### Phase 2: Pydantic Models
-- [ ] All models defined: `RuleSet`, `Team`, `Agent`, `PlayerAttributes`, `Move`, `Venue`, `GameResult`, `AgentBoxScore`, `PossessionLog`, `Proposal`, `Vote`, `GovernanceEvent`, `TokenBalance`, `Trade`, `Mirror`
+- [ ] All models defined: `RuleSet`, `Team`, `Agent`, `PlayerAttributes`, `Move`, `Venue`, `GameResult`, `AgentBoxScore`, `PossessionLog`, `Proposal`, `Vote`, `GovernanceEvent`, `TokenBalance`, `Trade`, `Report`
 - [ ] All validators pass (attribute ranges, budget constraints, field types)
 - [ ] No circular imports between model modules
 - [ ] Example instantiation of every model succeeds with valid data
@@ -732,7 +732,7 @@ src/pinwheel/
 │   ├── team.py                # Team, Agent, Attributes, Venue, Move
 │   ├── governance.py          # (stub for Day 2)
 │   ├── tokens.py              # (stub for Day 2)
-│   └── mirror.py              # (stub for Day 2)
+│   └── report.py              # (stub for Day 2)
 ├── db/
 │   ├── __init__.py
 │   ├── engine.py              # Async engine setup

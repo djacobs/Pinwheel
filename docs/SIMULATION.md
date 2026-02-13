@@ -46,7 +46,7 @@ Attributes don't operate in isolation. Key interactions:
 - **Passing × Speed** = fast break generation. Teams with both create easy transition baskets.
 - **Defense × IQ** = help defense and rotations. Smart defenders cover for teammates; low-IQ defenders leave gaps.
 - **Stamina × everything** = late-game performance. A team with low stamina that's dominating early may collapse late. Rules that lengthen games (longer shot clock, more fouls allowed) punish low-stamina teams disproportionately.
-- **Ego × Scoring** = clutch performance. High Ego + high Scoring = a closer who takes over when it matters. High Ego + low Scoring = a player who *thinks* they're the closer. The AI mirror will have things to say about this.
+- **Ego × Scoring** = clutch performance. High Ego + high Scoring = a closer who takes over when it matters. High Ego + low Scoring = a player who *thinks* they're the closer. The AI report will have things to say about this.
 - **Chaotic Alignment × everything** = variance amplifier. High-chaos players widen the probability distribution on every action they're involved in. A high-chaos game is wilder, less predictable, more dramatic. Stacks multiplicatively — two high-chaos players on the floor at once is exponentially more chaotic.
 - **Fate × everything** = black-swan events. High-Fate agents occasionally get to author changes to attributes, game parameters, team composition, or season rules — from within the simulation. This is governance-from-below: the governors write the rules, but Fate rewrites reality. Trigger probability scales with Fate attribute value; configurable frequency. Scope is wide, almost total. Opus 4.6 generates the Fate event in character. Whether Fate events bypass governance or create auto-enacted proposals is a **Tier 4 meta-governance parameter** — players can govern how Fate works. Not Day 1; build the model to be flexible so it works when we add it.
 
@@ -155,7 +155,7 @@ Venue parameters create a rich governance surface:
 - **Disable travel fatigue** — levels the playing field or removes a strategic lever
 - **Change crowd boost scaling** — should a 50,000-seat arena give 5x the boost of a 10,000-seat one, or diminishing returns?
 
-Venue identity also enriches the narrative layer. The AI mirror can comment on road trip difficulty, hostile crowds, altitude adjustments, and the effect of a governance vote that turned someone's court into a sand pit.
+Venue identity also enriches the narrative layer. The AI report can comment on road trip difficulty, hostile crowds, altitude adjustments, and the effect of a governance vote that turned someone's court into a sand pit.
 
 ## Moves
 
@@ -191,10 +191,10 @@ During action selection, after an agent chooses an action (SHOOT, PASS, DRIVE), 
 Agents acquire moves through three channels:
 
 1. **Seeded at creation** — Each archetype comes with 1-2 signature moves. A Sharpshooter starts with Heat Check. A Lockdown starts with Lockdown Stance. This is the Day 1 implementation.
-2. **Earned through play** — Agents unlock moves by hitting stat milestones across games (e.g., "10 steals in a season → learn Pickpocket", "50 assists → learn No-Look Pass"). Rewards performance, creates progression, gives the AI mirror something to narrate. Post-Day-1.
+2. **Earned through play** — Agents unlock moves by hitting stat milestones across games (e.g., "10 steals in a season → learn Pickpocket", "50 assists → learn No-Look Pass"). Rewards performance, creates progression, gives the AI report something to narrate. Post-Day-1.
 3. **Governed** — Players can propose granting moves to agents via governance. "I propose that Kaia Nakamura learns Chaos Dunk." This makes the move system a governance surface — players can craft their team's identity through the rules. Post-Day-1.
 
-The model must support all three from the start. A move is a move regardless of how it was acquired. The `Move` model tracks its `source: Literal["archetype", "earned", "governed"]` for the AI mirror to reference.
+The model must support all three from the start. A move is a move regardless of how it was acquired. The `Move` model tracks its `source: Literal["archetype", "earned", "governed"]` for the AI report to reference.
 
 ## Possession Model
 
@@ -789,7 +789,7 @@ React ✅ to submit, ❌ to cancel, ✏️ to revise.
 - League Effects run in a clearly defined post-processing step.
 - The vocabulary of League Actions is finite and validated.
 - League Effects require higher approval thresholds (supermajority, higher token cost).
-- The AI mirror can analyze the impact of League Effects with full context.
+- The AI report can analyze the impact of League Effects with full context.
 
 ### The Interpreter as Constitutional Court
 
@@ -846,11 +846,11 @@ Higher tiers require more consensus and more tokens. This creates a natural pres
 Even with Effects and League Effects, certain things are architecturally forbidden:
 
 1. **No arbitrary code execution.** Effects compose from a finite vocabulary. You cannot inject logic the simulation doesn't have hooks for.
-2. **No information leakage.** Effects cannot expose private data (team strategies, hidden votes, private mirrors) to other teams.
+2. **No information leakage.** Effects cannot expose private data (team strategies, hidden votes, private reports) to other teams.
 3. **No retroactive changes.** Effects cannot modify games that have already been stored and presented. They can only affect the current or future rounds.
 4. **No infinite loops.** Effects that trigger other effects are depth-limited (max 3 levels of effect chaining). An effect that grants a possession that triggers another effect that grants another possession is capped.
 5. **No breaking determinism.** Effects are applied deterministically. The same game state + effects always produce the same outcome. Seeded randomness, never true randomness.
-6. **No modifying the AI.** Effects cannot change the mirror's behavior, the interpreter's system prompt, or any AI context. The AI layer is not a governance surface (except `mirror_scope` in Tier 4).
+6. **No modifying the AI.** Effects cannot change the report's behavior, the interpreter's system prompt, or any AI context. The AI layer is not a governance surface (except `report_scope` in Tier 4).
 
 These boundaries are enforced in code, not by the AI. The interpreter cannot produce output that violates them, and the validation layer rejects anything that slips through.
 
@@ -864,7 +864,7 @@ These are the typed, validated parameters that governance can modify. Each has a
 |-----------|------|-------|---------|-------------|
 | `quarter_possessions` | int | 5–30 | 15 | Possessions per quarter (4 quarters per game) |
 | `possession_duration_seconds` | int | 10–60 | 24 | Fictional seconds per possession (for display/clock) |
-| `shot_clock_seconds` | int | 10–60 | 12 | Possessions exceeding this → forced bad shot |
+| `shot_clock_seconds` | int | 10–60 | 15 | Possessions exceeding this → forced bad shot |
 | `three_point_value` | int | 1–10 | 3 | Points awarded for shots beyond the arc |
 | `two_point_value` | int | 1–10 | 2 | Points awarded for shots inside the arc |
 | `free_throw_value` | int | 1–5 | 1 | Points per made free throw |
@@ -873,7 +873,7 @@ These are the typed, validated parameters that governance can modify. Each has a
 | `three_point_distance` | float | 15.0–30.0 | 22.15 | Feet from basket to three-point line |
 | `elam_trigger_quarter` | int | 1–4 | 3 | Quarter after which Elam Ending activates |
 | `elam_margin` | int | 5–25 | 13 | Points added to leading score to set target |
-| `halftime_stamina_recovery` | float | 0.0–0.5 | 0.25 | Fraction of max stamina recovered at halftime |
+| `halftime_stamina_recovery` | float | 0.0–0.6 | 0.40 | Fraction of max stamina recovered at halftime |
 | `safety_cap_possessions` | int | 50–500 | 200 | Max total possessions before forced resolution |
 
 <!-- TODO: Add more parameters as the simulation model solidifies -->
@@ -917,7 +917,7 @@ These are the typed, validated parameters that governance can modify. Each has a
 | `vote_threshold` | float | 0.5–1.0 | 0.5 | Fraction of votes needed to pass a proposal |
 | `proposal_limit_per_window` | int | 1–10 | 3 | Max proposals per governance window |
 | `governance_rounds_interval` | int | 1–7 | 1 | Governance window opens every N rounds (1 = every round) |
-| `mirror_scope` | enum | full, limited, off | full | What the AI is allowed to report on |
+| `report_scope` | enum | full, limited, off | full | What the AI is allowed to report on |
 | `fate_enabled` | bool | — | false | Whether Fate events can trigger |
 | `fate_trigger_rate` | float | 0.001–0.10 | 0.02 | Base probability of Fate event per game per agent, scaled by Fate attribute |
 | `fate_bypass_governance` | bool | — | false | If true, Fate events enact immediately. If false, they create auto-proposals that go through voting. |
@@ -988,11 +988,11 @@ class AgentBoxScore:
 
 ## What the AI Needs from the Simulation
 
-The mirror layers consume simulation output. Key data flows:
+The report layers consume simulation output. Key data flows:
 
-- **Simulation mirror** needs: GameResult + recent historical GameResults + current RuleSet + recent rule changes. It looks for correlations between rule changes and outcome shifts.
-- **Governance mirror** needs: governance event log + simulation results. It looks for patterns in who benefits from which rules.
-- **Private mirror** needs: per-player governance actions + per-team simulation results + trading history. It connects individual governance behavior to team outcomes and social dynamics.
+- **Simulation report** needs: GameResult + recent historical GameResults + current RuleSet + recent rule changes. It looks for correlations between rule changes and outcome shifts.
+- **Governance report** needs: governance event log + simulation results. It looks for patterns in who benefits from which rules.
+- **Private report** needs: per-player governance actions + per-team simulation results + trading history. It connects individual governance behavior to team outcomes and social dynamics.
 
 The simulation engine should produce rich enough output that the AI can find patterns, but shouldn't try to do the pattern recognition itself. That's Opus 4.6's job.
 

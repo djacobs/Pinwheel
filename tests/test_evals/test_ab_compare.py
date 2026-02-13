@@ -13,8 +13,8 @@ from pinwheel.evals.grounding import GroundingContext
 
 def test_build_variant_public():
     variant = build_variant(
-        mirror_id="m-1",
-        mirror_type="simulation",
+        report_id="m-1",
+        report_type="simulation",
         prompt_version="A",
         content="The Rose City Thorns dominated this round.",
     )
@@ -24,8 +24,8 @@ def test_build_variant_public():
 
 def test_build_variant_private_strips_content():
     variant = build_variant(
-        mirror_id="m-2",
-        mirror_type="private",
+        report_id="m-2",
+        report_type="private",
         prompt_version="A",
         content="Governor gov-1 was active this round.",
     )
@@ -36,8 +36,8 @@ def test_build_variant_private_strips_content():
 def test_build_variant_with_grounding():
     context = GroundingContext(team_names=["Rose City Thorns", "Breakers"])
     variant = build_variant(
-        mirror_id="m-3",
-        mirror_type="simulation",
+        report_id="m-3",
+        report_type="simulation",
         prompt_version="A",
         content="The Rose City Thorns and Breakers faced off.",
         context=context,

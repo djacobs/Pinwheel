@@ -161,7 +161,9 @@ class TestStartNewSeasonCarriedRules:
         custom_rules["three_point_value"] = 5
         custom_rules["shot_clock_seconds"] = 20
         old_season_id = await _seed_completed_season(
-            repo, league.id, ruleset_data=custom_rules,
+            repo,
+            league.id,
+            ruleset_data=custom_rules,
         )
 
         new_season = await start_new_season(
@@ -181,7 +183,10 @@ class TestStartNewSeasonCarriedRules:
         custom_rules = DEFAULT_RULESET.model_dump()
         custom_rules["three_point_value"] = 7
         await _seed_completed_season(
-            repo, league.id, season_name="Season 1", ruleset_data=custom_rules,
+            repo,
+            league.id,
+            season_name="Season 1",
+            ruleset_data=custom_rules,
         )
 
         new_season = await start_new_season(
@@ -196,7 +201,8 @@ class TestStartNewSeasonCarriedRules:
         assert new_season.starting_ruleset["three_point_value"] == 7
 
     async def test_falls_back_to_defaults_when_no_completed_season(
-        self, repo: Repository,
+        self,
+        repo: Repository,
     ) -> None:
         league = await repo.create_league("Test League")
         # No previous seasons at all
@@ -319,8 +325,8 @@ class TestTokenRegeneration:
             for gov in govs:
                 balance = await get_token_balance(repo, gov.id, new_season.id)
                 assert balance.propose == 2  # DEFAULT_PROPOSE_PER_WINDOW
-                assert balance.amend == 2    # DEFAULT_AMEND_PER_WINDOW
-                assert balance.boost == 2    # DEFAULT_BOOST_PER_WINDOW
+                assert balance.amend == 2  # DEFAULT_AMEND_PER_WINDOW
+                assert balance.boost == 2  # DEFAULT_BOOST_PER_WINDOW
 
     async def test_regenerate_all_governor_tokens(self, repo: Repository) -> None:
         league = await repo.create_league("Test League")
@@ -413,7 +419,9 @@ class TestStartNewSeasonIntegration:
         custom_rules["three_point_value"] = 4
         custom_rules["shot_clock_seconds"] = 25
         await _seed_completed_season(
-            repo, league.id, ruleset_data=custom_rules,
+            repo,
+            league.id,
+            ruleset_data=custom_rules,
         )
 
         new_season = await start_new_season(

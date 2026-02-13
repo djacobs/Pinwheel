@@ -24,9 +24,9 @@ def test_golden_cases_count():
 
 def test_golden_case_types():
     """Should have 8 sim, 7 gov, 5 private."""
-    sim = [c for c in GOLDEN_CASES if c.mirror_type == "simulation"]
-    gov = [c for c in GOLDEN_CASES if c.mirror_type == "governance"]
-    priv = [c for c in GOLDEN_CASES if c.mirror_type == "private"]
+    sim = [c for c in GOLDEN_CASES if c.report_type == "simulation"]
+    gov = [c for c in GOLDEN_CASES if c.report_type == "governance"]
+    priv = [c for c in GOLDEN_CASES if c.report_type == "private"]
     assert len(sim) == 8
     assert len(gov) == 7
     assert len(priv) == 5
@@ -34,7 +34,7 @@ def test_golden_case_types():
 
 def test_private_cases_structural_only():
     """All private cases must have structural_only=True."""
-    priv = [c for c in GOLDEN_CASES if c.mirror_type == "private"]
+    priv = [c for c in GOLDEN_CASES if c.report_type == "private"]
     for c in priv:
         assert c.structural_only is True
 

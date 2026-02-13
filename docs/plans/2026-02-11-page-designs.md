@@ -34,7 +34,7 @@ Each page's data dependencies mapped to endpoints, models, and SSE events. Full 
 | Matchup preview (agents) | `GET /api/agents/{agent_id}/stats` (x8) | `Agent`, `AgentSeasonStats` |
 | Head-to-head history | `GET /api/matchups/{team_a}/{team_b}` | `MatchupHistory` |
 | Rules in effect | `GET /api/rules/current` | `RuleSet` |
-| Mirror quote | `GET /api/mirrors/latest` | `Mirror` |
+| Report quote | `GET /api/reports/latest` | `Report` |
 
 ### Live Game
 
@@ -86,7 +86,7 @@ SSE connection: `GET /api/events/stream?game_id={id}&games=true&commentary=true`
 | Rule evolution | `GET /api/rules/history` | `list[RuleChange]` |
 | Current ruleset vs defaults | `GET /api/rules/current` | `RuleSet` |
 | Stat leaders | `GET /api/stats/leaders` | `StatLeaders` |
-| Season narrative | `GET /api/mirrors/latest` | `Mirror` |
+| Season narrative | `GET /api/reports/latest` | `Report` |
 | Standings update | SSE: `standings.update` | `StandingsEvent` |
 | Governance updates | SSE: `governance.open`, `governance.close` | `WindowOpenEvent`, `WindowCloseEvent` |
 
@@ -98,7 +98,7 @@ SSE connection: `GET /api/events/stream?game_id={id}&games=true&commentary=true`
 | Playoff bracket | `GET /api/playoffs/bracket` | `PlayoffBracket` |
 | Rule evolution (final) | `GET /api/rules/history` | `list[RuleChange]` |
 | Season stat leaders | `GET /api/stats/leaders` | `StatLeaders` |
-| Season mirror + awards | `GET /api/mirrors/season/{season_id}` | `Mirror` |
+| Season report + awards | `GET /api/reports/season/{season_id}` | `Report` |
 
 ---
 
@@ -170,7 +170,7 @@ SSE connection: `GET /api/events/stream?game_id={id}&games=true&commentary=true`
 │  │                                                        │    │
 │  │  "The three-point line moved back and got more         │    │
 │  │   valuable. Nakamura's governors wrote both rules."    │    │
-│  │   — Simulation Mirror, Rd 14                           │    │
+│  │   — Simulation Report, Rd 14                           │    │
 │  └────────────────────────────────────────────────────────┘    │
 │                                                                │
 │  ┌─ VENUE MODIFIERS ─────────────────────────────────────┐    │
@@ -188,7 +188,7 @@ SSE connection: `GET /api/events/stream?game_id={id}&games=true&commentary=true`
 - **Stat lines:** Pulled from agent season stats via `GET /api/agents/{id}/stats`.
 - **Head-to-head:** `GET /api/matchups/{team_a}/{team_b}`.
 - **Rules in effect:** `GET /api/rules/current` filtered to non-default values.
-- **Mirror quote:** Latest simulation mirror excerpt referencing these teams. Adds narrative texture.
+- **Report quote:** Latest simulation report excerpt referencing these teams. Adds narrative texture.
 - **Venue modifiers:** Computed server-side from the two teams' venues + current Tier 2 params. Displayed as readable sentences, not raw numbers.
 - **Transition:** When the game starts simulating, this page morphs into the Live Game page via HTMX swap. The countdown hits zero, the page gets an SSE event, and the content swaps to the live view. No full-page reload.
 
@@ -389,7 +389,7 @@ Progress bars fill toward the target. The border pulses. Commentary intensity ra
 
 ### Implementation Notes
 
-- **Game story:** AI-generated recap. Produced by the commentary engine as a final summary after the last possession. 3-5 sentences covering the arc. Stored with the game. Not a mirror — it's the game's lede.
+- **Game story:** AI-generated recap. Produced by the commentary engine as a final summary after the last possession. 3-5 sentences covering the arc. Stored with the game. Not a report — it's the game's lede.
 - **Play-by-play archive:** Collapsible by quarter. Click a quarter heading to expand. Each possession shows the structured play + commentary. HTMX `hx-get` fetches the quarter's plays on expand (lazy load — don't send 60+ possessions on page load).
 - **Game timeline:** Same SVG component as the live game, but complete. All dots filled. The game-winning shot gets a star. Click any dot to jump to that play-by-play entry and auto-expand the quarter.
 - **Replay button:** Links to `/games/{id}?replay=true`. Same page, but reconnects SSE to a replay presenter (fast pace, cached commentary). HTMX swaps the static content for the live view.
@@ -493,7 +493,7 @@ Progress bars fill toward the target. The border pulses. Commentary intensity ra
 │  │  "The Thorns' governors have shaped the rule space       │  │
 │  │   more than any other team. Every change has favored     │  │
 │  │   their sharpshooter."                                   │  │
-│  │   — Governance Mirror, Rd 14                             │  │
+│  │   — Governance Report, Rd 14                             │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -503,7 +503,7 @@ Progress bars fill toward the target. The border pulses. Commentary intensity ra
 - **Attribute bars:** CSS `background: linear-gradient(...)` sized proportionally. 5 segments (each 20 of 100). Colored by team accent. Pure CSS, no JS, no canvas.
 - **Roster cards:** Reusable `agent_card.html` component. Shows compact view on the team page; links to full agent page.
 - **Schedule list:** Most recent first, last 5 shown by default. "View full schedule" expands via `hx-get`. Next game links to the game preview page.
-- **Governance footprint:** Summarizes this team's governance activity. The mirror quote adds narrative texture. Only visible if governance has started (hidden in early rounds).
+- **Governance footprint:** Summarizes this team's governance activity. The report quote adds narrative texture. Only visible if governance has started (hidden in early rounds).
 - **Live indicator:** If the team has a game currently presenting, a pulsing dot appears next to the team name with a link to the live game.
 
 ---
@@ -631,7 +631,7 @@ Progress bars fill toward the target. The border pulses. Commentary intensity ra
 
 **URL:** `/seasons/{season_id}` (or `/season` for current)
 **When:** During the season (live dashboard) and after (permanent archive).
-**Data source:** Standings, schedule, governance history, mirrors, stats. Mix of SSE (during season) and static (after).
+**Data source:** Standings, schedule, governance history, reports, stats. Mix of SSE (during season) and static (after).
 
 ### What It Communicates
 
@@ -702,9 +702,9 @@ During a season: "Here's where we are — the current state of the league, the r
 │  │   Meanwhile, nobody's talking about the Drift. They're   │  │
 │  │   4-17 and their governors have stopped proposing.       │  │
 │  │   Their last token trade was Round 8. The private        │  │
-│  │   mirrors are asking questions nobody wants to answer."  │  │
+│  │   reports are asking questions nobody wants to answer."  │  │
 │  │                                                          │  │
-│  │  ▸ Read all mirrors                                      │  │
+│  │  ▸ Read all reports                                      │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
 │  ┌─ STAT LEADERS ───────────────────────────────────────────┐  │
@@ -763,11 +763,11 @@ During a season: "Here's where we are — the current state of the league, the r
 │  │   Elam). Game 7 was at The Thorn Garden. Nakamura       │  │
 │  │   scored 34. The crowd built a fortress around her.      │  │
 │  │                                                          │  │
-│  │   Was it good governance or home cooking? The mirror     │  │
+│  │   Was it good governance or home cooking? The report     │  │
 │  │   says both. The governors played the game as written.   │  │
 │  │   Whether the game should have been written that way     │  │
 │  │   is a question for Season 2."                           │  │
-│  │                                        — Season Mirror   │  │
+│  │                                        — Season Report   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
 │  ┌─ FINAL STANDINGS ──┐  ┌─ PLAYOFF BRACKET ────────────────┐  │
@@ -811,25 +811,25 @@ During a season: "Here's where we are — the current state of the league, the r
 │  │  [Same as during-season, but final]                      │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
-│  ┌─ ALL MIRRORS ────────────────────────────────────────────┐  │
-│  │  ▸ Simulation Mirrors (21)                               │  │
-│  │  ▸ Governance Mirrors (21)                               │  │
+│  ┌─ ALL REPORTS ────────────────────────────────────────────┐  │
+│  │  ▸ Simulation Reports (21)                               │  │
+│  │  ▸ Governance Reports (21)                               │  │
 │  │  ▸ State of the League (3)                               │  │
-│  │  ▸ Series Mirrors (3)                                    │  │
-│  │  ▸ Season Mirror (1)                                     │  │
+│  │  ▸ Series Reports (3)                                    │  │
+│  │  ▸ Season Report (1)                                     │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 ### Implementation Notes
 
-- **During season vs. archive:** Same URL, different rendering. The template checks `season.status` — if `active` or `playoffs`, show live standings with SSE updates and countdowns. If `complete`, show the archive layout with the season mirror as the hero.
+- **During season vs. archive:** Same URL, different rendering. The template checks `season.status` — if `active` or `playoffs`, show live standings with SSE updates and countdowns. If `complete`, show the archive layout with the season report as the hero.
 - **Standings SSE:** `hx-ext="sse" sse-connect="/api/events/stream?governance=true"` — standings update when governance windows close and games complete.
 - **Rule evolution timeline:** SVG timeline rendered server-side. Each rule change is a dot on the timeline. Hover (or click on mobile) reveals the proposal detail. The timeline is the visual history of governance.
 - **Playoff bracket:** Rendered as nested `<div>` elements styled with CSS grid. Lines connect matchups. Completed games show scores. Active series pulse. SVG lines for the bracket connectors.
-- **Season narrative:** The season mirror is the hero content on the archive page. It's the definitive story. Generated by Opus 4.6 after the championship, with full context of every game, every rule change, every governance action.
+- **Season narrative:** The season report is the hero content on the archive page. It's the definitive story. Generated by Opus 4.6 after the championship, with full context of every game, every rule change, every governance action.
 - **Awards:** AI-generated with narrative context, not just stat leaders. "MVP" includes a one-line justification that connects the player's performance to the governance landscape.
-- **Mirror archive:** Collapsible sections by mirror type. Each mirror shows round number, a 1-line excerpt, and expands to full text. Links to the games/governance actions referenced.
+- **Report archive:** Collapsible sections by report type. Each report shows round number, a 1-line excerpt, and expands to full text. Links to the games/governance actions referenced.
 
 ---
 
@@ -843,7 +843,7 @@ Present on every page. Provides context at a glance.
 ┌────────────────────────────────────────────────────────────────┐
 │ 🏀 PINWHEEL                                                    │
 │                                                                │
-│ Arena · Standings · Teams · Governance · Rules · Mirrors       │
+│ Arena · Standings · Teams · Governance · Rules · Reports       │
 │                                                                │
 │ ┌─ TICKER ────────────────────────────────────────────────┐    │
 │ │ THO 48 WOL 42 (Q3) · BRK 38 MON 35 (Q3) · IH 51 FOX  │    │
@@ -877,7 +877,7 @@ All navigation uses HTMX partial swaps (`hx-target="#main" hx-push-url="true"`).
 | `box_score.html` | Live game, game summary |
 | `standings_table.html` | Season page, standings page, Arena lobby |
 | `proposal_card.html` | Governance page, team page governance footprint |
-| `mirror_card.html` | Mirrors page, season page, team page |
+| `report_card.html` | Reports page, season page, team page |
 | `rule_change.html` | Rules page, game summary rule context, season page timeline |
 | `commentary.html` | Live game, game summary, Arena panels |
 | `possession.html` | Live game play-by-play, game summary archive |

@@ -1,6 +1,6 @@
-"""Attribution analysis (M.3) — treatment/control mirror delivery.
+"""Attribution analysis (M.3) — treatment/control report delivery.
 
-Randomly assigns governors to treatment (immediate mirror) / control (delayed mirror).
+Randomly assigns governors to treatment (immediate report) / control (delayed report).
 Compares behavioral shift rates between groups. Reports aggregate delta only.
 """
 

@@ -98,8 +98,8 @@ class Settings(BaseSettings):
     pinwheel_gov_window: int = 900
     pinwheel_presentation_pace: str = "fast"
     pinwheel_presentation_mode: str = "instant"  # "instant" or "replay"
-    pinwheel_game_interval_seconds: int = 1800    # 30 min between games in replay mode
-    pinwheel_quarter_replay_seconds: int = 300    # 5 min per quarter in replay mode
+    pinwheel_game_interval_seconds: int = 1800  # 30 min between games in replay mode
+    pinwheel_quarter_replay_seconds: int = 300  # 5 min per quarter in replay mode
 
     # Governance
     pinwheel_governance_interval: int = 3  # Tally governance every N rounds

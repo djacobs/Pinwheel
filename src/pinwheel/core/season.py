@@ -98,7 +98,8 @@ async def start_new_season(
         team_ids = [t.id for t in teams]
         ruleset = RuleSet(**ruleset_data)
         matchups = generate_round_robin(
-            team_ids, num_cycles=ruleset.round_robins_per_season,
+            team_ids,
+            num_cycles=ruleset.round_robins_per_season,
         )
         for m in matchups:
             await repo.create_schedule_entry(
@@ -171,7 +172,8 @@ async def carry_over_teams(
 
         # Carry over governor enrollments
         governors = await repo.get_governors_for_team(
-            old_team.id, from_season_id,
+            old_team.id,
+            from_season_id,
         )
         for governor in governors:
             await repo.enroll_player(governor.id, new_team.id, to_season_id)
@@ -267,9 +269,7 @@ async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
         champion_team_name = standings[0].get("team_name", str(champion_team_id))
 
     # Get rule change history from events
-    rule_events = await repo.get_events_by_type(
-        season_id=season_id, event_types=["rule.enacted"]
-    )
+    rule_events = await repo.get_events_by_type(season_id=season_id, event_types=["rule.enacted"])
     rule_changes = [e.payload for e in rule_events]
 
     # Count proposals

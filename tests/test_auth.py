@@ -150,12 +150,8 @@ async def test_callback_exchanges_code_and_sets_session(
     }
 
     with (
-        patch(
-            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-        ) as mock_exchange,
-        patch(
-            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
-        ) as mock_fetch,
+        patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_exchange,
+        patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fetch,
     ):
         mock_exchange.return_value = mock_token_response
         mock_fetch.return_value = mock_user_response
@@ -178,9 +174,7 @@ async def test_callback_exchanges_code_and_sets_session(
     assert session_cookie is not None
 
     # Verify the session cookie contents
-    serializer = URLSafeTimedSerializer(
-        settings.session_secret_key, salt="pinwheel-session"
-    )
+    serializer = URLSafeTimedSerializer(settings.session_secret_key, salt="pinwheel-session")
     data = serializer.loads(session_cookie, max_age=SESSION_MAX_AGE)
     assert data["discord_id"] == "123456789"
     assert data["username"] == "testgovernor"
@@ -222,9 +216,7 @@ async def test_callback_handles_no_access_token(
     """Callback handles Discord returning an error instead of access token."""
     client, _settings = oauth_app_client
 
-    with patch(
-        "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-    ) as mock_exchange:
+    with patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_exchange:
         mock_exchange.return_value = {"error": "invalid_grant"}
 
         login_resp = await client.get("/auth/login", follow_redirects=False)
@@ -263,12 +255,8 @@ async def test_callback_creates_player_in_database(
     mock_user = {"id": "999", "username": "newplayer", "avatar": "avhash"}
 
     with (
-        patch(
-            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-        ) as mock_ex,
-        patch(
-            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
-        ) as mock_fu,
+        patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex,
+        patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fu,
     ):
         mock_ex.return_value = mock_token
         mock_fu.return_value = mock_user
@@ -303,12 +291,8 @@ async def test_callback_updates_existing_player(
     mock_user_v2 = {"id": "555", "username": "newname", "avatar": "new"}
 
     with (
-        patch(
-            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-        ) as mock_ex,
-        patch(
-            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
-        ) as mock_fu,
+        patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex,
+        patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fu,
     ):
         mock_ex.return_value = mock_token
 
@@ -473,9 +457,7 @@ async def test_callback_handles_token_exchange_error(
     """Callback redirects gracefully when Discord token exchange raises."""
     client, _settings = oauth_app_client
 
-    with patch(
-        "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-    ) as mock_ex:
+    with patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex:
         mock_ex.side_effect = Exception("Discord API timeout")
 
         login_resp = await client.get("/auth/login", follow_redirects=False)
@@ -497,12 +479,8 @@ async def test_callback_handles_user_fetch_error(
     client, _settings = oauth_app_client
 
     with (
-        patch(
-            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-        ) as mock_ex,
-        patch(
-            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
-        ) as mock_fu,
+        patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex,
+        patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fu,
     ):
         mock_ex.return_value = {"access_token": "tok"}
         mock_fu.side_effect = Exception("Discord API error")
@@ -529,12 +507,8 @@ async def test_callback_handles_no_avatar(
     mock_user = {"id": "777", "username": "noavatar", "avatar": None}
 
     with (
-        patch(
-            "pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock
-        ) as mock_ex,
-        patch(
-            "pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock
-        ) as mock_fu,
+        patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex,
+        patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fu,
     ):
         mock_ex.return_value = mock_token
         mock_fu.return_value = mock_user
@@ -550,8 +524,6 @@ async def test_callback_handles_no_avatar(
     session_cookie = resp.cookies.get(SESSION_COOKIE_NAME)
     assert session_cookie is not None
 
-    serializer = URLSafeTimedSerializer(
-        settings.session_secret_key, salt="pinwheel-session"
-    )
+    serializer = URLSafeTimedSerializer(settings.session_secret_key, salt="pinwheel-session")
     data = serializer.loads(session_cookie, max_age=SESSION_MAX_AGE)
     assert data["avatar_url"] == ""

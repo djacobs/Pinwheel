@@ -90,7 +90,9 @@ async def test_present_round_cancellation():
     asyncio.create_task(cancel_soon())
 
     await present_round(
-        [game], bus, state,
+        [game],
+        bus,
+        state,
         quarter_replay_seconds=5.0,  # Long enough that cancellation interrupts
     )
 
@@ -153,7 +155,9 @@ async def test_present_round_multiple_games_concurrent():
     games = [_make_game(), _make_game()]
 
     await present_round(
-        games, bus, state,
+        games,
+        bus,
+        state,
         quarter_replay_seconds=0.01,
     )
 
@@ -173,7 +177,9 @@ async def test_present_round_possession_events_have_game_index():
     games = [_make_game(), _make_game()]
 
     await present_round(
-        games, bus, state,
+        games,
+        bus,
+        state,
         quarter_replay_seconds=0.01,
     )
 
@@ -196,7 +202,9 @@ async def test_present_round_enriched_with_names():
     }
 
     await present_round(
-        [game], bus, state,
+        [game],
+        bus,
+        state,
         quarter_replay_seconds=0.01,
         name_cache=name_cache,
     )
@@ -237,7 +245,9 @@ async def test_present_round_on_game_finished_callback():
     games = [_make_game(), _make_game()]
 
     await present_round(
-        games, bus, state,
+        games,
+        bus,
+        state,
         quarter_replay_seconds=0.01,
         on_game_finished=track_callback,
     )
@@ -257,7 +267,9 @@ async def test_present_round_callback_error_does_not_break():
     games = [_make_game(), _make_game()]
 
     await present_round(
-        games, bus, state,
+        games,
+        bus,
+        state,
         quarter_replay_seconds=0.01,
         on_game_finished=failing_callback,
     )
@@ -276,7 +288,9 @@ async def test_present_round_without_name_cache():
     game = _make_game()
 
     await present_round(
-        [game], bus, state,
+        [game],
+        bus,
+        state,
         quarter_replay_seconds=0.01,
     )
 
@@ -358,10 +372,16 @@ async def test_game_finished_includes_leaders():
     game = _make_game()
     game.box_scores = [
         HooperBoxScore(
-            hooper_id="hooper-1", hooper_name="Flash", team_id="team-a", points=20,
+            hooper_id="hooper-1",
+            hooper_name="Flash",
+            team_id="team-a",
+            points=20,
         ),
         HooperBoxScore(
-            hooper_id="hooper-2", hooper_name="Thunder", team_id="team-b", points=15,
+            hooper_id="hooper-2",
+            hooper_name="Thunder",
+            team_id="team-b",
+            points=15,
         ),
     ]
 
@@ -373,7 +393,9 @@ async def test_game_finished_includes_leaders():
     }
 
     await present_round(
-        [game], bus, state,
+        [game],
+        bus,
+        state,
         quarter_replay_seconds=0.01,
         name_cache=name_cache,
     )
@@ -420,7 +442,7 @@ async def test_skip_quarters_skips_early_possessions():
         bus,
         state,
         quarter_replay_seconds=0,  # instant replay for test speed
-        skip_quarters=2,           # skip Q1 and Q2
+        skip_quarters=2,  # skip Q1 and Q2
     )
 
     # Should have game_starting, only Q3 possessions, game_finished, round_finished

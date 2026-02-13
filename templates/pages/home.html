@@ -11,7 +11,7 @@
   <p class="hero-tagline">
     3-on-3 basketball where the players rewrite the rules.
     Propose changes. Vote with your team. Shape the game.
-    The AI is your mirror &mdash; but the fates are yours.
+    The AI is your reporter &mdash; but the fates are yours.
   </p>
   {% if current_round > 0 %}
   <div class="hero-pulse">
@@ -62,8 +62,8 @@
 </div>
 {% endif %}
 
-{# ===== STANDINGS + MIRROR (Two columns) ===== #}
-{% if standings or latest_mirror %}
+{# ===== STANDINGS + REPORT (Two columns) ===== #}
+{% if standings or latest_report %}
 <div class="home-columns">
   {# Standings #}
   {% if standings %}
@@ -91,18 +91,18 @@
   </div>
   {% endif %}
 
-  {# AI Mirror #}
-  {% if latest_mirror %}
+  {# AI Report #}
+  {% if latest_report %}
   <div class="home-section">
     <div class="section-title-bar">
       <span class="section-title-text">The AI Sees</span>
-      <span class="section-title-badge mirror-badge">Round {{ latest_mirror.round_number }}</span>
+      <span class="section-title-badge report-badge">Round {{ latest_report.round_number }}</span>
     </div>
-    <div class="home-mirror">
-      <div class="home-mirror-content">{{ latest_mirror.content }}</div>
+    <div class="home-report">
+      <div class="home-report-content">{{ latest_report.content }}</div>
     </div>
     <div class="section-more">
-      <a href="/mirrors" class="more-link">All mirrors &rarr;</a>
+      <a href="/reports" class="more-link">All reports &rarr;</a>
     </div>
   </div>
   {% endif %}
@@ -151,8 +151,8 @@
       <p class="how-desc">Propose changes in plain English. Vote with your team. Passed proposals reshape the game.</p>
     </div>
     <div class="how-card">
-      <div class="how-number" style="color:var(--accent-mirror);">03</div>
-      <h4 class="how-title">The Mirror Reflects</h4>
+      <div class="how-number" style="color:var(--accent-report);">03</div>
+      <h4 class="how-title">The Reporter</h4>
       <p class="how-desc">After every round, the AI surfaces patterns and dynamics you can't see from inside the system.</p>
     </div>
     <div class="how-card">
@@ -207,9 +207,9 @@
       <span class="explore-label">Rules</span>
       <span class="explore-desc">Current parameters</span>
     </a>
-    <a href="/mirrors" class="explore-card">
-      <span class="explore-icon" style="color:var(--accent-mirror);">&#10070;</span>
-      <span class="explore-label">Mirrors</span>
+    <a href="/reports" class="explore-card">
+      <span class="explore-icon" style="color:var(--accent-report);">&#10070;</span>
+      <span class="explore-label">Reports</span>
       <span class="explore-desc">AI reflections</span>
     </a>
   </div>

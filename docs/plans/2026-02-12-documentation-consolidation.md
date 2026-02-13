@@ -28,8 +28,8 @@ Standalone 1-page canonical glossary. Every term that appears in code, docs, API
 | **Elam Ending** | End-of-game format: after Q3, a target score is set (leading score + elam_margin). First team to reach it wins on a made basket. | "Elam", "Elam period" | "overtime", "sudden death" |
 | **Game** | A single simulated 3v3 basketball contest between two Teams. 4 quarters + Elam period. Deterministic given inputs + seed. | "Match" (acceptable but not preferred) | "round" (that's a different thing) |
 | **Game Effect** | A conditional rule modification within a single Game. Composed of trigger × condition × action × scope × duration. Layer 2 of rule expressiveness. | "Effect" | "buff", "debuff", "modifier" |
-| **Governor** | A human player. Joins a Team, proposes rules, votes, trades tokens, receives Mirrors. The primary user. | "Gov" (informal, in Discord) | "player" (ambiguous), "user" (too generic) |
-| **Mirror** | An AI-generated reflection on gameplay or governance patterns. Never prescriptive. Types: simulation, governance, private, tiebreaker, series, season, offseason, State of the League. | "Reflection" | "report", "analysis", "feedback" |
+| **Governor** | A human player. Joins a Team, proposes rules, votes, trades tokens, receives Reports. The primary user. | "Gov" (informal, in Discord) | "player" (ambiguous), "user" (too generic) |
+| **Report** | An AI-generated reflection on gameplay or governance patterns. Never prescriptive. Types: simulation, governance, private, tiebreaker, series, season, offseason, State of the League. | "Reflection" | "report", "analysis", "feedback" |
 | **Move** | A special ability an Agent can activate during a Possession when trigger conditions are met. Has an attribute gate. | — | "skill", "ability", "power" |
 | **Possession** | One offensive sequence. The atomic unit of gameplay. Ball handler → action selection → resolution → scoring/miss → rebound. | "Play" (acceptable in commentary) | "turn" |
 | **Presenter** | The server-side system that paces a pre-computed GameResult through SSE events over real time. Makes instant simulation feel like a live broadcast. | "Game Presenter" | "broadcaster", "streamer" |
@@ -54,7 +54,7 @@ Single canonical source for everything shared across backend, frontend, presente
 **Sections:**
 1. **Glossary reference** — "See `docs/GLOSSARY.md` for canonical naming. This document uses those terms exclusively."
 2. **ID Formats** — `game_id: "g-{round}-{matchup}"`, all entities UUID, `discord_user_id: str` (snowflake). Include Pydantic validator examples.
-3. **SSE Events** — All 15 event types grouped by category (game.*, governance.*, mirror.*, season.*, standings.*). Each entry: event name, payload shape (reference to Pydantic model), which SSE stream query param enables it. Consolidate from VIEWER.md, GAME_LOOP.md, presenter plan.
+3. **SSE Events** — All 15 event types grouped by category (game.*, governance.*, report.*, season.*, standings.*). Each entry: event name, payload shape (reference to Pydantic model), which SSE stream query param enables it. Consolidate from VIEWER.md, GAME_LOOP.md, presenter plan.
 4. **Governance Event Store Types** — The 17 append-only event types (proposal.submitted, vote.cast, rule.enacted, etc.). Each with payload description. Consolidate from database schema plan.
 5. **API Response Envelope** — The standard `{ data, meta, governance_context }` shape. One place, not repeated per endpoint.
 6. **API Endpoints** — Full table of ~30 endpoints with method, path, response model, and auth requirement. Consolidate from VIEWER.md.
@@ -72,8 +72,8 @@ One place for all environment-specific behavior. Currently scattered across OPS.
 3. **Pace Modes** — instant (0s, tests), demo (5s, live demos), fast (15s, dev), production (60s, real league). What each feels like.
 4. **Dev Season Config** — 7 rounds, single-game semis, best-of-3 finals, ~25 min total. The math.
 5. **Seed Data** — Auto-generate in dev, YAML in staging/prod, fixed seeds for determinism.
-6. **Feature Flags by Environment** — Commentary caching, error pages, OpenAPI docs, auto-seed, mirror staleness.
-7. **Hackathon Demo Script** — The exact sequence for a 5-minute live demo: pre-seeded league, fast pace, pre-loaded governance window, one live proposal, one game with Elam, mirror delivery. Deterministic seeds ensure repeatable narrative beats.
+6. **Feature Flags by Environment** — Commentary caching, error pages, OpenAPI docs, auto-seed, report staleness.
+7. **Hackathon Demo Script** — The exact sequence for a 5-minute live demo: pre-seeded league, fast pace, pre-loaded governance window, one live proposal, one game with Elam, report delivery. Deterministic seeds ensure repeatable narrative beats.
 8. **Environment Variables** — Full reference table (consolidate from OPS.md, day1 plan, config.py).
 
 ## Files to Update
@@ -128,12 +128,12 @@ Add a new subsection: **Open Questions → Decision Table** converting the scatt
 - Question, Options (2-3), Recommendation, Deadline, Default if not decided.
 
 Questions to include:
-1. Mirror → action bridge (Critical, before Day 3)
+1. Report → action bridge (Critical, before Day 3)
 2. Rule context panel interaction (before frontend, default: active highlighting)
 3. Commentary model tier (before commentary engine, default: Sonnet 4.5)
 4. Governance window timing (before scheduler, default: cron + admin override)
 5. Concurrent simulation blocks (before game loop, default: queue for next block)
-6. Mirror priority (before mirror delivery, default: private first)
+6. Report priority (before report delivery, default: private first)
 
 ### 6. Update references
 

@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for the Pinwheel database.
 
 Day 1 tables: leagues, seasons, teams, hoopers, game_results, box_scores,
-governance_events, schedule. Additional tables (mirrors, commentary,
+governance_events, schedule. Additional tables (reports, commentary,
 governors) added as needed.
 """
 
@@ -194,14 +194,14 @@ class GovernanceEventRow(Base):
     )
 
 
-class MirrorRow(Base):
-    """Stored AI-generated mirror reflections."""
+class ReportRow(Base):
+    """Stored AI-generated reports."""
 
-    __tablename__ = "mirrors"
+    __tablename__ = "reports"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     season_id: Mapped[str] = mapped_column(ForeignKey("seasons.id"), nullable=False)
-    mirror_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    report_type: Mapped[str] = mapped_column(String(30), nullable=False)
     round_number: Mapped[int] = mapped_column(Integer, default=0)
     team_id: Mapped[str] = mapped_column(String(36), default="")
     governor_id: Mapped[str] = mapped_column(String(36), default="")
@@ -210,9 +210,9 @@ class MirrorRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     __table_args__ = (
-        Index("ix_mirrors_season_round", "season_id", "round_number"),
-        Index("ix_mirrors_type", "mirror_type"),
-        Index("ix_mirrors_governor", "governor_id"),
+        Index("ix_reports_season_round", "season_id", "round_number"),
+        Index("ix_reports_type", "report_type"),
+        Index("ix_reports_governor", "governor_id"),
     )
 
 
@@ -265,7 +265,9 @@ class BotStateRow(Base):
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
     value: Mapped[str] = mapped_column(String(500), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC),
+        DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
@@ -290,7 +292,7 @@ class SeasonArchiveRow(Base):
 
 
 class EvalResultRow(Base):
-    """Stored eval results. Never contains private mirror content."""
+    """Stored eval results. Never contains private report content."""
 
     __tablename__ = "eval_results"
 

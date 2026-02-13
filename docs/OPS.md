@@ -84,10 +84,13 @@ The `DATABASE_URL` is injected automatically by `fly postgres attach`.
 | `DISCORD_BOT_TOKEN` | Discord bot token | (required) |
 | `DISCORD_GUILD_ID` | Discord server ID | (required) |
 | `PINWHEEL_ENV` | `development` / `staging` / `production` | `development` |
-| `PINWHEEL_GAME_CRON` | Cron schedule for simulation blocks | `0 * * * *` |
-| `PINWHEEL_GOV_WINDOW` | Seconds per governance window | `1800` |
+| `PINWHEEL_PRESENTATION_PACE` | Pace mode: `fast`, `normal`, `slow`, `manual` | `fast` |
+| `PINWHEEL_PRESENTATION_MODE` | Presentation mode: `instant`, `replay` | `instant` |
+| `PINWHEEL_GAME_CRON` | Explicit cron override (optional, derived from pace) | (from pace) |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N rounds | `3` |
+| `PINWHEEL_GOV_WINDOW` | Governance window duration (for GQI calculations) | `900` |
+| `PINWHEEL_AUTO_ADVANCE` | APScheduler auto-advance toggle | `true` |
 | `PINWHEEL_LOG_LEVEL` | Logging level | `INFO` |
-| `PINWHEEL_PRESENTATION_PACE` | `production` / `fast` / `instant` | `production` |
 
 ## Deployment
 
@@ -164,7 +167,7 @@ fly logs
 fly logs --app pinwheel-fates | grep "ERROR"
 ```
 
-Structured logging via Python's `logging` module with JSON formatting in production. Log every simulation block completion, governance window open/close, mirror generation, and AI API call with duration and token count.
+Structured logging via Python's `logging` module with JSON formatting in production. Log every simulation block completion, governance window open/close, report generation, and AI API call with duration and token count.
 
 ### Health Endpoint
 

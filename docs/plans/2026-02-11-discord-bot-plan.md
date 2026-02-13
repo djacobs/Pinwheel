@@ -18,7 +18,7 @@ FastAPI Process
 ├── APScheduler (game loop)
 └── discord.py Client (Gateway WebSocket)
      ├── Slash commands → call service layer directly (in-process)
-     ├── Mirror delivery → bot.get_channel().send() / user.send()
+     ├── Report delivery → bot.get_channel().send() / user.send()
      └── Game results → bot.get_channel().send()
 ```
 
@@ -76,7 +76,7 @@ bot/
 │   ├── proposal.py     # Proposal confirmation view (confirm/revise/cancel buttons)
 │   ├── trade.py        # Trade offer view (accept/reject)
 │   └── interpretation.py  # AI interpretation display
-├── delivery.py         # Mirror delivery, game result posting
+├── delivery.py         # Report delivery, game result posting
 └── register.py         # Slash command registration script
 ```
 
@@ -212,22 +212,22 @@ User (in #rose-city-thorns): /strategy "Press defense in the Elam period"
   └─ Bot warns: "Press is exhausting. If stamina is low by Elam, this backfires."
 ```
 
-## Mirror Delivery
+## Report Delivery
 
-Mirrors are delivered after generation:
+Reports are delivered after generation:
 
 ```python
 # delivery.py
-async def deliver_mirrors(bot: PinwheelBot, mirrors: list[Mirror]):
-    for mirror in mirrors:
-        if mirror.mirror_type == "private":
+async def deliver_reports(bot: PinwheelBot, reports: list[Report]):
+    for report in reports:
+        if report.report_type == "private":
             # DM to individual governor
-            user = await bot.fetch_user(int(mirror.governor.discord_user_id))
-            await user.send(format_private_mirror(mirror))
+            user = await bot.fetch_user(int(report.governor.discord_user_id))
+            await user.send(format_private_report(report))
         else:
-            # Post to #mirrors channel
-            channel = bot.get_channel(MIRRORS_CHANNEL_ID)
-            await channel.send(format_shared_mirror(mirror))
+            # Post to #reports channel
+            channel = bot.get_channel(REPORTS_CHANNEL_ID)
+            await channel.send(format_shared_report(report))
 ```
 
 ## Game Result Posting
@@ -257,7 +257,7 @@ Channels:
   #game-day (read-only for governors, bot posts)
   #governance-floor (governors can post commands)
   #governance-log (read-only, bot posts)
-  #mirrors (read-only, bot posts)
+  #reports (read-only, bot posts)
   #trash-talk (everyone can post)
   #rules (read-only, bot posts)
   #new-governors (everyone can post)
@@ -279,7 +279,7 @@ A setup script could create these, or they can be manually configured.
 ```
 DISCORD_BOT_TOKEN       # Bot token from Discord Developer Portal
 DISCORD_GUILD_ID        # Server ID (for guild-scoped command registration)
-DISCORD_MIRRORS_CHANNEL_ID
+DISCORD_REPORTS_CHANNEL_ID
 DISCORD_GAME_DAY_CHANNEL_ID
 DISCORD_ANNOUNCEMENTS_CHANNEL_ID
 DISCORD_GOVERNANCE_CHANNEL_ID
@@ -293,7 +293,7 @@ DISCORD_GOVERNANCE_LOG_CHANNEL_ID
 3. **`/propose` → AI interpretation → confirm** — Core governance loop
 4. **`/vote`** with hidden votes — Voting lifecycle
 5. **`/tokens`** — Balance display
-6. **Mirror delivery** — Post shared mirrors, DM private mirrors
+6. **Report delivery** — Post shared reports, DM private reports
 7. **Game result posting** — Announcements and #game-day
 8. **`/trade`** — Token trading
 9. **`/strategy`** — Team tactical overrides
@@ -306,7 +306,7 @@ DISCORD_GOVERNANCE_LOG_CHANNEL_ID
 - [ ] `/join` registers a governor, assigns team role, grants channel access
 - [ ] `/propose` flows through AI interpretation with confirm/revise/cancel UI
 - [ ] `/vote` records hidden votes, revealed on window close
-- [ ] Mirror delivery works (shared → channel, private → DM)
+- [ ] Report delivery works (shared → channel, private → DM)
 - [ ] Game results post to #game-day and #announcements
 - [ ] Bot reconnects after Fly.io deploy/restart
 - [ ] Governor authentication via Discord user ID on every command

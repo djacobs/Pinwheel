@@ -3,7 +3,7 @@
 from pinwheel.evals.grounding import GroundingContext, build_grounding_context, check_grounding
 
 
-def test_grounded_mirror():
+def test_grounded_report():
     context = GroundingContext(
         team_names=["Rose City Thorns", "Burnside Breakers"],
         agent_names=["Thorn Hooper"],
@@ -12,14 +12,14 @@ def test_grounded_mirror():
     result = check_grounding(
         "The Rose City Thorns showed strong play this round.",
         context,
-        mirror_id="m-1",
-        mirror_type="simulation",
+        report_id="m-1",
+        report_type="simulation",
     )
     assert result.grounded is True
     assert result.entities_found >= 1
 
 
-def test_ungrounded_mirror():
+def test_ungrounded_report():
     context = GroundingContext(
         team_names=["Rose City Thorns"],
         agent_names=["Hooper X"],
@@ -28,8 +28,8 @@ def test_ungrounded_mirror():
     result = check_grounding(
         "Generic basketball content with no real names.",
         context,
-        mirror_id="m-2",
-        mirror_type="simulation",
+        report_id="m-2",
+        report_type="simulation",
     )
     assert result.grounded is False
     assert result.entities_found == 0
@@ -40,8 +40,8 @@ def test_empty_context():
     result = check_grounding(
         "Any content here.",
         context,
-        mirror_id="m-3",
-        mirror_type="simulation",
+        report_id="m-3",
+        report_type="simulation",
     )
     assert result.grounded is True  # No entities expected = trivially grounded
     assert result.entities_expected == 0
@@ -52,8 +52,8 @@ def test_case_insensitive_matching():
     result = check_grounding(
         "The hawthorne hammers had a strong showing.",
         context,
-        mirror_id="m-4",
-        mirror_type="simulation",
+        report_id="m-4",
+        report_type="simulation",
     )
     assert result.entities_found >= 1
 
@@ -76,7 +76,7 @@ def test_multiple_entities():
     result = check_grounding(
         "Rose City Thorns vs Burnside Breakers: Lightning scored 20 while Thunder defended.",
         context,
-        mirror_id="m-5",
-        mirror_type="simulation",
+        report_id="m-5",
+        report_type="simulation",
     )
     assert result.entities_found == 4

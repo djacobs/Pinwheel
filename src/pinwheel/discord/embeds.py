@@ -1,7 +1,7 @@
 """Rich Discord embed builders for Pinwheel Fates.
 
 Builds discord.Embed objects for game results, standings, proposals,
-mirrors, and schedules. Each builder takes domain data and returns
+reports, and schedules. Each builder takes domain data and returns
 a styled embed ready to send.
 """
 
@@ -13,13 +13,13 @@ import discord
 
 if TYPE_CHECKING:
     from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
-    from pinwheel.models.mirror import Mirror
+    from pinwheel.models.report import Report
     from pinwheel.models.tokens import TokenBalance, Trade
 
 # Brand colors
 COLOR_GAME = 0xE74C3C  # Red — game results
 COLOR_GOVERNANCE = 0x3498DB  # Blue — governance
-COLOR_MIRROR = 0x9B59B6  # Purple — AI mirrors
+COLOR_REPORT = 0x9B59B6  # Purple — AI reports
 COLOR_SCHEDULE = 0x2ECC71  # Green — schedule
 COLOR_STANDINGS = 0xF39C12  # Gold — standings
 COLOR_WARNING = 0xE67E22  # Orange — admin review / warnings
@@ -33,12 +33,8 @@ def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
             (or away_team_name), home_score, away_score, winner_team_id,
             elam_activated, total_possessions.
     """
-    home = str(
-        game_data.get("home_team", game_data.get("home_team_name", "Home"))
-    )
-    away = str(
-        game_data.get("away_team", game_data.get("away_team_name", "Away"))
-    )
+    home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
+    away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
     home_score = game_data.get("home_score", 0)
     away_score = game_data.get("away_score", 0)
     elam_target = game_data.get("elam_target_score")
@@ -169,10 +165,7 @@ def build_vote_tally_embed(tally: VoteTally, proposal_text: str = "") -> discord
         eligible = tally.total_eligible
         embed.add_field(
             name="Participation",
-            value=(
-                f"{total_votes} of {eligible}"
-                f" possible voters ({participation_pct:.0f}%)"
-            ),
+            value=(f"{total_votes} of {eligible} possible voters ({participation_pct:.0f}%)"),
             inline=True,
         )
     embed.set_footer(text="Pinwheel Fates")
@@ -211,34 +204,32 @@ def build_proposal_announcement_embed(
     return embed
 
 
-def build_mirror_embed(mirror: Mirror) -> discord.Embed:
-    """Build an embed for an AI-generated mirror reflection.
+def build_report_embed(report: Report) -> discord.Embed:
+    """Build an embed for an AI-generated report.
 
     Args:
-        mirror: The Mirror model instance.
+        report: The Report model instance.
     """
     type_labels = {
-        "simulation": "Simulation Mirror",
-        "governance": "The Floor \u2014 Mirror",
-        "private": "Private Mirror",
-        "series": "Series Mirror",
-        "season": "Season Mirror",
+        "simulation": "Simulation Report",
+        "governance": "The Floor \u2014 Report",
+        "private": "Private Report",
+        "series": "Series Report",
+        "season": "Season Report",
         "state_of_the_league": "State of the League",
     }
-    title = type_labels.get(mirror.mirror_type, f"Mirror: {mirror.mirror_type}")
+    title = type_labels.get(report.report_type, f"Report: {report.report_type}")
 
     embed = discord.Embed(
-        title=f"{title} -- Round {mirror.round_number}",
-        description=mirror.content[:4096],
-        color=COLOR_MIRROR,
+        title=f"{title} -- Round {report.round_number}",
+        description=report.content[:4096],
+        color=COLOR_REPORT,
     )
     embed.set_footer(text="Pinwheel Fates")
     return embed
 
 
-def build_schedule_embed(
-    schedule: list[dict[str, object]], round_number: int
-) -> discord.Embed:
+def build_schedule_embed(schedule: list[dict[str, object]], round_number: int) -> discord.Embed:
     """Build an embed for an upcoming round's schedule.
 
     Args:
@@ -320,7 +311,9 @@ def build_interpretation_embed(
     )
     confidence_pct = f"{interpretation.confidence:.0%}"
     embed.add_field(
-        name="Confidence", value=confidence_pct, inline=True,
+        name="Confidence",
+        value=confidence_pct,
+        inline=True,
     )
 
     if governor_name:
@@ -339,9 +332,7 @@ def build_token_balance_embed(
         color=COLOR_GOVERNANCE,
     )
     embed.description = (
-        f"**PROPOSE:** {balance.propose}\n"
-        f"**AMEND:** {balance.amend}\n"
-        f"**BOOST:** {balance.boost}"
+        f"**PROPOSE:** {balance.propose}\n**AMEND:** {balance.amend}\n**BOOST:** {balance.boost}"
     )
     if governor_name:
         embed.set_author(name=governor_name)
@@ -396,12 +387,8 @@ def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
         game_data: Dict with keys: home_team (or home_team_name), away_team
             (or away_team_name), home_score, away_score, commentary.
     """
-    home = str(
-        game_data.get("home_team", game_data.get("home_team_name", "Home"))
-    )
-    away = str(
-        game_data.get("away_team", game_data.get("away_team_name", "Away"))
-    )
+    home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
+    away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
     home_score = game_data.get("home_score", 0)
     away_score = game_data.get("away_score", 0)
     commentary = str(game_data.get("commentary", "No commentary available."))
@@ -547,12 +534,8 @@ def build_team_game_result_embed(
             (or away_team_name), home_score, away_score, etc.
         team_id: The team to frame the result for.
     """
-    home = str(
-        game_data.get("home_team", game_data.get("home_team_name", "Home"))
-    )
-    away = str(
-        game_data.get("away_team", game_data.get("away_team_name", "Away"))
-    )
+    home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
+    away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
     home_score = int(game_data.get("home_score", 0))
     away_score = int(game_data.get("away_score", 0))
     winner_id = str(game_data.get("winner_team_id", ""))
@@ -604,8 +587,7 @@ def build_governor_profile_embed(
     )
     embed.add_field(name="Team", value=team_name, inline=True)
     proposal_summary = (
-        f"{proposals_submitted} submitted / "
-        f"{proposals_passed} passed / {proposals_failed} failed"
+        f"{proposals_submitted} submitted / {proposals_passed} passed / {proposals_failed} failed"
     )
     embed.add_field(
         name="Proposals",
@@ -617,11 +599,7 @@ def build_governor_profile_embed(
     if balance:
         embed.add_field(
             name="Token Balance",
-            value=(
-                f"PROPOSE: {balance.propose} | "
-                f"AMEND: {balance.amend} | "
-                f"BOOST: {balance.boost}"
-            ),
+            value=(f"PROPOSE: {balance.propose} | AMEND: {balance.amend} | BOOST: {balance.boost}"),
             inline=False,
         )
 
@@ -634,15 +612,15 @@ def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
     """Build an embed summarizing a completed round.
 
     Args:
-        round_data: Dict from round.completed event with round, games, mirrors, elapsed_ms.
+        round_data: Dict from round.completed event with round, games, reports, elapsed_ms.
     """
     round_num = round_data.get("round", "?")
     games_count = round_data.get("games_presented", round_data.get("games", 0))
-    mirrors_count = round_data.get("mirrors", 0)
+    reports_count = round_data.get("reports", 0)
 
     parts = [f"**{games_count}** games played"]
-    if mirrors_count:
-        parts.append(f"**{mirrors_count}** mirrors generated")
+    if reports_count:
+        parts.append(f"**{reports_count}** reports generated")
 
     embed = discord.Embed(
         title=f"Round {round_num} Complete",

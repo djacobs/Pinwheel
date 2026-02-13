@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Evals Dashboard</h1>
-<p class="eval-subtitle">Aggregate mirror quality & Floor health metrics. No individual mirror text.</p>
+<p class="eval-subtitle">Aggregate report quality & Floor health metrics. No individual report text.</p>
 
 {% if not has_data %}
 <div class="eval-empty">
@@ -20,22 +20,22 @@
     <div class="eval-bar-container">
       <div class="eval-bar" style="width: {{ grounding_rate * 100 }}%; background: {% if grounding_rate >= 0.7 %}#4caf50{% elif grounding_rate >= 0.4 %}#ff9800{% else %}#f44336{% endif %};"></div>
     </div>
-    <p class="eval-detail">{{ grounding_total }} mirrors checked</p>
+    <p class="eval-detail">{{ grounding_total }} reports checked</p>
   </div>
 
   <div class="eval-card">
     <h3>Prescriptive Flags</h3>
     <div class="eval-metric {% if prescriptive_flagged > 0 %}eval-warn{% endif %}">{{ prescriptive_flagged }}</div>
-    <p class="eval-detail">{{ prescriptive_count }} total directive phrases in {{ prescriptive_total }} mirrors</p>
+    <p class="eval-detail">{{ prescriptive_count }} total directive phrases in {{ prescriptive_total }} reports</p>
   </div>
 
   <div class="eval-card">
-    <h3>Mirror Impact Rate</h3>
-    <div class="eval-metric">{{ "%.0f"|format(mirror_impact_rate * 100) }}%</div>
+    <h3>Report Impact Rate</h3>
+    <div class="eval-metric">{{ "%.0f"|format(report_impact_rate * 100) }}%</div>
     <div class="eval-bar-container">
-      <div class="eval-bar" style="width: {{ mirror_impact_rate * 100 }}%; background: #2196f3;"></div>
+      <div class="eval-bar" style="width: {{ report_impact_rate * 100 }}%; background: #2196f3;"></div>
     </div>
-    <p class="eval-detail">Governors who shifted after private mirror</p>
+    <p class="eval-detail">Governors who shifted after private report</p>
   </div>
 
   <div class="eval-card">

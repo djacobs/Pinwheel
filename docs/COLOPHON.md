@@ -2,7 +2,7 @@
 
 ## Pinwheel Fates
 
-Pinwheel Fates is an auto-simulated 3v3 basketball league in which human governors propose and vote on natural-language rules, an AI interprets those rules into simulation parameters, and the consequences play out on a procedurally generated court. It starts out as basketball, but the players decide what it becomes. The game's thesis is that showing people how they govern — through an AI mirror system — changes how they choose to govern next.
+Pinwheel Fates is an auto-simulated 3v3 basketball league in which human governors propose and vote on natural-language rules, an AI interprets those rules into simulation parameters, and the consequences play out on a procedurally generated court. It starts out as basketball, but the players decide what it becomes. The game's thesis is that showing people how they govern — through an AI report system — changes how they choose to govern next.
 
 Built on the principles of [Resonant Computing](https://resonantcomputing.org): private, dedicated, plural, adaptable, prosocial. The AI works exclusively for the players. No engagement optimization, no hidden agendas. Its only function is making the group's dynamics visible to the group.
 
@@ -15,14 +15,14 @@ The project was built solo during the Anthropic Hackathon, February 2026. The bu
 | Layer | Technology | Role |
 |-------|-----------|------|
 | Backend | **Python 3.12 + FastAPI 0.115+** | Async API server, simulation orchestration, governance engine |
-| Frontend | **HTMX 1.x + SSE + Jinja2** | Live-updating dashboard — standings, play-by-play, governance, mirrors — with no JS build step |
+| Frontend | **HTMX 1.x + SSE + Jinja2** | Live-updating dashboard — standings, play-by-play, governance, reports — with no JS build step |
 | Database | **SQLAlchemy 2.0 async** (aiosqlite for dev, asyncpg for production) | Schema via `Base.metadata.create_all()` — no Alembic, acceptable for hackathon pace |
 | Models | **Pydantic 2.9+** | Shared vocabulary across all layers: API contracts, domain models, rule definitions, eval results |
 | Deployment | **Fly.io** | Single-machine deployment (shared-cpu-2x, 1GB), SJC region, SQLite on encrypted volume |
 | Scheduling | **APScheduler** (AsyncIOScheduler) | Automatic round advancement via configurable cron |
-| Live Interface | **discord.py 2.4+** | In-process bot: slash commands (`/propose`, `/vote`, `/join`, `/tokens`, `/trade`, `/strategy`), EventBus subscriptions, private mirror DMs |
+| Live Interface | **discord.py 2.4+** | In-process bot: slash commands (`/propose`, `/vote`, `/join`, `/tokens`, `/trade`, `/strategy`), EventBus subscriptions, private report DMs |
 | AI Interpretation | **Anthropic API** (Claude Sonnet 4.5) | Natural-language rule → structured `RuleInterpretation` via sandboxed system prompt |
-| AI Mirror | **Anthropic API** (Claude Sonnet 4.5) | Three mirror types: simulation, governance, private. Describe patterns, never prescribe actions. |
+| AI Report | **Anthropic API** (Claude Sonnet 4.5) | Three report types: simulation, governance, private. Describe patterns, never prescribe actions. |
 | AI Commentary | **Anthropic API** (Claude Sonnet 4.5) | Broadcaster-style game commentary and round highlight reels |
 | Auth | **Authlib + itsdangerous** | Discord OAuth2 for governor identity |
 
@@ -44,13 +44,13 @@ Input sanitization strips invisible Unicode, HTML tags, and prompt injection mar
 
 Votes use weighted representation: each team's total weight is 1.0, divided equally among its active governors. BOOST tokens double a vote's weight. Vote tallies use strictly greater-than comparison — ties fail.
 
-## AI Mirror System
+## AI Report System
 
-Three mirror types, generated after each round:
+Three report types, generated after each round:
 
-The **simulation mirror** reflects on game results — statistical patterns, scoring trends, Elam activations, emergent behavior. The **governance mirror** reflects on proposal patterns, voting dynamics, and how the rule space is evolving. The **private mirror** reflects an individual governor's behavior back to them alone — voting patterns, proposal themes, token usage, consistency of philosophy.
+The **simulation report** reflects on game results — statistical patterns, scoring trends, Elam activations, emergent behavior. The **governance report** reflects on proposal patterns, voting dynamics, and how the rule space is evolving. The **private report** reflects an individual governor's behavior back to them alone — voting patterns, proposal themes, token usage, consistency of philosophy.
 
-All mirrors follow a single constraint: they DESCRIBE patterns, never PRESCRIBE actions. The AI observes; humans decide. This constraint is enforced in the system prompts and validated by the prescriptive language eval (S.2c).
+All reports follow a single constraint: they DESCRIBE patterns, never PRESCRIBE actions. The AI observes; humans decide. This constraint is enforced in the system prompts and validated by the prescriptive language eval (S.2c).
 
 Variant B prompts exist for A/B comparison testing (eval M.2).
 
@@ -58,11 +58,11 @@ Variant B prompts exist for A/B comparison testing (eval M.2).
 
 Twelve eval modules organized into two tracks:
 
-**Safety evals (S-track):** Prescriptive language scan (S.2c — flags mirrors that cross from observation to advice), entity grounding (S.2b — validates that mirrors reference real teams, agents, and rules), behavioral shift detection (S.2a — measures whether governor behavior changes after receiving a mirror).
+**Safety evals (S-track):** Prescriptive language scan (S.2c — flags reports that cross from observation to advice), entity grounding (S.2b — validates that reports reference real teams, agents, and rules), behavioral shift detection (S.2a — measures whether governor behavior changes after receiving a report).
 
 **Measurement evals (M-track):** 20 golden eval cases (M.1), dual-prompt A/B comparison (M.2), treatment/control attribution (M.3), Governance Quality Index (M.4 — composite of Shannon entropy for proposal diversity, inverted Gini for participation breadth, keyword overlap for consequence awareness, normalized time-to-vote for deliberation), scenario flagging (M.6), and Opus-powered admin analysis (M.7).
 
-The GQI (M.4) is the composite metric: four sub-metrics weighted equally. It measures whether governance is healthy — diverse, broad, responsive to mirrors, and deliberative.
+The GQI (M.4) is the composite metric: four sub-metrics weighted equally. It measures whether governance is healthy — diverse, broad, responsive to reports, and deliberative.
 
 ## Development Tools
 
@@ -72,7 +72,7 @@ The GQI (M.4) is the composite metric: four sub-metrics weighted equally. It mea
 |------|-----|
 | **Claude Code** | Primary development partner. Architecture, implementation, testing, documentation. The CLAUDE.md file served as a living contract between human intent and AI execution. |
 | **Claude Cowork** | Product management workflows — PM walkthrough, acceptance criteria generation, editorial calendar, this colophon. |
-| **Anthropic Workbench** | Planned for prompt iteration on the AI interpretation and mirror system prompts. Not yet integrated — prompts are currently iterated in-code. |
+| **Anthropic Workbench** | Planned for prompt iteration on the AI interpretation and report system prompts. Not yet integrated — prompts are currently iterated in-code. |
 
 ### Planning and Writing
 
@@ -109,11 +109,11 @@ The application runs as a single process on one Fly.io machine. The FastAPI serv
 
 The EventBus is an in-process pub/sub system that decouples the game loop from its consumers (SSE clients, Discord channels, eval runners). Events are fire-and-forget — a Discord posting failure never breaks a simulation round.
 
-Discord was chosen as the governance interface because its API is well-understood and its bot framework is mature. The slash command UX (`/propose`, `/vote`, `/join`) maps cleanly to the governance lifecycle. Private mirrors are delivered via DM. Team channels are permission-gated to team role members only.
+Discord was chosen as the governance interface because its API is well-understood and its bot framework is mature. The slash command UX (`/propose`, `/vote`, `/join`) maps cleanly to the governance lifecycle. Private reports are delivered via DM. Team channels are permission-gated to team role members only.
 
-The interpreter is sandboxed: it receives only the proposal text and parameter definitions. It has no access to simulation state, game results, player data, or mirror content. This is both a security boundary and a design choice — the AI acts as a constitutional interpreter, not an omniscient advisor.
+The interpreter is sandboxed: it receives only the proposal text and parameter definitions. It has no access to simulation state, game results, player data, or report content. This is both a security boundary and a design choice — the AI acts as a constitutional interpreter, not an omniscient advisor.
 
-The demo pipeline (`scripts/demo_seed.py` + `scripts/run_demo.sh`) seeds four Portland-themed teams (Rose City Thorns, Burnside Breakers, St. Johns Herons, Hawthorne Hammers) with hand-tuned 360-point attribute budgets, runs rounds through the full game loop (sim → gov → mirrors → evals → commentary), and captures screenshots via Rodney. The output is a Showboat markdown artifact: proof the system works end-to-end.
+The demo pipeline (`scripts/demo_seed.py` + `scripts/run_demo.sh`) seeds four Portland-themed teams (Rose City Thorns, Burnside Breakers, St. Johns Herons, Hawthorne Hammers) with hand-tuned 360-point attribute budgets, runs rounds through the full game loop (sim → gov → reports → evals → commentary), and captures screenshots via Rodney. The output is a Showboat markdown artifact: proof the system works end-to-end.
 
 ## Build Timeline
 
@@ -125,13 +125,13 @@ Seven days. Twenty-three Claude Code sessions. One builder.
 
 **Day 3 (Session 6):** Demo infrastructure. Integrated Rodney (headless Chrome screenshots) and Showboat (executable markdown demos) into a 15-step demo pipeline that proves the full govern→simulate→observe→reflect cycle end-to-end. Four Portland-themed teams seeded: Rose City Thorns, Burnside Breakers, St. Johns Herons, Hawthorne Hammers. 240 tests passing.
 
-**Day 4 (Session 7):** Evals framework. Twelve eval modules across safety (S-track) and measurement (M-track). Private mirror privacy model verified at the type level — Pydantic rejects `mirror_type="private"` for rubric scoring. 327 tests.
+**Day 4 (Session 7):** Evals framework. Twelve eval modules across safety (S-track) and measurement (M-track). Private report privacy model verified at the type level — Pydantic rejects `report_type="private"` for rubric scoring. 327 tests.
 
 **Day 5 (Sessions 8–10):** Discord governance commands wired to the service layer (`/propose` with AI interpretation, `/vote` with hidden ballots, `/tokens`, `/trade` with DM accept/reject, `/strategy`). APScheduler integration for automatic round advancement. AI commentary engine. Presenter pacing modes. 401 tests.
 
-**Day 6 (Sessions 11–16):** CLAUDE.md accuracy audit (project structure had become fiction — 20+ real files missing, nonexistent files listed). Security hardening (session secrets, OAuth cookies, evals auth gate). Fly.io deployment — live at pinwheel.fly.dev. UX overhaul: Inter + JetBrains Mono typography, narration engine (60+ templates turning structured play data into vivid text), multi-round arena, narrative mock mirrors, mobile nav. Voice and identity pass — de-emphasized Blaseball as primary inspiration, established the game's own identity. 408 tests.
+**Day 6 (Sessions 11–16):** CLAUDE.md accuracy audit (project structure had become fiction — 20+ real files missing, nonexistent files listed). Security hardening (session secrets, OAuth cookies, evals auth gate). Fly.io deployment — live at pinwheel.fly.dev. UX overhaul: Inter + JetBrains Mono typography, narration engine (60+ templates turning structured play data into vivid text), multi-round arena, narrative mock reports, mobile nav. Voice and identity pass — de-emphasized Blaseball as primary inspiration, established the game's own identity. 408 tests.
 
-**Day 7 (Sessions 17–23):** Production fixes — play-by-play truncation hiding Elam winning plays, team page venue rendering hardened, production re-seed. Spider charts and individual agent pages — SVG nonagon spider charts with league-average shadow, full player profile pages with bio, game log, season averages, HTMX bio editing for governors. Simulation tuning — shot clock violation mechanic, scoring rebalance from 34 to 65 pts/team matching Unrivaled range, stamina management overhaul, Elam display fix. Home page redesigned as living league dashboard with hero, latest scores, standings, mirrors, upcoming matchups, and explainer grid. Governance page opened to public, rules page redesigned from config dump to tiered card layout, player-centric copy rewrite across all pages. "How to Play" onboarding page with rhythm section, Discord commands reference, FAQ, and join CTAs. 435 tests.
+**Day 7 (Sessions 17–23):** Production fixes — play-by-play truncation hiding Elam winning plays, team page venue rendering hardened, production re-seed. Spider charts and individual agent pages — SVG nonagon spider charts with league-average shadow, full player profile pages with bio, game log, season averages, HTMX bio editing for governors. Simulation tuning — shot clock violation mechanic, scoring rebalance from 34 to 65 pts/team matching Unrivaled range, stamina management overhaul, Elam display fix. Home page redesigned as living league dashboard with hero, latest scores, standings, reports, upcoming matchups, and explainer grid. Governance page opened to public, rules page redesigned from config dump to tiered card layout, player-centric copy rewrite across all pages. "How to Play" onboarding page with rhythm section, Discord commands reference, FAQ, and join CTAs. 435 tests.
 
 ## Document System
 
@@ -161,7 +161,7 @@ The dev log, UX notes, and CLAUDE.md were maintained as distinct files throughou
 
 **Builder:** David Jacobs
 
-**AI Partners:** Claude (Anthropic) — via Claude Code, Claude Cowork, and the Claude API (Sonnet 4.5 for interpretation and mirrors). OpenAI Codex — code review.
+**AI Partners:** Claude (Anthropic) — via Claude Code, Claude Cowork, and the Claude API (Sonnet 4.5 for interpretation and reports). OpenAI Codex — code review.
 
 **Inspirations:** Blaseball (The Game Band), David Lynch's *Catching the Big Fish*, [Resonant Computing](https://resonantcomputing.org), the Portland Trail Blazers logo (five lines spinning around a center — a pinwheel)
 

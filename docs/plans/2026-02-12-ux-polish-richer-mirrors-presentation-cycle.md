@@ -1,11 +1,11 @@
-# UX Polish, Richer Mirrors, and Presentation Cycle
+# UX Polish, Richer Reports, and Presentation Cycle
 
 ## Context
 
 Three interconnected changes requested by the user:
 
 1. **UX fixes**: Remove "Rules" from nav (page stays accessible via URL), migrate the "wild card" copy and key game parameters onto the Play page, remove the AI sentence from the hero
-2. **Richer mirrors**: Make simulation and governance mirrors more verbose — mention specific rule changes with old/new values, governance outcomes, timing of next governance window
+2. **Richer reports**: Make simulation and governance reports more verbose — mention specific rule changes with old/new values, governance outcomes, timing of next governance window
 3. **Real-time presentation cycle**: New architecture for dripping game events over real time instead of dumping results instantly. Target cadence: 4-5 min/quarter, games every 30 min, 4 games/round (~2 hours), governance between rounds, 2 rounds/season for testing
 
 ## Work Item 1: UX Fixes (templates + pages.py)
@@ -36,9 +36,9 @@ Three interconnected changes requested by the user:
 ### 1d. Tests
 - Existing `test_pages.py` covers page routes — add assertion that `/play` returns 200 and contains "Beyond the Numbers" text
 
-## Work Item 2: Richer Mirrors
+## Work Item 2: Richer Reports
 
-### 2a. Enrich governance data passed to mirrors
+### 2a. Enrich governance data passed to reports
 
 **File:** `src/pinwheel/core/game_loop.py` (lines 362-368)
 - Currently `governance_data["rules_changed"]` contains `VoteTally.model_dump()` — which has proposal_id, vote counts, and passed flag but **no parameter/old_value/new_value**
@@ -46,38 +46,38 @@ Three interconnected changes requested by the user:
 - Build enriched `rules_changed` list that includes both tally info AND the actual parameter changes
 - Add `next_governance_window_minutes` to governance_data (from settings.pinwheel_gov_window)
 
-### 2b. Update mirror prompts for more verbose output
+### 2b. Update report prompts for more verbose output
 
-**File:** `src/pinwheel/ai/mirror.py`
+**File:** `src/pinwheel/ai/report.py`
 
-**Simulation mirror prompt** (line 25):
+**Simulation report prompt** (line 25):
 - Change "2-4 paragraphs" to "3-5 paragraphs"
 - Add instruction: "If rules changed recently, analyze how the new rules affected gameplay outcomes this round. Reference specific parameter changes and their visible effects."
 - Add: "Mention the next governance window and what patterns governors might want to pay attention to."
 
-**Governance mirror prompt** (line 43):
+**Governance report prompt** (line 43):
 - Change "2-3 paragraphs" to "3-5 paragraphs"
 - Add instruction: "For each rule that changed, state the parameter, old value, and new value explicitly (e.g., 'three_point_value went from 3 to 4')."
 - Add: "Note the outcome of the governance window: how many proposals were filed, how many passed, how many failed."
 - Add: "Mention when the next governance window opens."
 
-**Private mirror prompt** (line 60):
+**Private report prompt** (line 60):
 - Change "1-2 paragraphs" to "2-3 paragraphs"
 
 ### 2c. Increase max_tokens
 
-**File:** `src/pinwheel/ai/mirror.py` (line 228)
+**File:** `src/pinwheel/ai/report.py` (line 228)
 - Change `max_tokens=800` to `max_tokens=1500`
 
 ### 2d. Update mock generators
 
-**File:** `src/pinwheel/ai/mirror.py` — mock functions (lines 241-425)
-- `generate_governance_mirror_mock`: Use the enriched `rules_changed` data to mention parameter/old_value/new_value in the mock output
-- `generate_simulation_mirror_mock`: Add lines about recent rule changes if available in round_data
+**File:** `src/pinwheel/ai/report.py` — mock functions (lines 241-425)
+- `generate_governance_report_mock`: Use the enriched `rules_changed` data to mention parameter/old_value/new_value in the mock output
+- `generate_simulation_report_mock`: Add lines about recent rule changes if available in round_data
 - Both mocks should produce slightly longer output to match the new prompt expectations
 
 ### 2e. Tests
-- Update `test_mirrors.py` to verify mocks reference rule change details when provided
+- Update `test_reports.py` to verify mocks reference rule change details when provided
 - Verify governance mock mentions parameter names and old/new values
 
 ## Work Item 3: Real-Time Presentation Cycle
@@ -157,7 +157,7 @@ async def present_round(
 ## Execution Order
 
 1. **Work Item 1** (UX Fixes) — no dependencies, can run first
-2. **Work Item 2** (Richer Mirrors) — no dependencies on 1, can run in parallel
+2. **Work Item 2** (Richer Reports) — no dependencies on 1, can run in parallel
 3. **Work Item 3** (Presentation Cycle) — independent, can run in parallel
 
 All three can be implemented in parallel background agents.
@@ -168,5 +168,5 @@ All three can be implemented in parallel background agents.
 2. `uv run ruff check src/ tests/` — zero lint
 3. Visual: `/play` page shows wild card section and key parameters, no "Rules" in nav
 4. Visual: `/rules` page still accessible via direct URL
-5. Mock mirrors mention specific rule changes with old/new values
+5. Mock reports mention specific rule changes with old/new values
 6. Presenter tests verify event ordering and cancellation

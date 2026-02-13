@@ -1,406 +1,382 @@
 # New Governor Guide
 
-Welcome to Pinwheel Fates. This guide tells you exactly what to do, step by step.
+Welcome to Pinwheel Fates. You're about to remake basketball.
 
 ## What Is This Game?
 
-Pinwheel Fates is an auto-simulated 3v3 basketball league. You don't play basketball — AI-controlled hoopers do that. You **govern the rules**. You propose rule changes in plain English, vote on other people's proposals, and watch what happens when the rules change.
+Pinwheel Fates is a basketball league that doesn't want to stay basketball. AI hoopers play 3v3 games automatically. You never touch the ball. What you touch are **the rules** — and through the rules, *everything*.
 
-The game simulates itself. Games run automatically every few minutes. After every few rounds of games, the league tallies all the votes, changes the rules, and the next batch of games runs under the new rules. You watch the consequences of your Floor decisions play out in real time.
+You propose changes in plain English. "Make three-pointers worth 10 points." "The floor is lava." "Nobody can shoot until they've passed three times." The game interprets your intent, maps it to the simulation, shows you what it understood. You confirm, the league votes, and if it passes — the next game runs in a different world.
 
-It starts as basketball. Where it ends is up to you.
+Games run every few minutes. Every few rounds, the Floor tallies votes and rewrites reality. The next batch of games runs under your new rules. You watch the consequences cascade in real time.
+
+**It starts as basketball. It becomes whatever you make it.**
+
+---
 
 ## Getting Started
 
-### Step 1: Join a Team
-
-Type this in any channel where the Pinwheel bot is present:
+### Join a Team
 
 ```
 /join
 ```
 
-The bot will show you a list of teams with how many governors each team has. Pick one. Then type:
+The bot shows you the teams. Pick one. You're locked in for the season — choose the hoopers you believe in, or the governors you want to conspire with.
 
 ```
 /join Rose City Thorns
 ```
 
-(Replace with your team's actual name. The bot autocompletes — start typing and it will suggest matches.)
+You get a team role, a private team channel, and three hoopers. They are your athletes. You are their legislature.
 
-**What happens:** You become a governor of that team for the rest of the season. You get a team role in Discord, access to your team's private channel, and a welcome message listing your team's three hoopers (the AI players on your squad).
-
-**You cannot switch teams mid-season.** Choose carefully.
-
-### Step 2: Check Your Tokens
-
-Type:
+### Your Floor Tokens
 
 ```
 /tokens
 ```
 
-The bot responds (only you can see it) with your current token balance:
+You start with political currency:
 
-```
-PROPOSE: 2
-AMEND: 2
-BOOST: 2
-```
+-   **PROPOSE** (2) — Put something on the Floor. This is agenda-setting power. The most valuable token in the game.
+    
+-   **AMEND** (2) — Rewrite someone else's proposal before it goes to vote. You can't stop them from proposing, but you can change what they proposed.
+    
+-   **BOOST** (2) — Double your voting weight on a single vote. Save it for the vote that matters most.
+    
 
-These are your Floor tokens. They regenerate every time the league runs a Floor tally (every 3 rounds of games by default). Here's what each one does:
+Tokens regenerate every tally round (every 3 rounds of games) and accumulate if unspent. They're tradeable — your PROPOSE token is someone else's leverage.
 
-| Token | What It Does | Cost |
-|-------|-------------|------|
-| **PROPOSE** | Submit a rule change proposal | 1 per proposal (Tier 1-4) |
-| **AMEND** | Modify someone else's active proposal | 1 per amendment |
-| **BOOST** | Double your vote weight on one vote | 1 per boosted vote |
-
-**Voting is free.** You never need tokens to vote.
+**Voting is always free.** You never need tokens to vote.
 
 ---
 
-## Proposals: How to Change the Rules
+## The Floor: How to Reshape the Game
 
-This is the core of the game. You propose rule changes in plain English. An AI interprets what you mean, maps it to a specific game parameter, and shows you what it thinks you're asking for. You confirm, revise, or cancel.
-
-### Step 1: Write Your Proposal
-
-Type this in any channel:
+The game interprets your intent, maps it to the simulation, and shows you what it understood. Then you decide: confirm it, revise it, or walk away.
 
 ```
-/propose Make three-pointers worth 5 points
+/propose Make three-pointers worth 10 points
 ```
 
-The `text` parameter is required. Write what you want to change in natural language. Be specific. Examples:
-
-- `/propose Increase the shot clock to 30 seconds`
-- `/propose Make the Elam Ending start after the 2nd quarter instead of the 3rd`
-- `/propose Turn off home court advantage`
-- `/propose Require at least 2 passes before anyone can shoot`
-
-The bot will say "thinking..." for a few seconds while the AI interprets your proposal.
-
-### Step 2: Review the AI Interpretation
-
-The bot sends you a private embed (only you can see it) that looks like this:
-
+The game thinks for a few seconds, then sends you a private interpretation:
 ```
+
 PROPOSAL INTERPRETATION
 
-"Make three-pointers worth 5 points"
+"Make three-pointers worth 10 points"
 
-Parameter Change: three_point_value: 3 -> 5
-Impact Analysis:  Sharpshooter archetypes benefit significantly.
-                  Games will likely have higher scores. Teams with
-                  strong three-point shooters gain an advantage.
-Tier:            1 (Game Mechanics)
-Cost:            1 PROPOSE token
-Remaining:       1 PROPOSE
-Confidence:      95%
+Parameter Change: three\_point\_value: 3 -> 10  
+Impact Analysis: This fundamentally changes game dynamics.  
+Sharpshooter archetypes become dominant.  
+Scores will roughly double. Teams without  
+strong shooters are in serious trouble.  
+Tier: 1 (Game Mechanics)  
+Cost: 1 PROPOSE token  
+Confidence: 98%
+
 ```
 
-Read this carefully. The AI has mapped your plain-English request to a specific parameter (`three_point_value`) and a specific new value (`5`). The impact analysis tells you what the AI thinks will happen.
+The game does the work of figuring out which simulation lever to pull and predicts the consequences.
 
-**Three buttons appear beneath the embed:**
+Three buttons:
 
-- **Confirm** (green) — Submit the proposal as-is. Spends your PROPOSE token. Posts the proposal publicly to the Floor for everyone to see and vote on.
-- **Revise** (blue) — Opens a text box where you can rewrite your proposal. The AI will re-interpret the new text and show you an updated embed. You can revise as many times as you want before confirming. No tokens are spent until you confirm.
-- **Cancel** (red) — Throws away the proposal. No tokens spent.
+-   **Confirm** — Spend the token. Post it to the Floor. Let the league decide.
+    
+-   **Revise** — Rewrite it. The game re-interprets. No tokens spent until you confirm.
+    
+-   **Cancel** — Walk away. No cost.
+    
 
-### Step 3: Confirm or Revise
+### What Can You Propose?
 
-If the AI got it right, click **Confirm**.
+Anything. The game is your interpreter — your constitutional translator. You provide the imagination; the game figures out how to express it in the simulation.
 
-If the AI misunderstood, click **Revise**. A popup appears with a text box (500 character max). Rewrite your proposal more clearly. The AI re-interprets and you get a new embed with updated parameter, impact analysis, and confidence. You can keep revising until you're satisfied.
+**Change how the game plays:**
 
-If you change your mind entirely, click **Cancel**.
+-   "Games should be shorter — end them after the 2nd quarter"
+    
+-   "Make every shot worth 1 point"
+    
+-   "If you're losing by 20, the game should just end"
+    
 
-### What Happens After You Confirm
+**Change how hoopers behave:**
 
-Your proposal is now public. It appears on the Floor for all governors to see. It includes your original text, the AI's interpretation, the parameter change, and the impact analysis.
+-   "Nobody can take more than a third of their team's shots"
+    
+-   "Require 4 passes before anyone can shoot"
+    
+-   "Turn off home court advantage — every game is neutral"
+    
 
-The proposal stays open for voting until the next Floor tally (every 3 rounds of games). During that time:
-- Other governors can vote yes or no
-- Other governors can amend your proposal (costs them 1 AMEND token)
-- Everyone can discuss it
+**Change the shape of the league:**
 
-### What You Can Change
+-   "Only 2 teams should make the playoffs"
+    
+-   "Make the finals a single winner-take-all game"
+    
 
-There are 33 governable parameters organized into 4 tiers. Here is every single one:
+**Change the rules about changing rules:**
 
-**Tier 1: Game Mechanics** (needs >50% to pass)
+-   "Require 80% supermajority to pass anything"
+    
+-   "Make it so only 1 proposal can be on the Floor at a time"
+    
 
-| Parameter | Default | Range | What It Does |
-|-----------|---------|-------|-------------|
-| `quarter_minutes` | 10 | 3-20 | How long each quarter lasts |
-| `shot_clock_seconds` | 15 | 10-60 | How long a team has to shoot |
-| `three_point_value` | 3 | 1-10 | Points for a three-pointer |
-| `two_point_value` | 2 | 1-10 | Points for a two-pointer |
-| `free_throw_value` | 1 | 1-5 | Points per free throw |
-| `personal_foul_limit` | 5 | 3-10 | Fouls before a hooper fouls out |
-| `team_foul_bonus_threshold` | 4 | 3-10 | Team fouls before bonus free throws |
-| `three_point_distance` | 22.15 ft | 15-30 ft | Distance of the three-point line |
-| `elam_trigger_quarter` | 3 | 1-4 | Quarter when the Elam Ending activates |
-| `elam_margin` | 15 | 5-40 | Target score margin for Elam Ending |
-| `halftime_stamina_recovery` | 0.40 | 0.0-0.6 | How much stamina hoopers recover at halftime |
-| `quarter_break_stamina_recovery` | 0.15 | 0.0-0.3 | Stamina recovery between quarters |
-| `safety_cap_possessions` | 300 | 50-500 | Max possessions before a game force-ends |
-| `substitution_stamina_threshold` | 0.35 | 0.1-0.8 | Stamina level that triggers bench substitution |
+**Propose something the game has never seen:**
 
-**Tier 2: Hooper Behavior** (needs >50% to pass)
+-   "The floor is lava" — the game might crank up fatigue, eliminate recovery, make every step cost stamina. Your hoopers are playing on a hostile surface now. The commentary will describe it.
+    
+-   "Play the game underwater" — the game could slow everyone down, drain stamina faster, make shooting harder. The *feel* is underwater. The mechanics adapt.
+    
+-   "Ban defense" — maybe every shot becomes uncontested. Maybe defensive stats drop to zero. The game finds the closest expressible version and shows you.
+    
 
-| Parameter | Default | Range | What It Does |
-|-----------|---------|-------|-------------|
-| `max_shot_share` | 1.0 | 0.2-1.0 | Max fraction of team shots one hooper can take |
-| `min_pass_per_possession` | 0 | 0-5 | Minimum passes required before shooting |
-| `home_court_enabled` | true | true/false | Whether home court advantage exists |
-| `home_crowd_boost` | 0.05 | 0.0-0.15 | Accuracy boost for the home team |
-| `away_fatigue_factor` | 0.02 | 0.0-0.10 | Extra fatigue for away teams |
-| `crowd_pressure` | 0.03 | 0.0-0.10 | Accuracy penalty from hostile crowd |
-| `altitude_stamina_penalty` | 0.01 | 0.0-0.05 | Extra stamina drain from altitude |
-| `travel_fatigue_enabled` | true | true/false | Whether travel distance affects fatigue |
-| `travel_fatigue_per_mile` | 0.001 | 0.0-0.005 | Stamina drain per mile traveled |
+If the game can't express your idea perfectly, it'll show you the closest version it can build and explain the gap. Sometimes the gap is the most interesting part — it becomes a conversation on the Floor about what the game *should* be able to do.
 
-**Tier 3: League Structure** (needs >60% to pass)
+The bigger proposals (league structure, meta-governance, wild ideas) need broader consensus — more votes to pass. Simple game mechanics need a simple majority. Changing the rules about changing rules needs a supermajority. This is by design: the wilder the change, the more people have to want it.
 
-| Parameter | Default | Range | What It Does |
-|-----------|---------|-------|-------------|
-| `teams_count` | 8 | 4-16 | Number of teams in the league |
-| `round_robins_per_season` | 3 | 1-5 | How many times each team plays each other |
-| `playoff_teams` | 4 | 2-8 | How many teams make the playoffs |
-| `playoff_semis_best_of` | 5 | 1-7 | Semifinal series length |
-| `playoff_finals_best_of` | 7 | 1-7 | Finals series length |
+### After You Confirm
 
-**Tier 4: Meta-Governance** (needs >60% to pass)
+Your proposal goes public. Every governor can see your original words, the game's interpretation, and the predicted impact.
 
-| Parameter | Default | Range | What It Does |
-|-----------|---------|-------|-------------|
-| `proposals_per_window` | 3 | 1-10 | Max proposals per Floor period |
-| `vote_threshold` | 0.5 | 0.3-0.8 | Base vote threshold for passing proposals |
+You can propose and amend anytime between tallies — the window is always open. Games keep running while the Floor debates. Everything submitted before the tally gets counted; anything after rolls into the next one.
 
-**You can change the rules about changing rules.** Tier 4 lets you alter the voting threshold itself. Want to require 80% supermajority to pass anything? Propose it. But you'll need 60% support to pass a Tier 4 change.
+During the window:
+
+-   Governors vote yes or no
+    
+-   Someone can spend an AMEND token to rewrite your proposal (the amended version replaces yours on the ballot — you don't get a veto, just the chance to argue against the change)
+    
+-   Everyone debates in team channels and on the Floor
+    
 
 ---
 
-## Voting: How to Support or Block Proposals
+## What Can This Become?
 
-### How to Vote
+The parameters have wide ranges. Changes compound. After a few rounds of governance, you might not recognize what you're watching. Some possibilities:
 
-When there's an active proposal, type:
+### The Shootout
 
+Someone proposes three-pointers worth 10. It passes. Then someone moves the Elam Ending to start after the 1st quarter with a tiny margin. Now games are 90-second scoring explosions — two teams sprinting to hit a target score, every three-pointer a seismic event. The commentary is breathless. The box scores are absurd. This is not basketball. It's something faster.
+
+### The Beautiful Game
+
+A coalition pushes through "require 4 passes before anyone can shoot" and "no hooper can take more than 25% of their team's shots." Individual heroics are dead. Every possession is a passing clinic. The hoopers with high Passing and IQ stats — previously overlooked — are suddenly the most valuable players in the league. Teams that can't move the ball can't score. You've reinvented the sport around teamwork.
+
+### The Gauntlet
+
+Fatigue cranked up. Recovery eliminated. The Elam margin set to 40. Games go long. Hoopers collapse. The bench player — the one everyone ignored — becomes the most important hooper on the roster because they're the only one still standing in the 4th quarter. Iron Horse archetypes are kings. Every game is an endurance trial.
+
+### Governance Lock
+
+Someone proposes raising the vote threshold to 80%. It passes with 62% support. Now almost nothing else can pass. The current rules are frozen. The league calcifies. The reporter starts noting that the same team keeps winning under rules that favor them. Other governors scramble to build a supermajority coalition to undo the lock — but the team on top is trading tokens to keep the coalition from forming. This is no longer a basketball game. It's a political crisis.
+
+### Your Version
+
+We don't know what you'll build. That's the point. Every Pinwheel season ends somewhere different. The game is a canvas. Basketball is the primer coat.
+
+---
+
+## Voting: Power and Coalition
+
+Voting is where proposals live or die. It's free, it's secret until the tally, and it's the most important thing you do.
 ```
+
 /vote yes
-```
 
-or
-
-```
 /vote no
-```
-
-That's it. The bot confirms your vote with a private message. Nobody else can see how you voted until the Floor tally.
-
-### Boosting a Vote
-
-If you feel strongly, you can spend a BOOST token to double your vote weight:
 
 ```
+
+That's it. The bot confirms privately. Nobody sees your vote until the Floor tally resolves.
+
+### Boosting
+
+If a vote matters enough to spend a token on:
+```
+
 /vote yes boost:True
+
 ```
 
-The `boost` parameter is optional and defaults to `False`. Set it to `True` to burn 1 BOOST token and double your weight on this particular vote.
+This burns 1 BOOST token and doubles your weight on that vote. Save it for the proposal that changes everything — or the one you need to kill.
 
-### What Happens If Multiple Proposals Are Active
+### How Power Works
 
-The `/vote` command targets the most recent unresolved proposal. If you need to vote on a specific proposal when multiple are active, the bot will guide you.
+Every team has equal voting power, regardless of how many governors it has. This means:
 
-### How Vote Weight Works
+-   On a team by yourself, your vote carries your team's full weight
+    
+-   On a crowded team, you share power with your co-governors
+    
+-   BOOST lets you punch above your weight when it counts
+    
 
-Your vote weight depends on how many governors are on your team:
+The political game is real. Trade tokens with rivals. Coordinate votes in your team channel. Build cross-team coalitions for the big proposals. Betray those coalitions when the moment is right. The reporter is watching — and it will tell the league what it sees.
 
-- 1 governor on your team: your vote weight is **1.0**
-- 2 governors: each has weight **0.5**
-- 3 governors: each has weight **0.33**
-- 5 governors: each has weight **0.2**
+### The Tally
 
-**Every team's total voting power is always 1.0**, regardless of how many governors it has. This prevents one team from dominating by recruiting more governors.
+Every 3 rounds of games, the Floor tallies:
 
-If you use BOOST, your weight doubles. So a governor on a 3-person team using BOOST has weight 0.66 instead of 0.33.
-
-### How Tallying Works
-
-Floor tallies happen every 3 rounds of games. When a tally triggers:
-
-1. All confirmed proposals with votes are tallied
-2. For each proposal: sum of YES weights vs sum of NO weights
-3. The proposal passes if `YES / (YES + NO) > threshold`
-4. The threshold depends on the tier (see tables above)
-5. **Ties fail.** If YES votes exactly equal the threshold, the proposal does not pass.
-6. If passed, the rule change takes effect immediately — the next game uses the new rules
-7. Votes are revealed
-
-### Example Tally
-
-A league with 4 teams. Each team has total voting power of 1.0. Maximum possible vote weight is 4.0.
-
-| Team | Governors | Vote | Weight Each | Total |
-|------|-----------|------|-------------|-------|
-| Thorns | 3 | 2 yes, 1 no | 0.33 | 0.66 yes, 0.33 no |
-| Breakers | 2 | 2 yes | 0.50 | 1.0 yes |
-| Foxes | 1 | 1 no | 1.0 | 1.0 no |
-| Wolves | 2 | 1 yes, 1 no | 0.50 | 0.5 yes, 0.5 no |
-
-**Result:** YES = 2.16, NO = 1.83. Total = 4.0. YES/Total = 0.54. Threshold = 0.50 (Tier 1). **Passes.**
+1.  Every open proposal gets counted — weighted yes vs. weighted no
+    
+2.  Simple proposals (game mechanics, hooper behavior) need a majority to pass
+    
+3.  Bigger proposals (league structure, meta-governance) need a supermajority
+    
+4.  Ties fail. Close calls are noted by the reporter — "one vote away" is a story
+    
+5.  Passed rules take effect immediately. The next game runs in the new world
+    
+6.  All votes are revealed. Everyone sees who voted which way
+    
+7.  Tokens regenerate. The next governance window opens immediately
+    
 
 ---
 
 ## Token Trading
 
-You can trade tokens with other governors:
-
-```
-/trade @OtherGovernor offer_type:PROPOSE offer_amount:1 request_type:BOOST request_amount:2
+Tokens are political currency. Trade them.
 ```
 
-This sends a trade offer to `@OtherGovernor`. They receive a DM with Accept/Reject buttons. They have 1 hour to respond.
+/trade @OtherGovernor offer\_type:PROPOSE offer\_amount:1 request\_type:BOOST request\_amount:2
 
-**Why trade?** Maybe you don't plan to put anything on the Floor this cycle but want to boost two votes. Trade your PROPOSE tokens for someone else's BOOST tokens.
+```
+
+They get a DM with Accept/Reject. One hour to respond.
+
+Why trade? Because a PROPOSE token in the right hands changes the game. You might not have a proposal in mind, but someone on another team does — and they'll pay for the privilege of agenda-setting. Or you need three BOOSTs to kill a proposal that would destroy your team, and the only way to get them is to deal.
+
+Trades are visible to the reporter. It will notice if two teams are trading heavily. It will notice if one governor is hoarding. The politics are part of the game.
 
 ---
 
 ## Team Strategy
 
-Set a strategic direction for your team's AI hoopers:
-
+Tell your hoopers how to play:
 ```
+
 /strategy Focus on three-point shooting and fast breaks
+
 ```
 
-The bot shows a Confirm/Cancel prompt. Once confirmed, this strategy influences how your hoopers play. You can change it anytime.
+The game interprets your strategy into something the simulation understands. Confirm it, and your hoopers adjust. Change it anytime. This is coaching — and under different rule regimes, the right strategy changes completely.
 
 ---
 
 ## Hooper Trades
 
-You can trade hoopers (players) between teams:
-
-```
-/trade-hooper offer_hooper:Kai Swift request_hooper:Rosa Vex
+Trade hoopers between teams:
 ```
 
-The bot autocompletes hooper names. Your offered hooper must be on your team. The requested hooper must be on a different team. Both teams' governors must vote to approve the trade.
-
----
-
-## What to Watch For
-
-### The Web Dashboard
-
-Visit the web dashboard to watch games live. The Arena page shows all games simultaneously with:
-- Live scores updating possession by possession
-- Play-by-play commentary
-- Elam Ending countdown when it kicks in
-- Quarter scores
-
-Click into any game for the full box score.
-
-### AI Mirrors
-
-After each round of games, the AI generates mirrors — observations about what's happening in the league:
-
-- **Simulation Mirror** (public): What happened in the games. Trends, upsets, stat leaders.
-- **Floor Mirror** (public): Patterns in how governors are governing. Who's proposing what, voting patterns, coalition formation.
-- **Private Mirror** (DM, only you see it): Personal observations about your Floor behavior — voting patterns you might not notice, how your proposals have affected your team.
-
-View the latest mirrors:
+/trade-hooper offer\_hooper:Kai Swift request\_hooper:Rosa Vex
 
 ```
-/mirrors
+
+Both teams vote. Both must approve. The reporter will note who moved where and what it means for the balance of power.
+
+---
+
+## The Reports
+
+After each round, the AI files reports — observations about what's really happening:
+
+-   **Simulation Report** (public): What the games revealed. Which rule changes are working. Which teams are rising or falling and why.
+    
+-   **Floor Report** (public): The politics. Who's voting together. Who's trading with whom. Where power is concentrating. Which voices are being drowned out.
+    
+-   **Private Report** (DM, only you): What the game sees about *you*. Your voting patterns. Your blind spots. The consequences of your proposals that you might not have noticed. This one is just for you.
+    
 ```
 
-The mirrors are the game's feedback mechanism. They show you consequences you can't see from inside the system.
+/reports
+
+```
+
+The reports show you what you can't see from inside the system. What you do with that information is governance.
 
 ---
 
-## Other Commands
+## Commands
 
-| Command | What It Does |
-|---------|-------------|
-| `/standings` | Current league standings (win-loss records) |
-| `/schedule` | Upcoming game matchups |
-| `/mirrors` | Latest AI mirror reflection |
-| `/tokens` | Your current Floor token balance |
-| `/join` | Join or view teams |
+<table class="prose-table" style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>Command</p></th><th colspan="1" rowspan="1"><p>What It Does</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>/join</code></p></td><td colspan="1" rowspan="1"><p>Join a team</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/propose</code></p></td><td colspan="1" rowspan="1"><p>Put a rule change on the Floor</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/vote</code></p></td><td colspan="1" rowspan="1"><p>Vote on the current proposal</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/tokens</code></p></td><td colspan="1" rowspan="1"><p>Check your token balance</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/trade</code></p></td><td colspan="1" rowspan="1"><p>Trade tokens with another governor</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/trade-hooper</code></p></td><td colspan="1" rowspan="1"><p>Trade hoopers between teams</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/strategy</code></p></td><td colspan="1" rowspan="1"><p>Set your team's play strategy</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/bio</code></p></td><td colspan="1" rowspan="1"><p>Write a backstory for one of your hoopers</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/profile</code></p></td><td colspan="1" rowspan="1"><p>View your Floor record</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/standings</code></p></td><td colspan="1" rowspan="1"><p>Current league standings</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/reports</code></p></td><td colspan="1" rowspan="1"><p>Latest report</p></td></tr></tbody></table>
 
 ---
 
-## Quick Reference: The Floor Cycle
+## The Loop
 
-1. **Games run** (automatically, every few minutes)
-2. **You watch** the results on the web dashboard or Discord
-3. **You propose** rule changes with `/propose` (costs 1 PROPOSE token)
-4. **You debate** in your team channel or on the Floor
-5. **You vote** on active proposals with `/vote yes` or `/vote no` (free)
-6. **Every 3 rounds**, the Floor tallies: proposals pass or fail, rules change
-7. **Tokens regenerate** (2 PROPOSE, 2 AMEND, 2 BOOST) after each tally
-8. **Next games run** under the new rules
-9. **AI mirrors** reflect what just happened — game patterns, Floor patterns, your patterns
-10. **Repeat**
-
-The game is: watch what happens, decide what should change, convince others, vote, watch the consequences.
-
----
-
-## Frequently Asked Questions
-
-**How do I see what's up for vote right now?**
-Use `/vote` — the bot will tell you the current active proposal. You can also check the Floor page on the web dashboard, which shows all open proposals with their status.
-
-**When does voting close?**
-Floor tallies happen every 3 rounds of games. There's no visible countdown yet — watch for the "round completed" notifications in Discord and count rounds. We're adding a countdown timer soon.
-
-**What happened to my proposal?**
-After the Floor tally, check the web dashboard's Floor page. It shows whether each proposal passed or failed, with the final vote totals. Discord posts a summary when the tally runs.
-
-**Can I change my vote?**
-No. Once you `/vote`, it's locked in. Think before you vote — or save a BOOST token for the votes that matter most.
-
-**What rules have already been changed?**
-The rules page on the web dashboard shows the current ruleset. Any parameter that differs from the default was changed by a Floor vote.
-
-**How do I talk to my team about strategy?**
-Your team has a private Discord channel (e.g., `#rose-city-thorns`). Only governors on your team can see it. Use it to debate proposals, coordinate votes, and plan trades before going public.
-
-**What does "2.50 Yes" mean in vote results?**
-Vote weights are fractional because each team's total voting power is 1.0, split among its governors. "2.50 Yes" means the weighted sum of all yes votes is 2.50 — roughly equivalent to 2.5 teams voting yes. The raw vote count is shown alongside.
-
-**Can I propose something weird like "the floor is lava"?**
-Yes. The AI will try to interpret it. If it can't map your idea to a specific game parameter, it becomes a Tier 5 proposal — costs 2 PROPOSE tokens, needs 67% supermajority, and even if it passes, it can't change the rules because there's no parameter to change. Creative proposals work best when you tie them to a real mechanic: "Make fatigue drain 10% faster" is something the game can actually do.
-
-**What's the Elam Ending?**
-A real basketball innovation. Instead of playing the 4th quarter on a clock, the game sets a target score (leading team's score + the Elam margin, default 15). First team to hit the target wins. No clock, no fouling to stop the clock, no garbage time. Every game ends on a made basket. The `elam_trigger_quarter` and `elam_margin` parameters are both governable — you can change when it kicks in and how big the margin is.
-
-**Where's my private mirror?**
-Private mirrors are sent to your Discord DMs after each round. Make sure you have DMs enabled from server members. If you're not receiving them, check your Discord privacy settings.
-
-**How do hooper trades work?**
-Use `/trade-hooper` to propose swapping one of your hoopers for a hooper on another team. The bot posts the trade to both teams' channels. Every governor on both teams votes Approve or Reject. The trade only goes through if both teams approve.
-
-**Do my tokens carry over between tallies?**
-Yes. Unspent tokens accumulate. You get 2 PROPOSE, 2 AMEND, and 2 BOOST added to your balance every time the Floor tallies (every 3 rounds). Save them up or spend them fast — your choice.
-
-**What if nobody on my team votes?**
-Your team's voting power (1.0) goes to waste. The proposal can still pass or fail based on other teams' votes, but your team had no say. Vote on everything — it's free.
+1.  **Games run** automatically
+    
+2.  **You watch** on the web dashboard or Discord
+    
+3.  **You imagine** what the game should become
+    
+4.  **You propose** it in plain English (`/propose`)
+    
+5.  **You build coalitions** — debate, trade, persuade
+    
+6.  **You vote** (`/vote yes` or `/vote no`)
+    
+7.  **The Floor tallies** — rules change, tokens regenerate
+    
+8.  **Games run under the new rules** — watch what you built
+    
+9.  **The reports** tell you what really happened
+    
+10.  **Repeat** — until it isn't basketball anymore
+     
 
 ---
 
-## Tips for Alpha Testers
+## FAQ
 
-- **Propose something in your first session.** Don't wait. Try `/propose Make the shot clock 30 seconds` and see what the AI does with it.
-- **Read the impact analysis.** The AI tells you what it thinks will happen. Sometimes it's wrong. That's interesting too.
-- **Vote on everything.** It's free. Your team's voting power goes to waste if you don't use it.
-- **Use your team channel.** Coordinate with your team before voting. Private strategy is part of the game.
-- **Watch the mirrors.** The Floor mirror will tell you things about the league's power dynamics that aren't obvious from individual votes.
-- **Try weird proposals.** The parameter ranges are wide. Three-pointers worth 10 points? Shot clock of 60 seconds? Elam Ending starting in Q1? Go for it.
-- **Report bugs.** This is alpha. If something breaks, tell us.
+**Can I propose something weird?**  
+Yes. Please. "The floor is lava." "Gravity is doubled." "Every game is sudden death." The game will interpret your proposal into something the simulation can express. If your idea is too wild to map directly, the game shows you the closest version it can build — and that gap is a conversation worth having. The weirdest proposals often produce the best games.
+
+**What's the Elam Ending?**  
+A real basketball innovation we borrowed. Instead of a timed 4th quarter, the game sets a target score: the leader's score plus a margin. First team to hit it wins — on a made basket. No clock. No garbage time. Every game ends at its climax. And you can change when it triggers and how big the margin is. Set the margin to 5 and the trigger to Q1, and the whole game becomes a sprint to a target.
+
+**How do I see what's up for vote?**  
+`/vote` — the bot tells you. Or check the Floor page on the web dashboard.
+
+**Can I change my vote?**  
+No. Commit.
+
+**What does "2.50 Yes" mean?**  
+Voting power is weighted — each team's total power is equal, split among its governors. "2.50 Yes" means roughly 2.5 teams' worth of support. The raw vote count is shown alongside.
+
+**How do hooper trades work?**  
+`/trade-hooper` to propose a swap. Both teams vote. Both must approve. The reporter takes note.
+
+**Where's my private report?**  
+Check your Discord DMs. If you're not getting them, make sure DMs from server members are enabled in your Discord privacy settings.
+
+**Do tokens carry over?**  
+Yes. Hoard them or spend them. 2 of each type are added every tally round.
+
+**What if nobody on my team votes?**  
+Your team's power goes to waste. The proposal can still pass or fail without you, but you had no say. Voting is free. Use it.
+
+**Can I change the rules about changing rules?**  
+Yes. That's the deepest level of the game. Raise the vote threshold and governance freezes. Lower it and everything changes every tally. Change how many proposals can be on the Floor at once. This is meta-governance — governing governance — and it's where Pinwheel gets genuinely strange.
+
+---
+
+## First Session
+
+-   **Propose something.** Anything. `/propose Make the shot clock twice as long` — see what happens. You won't break anything.
+    
+-   **Vote on everything.** It's free. Your silence is someone else's majority.
+    
+-   **Read the reports.** They'll tell you things about the league's power dynamics that aren't obvious from individual votes.
+    
+-   **Use your team channel.** Coordinate before going public. Private strategy is part of the game.
+    
+-   **Go weird.** The game rewards imagination. The sensible proposals are fine. The unhinged ones are where it gets interesting.
+    
+-   **Report bugs.** This is alpha. Tell us what breaks.
+```

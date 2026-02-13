@@ -139,8 +139,8 @@ class TestTickRound:
 
         assert "tick_round_error" in caplog.text
 
-    async def test_generates_mirrors(self, engine: AsyncEngine):
-        """tick_round should produce mirrors as part of running a round."""
+    async def test_generates_reports(self, engine: AsyncEngine):
+        """tick_round should produce reports as part of running a round."""
         season_id = await _setup_season(engine)
         event_bus = EventBus()
 
@@ -148,16 +148,20 @@ class TestTickRound:
 
         async with get_session(engine) as session:
             repo = Repository(session)
-            mirrors = await repo.get_mirrors_for_round(season_id, 1)
-            # At least simulation + governance mirrors
-            assert len(mirrors) >= 2
+            reports = await repo.get_reports_for_round(season_id, 1)
+            # At least simulation + governance reports
+            assert len(reports) >= 2
 
 
 class TestPresentationPersistence:
     async def test_persist_and_clear(self, engine: AsyncEngine):
         """Persisting and clearing presentation state round-trips through DB."""
         await _persist_presentation_start(
-            engine, "season-1", 3, ["g1", "g2"], 300,
+            engine,
+            "season-1",
+            3,
+            ["g1", "g2"],
+            300,
         )
 
         async with get_session(engine) as session:
@@ -204,13 +208,15 @@ class TestPresentationPersistence:
 
     async def test_resume_missing_games(self, engine: AsyncEngine):
         """resume_presentation returns False when game rows don't exist."""
-        data = json.dumps({
-            "season_id": "nonexistent",
-            "round_number": 1,
-            "started_at": datetime.now(UTC).isoformat(),
-            "game_row_ids": ["fake-id-1", "fake-id-2"],
-            "quarter_replay_seconds": 300,
-        })
+        data = json.dumps(
+            {
+                "season_id": "nonexistent",
+                "round_number": 1,
+                "started_at": datetime.now(UTC).isoformat(),
+                "game_row_ids": ["fake-id-1", "fake-id-2"],
+                "quarter_replay_seconds": 300,
+            }
+        )
         async with get_session(engine) as session:
             repo = Repository(session)
             await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
@@ -236,13 +242,15 @@ class TestPresentationPersistence:
 
         # Simulate an interrupted presentation that started 6 minutes ago
         # (with 300s per quarter, that's 1+ quarters elapsed)
-        data = json.dumps({
-            "season_id": season_id,
-            "round_number": 1,
-            "started_at": (datetime.now(UTC) - timedelta(minutes=6)).isoformat(),
-            "game_row_ids": game_row_ids,
-            "quarter_replay_seconds": 300,
-        })
+        data = json.dumps(
+            {
+                "season_id": season_id,
+                "round_number": 1,
+                "started_at": (datetime.now(UTC) - timedelta(minutes=6)).isoformat(),
+                "game_row_ids": game_row_ids,
+                "quarter_replay_seconds": 300,
+            }
+        )
         async with get_session(engine) as session:
             repo = Repository(session)
             await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
@@ -254,6 +262,7 @@ class TestPresentationPersistence:
 
         # Give the background task a moment to start, then cancel it
         import asyncio
+
         await asyncio.sleep(0.1)
         state.cancel_event.set()
         await asyncio.sleep(0.1)
@@ -270,13 +279,15 @@ class TestPresentationPersistence:
             game_row_ids = [g.id for g in games]
 
         # 15 minutes elapsed with 300s/quarter → skip 3 quarters
-        data = json.dumps({
-            "season_id": season_id,
-            "round_number": 1,
-            "started_at": (datetime.now(UTC) - timedelta(minutes=15)).isoformat(),
-            "game_row_ids": game_row_ids,
-            "quarter_replay_seconds": 300,
-        })
+        data = json.dumps(
+            {
+                "season_id": season_id,
+                "round_number": 1,
+                "started_at": (datetime.now(UTC) - timedelta(minutes=15)).isoformat(),
+                "game_row_ids": game_row_ids,
+                "quarter_replay_seconds": 300,
+            }
+        )
         async with get_session(engine) as session:
             repo = Repository(session)
             await repo.set_bot_state(PRESENTATION_STATE_KEY, data)
@@ -287,6 +298,7 @@ class TestPresentationPersistence:
 
         # Cancel immediately
         import asyncio
+
         await asyncio.sleep(0.1)
         state.cancel_event.set()
         await asyncio.sleep(0.1)
@@ -294,7 +306,8 @@ class TestPresentationPersistence:
 
 class TestGovernanceNotificationTiming:
     async def test_instant_mode_publishes_governance_after_presentation(
-        self, engine: AsyncEngine,
+        self,
+        engine: AsyncEngine,
     ):
         """In instant mode, governance.window_closed fires alongside presentation events."""
         from pinwheel.ai.interpreter import interpret_proposal_mock
@@ -314,15 +327,23 @@ class TestGovernanceNotificationTiming:
             await regenerate_tokens(repo, gov_id, team_id, season_id)
             interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
             proposal = await submit_proposal(
-                repo=repo, governor_id=gov_id, team_id=team_id,
-                season_id=season_id, window_id="",
+                repo=repo,
+                governor_id=gov_id,
+                team_id=team_id,
+                season_id=season_id,
+                window_id="",
                 raw_text="Make three pointers worth 5",
-                interpretation=interpretation, ruleset=RuleSet(),
+                interpretation=interpretation,
+                ruleset=RuleSet(),
             )
             await confirm_proposal(repo, proposal)
             await cast_vote(
-                repo=repo, proposal=proposal, governor_id=gov_id,
-                team_id=team_id, vote_choice="yes", weight=1.0,
+                repo=repo,
+                proposal=proposal,
+                governor_id=gov_id,
+                team_id=team_id,
+                vote_choice="yes",
+                weight=1.0,
             )
 
         # Advance 3 rounds — governance tallies on round 3
@@ -345,13 +366,9 @@ class TestGovernanceNotificationTiming:
         assert "governance.window_closed" in event_types
 
         # It should come after presentation.round_finished
-        gov_idx = next(
-            i for i, e in enumerate(received)
-            if e["type"] == "governance.window_closed"
-        )
+        gov_idx = next(i for i, e in enumerate(received) if e["type"] == "governance.window_closed")
         round_finished_indices = [
-            i for i, e in enumerate(received)
-            if e["type"] == "presentation.round_finished"
+            i for i, e in enumerate(received) if e["type"] == "presentation.round_finished"
         ]
         # The governance event should come after the round 3 presentation.round_finished
         assert any(rf_idx < gov_idx for rf_idx in round_finished_indices)

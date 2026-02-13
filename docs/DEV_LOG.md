@@ -4,11 +4,12 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **627 tests**, zero lint errors (Session 40)
-- **Days 1-7 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
+- **627 tests**, zero lint errors (Session 42)
+- **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
+- **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 40 (9-feature parallel build: The Floor, voting UX, admin veto, profiles, trades, seasons)
+- **Latest commit:** Session 42 (rename mirror→report/reporter across entire codebase)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -23,7 +24,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ### Open issues
 - [x] P1: Deploy-during-live kills the show (PresentationState lost on deploy) (Session 36)
-- [ ] Discord bot permissions — grant "Manage Channels" + "Manage Roles" in server settings
+- [x] Discord bot permissions — grant "Manage Channels" + "Manage Roles" in server settings (Session 41 — manual step)
 - [ ] Future: Rebounds in play-by-play narration
 
 ---
@@ -188,18 +189,21 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ### P2: Doc updates (from Session 38 audit)
 
 #### High priority (docs describe dead/wrong behavior)
-- [ ] **GAME_LOOP.md** — Rewrite "Three Clocks" to remove governance window concept; describe interval-based tallying instead
-- [ ] **INTERFACE_CONTRACTS.md** — Fix SSE event names (`game_result` → `possession`, `quarter_end`, `game_end`), remove dead event store types (`window.opened`, `vote.revealed`), add missing types (`token.regenerated`, `token.spent`)
-- [ ] **DEMO_MODE.md** + **OPS.md** + **CLAUDE.md** — Add `PINWHEEL_GOVERNANCE_INTERVAL` env var, fix pace modes documentation
-- [ ] **GLOSSARY.md** — Rewrite "Window" and "Boost" definitions to match current implementation
+- [x] **GAME_LOOP.md** — Rewrote "Three Clocks" → "Two Clocks", removed governance window concept, described interval-based tallying, updated state machine, fixed SSE event names, updated Dev/Staging table (Session 41)
+- [x] **INTERFACE_CONTRACTS.md** — Fixed governance SSE events (`governance.window_closed`), marked dead event store types (`window.opened`, `window.closed`, `vote.revealed`), noted `proposal.pending_review` and `proposal.rejected` additions (Session 41)
+- [x] **DEMO_MODE.md** + **OPS.md** + **CLAUDE.md** — Added `PINWHEEL_GOVERNANCE_INTERVAL`, `PINWHEEL_PRESENTATION_MODE`, `PINWHEEL_ADMIN_DISCORD_ID` env vars, fixed pace modes to fast/normal/slow/manual (Session 41)
+- [x] **GLOSSARY.md** — Rewrote "Window" → "Tally Round", fixed "Boost" definition (doubles vote weight, not visibility) (Session 41)
 
 #### Medium priority
-- [ ] **RUN_OF_PLAY.md** — Replace twice-daily governance windows model with interval-based tallying
-- [ ] **SIMULATION.md** — Fix parameter name (`fatigue_recovery_rate` is actually `recovery_rate`), fix default shot clock (30s, not 24s)
-- [ ] **ACCEPTANCE_CRITERIA.md** — Update ~11 criteria that reference governance windows
+- [x] **RUN_OF_PLAY.md** — Replaced twice-daily governance windows with interval-based round cadence model (Session 41)
+- [x] **SIMULATION.md** — Fixed default shot clock (12 → 15), fixed halftime_stamina_recovery default (0.25 → 0.40) and range (0.5 → 0.6) (Session 41)
+- [x] **ACCEPTANCE_CRITERIA.md** — Updated 11 criteria referencing governance windows → tally rounds (Session 41)
 
 #### Low priority (cleanup)
 - [ ] Remove dead code: `GovernanceWindow` model if no longer referenced, `window.opened`/`vote.revealed` event type constants in `models/governance.py`
+
+### P2: Naming
+- [x] **Rename "mirror" → "report"/"reporter"** — ~300 instances across 40+ files. Reporter = the agent/role in player-facing prose, report = the artifact/output in code. AI prompt text keeps "mirror" internally (4 instances). (Sessions 41–42)
 
 ---
 
@@ -236,7 +240,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - Updated `test_bot_has_slash_commands` to include "bio" in expected commands.
 
 ### Pre-existing test fixes
-- Fixed `test_governance_mirror` assertion: embed title changed from "Governance Mirror" to "The Floor" in a previous session but test was not updated.
+- Fixed `test_governance_report` assertion: embed title changed from "Governance Report" to "The Floor" in a previous session but test was not updated.
 - Fixed `test_tokens_shows_balance` assertion: embed title changed from "Governance Tokens" to "Floor Tokens" but test was not updated.
 
 **Files modified (6):** `src/pinwheel/discord/embeds.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/api/pages.py`, `templates/pages/team.html`, `tests/test_db.py`, `tests/test_discord.py`
@@ -308,3 +312,63 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **627 tests, zero lint errors.**
 
 **What could have gone better:** Running 9 agents in parallel on overlapping files was risky — agents touching `bot.py`, `embeds.py`, and `views.py` could have conflicted. The fact that all changes integrated cleanly was fortunate — each agent edited different functions/sections. For future parallel builds, grouping by file ownership would be safer.
+
+---
+
+## Session 41 — Doc Updates (from Session 38 Audit)
+
+**What was asked:** Update all docs that describe dead/wrong behavior (governance windows, incorrect defaults, missing env vars) identified in the Session 38 audit. Also rename "mirror" → "report"/"reporter" across the entire codebase.
+
+**What was built:**
+
+### Doc updates (7 files)
+- **GAME_LOOP.md** — Rewrote "Three Clocks" → "Two Clocks", removed governance window concept, described interval-based tallying, updated state machine, fixed SSE event names
+- **INTERFACE_CONTRACTS.md** — Fixed governance SSE events, marked dead event store types, noted new proposal statuses
+- **DEMO_MODE.md + OPS.md + CLAUDE.md** — Added `PINWHEEL_GOVERNANCE_INTERVAL`, `PINWHEEL_PRESENTATION_MODE`, `PINWHEEL_ADMIN_DISCORD_ID` env vars
+- **GLOSSARY.md** — Rewrote "Window" → "Tally Round", fixed "Boost" definition
+- **RUN_OF_PLAY.md** — Replaced governance windows with interval-based cadence
+- **SIMULATION.md** — Fixed default shot clock (12→15), halftime recovery (0.25→0.40)
+- **ACCEPTANCE_CRITERIA.md** — Updated 11 criteria referencing governance windows → tally rounds
+
+### Mirror → report rename started
+- Renamed 3 Python source files (`models/mirror.py`, `ai/mirror.py`, `api/mirrors.py`) and 1 template
+- Updated all Python identifiers in source files (models, repo, AI, core, API, discord, evals, main)
+- Updated HTML templates and CSS classes
+- Renamed test file `test_mirrors.py` → `test_reports.py`
+
+**Files modified (~30):** 7 docs, 15+ source files, 6 templates, 1 CSS file, 8 test files
+
+**627 tests, zero lint errors.**
+
+**What could have gone better:** The docs agent approach (one Edit call per reference × 553 references in 26 doc files) was too slow. Bulk `sed` across all docs files completed instantly. For high-volume mechanical renames, always prefer batch tools over iterative edits.
+
+---
+
+## Session 42 — Complete Mirror→Report Rename + Guide Review
+
+**What was asked:** Continue and complete the mirror→report/reporter rename from Session 41. Then review changes to `NEW_GOVERNOR_GUIDE.md`.
+
+**What was built:**
+
+### Completed the rename across all remaining files
+- Fixed `embeds.py`: `COLOR_MIRROR` → `COLOR_REPORT`
+- Fixed `home.html`: comment `STANDINGS + MIRROR` → `STANDINGS + REPORT`
+- Updated all test files: `test_models.py`, `test_db.py`, `test_reports.py`, `test_discord.py`, `test_game_loop.py`, `test_scheduler_runner.py`, `test_pages.py`, `test_commentary.py`, 5 eval test files
+- Updated `demo_seed.py` and `run_demo.sh`
+- Bulk sed across 26 docs files (553 replacements), plus 3 manual fixes for uppercase variants in ASCII art
+- Ran `ruff format` (43 files), `ruff check --select I --fix` (3 import sort fixes)
+
+### Reviewed NEW_GOVERNOR_GUIDE.md
+- All 15 rename sites read naturally ("the reporter is watching", "noted by the reporter", etc.)
+- "the AI" exception at line 284 correctly preserved
+- Found and fixed pre-existing corruption at line 54: heading "## The Floor: How to Reshape the G..." was smashed into body text with escaped backticks
+
+### Verification
+- Final grep: 0 unintended "mirror" references (only 4 intentional in `ai/report.py` prompt text)
+- 627 tests pass, zero lint errors
+
+**Files modified (~45):** `discord/embeds.py`, `templates/pages/home.html`, 12 test files, `scripts/demo_seed.py`, `scripts/run_demo.sh`, 26 docs files, `docs/NEW_GOVERNOR_GUIDE.md` (formatting fix)
+
+**627 tests, zero lint errors.**
+
+**What could have gone better:** The rename spanned two context sessions due to the sheer number of files. Starting with a comprehensive grep inventory up front (which we did) was the right call — it prevented missed references. The decision to use bulk sed for docs instead of individual Edit calls saved significant time.

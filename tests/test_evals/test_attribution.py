@@ -37,9 +37,7 @@ async def test_compute_attribution(repo):
     league = await repo.create_league("Test")
     season = await repo.create_season(league.id, "S1")
 
-    result = await compute_attribution(
-        repo, season.id, 1, ["gov-1", "gov-2"], ["gov-3", "gov-4"]
-    )
+    result = await compute_attribution(repo, season.id, 1, ["gov-1", "gov-2"], ["gov-3", "gov-4"])
     assert "treatment_shift_rate" in result
     assert "control_shift_rate" in result
     assert "delta" in result

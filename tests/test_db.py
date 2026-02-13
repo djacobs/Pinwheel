@@ -40,7 +40,7 @@ class TestTableCreation:
             "box_scores",
             "governance_events",
             "schedule",
-            "mirrors",
+            "reports",
             "season_archives",
         }
         assert expected.issubset(set(tables))
@@ -67,8 +67,10 @@ class TestTeamHooperRoundTrip:
         league = await repo.create_league("L")
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(
-            season.id, "Rose City Thorns",
-            color="#CC0000", motto="Bloom",
+            season.id,
+            "Rose City Thorns",
+            color="#CC0000",
+            motto="Bloom",
             venue={"name": "Garden", "capacity": 5000},
         )
         retrieved = await repo.get_team(team.id)
@@ -211,7 +213,11 @@ class TestHooperBackstory:
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(season.id, "Team A")
         hooper = await repo.create_hooper(
-            team.id, season.id, "Star Player", "sharpshooter", {"scoring": 80},
+            team.id,
+            season.id,
+            "Star Player",
+            "sharpshooter",
+            {"scoring": 80},
         )
         assert hooper.backstory == ""
 
@@ -233,7 +239,11 @@ class TestHooperBackstory:
         season = await repo.create_season(league.id, "S1")
         team = await repo.create_team(season.id, "Team A")
         hooper = await repo.create_hooper(
-            team.id, season.id, "Star Player", "sharpshooter", {"scoring": 80},
+            team.id,
+            season.id,
+            "Star Player",
+            "sharpshooter",
+            {"scoring": 80},
         )
         await repo.update_hooper_backstory(hooper.id, "Some bio")
         await repo.update_hooper_backstory(hooper.id, "")

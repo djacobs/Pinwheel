@@ -47,7 +47,7 @@ The Arena is the primary live viewing experience. During a round, all 4 games ru
 │    Foxes need 14.    │                              │
 │                      │                              │
 ├──────────────────────┴──────────────────────────────┤
-│  📊 Standings  │  📋 Rules  │  🗳️ Governance  │  🪞 Mirror │
+│  📊 Standings  │  📋 Rules  │  🗳️ Governance  │  🪞 Reports │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -82,7 +82,7 @@ When no games are live, the Arena transforms into a **lobby view**:
 - Next round countdown
 - Current standings
 - Active governance proposals (if a governance window is open)
-- Recent mirrors (summaries, linked to full text)
+- Recent reports (summaries, linked to full text)
 - Upcoming matchup preview cards
 
 ## Single Game View
@@ -362,7 +362,7 @@ Rivera's been on a tear since governance banned press
 defense in Q1-Q3 (Proposal #15). Turns out, limiting
 the scheme that generates the MOST steals made the
 players who steal in man-to-man even more valuable.
-The mirror noticed that pattern three rounds ago.
+The reporter noticed that pattern three rounds ago.
 ```
 
 ```
@@ -418,7 +418,7 @@ Bot posts formatted response
 
 **Two-call pattern:** The bot makes two Opus 4.6 calls per query:
 1. **Parse:** Natural language → structured API calls. Small, fast. Uses the API schema as context.
-2. **Format:** Raw API data → conversational Discord message. Adds personality, governance context, mirror-like observations.
+2. **Format:** Raw API data → conversational Discord message. Adds personality, governance context, report-like observations.
 
 This separation means the parse step can be cached (same question structure → same API calls) and the format step can be tuned for tone independently.
 
@@ -442,8 +442,8 @@ The bot can answer questions about:
 ### Bot Search Limits
 
 - **Rate limited.** The bot won't respond to rapid-fire queries from one user. One query at a time, with a brief cooldown.
-- **Public data only.** Bot search never reveals private mirrors, team strategies, or hidden votes. Even if you ask.
-- **No predictions.** The bot will not predict game outcomes or recommend governance actions. It reports data. The mirror interprets. The governors decide.
+- **Public data only.** Bot search never reveals private reports, team strategies, or hidden votes. Even if you ask.
+- **No predictions.** The bot will not predict game outcomes or recommend governance actions. It reports data. The reporter interprets. The governors decide.
 
 ## API Endpoints (Viewer-Facing)
 
@@ -457,7 +457,7 @@ GET /api/events/stream
       ?games=true        → game events (possession, move, highlight, result)
       ?commentary=true   → AI commentary events
       ?governance=true   → governance events
-      ?mirrors=true      → mirror events
+      ?reports=true      → report events
       ?game_id={id}      → filter to a single game
       ?team_id={id}      → filter to a team's games
 
@@ -508,9 +508,9 @@ Governance (Public)
   GET /api/governance/proposals          → Active + past proposals
   GET /api/governance/proposals/{id}     → Proposal detail + votes (if revealed)
 
-Mirrors (Public)
-  GET /api/mirrors/latest                → Most recent mirrors by type
-  GET /api/mirrors/{type}/{round}        → Specific mirror
+Reports (Public)
+  GET /api/reports/latest                → Most recent reports by type
+  GET /api/reports/{type}/{round}        → Specific report
 ```
 
 ### Response Format
@@ -553,7 +553,7 @@ Live-updating league table. Columns: rank, team, W-L, win%, last 5, streak, home
 
 ### Team Page
 
-Team profile: roster (agent cards with attributes, moves, stats), venue details, record, schedule with results, governance history (proposals by this team's governors), team-level mirrors.
+Team profile: roster (agent cards with attributes, moves, stats), venue details, record, schedule with results, governance history (proposals by this team's governors), team-level reports.
 
 ### Agent Page
 
@@ -563,13 +563,13 @@ Individual agent profile: attributes radar chart, moves list, season stats, game
 
 Current ruleset with visual diff from defaults. Timeline view showing when each rule changed, who proposed it, how the vote went. Click any rule change to see the proposal and debate thread.
 
-### Mirrors Page
+### Reports Page
 
-Archive of all public mirrors, organized by type and round. Searchable. Each mirror links to the games/governance actions it references.
+Archive of all public reports, organized by type and round. Searchable. Each report links to the games/governance actions it references.
 
 ### Season History
 
-After a season ends: full narrative (season mirror), final standings, playoff bracket with results, awards, stat leaders, rule evolution timeline. The permanent record.
+After a season ends: full narrative (season report), final standings, playoff bracket with results, awards, stat leaders, rule evolution timeline. The permanent record.
 
 ## Presentation Pacing
 
@@ -607,7 +607,7 @@ This is possible because the presenter has the full GameResult. It knows where t
 4. **REST API endpoints** — Game data, standings, stats, teams, agents. All Pydantic models. FastAPI auto-docs.
 5. **Commentary engine** — Opus 4.6 integration for live commentary. Batch generation, caching, SSE delivery.
 6. **Bot search** — Two-call pattern (parse + format). Start with standings/scores/box scores, expand to stats and governance queries.
-7. **Dashboard pages** — Standings, team pages, agent pages, rules, mirrors. Static pages with HTMX partial updates.
+7. **Dashboard pages** — Standings, team pages, agent pages, rules, reports. Static pages with HTMX partial updates.
 8. **Dramatic pacing** — Presenter pace modulation based on game state. The difference between "data updating on a screen" and "a game you're watching."
 9. **Replay** — Replayable games from stored GameResults + cached commentary.
 

@@ -3,7 +3,7 @@
 Four sub-metrics, each weighted 25%:
 - Proposal Diversity: Shannon entropy of targeted parameters
 - Participation Breadth: Inverted Gini of per-governor action counts
-- Consequence Awareness: Keyword overlap between PUBLIC mirror content and next proposals
+- Consequence Awareness: Keyword overlap between PUBLIC report content and next proposals
 - Vote Deliberation: Normalized time-to-vote after proposal confirmation
 """
 
@@ -97,18 +97,18 @@ async def compute_consequence_awareness(
     season_id: str,
     round_number: int,
 ) -> float:
-    """Keyword overlap between PUBLIC mirror content and next proposals.
+    """Keyword overlap between PUBLIC report content and next proposals.
 
-    Private mirrors are excluded — only reads simulation and governance mirrors.
+    Private reports are excluded — only reads simulation and governance reports.
     """
-    # Get public mirrors from this round
-    sim_mirrors = await repo.get_mirrors_for_round(season_id, round_number, "simulation")
-    gov_mirrors = await repo.get_mirrors_for_round(season_id, round_number, "governance")
-    mirror_words: set[str] = set()
-    for m in sim_mirrors + gov_mirrors:
-        mirror_words.update(m.content.lower().split())
+    # Get public reports from this round
+    sim_reports = await repo.get_reports_for_round(season_id, round_number, "simulation")
+    gov_reports = await repo.get_reports_for_round(season_id, round_number, "governance")
+    report_words: set[str] = set()
+    for m in sim_reports + gov_reports:
+        report_words.update(m.content.lower().split())
 
-    if not mirror_words:
+    if not report_words:
         return 0.0
 
     # Get proposals from the next round
@@ -127,13 +127,13 @@ async def compute_consequence_awareness(
         return 0.0
 
     # Filter to meaningful words (> 3 chars)
-    mirror_meaningful = {w for w in mirror_words if len(w) > 3}
+    report_meaningful = {w for w in report_words if len(w) > 3}
     proposal_meaningful = {w for w in proposal_words if len(w) > 3}
 
-    if not mirror_meaningful or not proposal_meaningful:
+    if not report_meaningful or not proposal_meaningful:
         return 0.0
 
-    overlap = mirror_meaningful & proposal_meaningful
+    overlap = report_meaningful & proposal_meaningful
     return len(overlap) / len(proposal_meaningful)
 
 

@@ -11,9 +11,9 @@ from pinwheel.api.eval_dashboard import router as eval_dashboard_router
 from pinwheel.api.events import router as events_router
 from pinwheel.api.games import router as games_router
 from pinwheel.api.governance import router as governance_router
-from pinwheel.api.mirrors import router as mirrors_router
 from pinwheel.api.pace import router as pace_router
 from pinwheel.api.pages import router as pages_router
+from pinwheel.api.reports import router as reports_router
 from pinwheel.api.seasons import router as seasons_router
 from pinwheel.api.standings import router as standings_router
 from pinwheel.api.teams import router as teams_router
@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 async def _add_column_if_missing(
-    conn: object, table: str, column: str, col_def: str,
+    conn: object,
+    table: str,
+    column: str,
+    col_def: str,
 ) -> None:
     """Add a column to an existing table if it doesn't already exist (SQLite)."""
     from sqlalchemy import text
@@ -50,7 +53,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Inline migration: add columns that create_all won't add to existing tables
         await _add_column_if_missing(conn, "game_results", "presented", "BOOLEAN DEFAULT 0")
         await _add_column_if_missing(
-            conn, "teams", "color_secondary", "VARCHAR(7) DEFAULT '#ffffff'",
+            conn,
+            "teams",
+            "color_secondary",
+            "VARCHAR(7) DEFAULT '#ffffff'",
         )
     app.state.engine = engine
     app.state.event_bus = EventBus()
@@ -84,7 +90,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     .values(presented=True)
                 )
                 logger.info(
-                    "startup_recovery: marked %d games as presented", unpresented,
+                    "startup_recovery: marked %d games as presented",
+                    unpresented,
                 )
 
     # Start Discord bot if configured
@@ -188,7 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(teams_router)
     app.include_router(standings_router)
     app.include_router(governance_router)
-    app.include_router(mirrors_router)
+    app.include_router(reports_router)
     app.include_router(events_router)
     app.include_router(eval_dashboard_router)
     app.include_router(pace_router)

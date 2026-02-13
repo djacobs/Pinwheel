@@ -17,8 +17,8 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.discord.bot import PinwheelBot, is_discord_enabled, start_discord_bot
 from pinwheel.discord.embeds import (
     build_game_result_embed,
-    build_mirror_embed,
     build_proposal_embed,
+    build_report_embed,
     build_round_summary_embed,
     build_schedule_embed,
     build_standings_embed,
@@ -26,7 +26,7 @@ from pinwheel.discord.embeds import (
     build_welcome_embed,
 )
 from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
-from pinwheel.models.mirror import Mirror
+from pinwheel.models.report import Report
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -101,9 +101,7 @@ class TestIsDiscordEnabled:
 
 
 class TestPinwheelBotInit:
-    def test_bot_creation(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> None:
+    def test_bot_creation(self, settings_discord_enabled: Settings, event_bus: EventBus) -> None:
         bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
         assert bot.main_channel_id == 123456789
         assert bot.settings is settings_discord_enabled
@@ -128,7 +126,7 @@ class TestPinwheelBotInit:
         assert "standings" in command_names
         assert "propose" in command_names
         assert "schedule" in command_names
-        assert "mirrors" in command_names
+        assert "reports" in command_names
         assert "join" in command_names
         assert "vote" in command_names
         assert "tokens" in command_names
@@ -151,9 +149,7 @@ class TestPinwheelBotInit:
 
 class TestSlashCommands:
     @pytest.fixture
-    def bot(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> PinwheelBot:
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_handle_standings(self, bot: PinwheelBot) -> None:
@@ -190,10 +186,10 @@ class TestSlashCommands:
         await bot._handle_schedule(interaction)
         interaction.response.send_message.assert_called_once()
 
-    async def test_handle_mirrors(self, bot: PinwheelBot) -> None:
+    async def test_handle_reports(self, bot: PinwheelBot) -> None:
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
-        await bot._handle_mirrors(interaction)
+        await bot._handle_reports(interaction)
         interaction.response.send_message.assert_called_once()
 
 
@@ -204,9 +200,7 @@ class TestSlashCommands:
 
 class TestEventDispatch:
     @pytest.fixture
-    def bot(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> PinwheelBot:
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_dispatch_game_finished(self, bot: PinwheelBot) -> None:
@@ -242,14 +236,14 @@ class TestEventDispatch:
         await bot._dispatch_event(event)
         channel.send.assert_called_once()
 
-    async def test_dispatch_mirror_generated_public(self, bot: PinwheelBot) -> None:
+    async def test_dispatch_report_generated_public(self, bot: PinwheelBot) -> None:
         channel = AsyncMock(spec=discord.TextChannel)
         bot.get_channel = MagicMock(return_value=channel)
 
         event = {
-            "type": "mirror.generated",
+            "type": "report.generated",
             "data": {
-                "mirror_type": "simulation",
+                "report_type": "simulation",
                 "round": 5,
                 "excerpt": "The Rose City Thorns dominated the boards this round.",
             },
@@ -257,16 +251,14 @@ class TestEventDispatch:
         await bot._dispatch_event(event)
         channel.send.assert_called_once()
 
-    async def test_dispatch_mirror_generated_private_skipped(
-        self, bot: PinwheelBot
-    ) -> None:
+    async def test_dispatch_report_generated_private_skipped(self, bot: PinwheelBot) -> None:
         channel = AsyncMock(spec=discord.TextChannel)
         bot.get_channel = MagicMock(return_value=channel)
 
         event = {
-            "type": "mirror.generated",
+            "type": "report.generated",
             "data": {
-                "mirror_type": "private",
+                "report_type": "private",
                 "round": 5,
                 "excerpt": "Your voting pattern reveals...",
             },
@@ -285,9 +277,7 @@ class TestEventDispatch:
         await bot._dispatch_event(event)
         channel.send.assert_called_once()
 
-    async def test_dispatch_no_channel_configured(
-        self, event_bus: EventBus
-    ) -> None:
+    async def test_dispatch_no_channel_configured(self, event_bus: EventBus) -> None:
         settings = Settings(
             pinwheel_env="development",
             database_url="sqlite+aiosqlite:///:memory:",
@@ -557,27 +547,27 @@ class TestBuildProposalAnnouncementEmbed:
         assert embed.color.value == COLOR_GOVERNANCE
 
 
-class TestBuildMirrorEmbed:
-    def test_simulation_mirror(self) -> None:
-        mirror = Mirror(
+class TestBuildReportEmbed:
+    def test_simulation_report(self) -> None:
+        report = Report(
             id="m-1",
-            mirror_type="simulation",
+            report_type="simulation",
             round_number=3,
             content="The Thorns dominated this round with superior defense.",
         )
-        embed = build_mirror_embed(mirror)
-        assert "Simulation Mirror" in embed.title
+        embed = build_report_embed(report)
+        assert "Simulation Report" in embed.title
         assert "Round 3" in embed.title
         assert "Thorns" in (embed.description or "")
 
-    def test_governance_mirror(self) -> None:
-        mirror = Mirror(
+    def test_governance_report(self) -> None:
+        report = Report(
             id="m-2",
-            mirror_type="governance",
+            report_type="governance",
             round_number=7,
             content="A coalition is forming between two teams.",
         )
-        embed = build_mirror_embed(mirror)
+        embed = build_report_embed(report)
         assert "The Floor" in embed.title
 
 
@@ -599,7 +589,7 @@ class TestBuildScheduleEmbed:
 
 class TestBuildRoundSummaryEmbed:
     def test_round_summary(self) -> None:
-        data = {"round": 3, "games": 4, "mirrors": 2, "elapsed_ms": 150.5}
+        data = {"round": 3, "games": 4, "reports": 2, "elapsed_ms": 150.5}
         embed = build_round_summary_embed(data)
         assert "Round 3" in embed.title
         assert "4" in (embed.description or "")
@@ -612,9 +602,7 @@ class TestBuildRoundSummaryEmbed:
 
 class TestJoinCommand:
     @pytest.fixture
-    def bot(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> PinwheelBot:
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_join_no_engine(self, bot: PinwheelBot) -> None:
@@ -648,11 +636,20 @@ class TestJoinCommand:
             season = await repo.create_season(league.id, "Season 1")
             team = await repo.create_team(season.id, "Rose City Thorns", color="#e94560")
             await repo.create_hooper(
-                team.id, season.id, "Briar Ashwood", "sharpshooter",
+                team.id,
+                season.id,
+                "Briar Ashwood",
+                "sharpshooter",
                 {
-                    "scoring": 65, "passing": 35, "defense": 30,
-                    "speed": 45, "stamina": 40, "iq": 55,
-                    "ego": 40, "chaotic_alignment": 20, "fate": 30,
+                    "scoring": 65,
+                    "passing": 35,
+                    "defense": 30,
+                    "speed": 45,
+                    "stamina": 40,
+                    "iq": 55,
+                    "ego": 40,
+                    "chaotic_alignment": 20,
+                    "fate": 30,
                 },
             )
             await session.commit()
@@ -775,9 +772,7 @@ class TestJoinCommand:
 
 class TestSetupServer:
     @pytest.fixture
-    def bot(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> PinwheelBot:
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_setup_no_guild_id(self, event_bus: EventBus) -> None:
@@ -862,8 +857,10 @@ class TestSetupServer:
 
         # Mock history to indicate channel has messages (skip welcome)
         for ch in existing_channels:
+
             async def _history(**kwargs: object) -> list[MagicMock]:  # noqa: ARG001
                 return [MagicMock()]
+
             ch.history = MagicMock(side_effect=_history)
 
         bot.get_guild = MagicMock(return_value=guild)
@@ -883,9 +880,7 @@ class TestSetupServer:
 
 class TestEventRouting:
     @pytest.fixture
-    def bot(
-        self, settings_discord_enabled: Settings, event_bus: EventBus
-    ) -> PinwheelBot:
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_game_routed_to_play_by_play(self, bot: PinwheelBot) -> None:
@@ -1019,22 +1014,37 @@ async def _make_enrolled_bot_and_interaction(
         league = await repo.create_league("Test League")
         season = await repo.create_season(league.id, "Season 1")
         team = await repo.create_team(
-            season.id, "Rose City Thorns", color="#e94560",
+            season.id,
+            "Rose City Thorns",
+            color="#e94560",
         )
         await repo.create_hooper(
-            team.id, season.id, "Briar Ashwood", "sharpshooter",
+            team.id,
+            season.id,
+            "Briar Ashwood",
+            "sharpshooter",
             {
-                "scoring": 65, "passing": 35, "defense": 30,
-                "speed": 45, "stamina": 40, "iq": 55,
-                "ego": 40, "chaotic_alignment": 20, "fate": 30,
+                "scoring": 65,
+                "passing": 35,
+                "defense": 30,
+                "speed": 45,
+                "stamina": 40,
+                "iq": 55,
+                "ego": 40,
+                "chaotic_alignment": 20,
+                "fate": 30,
             },
         )
         player = await repo.get_or_create_player(
-            str(discord_id), display_name,
+            str(discord_id),
+            display_name,
         )
         await repo.enroll_player(player.id, team.id, season.id)
         await regenerate_tokens(
-            repo, player.id, team.id, season.id,
+            repo,
+            player.id,
+            team.id,
+            season.id,
         )
         await session.commit()
         gov_data = {
@@ -1044,7 +1054,9 @@ async def _make_enrolled_bot_and_interaction(
         }
 
     bot = PinwheelBot(
-        settings=settings, event_bus=event_bus, engine=engine,
+        settings=settings,
+        event_bus=event_bus,
+        engine=engine,
     )
 
     interaction = AsyncMock(spec=discord.Interaction)
@@ -1112,14 +1124,14 @@ class TestProposeGovernance:
         event_bus: EventBus,
     ) -> None:
         """Full propose flow: defer, interpret, send view."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         await bot._handle_propose(
-            interaction, "Make three-pointers worth 5 points",
+            interaction,
+            "Make three-pointers worth 5 points",
         )
 
         # Should defer (AI call takes time)
@@ -1141,10 +1153,9 @@ class TestProposeGovernance:
         event_bus: EventBus,
     ) -> None:
         """Proposing with no tokens returns an error."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         # Spend all tokens
@@ -1223,10 +1234,9 @@ class TestVoteCommand:
         event_bus: EventBus,
     ) -> None:
         """Voting with no active proposals returns error."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         await bot._handle_vote(interaction, "yes")
@@ -1241,10 +1251,9 @@ class TestVoteCommand:
         event_bus: EventBus,
     ) -> None:
         """Successful vote is recorded and hidden."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         # Create a confirmed proposal
@@ -1293,10 +1302,9 @@ class TestVoteCommand:
         event_bus: EventBus,
     ) -> None:
         """Cannot vote twice on the same proposal."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         from pinwheel.db.engine import get_session
@@ -1392,10 +1400,9 @@ class TestTokensCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         await bot._handle_tokens(interaction)
@@ -1418,10 +1425,9 @@ class TestTradeCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         target = MagicMock(spec=discord.Member)
@@ -1429,7 +1435,12 @@ class TestTradeCommand:
         target.display_name = "TestGovernor"
 
         await bot._handle_trade(
-            interaction, target, "propose", 1, "amend", 1,
+            interaction,
+            target,
+            "propose",
+            1,
+            "amend",
+            1,
         )
         call_kwargs = interaction.response.send_message.call_args
         assert "yourself" in str(call_kwargs.args[0]).lower()
@@ -1440,10 +1451,9 @@ class TestTradeCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         target = MagicMock(spec=discord.Member)
@@ -1451,7 +1461,12 @@ class TestTradeCommand:
         target.display_name = "Stranger"
 
         await bot._handle_trade(
-            interaction, target, "propose", 1, "amend", 1,
+            interaction,
+            target,
+            "propose",
+            1,
+            "amend",
+            1,
         )
         call_kwargs = interaction.response.send_message.call_args
         assert "not enrolled" in str(call_kwargs.args[0]).lower()
@@ -1462,12 +1477,10 @@ class TestTradeCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled,
-                event_bus,
-                discord_id=111222333,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+            discord_id=111222333,
         )
 
         # Create a second enrolled governor
@@ -1477,10 +1490,12 @@ class TestTradeCommand:
         async with get_session(engine) as session:
             repo = Repository(session)
             player2 = await repo.get_or_create_player(
-                "444555666", "Player2",
+                "444555666",
+                "Player2",
             )
             await repo.enroll_player(
-                player2.id, gov_data["team_id"],
+                player2.id,
+                gov_data["team_id"],
                 gov_data["season_id"],
             )
             await session.commit()
@@ -1491,7 +1506,12 @@ class TestTradeCommand:
 
         # Try to trade 99 tokens (more than they have)
         await bot._handle_trade(
-            interaction, target, "propose", 99, "amend", 1,
+            interaction,
+            target,
+            "propose",
+            99,
+            "amend",
+            1,
         )
         call_kwargs = interaction.response.send_message.call_args
         assert "only have" in str(call_kwargs.args[0]).lower()
@@ -1552,10 +1572,15 @@ class TestHooperTradeCommand:
         from pinwheel.models.tokens import HooperTrade
 
         trade = HooperTrade(
-            id="t1", from_team_id="a", to_team_id="b",
-            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
-            proposed_by="g1", required_voters=["g1", "g2"],
-            from_team_voters=["g1"], to_team_voters=["g2"],
+            id="t1",
+            from_team_id="a",
+            to_team_id="b",
+            offered_hooper_ids=["x"],
+            requested_hooper_ids=["y"],
+            proposed_by="g1",
+            required_voters=["g1", "g2"],
+            from_team_voters=["g1"],
+            to_team_voters=["g2"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         vote_hooper_trade(trade, "g2", "yes")
@@ -1570,10 +1595,15 @@ class TestHooperTradeCommand:
         from pinwheel.models.tokens import HooperTrade
 
         trade = HooperTrade(
-            id="t1", from_team_id="a", to_team_id="b",
-            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
-            proposed_by="g1", required_voters=["g1", "g2"],
-            from_team_voters=["g1"], to_team_voters=["g2"],
+            id="t1",
+            from_team_id="a",
+            to_team_id="b",
+            offered_hooper_ids=["x"],
+            requested_hooper_ids=["y"],
+            proposed_by="g1",
+            required_voters=["g1", "g2"],
+            from_team_voters=["g1"],
+            to_team_voters=["g2"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         vote_hooper_trade(trade, "g2", "no")
@@ -1588,10 +1618,15 @@ class TestHooperTradeCommand:
         from pinwheel.models.tokens import HooperTrade
 
         trade = HooperTrade(
-            id="t1", from_team_id="a", to_team_id="b",
-            offered_hooper_ids=["x"], requested_hooper_ids=["y"],
-            proposed_by="g1", required_voters=["g1", "g2", "g3"],
-            from_team_voters=["g1"], to_team_voters=["g2", "g3"],
+            id="t1",
+            from_team_id="a",
+            to_team_id="b",
+            offered_hooper_ids=["x"],
+            requested_hooper_ids=["y"],
+            proposed_by="g1",
+            required_voters=["g1", "g2", "g3"],
+            from_team_voters=["g1"],
+            to_team_voters=["g2", "g3"],
         )
         vote_hooper_trade(trade, "g1", "yes")
         all_voted, _, _ = tally_hooper_trade(trade)
@@ -1614,9 +1649,12 @@ class TestHooperTradeCommand:
             team_a = await repo.create_team(season.id, "Team A", color="#ff0000")
             team_b = await repo.create_team(season.id, "Team B", color="#0000ff")
             hooper = await repo.create_hooper(
-                team_id=team_a.id, season_id=season.id,
-                name="Star", archetype="Sharpshooter",
-                attributes={"scoring": 80}, moves=[],
+                team_id=team_a.id,
+                season_id=season.id,
+                name="Star",
+                archetype="Sharpshooter",
+                attributes={"scoring": 80},
+                moves=[],
             )
             assert hooper.team_id == team_a.id
 
@@ -1659,9 +1697,13 @@ class TestHooperTradeCommand:
         from pinwheel.discord.embeds import build_hooper_trade_embed
 
         embed = build_hooper_trade_embed(
-            from_team="Thorns", to_team="Breakers",
-            offered_names=["Star"], requested_names=["Flash"],
-            proposer_name="Gov1", votes_cast=1, votes_needed=3,
+            from_team="Thorns",
+            to_team="Breakers",
+            offered_names=["Star"],
+            requested_names=["Flash"],
+            proposer_name="Gov1",
+            votes_cast=1,
+            votes_needed=3,
         )
         assert "Hooper Trade Proposal" in embed.title
         assert "Thorns" in embed.description
@@ -1715,14 +1757,14 @@ class TestStrategyCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         await bot._handle_strategy(
-            interaction, "Focus on three-point shooting",
+            interaction,
+            "Focus on three-point shooting",
         )
         call_kwargs = interaction.response.send_message.call_args
         embed = call_kwargs.kwargs.get("embed")
@@ -1738,10 +1780,9 @@ class TestStrategyCommand:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         await bot._handle_strategy(interaction, "   ")
@@ -1798,10 +1839,9 @@ class TestBioCommand:
         event_bus: EventBus,
     ) -> None:
         """Empty bio text returns ephemeral error."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
         await bot._handle_bio(interaction, "Briar Ashwood", "   ")
         call_kwargs = interaction.response.send_message.call_args
@@ -1814,10 +1854,9 @@ class TestBioCommand:
         event_bus: EventBus,
     ) -> None:
         """Bio exceeding 500 chars returns ephemeral error."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
         long_text = "A" * 501
         await bot._handle_bio(interaction, "Briar Ashwood", long_text)
@@ -1832,10 +1871,9 @@ class TestBioCommand:
         event_bus: EventBus,
     ) -> None:
         """Bio for nonexistent hooper returns error."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
         await bot._handle_bio(interaction, "Nonexistent Player", "A bio")
         call_kwargs = interaction.response.send_message.call_args
@@ -1849,13 +1887,14 @@ class TestBioCommand:
         event_bus: EventBus,
     ) -> None:
         """Successful bio update returns confirmation embed."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
         await bot._handle_bio(
-            interaction, "Briar Ashwood", "A sharpshooter from Portland.",
+            interaction,
+            "Briar Ashwood",
+            "A sharpshooter from Portland.",
         )
         call_kwargs = interaction.response.send_message.call_args
         embed = call_kwargs.kwargs.get("embed")
@@ -1872,7 +1911,8 @@ class TestBioCommand:
             repo = Repository(session)
             team = await repo.get_team(gov_data["team_id"])
             hooper = next(
-                (h for h in team.hoopers if h.name == "Briar Ashwood"), None,
+                (h for h in team.hoopers if h.name == "Briar Ashwood"),
+                None,
             )
             assert hooper is not None
             assert hooper.backstory == "A sharpshooter from Portland."
@@ -1890,7 +1930,10 @@ class TestWelcomeEmbedExtended:
         """Welcome embed includes team motto when provided."""
         hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
         embed = build_welcome_embed(
-            "Thorns", "#E74C3C", hoopers, motto="Bloom or bust",
+            "Thorns",
+            "#E74C3C",
+            hoopers,
+            motto="Bloom or bust",
         )
         assert "Bloom or bust" in (embed.description or "")
 
@@ -1951,33 +1994,32 @@ class TestBuildBioEmbed:
 
 
 # ---------------------------------------------------------------------------
-# Private mirror DM dispatch
+# Private report DM dispatch
 # ---------------------------------------------------------------------------
 
 
-class TestPrivateMirrorDM:
-    async def test_private_mirror_dispatches_dm(
+class TestPrivateReportDM:
+    async def test_private_report_dispatches_dm(
         self,
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        """Private mirror event triggers a DM to the governor."""
-        bot, interaction, gov_data, engine = (
-            await _make_enrolled_bot_and_interaction(
-                settings_discord_enabled, event_bus,
-            )
+        """Private report event triggers a DM to the governor."""
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
         )
 
         mock_user = AsyncMock()
         bot.get_user = MagicMock(return_value=mock_user)
 
         event = {
-            "type": "mirror.generated",
+            "type": "report.generated",
             "data": {
-                "mirror_type": "private",
+                "report_type": "private",
                 "round": 3,
                 "governor_id": gov_data["player_id"],
-                "mirror_id": "m-priv-1",
+                "report_id": "r-priv-1",
                 "excerpt": "Your pattern reveals caution.",
             },
         }
@@ -1986,40 +2028,46 @@ class TestPrivateMirrorDM:
         call_kwargs = mock_user.send.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
-        assert "Private Mirror" in embed.title
+        assert "Private Report" in embed.title
         await engine.dispose()
 
-    async def test_private_mirror_no_engine(
+    async def test_private_report_no_engine(
         self,
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        """Private mirror without engine is a no-op."""
+        """Private report without engine is a no-op."""
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
         )
         bot.get_user = MagicMock()
 
-        await bot._send_private_mirror({
-            "governor_id": "gov-1",
-            "excerpt": "Mirror text",
-            "round": 1,
-        })
+        await bot._send_private_report(
+            {
+                "governor_id": "gov-1",
+                "excerpt": "Report text",
+                "round": 1,
+            }
+        )
         bot.get_user.assert_not_called()
 
-    async def test_private_mirror_missing_data(
+    async def test_private_report_missing_data(
         self,
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        """Private mirror with missing governor_id is a no-op."""
+        """Private report with missing governor_id is a no-op."""
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
         )
-        await bot._send_private_mirror({
-            "excerpt": "Mirror text",
-            "round": 1,
-        })  # No governor_id — should not raise
+        await bot._send_private_report(
+            {
+                "excerpt": "Report text",
+                "round": 1,
+            }
+        )  # No governor_id — should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -2080,7 +2128,9 @@ class TestBotStatePersistence:
             await repo.set_bot_state("channel_big_plays", "203")
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
 
         # Build a guild mock where persisted IDs resolve to real channels
@@ -2113,8 +2163,10 @@ class TestBotStatePersistence:
 
         # Mock history as async iterator so welcome message check works
         for ch in [ch_how, ch_play, ch_big]:
+
             async def _async_iter() -> AsyncIterator[MagicMock]:
                 yield MagicMock()
+
             ch.history = MagicMock(return_value=_async_iter())
 
         bot.get_guild = MagicMock(return_value=guild)
@@ -2151,7 +2203,9 @@ class TestBotStatePersistence:
             await repo.set_bot_state("channel_big_plays", "997")
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
 
         guild = MagicMock(spec=discord.Guild)
@@ -2214,7 +2268,9 @@ class TestSetupIdempotencyWithDB:
             await conn.run_sync(Base.metadata.create_all)
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
 
         guild = MagicMock(spec=discord.Guild)
@@ -2296,19 +2352,34 @@ class TestSetupIdempotencyWithDB:
             league = await repo.create_league("Test League")
             season = await repo.create_season(league.id, "Season 1")
             team = await repo.create_team(
-                season.id, "Rose City Thorns", color="#e94560",
+                season.id,
+                "Rose City Thorns",
+                color="#e94560",
             )
             await repo.create_hooper(
-                team.id, season.id, "Briar", "sharpshooter",
-                {"scoring": 65, "passing": 35, "defense": 30,
-                 "speed": 45, "stamina": 40, "iq": 55,
-                 "ego": 40, "chaotic_alignment": 20, "fate": 30},
+                team.id,
+                season.id,
+                "Briar",
+                "sharpshooter",
+                {
+                    "scoring": 65,
+                    "passing": 35,
+                    "defense": 30,
+                    "speed": 45,
+                    "stamina": 40,
+                    "iq": 55,
+                    "ego": 40,
+                    "chaotic_alignment": 20,
+                    "fate": 30,
+                },
             )
             await session.commit()
             team_id = team.id
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
 
         guild = MagicMock(spec=discord.Guild)

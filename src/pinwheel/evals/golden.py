@@ -1,8 +1,8 @@
 """Golden dataset (M.1) — 20 eval cases + runner.
 
 Private cases have structural_only=True and empty expected_patterns.
-Runner generates mirror from synthetic input data, checks patterns (public)
-or structure (private). Works with mock mirrors (no API key needed for tests).
+Runner generates report from synthetic input data, checks patterns (public)
+or structure (private). Works with mock reports (no API key needed for tests).
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ class GoldenResult:
 # --- The 20 Golden Cases ---
 
 GOLDEN_CASES: list[GoldenCase] = [
-    # 8 simulation mirrors
+    # 8 simulation reports
     GoldenCase(
         id="sim-01",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 1,
             "games": [
@@ -46,14 +46,14 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="sim-02",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={"round_number": 2, "games": []},
         expected_patterns=[],
         min_length=10,
     ),
     GoldenCase(
         id="sim-03",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 3,
             "games": [
@@ -70,7 +70,7 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="sim-04",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 4,
             "games": [
@@ -87,7 +87,7 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="sim-05",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 5,
             "games": [
@@ -111,48 +111,61 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="sim-06",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 6,
-            "games": [{
-                "home_team": "A", "away_team": "B",
-                "home_score": 100, "away_score": 10,
-                "elam_activated": False,
-            }],
+            "games": [
+                {
+                    "home_team": "A",
+                    "away_team": "B",
+                    "home_score": 100,
+                    "away_score": 10,
+                    "elam_activated": False,
+                }
+            ],
         },
         expected_patterns=["100"],
     ),
     GoldenCase(
         id="sim-07",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 7,
-            "games": [{
-                "home_team": "Thorns", "away_team": "Breakers",
-                "home_score": 33, "away_score": 33,
-                "elam_activated": False,
-            }],
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 33,
+                    "away_score": 33,
+                    "elam_activated": False,
+                }
+            ],
         },
         expected_patterns=["33"],
     ),
     GoldenCase(
         id="sim-08",
-        mirror_type="simulation",
+        report_type="simulation",
         input_data={
             "round_number": 8,
-            "games": [{
-                "home_team": "X", "away_team": "Y",
-                "home_score": 55, "away_score": 50,
-                "elam_activated": True, "total_possessions": 150,
-            }],
+            "games": [
+                {
+                    "home_team": "X",
+                    "away_team": "Y",
+                    "home_score": 55,
+                    "away_score": 50,
+                    "elam_activated": True,
+                    "total_possessions": 150,
+                }
+            ],
         },
         expected_patterns=[],
         min_length=20,
     ),
-    # 7 governance mirrors
+    # 7 governance reports
     GoldenCase(
         id="gov-01",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "Increase three-point value to 4"}],
             "votes": [],
@@ -162,14 +175,14 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="gov-02",
-        mirror_type="governance",
+        report_type="governance",
         input_data={"proposals": [], "votes": [], "rules_changed": []},
         expected_patterns=[],
         min_length=10,
     ),
     GoldenCase(
         id="gov-03",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "Lower shot clock"}],
             "votes": [{"vote": "yes"}, {"vote": "yes"}, {"vote": "no"}],
@@ -179,7 +192,7 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="gov-04",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "Change Elam margin"}],
             "votes": [{"vote": "yes"}],
@@ -189,7 +202,7 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="gov-05",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "A"}, {"raw_text": "B"}, {"raw_text": "C"}],
             "votes": [],
@@ -199,7 +212,7 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="gov-06",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "Meta-governance change"}],
             "votes": [{"vote": "no"}, {"vote": "no"}],
@@ -209,77 +222,81 @@ GOLDEN_CASES: list[GoldenCase] = [
     ),
     GoldenCase(
         id="gov-07",
-        mirror_type="governance",
+        report_type="governance",
         input_data={
             "proposals": [{"raw_text": "Radical change"}],
             "votes": [
-                {"vote": "yes"}, {"vote": "yes"},
-                {"vote": "yes"}, {"vote": "yes"},
+                {"vote": "yes"},
+                {"vote": "yes"},
+                {"vote": "yes"},
+                {"vote": "yes"},
             ],
             "rules_changed": [{"parameter": "three_point_value"}],
         },
         expected_patterns=["change"],
     ),
-    # 5 private mirrors — structural checks only
+    # 5 private reports — structural checks only
     GoldenCase(
         id="priv-01",
-        mirror_type="private",
+        report_type="private",
         input_data={"governor_id": "gov-001", "proposals_submitted": 2, "votes_cast": 3},
         structural_only=True,
     ),
     GoldenCase(
         id="priv-02",
-        mirror_type="private",
+        report_type="private",
         input_data={"governor_id": "gov-002", "proposals_submitted": 0, "votes_cast": 0},
         structural_only=True,
     ),
     GoldenCase(
         id="priv-03",
-        mirror_type="private",
+        report_type="private",
         input_data={
             "governor_id": "gov-003",
-            "proposals_submitted": 5, "votes_cast": 10, "tokens_spent": 5,
+            "proposals_submitted": 5,
+            "votes_cast": 10,
+            "tokens_spent": 5,
         },
         structural_only=True,
     ),
     GoldenCase(
         id="priv-04",
-        mirror_type="private",
+        report_type="private",
         input_data={"governor_id": "gov-004", "proposals_submitted": 1, "votes_cast": 1},
         structural_only=True,
         min_length=20,
     ),
     GoldenCase(
         id="priv-05",
-        mirror_type="private",
+        report_type="private",
         input_data={"governor_id": "gov-005", "proposals_submitted": 0, "votes_cast": 5},
         structural_only=True,
     ),
 ]
 
 
-def run_golden_case(case: GoldenCase, mirror_content: str) -> GoldenResult:
-    """Run a single golden case against generated mirror content."""
+def run_golden_case(case: GoldenCase, report_content: str) -> GoldenResult:
+    """Run a single golden case against generated report content."""
     failures = []
 
     # Length checks
-    if len(mirror_content) < case.min_length:
-        failures.append(f"Too short: {len(mirror_content)} < {case.min_length}")
-    if len(mirror_content) > case.max_length:
-        failures.append(f"Too long: {len(mirror_content)} > {case.max_length}")
+    if len(report_content) < case.min_length:
+        failures.append(f"Too short: {len(report_content)} < {case.min_length}")
+    if len(report_content) > case.max_length:
+        failures.append(f"Too long: {len(report_content)} > {case.max_length}")
 
-    # Prescriptive language check (all mirrors)
-    presc = scan_prescriptive(mirror_content, case.id, case.mirror_type)
+    # Prescriptive language check (all reports)
+    presc = scan_prescriptive(report_content, case.id, case.report_type)
     if presc.prescriptive_count > 0:
         failures.append(f"Prescriptive language detected: {presc.prescriptive_count} instances")
 
     if case.structural_only:
-        # Private mirrors: structural checks only
+        # Private reports: structural checks only
         pass
     else:
-        # Public mirrors: pattern matching
+        # Public reports: pattern matching
         for pattern in case.expected_patterns:
-            if not re.search(re.escape(pattern), mirror_content, re.IGNORECASE):
+            if not re.search(re.escape(pattern), report_content, re.IGNORECASE):
                 failures.append(f"Missing expected pattern: '{pattern}'")
 
     return GoldenResult(
@@ -292,9 +309,9 @@ def run_golden_case(case: GoldenCase, mirror_content: str) -> GoldenResult:
 def run_golden_suite(
     generate_fn: callable,
 ) -> list[GoldenResult]:
-    """Run all golden cases using a mirror generation function.
+    """Run all golden cases using a report generation function.
 
-    generate_fn(case: GoldenCase) -> str: takes a case, returns mirror content.
+    generate_fn(case: GoldenCase) -> str: takes a case, returns report content.
     """
     results = []
     for case in GOLDEN_CASES:

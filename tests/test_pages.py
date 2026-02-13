@@ -141,11 +141,11 @@ class TestEmptyPages:
         assert "The Rules" in r.text
         assert "Game Mechanics" in r.text
 
-    async def test_mirrors_empty(self, app_client):
+    async def test_reports_empty(self, app_client):
         client, _ = app_client
-        r = await client.get("/mirrors")
+        r = await client.get("/reports")
         assert r.status_code == 200
-        assert "No Mirrors Yet" in r.text
+        assert "No Reports Yet" in r.text
 
     async def test_play_page(self, app_client):
         """Play page renders with onboarding content."""
@@ -242,13 +242,13 @@ class TestPopulatedPages:
         r = await client.get("/teams/nonexistent")
         assert r.status_code == 404
 
-    async def test_mirrors_with_data(self, app_client):
+    async def test_reports_with_data(self, app_client):
         client, engine = app_client
         await _seed_season(engine)
 
-        r = await client.get("/mirrors")
+        r = await client.get("/reports")
         assert r.status_code == 200
-        # Should have simulation mirror from step_round
+        # Should have simulation report from step_round
         assert "Simulation" in r.text or "simulation" in r.text
 
     async def test_play_page_with_data(self, app_client):

@@ -18,7 +18,7 @@ See `docs/GLOSSARY.md` for canonical naming. This document uses those terms excl
 | Governor | Discord snowflake (str) | `"123456789012345678"` | Discord user ID, stored as string |
 | Window | UUID v4 | `q7r8s9t0-...` | One per governance window |
 | Trade | UUID v4 | `u1v2w3x4-...` | Created on offer |
-| Mirror | UUID v4 | `y5z6a7b8-...` | One per mirror instance |
+| Report | UUID v4 | `y5z6a7b8-...` | One per report instance |
 
 **Pydantic validator example:**
 
@@ -48,7 +48,7 @@ All events are delivered via `GET /api/events/stream`. Clients filter by query p
 ### Connection
 
 ```
-GET /api/events/stream?games=true&commentary=true&governance=true&mirrors=true
+GET /api/events/stream?games=true&commentary=true&governance=true&reports=true
 GET /api/events/stream?game_id={id}          # single game
 GET /api/events/stream?team_id={id}          # team-specific events
 ```
@@ -70,21 +70,18 @@ GET /api/events/stream?team_id={id}          # team-specific events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `governance.open` | `WindowOpenEvent` | Governance window opened. Contains window_id, round_number. |
-| `governance.close` | `WindowCloseEvent` | Window closed. Results available. Contains proposals resolved. |
-| `governance.proposal` | `ProposalEvent` | New proposal submitted. Contains proposal summary (not full text until confirmed). |
-| `governance.vote` | `VoteEvent` | Vote cast (anonymized until window close). |
+| `governance.window_closed` | `GovernanceTallyEvent` | Governance tally complete on an interval round. Results available. Contains proposals resolved, vote tallies. |
 
-### Mirror Events (`?mirrors=true`)
+### Report Events (`?reports=true`)
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `mirror.simulation` | `MirrorEvent` | New simulation mirror available for the completed round. |
-| `mirror.governance` | `MirrorEvent` | Governance mirror after window close. |
-| `mirror.private` | `PrivateMirrorEvent` | Private mirror updated (filtered per-governor via auth). |
-| `mirror.series` | `MirrorEvent` | Playoff series mirror after a series game. |
-| `mirror.season` | `MirrorEvent` | Full-season narrative mirror (post-championship). |
-| `mirror.league` | `MirrorEvent` | State of the League periodic mirror. |
+| `report.simulation` | `ReportEvent` | New simulation report available for the completed round. |
+| `report.governance` | `ReportEvent` | Governance report after window close. |
+| `report.private` | `PrivateReportEvent` | Private report updated (filtered per-governor via auth). |
+| `report.series` | `ReportEvent` | Playoff series report after a series game. |
+| `report.season` | `ReportEvent` | Full-season narrative report (post-championship). |
+| `report.league` | `ReportEvent` | State of the League periodic report. |
 
 ### Season Events (always delivered)
 
@@ -119,7 +116,7 @@ Append-only event log. These are the source of truth for all governance state. T
 | `proposal.cancelled` | proposal | governor or system cancelled; reason |
 | `proposal.amended` | proposal | amendment_text, new_interpretation, amending_governor_id, token_cost |
 | `vote.cast` | proposal | vote (yes/no), weight, boost_used, governor_id |
-| `vote.revealed` | proposal | all votes for this proposal (on window close) |
+| ~~`vote.revealed`~~ | ~~proposal~~ | ~~all votes for this proposal (on window close)~~ — **Dead: defined but never written. Votes resolve at tally time via `proposal.passed`/`proposal.failed`.** |
 | `proposal.passed` | proposal | final_vote_tally, weighted_yes, weighted_no |
 | `proposal.failed` | proposal | final_vote_tally, weighted_yes, weighted_no |
 | `rule.enacted` | rule_change | parameter, old_value, new_value, source_proposal_id |
@@ -130,10 +127,10 @@ Append-only event log. These are the source of truth for all governance state. T
 | `trade.accepted` | trade | trade_id (transfer complete) |
 | `trade.rejected` | trade | trade_id (offer rejected) |
 | `trade.expired` | trade | trade_id (offer expired, window closed) |
-| `window.opened` | governance_window | window_id, round_number, opens_at |
-| `window.closed` | governance_window | window_id, proposals_resolved, closes_at |
+| ~~`window.opened`~~ | ~~governance_window~~ | ~~window_id, round_number, opens_at~~ — **Dead: defined but never written. Governance is interval-based, not window-based (Session 37).** |
+| ~~`window.closed`~~ | ~~governance_window~~ | ~~window_id, proposals_resolved, closes_at~~ — **Dead: defined but never written. Tallying happens in `step_round()` on interval rounds.** |
 
-**Total: 18 event types** across 5 aggregates (proposal, rule_change, token, trade, governance_window).
+**Total: 16 active event types** across 4 aggregates (proposal, rule_change, token, trade). 2 dead types (`vote.revealed`, `window.opened`, `window.closed`) remain in the `GovernanceEventType` Literal but are never written. Also includes `proposal.pending_review` and `proposal.rejected` (added Session 40 for admin veto flow).
 
 Source: `docs/plans/2026-02-11-database-schema-plan.md`
 
@@ -178,7 +175,7 @@ All REST responses use this shape:
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| GET | `/api/events/stream` | SSE event stream. Filter via query params: `games`, `commentary`, `governance`, `mirrors`, `game_id`, `team_id`. | None |
+| GET | `/api/events/stream` | SSE event stream. Filter via query params: `games`, `commentary`, `governance`, `reports`, `game_id`, `team_id`. | None |
 
 ### Game Data
 
@@ -241,12 +238,12 @@ All REST responses use this shape:
 | GET | `/api/governance/proposals` | `list[Proposal]` | None |
 | GET | `/api/governance/proposals/{id}` | `ProposalDetail` | None |
 
-### Mirrors (Public)
+### Reports (Public)
 
 | Method | Path | Response Model | Auth |
 |--------|------|---------------|------|
-| GET | `/api/mirrors/latest` | `dict[str, Mirror]` | None |
-| GET | `/api/mirrors/{type}/{round}` | `Mirror` | None |
+| GET | `/api/reports/latest` | `dict[str, Report]` | None |
+| GET | `/api/reports/{type}/{round}` | `Report` | None |
 
 ### System
 
@@ -284,11 +281,11 @@ Registry of shared Pydantic models. Definitions live in code (`src/pinwheel/mode
 | `Proposal` | `models/governance.py` | governance, API, Discord bot |
 | `Amendment` | `models/governance.py` | governance, API, Discord bot |
 | `Vote` | `models/governance.py` | governance, API |
-| `GovernanceEvent` | `models/governance.py` | event store, governance, mirrors |
+| `GovernanceEvent` | `models/governance.py` | event store, governance, reports |
 | `TokenBalance` | `models/tokens.py` | token economy, API, Discord bot |
 | `Trade` | `models/tokens.py` | token economy, API, Discord bot |
-| `Mirror` | `models/mirror.py` | AI mirror generation, API, Discord delivery |
-| `MirrorUpdate` | `models/mirror.py` | SSE, Discord delivery |
+| `Report` | `models/report.py` | AI report generation, API, Discord delivery |
+| `ReportUpdate` | `models/report.py` | SSE, Discord delivery |
 | `TeamStanding` | `models/game.py` | standings computation, API |
 | `GameState` | `core/state.py` | simulation (internal), late-join API |
 | `AgentState` | `core/state.py` | simulation (internal) |
@@ -318,14 +315,14 @@ Analytics events for gameplay health metrics. Each event fires at the described 
 | `token.trade.accept` | trade_id, time_to_accept | Trade accepted |
 | `token.trade.reject` | trade_id, time_to_reject | Trade rejected |
 
-### Mirror Events
+### Report Events
 
 | Event | Additional Payload | When It Fires |
 |-------|-------------------|---------------|
-| `mirror.private.view` | governor_id, mirror_id, time_spent_reading | Governor opens their private mirror |
-| `mirror.private.dismiss` | governor_id, mirror_id, time_before_dismiss | Governor dismisses without reading (< threshold) |
-| `mirror.shared.view` | governor_id, mirror_id, mirror_type | Governor views a shared mirror |
-| `mirror.shared.dwell_time` | governor_id, mirror_id, seconds | Time spent on shared mirror |
+| `report.private.view` | governor_id, report_id, time_spent_reading | Governor opens their private report |
+| `report.private.dismiss` | governor_id, report_id, time_before_dismiss | Governor dismisses without reading (< threshold) |
+| `report.shared.view` | governor_id, report_id, report_type | Governor views a shared report |
+| `report.shared.dwell_time` | governor_id, report_id, seconds | Time spent on shared report |
 
 ### Viewing Events
 

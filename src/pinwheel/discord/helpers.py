@@ -49,9 +49,7 @@ async def get_current_season_id(engine: AsyncEngine) -> str | None:
         return season.id if season else None
 
 
-async def get_governor(
-    engine: AsyncEngine, discord_id: str
-) -> GovernorInfo:
+async def get_governor(engine: AsyncEngine, discord_id: str) -> GovernorInfo:
     """Look up a governor by Discord user ID.
 
     Raises GovernorNotFound if the user is not enrolled this season.
@@ -64,14 +62,8 @@ async def get_governor(
             raise GovernorNotFound("No active season.")
 
         player = await repo.get_player_by_discord_id(discord_id)
-        if (
-            player is None
-            or player.team_id is None
-            or player.enrolled_season_id != season.id
-        ):
-            raise GovernorNotFound(
-                "You need to `/join` a team first."
-            )
+        if player is None or player.team_id is None or player.enrolled_season_id != season.id:
+            raise GovernorNotFound("You need to `/join` a team first.")
 
         team = await repo.get_team(player.team_id)
         team_name = team.name if team else player.team_id

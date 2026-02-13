@@ -14,7 +14,7 @@ Drawing from David Lynch's *Catching the Big Fish*: the creative act — and the
 
 Pinwheel is an auto-simulated 3v3 basketball league where human players don't play basketball — they govern it. Teams of co-governors shape the rules of the game through natural language proposals, interpreted by Claude Opus 4.6, and watch the consequences cascade across dozens of daily games. It starts out as basketball, but the players decide what it becomes.
 
-The AI serves as the social system's unconscious: surfacing patterns, mirroring governance dynamics, and offering each player private reflections on their own behavior within the system. The game is most interesting when the rules are slightly unfair and everyone can see why — because that's when governance stops being abstract and becomes urgent.
+The AI serves as the social system's unconscious: surfacing patterns, reporting governance dynamics, and offering each player private reflections on their own behavior within the system. The game is most interesting when the rules are slightly unfair and everyone can see why — because that's when governance stops being abstract and becomes urgent.
 
 ## Goals
 
@@ -26,11 +26,11 @@ The AI serves as the social system's unconscious: surfacing patterns, mirroring 
 
 ## Resonant Computing Alignment
 
-- **Private:** Each player's private mirror is theirs alone. The AI's reflection of your behavior, your patterns, your blind spots — visible only to you. In the era of AI, whoever controls the context holds the power. In Pinwheel, players are the primary stewards of their own context.
+- **Private:** Each player's private report is theirs alone. The AI's reflection of your behavior, your patterns, your blind spots — visible only to you. In the era of AI, whoever controls the context holds the power. In Pinwheel, players are the primary stewards of their own context.
 - **Dedicated:** The AI works exclusively for the players. No ad platform. No engagement optimization. No hidden agendas. Its only function is to make the group's own dynamics visible to the group.
 - **Plural:** No single player — and not the AI itself — controls the rules. Governance is genuinely distributed. The AI can model consequences, but humans decide. Healthy ecosystems require distributed power, and Pinwheel's architecture enforces it.
 - **Adaptable:** The rules are open-ended by design. Players can change game mechanics, league structure, agent behavior constraints, and even the meta-rules of governance itself. The game evolves as the community evolves.
-- **Prosocial:** Playing Pinwheel practices the skill of collective self-governance. The private mirror builds self-awareness. The governance mirror builds systems awareness. The game is a rehearsal space for being better neighbors, collaborators, and stewards of shared systems.
+- **Prosocial:** Playing Pinwheel practices the skill of collective self-governance. The private report builds self-awareness. The governance report builds systems awareness. The game is a rehearsal space for being better neighbors, collaborators, and stewards of shared systems.
 
 ## Hackathon Track: Amplify Human Judgment
 

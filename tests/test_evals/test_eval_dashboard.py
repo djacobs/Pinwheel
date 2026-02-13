@@ -93,10 +93,10 @@ async def test_dashboard_empty(app_client):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_no_mirror_text(app_client):
-    """Dashboard must not contain any mirror text field references."""
+async def test_dashboard_no_report_text(app_client):
+    """Dashboard must not contain any report text field references."""
     resp = await app_client.get("/admin/evals")
-    assert "mirror_content" not in resp.text.lower()
+    assert "report_content" not in resp.text.lower()
 
 
 @pytest.mark.asyncio

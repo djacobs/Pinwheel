@@ -4,7 +4,7 @@ Simulated 3v3 basketball league with human-driven, AI-interpreted governance and
 
 Players don't play the games — they govern them. Teams of co-governors propose rule changes in natural language, Claude interprets them into structured parameters, and the simulation engine runs with whatever the players decided. Three-pointers worth 7? Sure. 45-second shot clock? Done. The game evolves as the community evolves.
 
-The AI serves as a social mirror — surfacing patterns in gameplay and governance that players can't see from inside the system. It never decides. It illuminates.
+The AI serves as a social reporter — surfacing patterns in gameplay and governance that players can't see from inside the system. It never decides. It illuminates.
 
 Built for the Anthropic hackathon track: **Amplify Human Judgment**.
 
@@ -14,7 +14,7 @@ Built for the Anthropic hackathon track: **Amplify Human Judgment**.
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (package manager)
-- An [Anthropic API key](https://console.anthropic.com/) (for AI interpretation, mirrors, and commentary)
+- An [Anthropic API key](https://console.anthropic.com/) (for AI interpretation, reports, and commentary)
 - A [Discord bot token](https://discord.com/developers/applications) and server (for governance)
 - [Fly.io CLI](https://fly.io/docs/flyctl/install/) (for deployment only)
 
@@ -58,7 +58,7 @@ DISCORD_REDIRECT_URI=http://localhost:8000/auth/callback
 # Create 4 teams with 3 agents each + round-robin schedule
 uv run python scripts/demo_seed.py seed
 
-# Advance 3 rounds (simulation + governance + mirrors + evals)
+# Advance 3 rounds (simulation + governance + reports + evals)
 uv run python scripts/demo_seed.py step 3
 
 # Check current standings

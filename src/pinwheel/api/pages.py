@@ -82,7 +82,7 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Home page — living dashboard for the league."""
     season_id = await _get_active_season_id(repo)
-    latest_mirror = None
+    latest_report = None
     standings = []
     latest_round_games: list[dict] = []
     current_round = 0
@@ -116,7 +116,9 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         # Latest round's games — the headline scores (presented only)
         if current_round > 0:
             round_games = await repo.get_games_for_round(
-                season_id, current_round, presented_only=True,
+                season_id,
+                current_round,
+                presented_only=True,
             )
             for g in round_games:
                 # Cache team names
@@ -143,26 +145,28 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                             )
                             break
 
-                latest_round_games.append({
-                    "id": g.id,
-                    "home_name": team_names.get(g.home_team_id, "?"),
-                    "away_name": team_names.get(g.away_team_id, "?"),
-                    "home_score": g.home_score,
-                    "away_score": g.away_score,
-                    "winner_team_id": g.winner_team_id,
-                    "home_team_id": g.home_team_id,
-                    "away_team_id": g.away_team_id,
-                    "home_color": team_colors.get(g.home_team_id, "#888"),
-                    "away_color": team_colors.get(g.away_team_id, "#888"),
-                    "elam_target": g.elam_target,
-                    "total_possessions": g.total_possessions,
-                    "winning_play": winning_play,
-                })
+                latest_round_games.append(
+                    {
+                        "id": g.id,
+                        "home_name": team_names.get(g.home_team_id, "?"),
+                        "away_name": team_names.get(g.away_team_id, "?"),
+                        "home_score": g.home_score,
+                        "away_score": g.away_score,
+                        "winner_team_id": g.winner_team_id,
+                        "home_team_id": g.home_team_id,
+                        "away_team_id": g.away_team_id,
+                        "home_color": team_colors.get(g.home_team_id, "#888"),
+                        "away_color": team_colors.get(g.away_team_id, "#888"),
+                        "elam_target": g.elam_target,
+                        "total_possessions": g.total_possessions,
+                        "winning_play": winning_play,
+                    }
+                )
 
-        # Latest mirror
-        m = await repo.get_latest_mirror(season_id, "simulation")
+        # Latest report
+        m = await repo.get_latest_report(season_id, "simulation")
         if m:
-            latest_mirror = {
+            latest_report = {
                 "content": m.content,
                 "round_number": m.round_number,
             }
@@ -176,16 +180,18 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                     t = await repo.get_team(tid)
                     team_names[tid] = t.name if t else tid
                     team_colors[tid] = t.color if t else "#888"
-            upcoming_games.append({
-                "home_name": team_names.get(entry.home_team_id, "?"),
-                "away_name": team_names.get(entry.away_team_id, "?"),
-                "home_color": team_colors.get(entry.home_team_id, "#888"),
-                "away_color": team_colors.get(entry.away_team_id, "#888"),
-            })
+            upcoming_games.append(
+                {
+                    "home_name": team_names.get(entry.home_team_id, "?"),
+                    "away_name": team_names.get(entry.away_team_id, "?"),
+                    "home_color": team_colors.get(entry.home_team_id, "#888"),
+                    "away_color": team_colors.get(entry.away_team_id, "#888"),
+                }
+            )
 
     ctx = {
         "active_page": "home",
-        "latest_mirror": latest_mirror,
+        "latest_report": latest_report,
         "standings": standings,
         "latest_round_games": latest_round_games,
         "current_round": current_round,
@@ -332,7 +338,9 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
 
         for round_num in range(latest_round, first_round - 1, -1):
             round_games = await repo.get_games_for_round(
-                season_id, round_num, presented_only=True,
+                season_id,
+                round_num,
+                presented_only=True,
             )
             if not round_games:
                 continue
@@ -345,7 +353,8 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                         team_names[tid] = t.name if t else tid
                         team_colors[tid] = (
                             (t.color or "#888", getattr(t, "color_secondary", None) or "#1a1a2e")
-                            if t else ("#888", "#1a1a2e")
+                            if t
+                            else ("#888", "#1a1a2e")
                         )
 
             games_for_round = []
@@ -398,22 +407,22 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     }
                 )
 
-            # Get simulation mirror for this round
-            mirror = None
-            mirrors = await repo.get_mirrors_for_round(
-                season_id, round_num, "simulation"
-            )
-            if mirrors:
-                mirror = {
-                    "content": mirrors[0].content,
-                    "round_number": mirrors[0].round_number,
+            # Get simulation report for this round
+            report = None
+            round_reports = await repo.get_reports_for_round(season_id, round_num, "simulation")
+            if round_reports:
+                report = {
+                    "content": round_reports[0].content,
+                    "round_number": round_reports[0].round_number,
                 }
 
-            rounds.append({
-                "round_number": round_num,
-                "games": games_for_round,
-                "mirror": mirror,
-            })
+            rounds.append(
+                {
+                    "round_number": round_num,
+                    "games": games_for_round,
+                    "report": report,
+                }
+            )
 
     # Build live_round from PresentationState if presentation is active
     from pinwheel.core.presenter import PresentationState
@@ -470,14 +479,17 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                         team_names_sched[tid] = t.name if t else tid
                         team_colors_sched[tid] = (
                             (t.color or "#888", getattr(t, "color_secondary", None) or "#1a1a2e")
-                            if t else ("#888", "#1a1a2e")
+                            if t
+                            else ("#888", "#1a1a2e")
                         )
-            upcoming_games.append({
-                "home_name": team_names_sched.get(entry.home_team_id, "?"),
-                "away_name": team_names_sched.get(entry.away_team_id, "?"),
-                "home_color": team_colors_sched.get(entry.home_team_id, ("#888", "#1a1a2e"))[0],
-                "away_color": team_colors_sched.get(entry.away_team_id, ("#888", "#1a1a2e"))[0],
-            })
+            upcoming_games.append(
+                {
+                    "home_name": team_names_sched.get(entry.home_team_id, "?"),
+                    "away_name": team_names_sched.get(entry.away_team_id, "?"),
+                    "home_color": team_colors_sched.get(entry.home_team_id, ("#888", "#1a1a2e"))[0],
+                    "away_color": team_colors_sched.get(entry.away_team_id, ("#888", "#1a1a2e"))[0],
+                }
+            )
 
     settings: Settings = request.app.state.settings
     return templates.TemplateResponse(
@@ -527,13 +539,11 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
     away_name = away_team.name if away_team else game.away_team_id
     home_color = home_team.color if home_team else "#888"
     home_color2 = (
-        (getattr(home_team, "color_secondary", None) or "#1a1a2e")
-        if home_team else "#1a1a2e"
+        (getattr(home_team, "color_secondary", None) or "#1a1a2e") if home_team else "#1a1a2e"
     )
     away_color = away_team.color if away_team else "#888"
     away_color2 = (
-        (getattr(away_team, "color_secondary", None) or "#1a1a2e")
-        if away_team else "#1a1a2e"
+        (getattr(away_team, "color_secondary", None) or "#1a1a2e") if away_team else "#1a1a2e"
     )
 
     # Box scores grouped by team
@@ -590,15 +600,13 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         )
         play_by_play.append(enriched)
 
-    # Mirror for this round
+    # Report for this round
     season_id = await _get_active_season_id(repo)
-    mirror = None
+    report = None
     if season_id:
-        mirrors = await repo.get_mirrors_for_round(
-            season_id, game.round_number, "simulation"
-        )
-        if mirrors:
-            mirror = {"content": mirrors[0].content}
+        round_reports = await repo.get_reports_for_round(season_id, game.round_number, "simulation")
+        if round_reports:
+            report = {"content": round_reports[0].content}
 
     return templates.TemplateResponse(
         request,
@@ -614,7 +622,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             "away_color2": away_color2,
             "box_score_groups": box_score_groups,
             "play_by_play": play_by_play,
-            "mirror": mirror,
+            "report": report,
             **_auth_context(request, current_user),
         },
     )
@@ -657,7 +665,8 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
     team_strategy = None
     if season_id:
         strategy_events = await repo.get_events_by_type(
-            season_id=season_id, event_types=["strategy.set"],
+            season_id=season_id,
+            event_types=["strategy.set"],
         )
         for e in reversed(strategy_events):
             if e.team_id == team_id:
@@ -690,10 +699,12 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
     if season_id:
         governor_rows = await repo.get_governors_for_team(team_id, season_id)
         for g in governor_rows:
-            governors.append({
-                "id": g.id,
-                "username": g.username,
-            })
+            governors.append(
+                {
+                    "id": g.id,
+                    "username": g.username,
+                }
+            )
 
     return templates.TemplateResponse(
         request,
@@ -717,9 +728,7 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
 
 
 @router.get("/hoopers/{hooper_id}", response_class=HTMLResponse)
-async def hooper_page(
-    request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser
-):
+async def hooper_page(request: Request, hooper_id: str, repo: RepoDep, current_user: OptionalUser):
     """Individual hooper profile page."""
     hooper = await repo.get_hooper(hooper_id)
     if not hooper:
@@ -787,9 +796,7 @@ async def hooper_page(
     # Check if current user is governor on this hooper's team (can edit bio)
     can_edit_bio = False
     if current_user and season_id:
-        enrollment = await repo.get_player_enrollment(
-            current_user.discord_id, season_id
-        )
+        enrollment = await repo.get_player_enrollment(current_user.discord_id, season_id)
         if enrollment and enrollment[0] == hooper.team_id:
             can_edit_bio = True
 
@@ -836,7 +843,7 @@ async def hooper_bio_edit_form(
       <textarea name="backstory" rows="4" style="width:100%; background:var(--bg-input);
         color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius);
         padding:0.75rem; font-family:var(--font-body); font-size:0.9rem; resize:vertical;
-        line-height:1.6;">{hooper.backstory or ''}</textarea>
+        line-height:1.6;">{hooper.backstory or ""}</textarea>
       <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
         <button type="submit" class="bio-edit-btn">Save</button>
         <button type="button" class="bio-edit-btn"
@@ -991,7 +998,8 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
             if not pid:
                 continue
             bucket = votes_by_proposal.setdefault(
-                pid, {"yes": 0.0, "no": 0.0, "count": 0},
+                pid,
+                {"yes": 0.0, "no": 0.0, "count": 0},
             )
             weight = float(e.payload.get("weight", 1.0))
             if e.payload.get("vote") == "yes":
@@ -1018,15 +1026,17 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
             # Vote tally (totals only — no individual votes)
             tally = votes_by_proposal.get(pid)
 
-            proposals.append({
-                "id": pid,
-                "governor_id": p.governor_id,
-                "raw_text": p.raw_text,
-                "status": status,
-                "tier": p.tier,
-                "interpretation": interp,
-                "vote_tally": tally,
-            })
+            proposals.append(
+                {
+                    "id": pid,
+                    "governor_id": p.governor_id,
+                    "raw_text": p.raw_text,
+                    "status": status,
+                    "tier": p.tier,
+                    "interpretation": interp,
+                    "vote_tally": tally,
+                }
+            )
 
         rc_events = await repo.get_events_by_type(
             season_id=season_id,
@@ -1050,73 +1060,48 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
 # Human-readable rule display metadata, grouped by tier.
 # Each rule: (param_key, display_label, description)
 _GAME_MECHANICS_RULES = [
-    ("quarter_minutes", "Quarter Length",
-     "Minutes per quarter."),
-    ("shot_clock_seconds", "Shot Clock",
-     "Seconds to get a shot off."),
-    ("three_point_value", "Three-Pointer Value",
-     "Points for a made three."),
-    ("two_point_value", "Two-Pointer Value",
-     "Points for a mid-range or at-rim shot."),
-    ("free_throw_value", "Free Throw Value",
-     "Points per made free throw."),
-    ("personal_foul_limit", "Personal Foul Limit",
-     "Fouls before a player fouls out."),
-    ("team_foul_bonus_threshold", "Team Foul Bonus",
-     "Team fouls before bonus free throws."),
-    ("three_point_distance", "Three-Point Distance",
-     "Distance of the arc in feet."),
-    ("elam_trigger_quarter", "Elam Trigger Quarter",
-     "After this quarter, first to target wins."),
-    ("elam_margin", "Elam Target Margin",
-     "Added to leading score for the target."),
-    ("halftime_stamina_recovery", "Halftime Recovery",
-     "Stamina recovered at halftime (0\u20131)."),
-    ("quarter_break_stamina_recovery", "Quarter Break Recovery",
-     "Stamina recovered between quarters (0\u20131)."),
-    ("safety_cap_possessions", "Safety Cap",
-     "Max possessions before force-ending."),
+    ("quarter_minutes", "Quarter Length", "Minutes per quarter."),
+    ("shot_clock_seconds", "Shot Clock", "Seconds to get a shot off."),
+    ("three_point_value", "Three-Pointer Value", "Points for a made three."),
+    ("two_point_value", "Two-Pointer Value", "Points for a mid-range or at-rim shot."),
+    ("free_throw_value", "Free Throw Value", "Points per made free throw."),
+    ("personal_foul_limit", "Personal Foul Limit", "Fouls before a player fouls out."),
+    ("team_foul_bonus_threshold", "Team Foul Bonus", "Team fouls before bonus free throws."),
+    ("three_point_distance", "Three-Point Distance", "Distance of the arc in feet."),
+    ("elam_trigger_quarter", "Elam Trigger Quarter", "After this quarter, first to target wins."),
+    ("elam_margin", "Elam Target Margin", "Added to leading score for the target."),
+    ("halftime_stamina_recovery", "Halftime Recovery", "Stamina recovered at halftime (0\u20131)."),
+    (
+        "quarter_break_stamina_recovery",
+        "Quarter Break Recovery",
+        "Stamina recovered between quarters (0\u20131).",
+    ),
+    ("safety_cap_possessions", "Safety Cap", "Max possessions before force-ending."),
 ]
 
 _HOOPER_BEHAVIOR_RULES = [
-    ("max_shot_share", "Max Shot Share",
-     "Max fraction of team shots for one player."),
-    ("min_pass_per_possession", "Min Passes",
-     "Required passes before a shot attempt."),
-    ("home_court_enabled", "Home Court Advantage",
-     "Whether home court provides a boost."),
-    ("home_crowd_boost", "Home Crowd Boost",
-     "Scoring bonus from a friendly crowd."),
-    ("away_fatigue_factor", "Away Fatigue",
-     "Extra stamina drain for visitors."),
-    ("crowd_pressure", "Crowd Pressure",
-     "Defensive boost from the home crowd."),
-    ("altitude_stamina_penalty", "Altitude Penalty",
-     "Extra drain at high-altitude venues."),
-    ("travel_fatigue_enabled", "Travel Fatigue",
-     "Whether travel distance affects stamina."),
-    ("travel_fatigue_per_mile", "Travel Fatigue Rate",
-     "Stamina drain per mile of travel."),
+    ("max_shot_share", "Max Shot Share", "Max fraction of team shots for one player."),
+    ("min_pass_per_possession", "Min Passes", "Required passes before a shot attempt."),
+    ("home_court_enabled", "Home Court Advantage", "Whether home court provides a boost."),
+    ("home_crowd_boost", "Home Crowd Boost", "Scoring bonus from a friendly crowd."),
+    ("away_fatigue_factor", "Away Fatigue", "Extra stamina drain for visitors."),
+    ("crowd_pressure", "Crowd Pressure", "Defensive boost from the home crowd."),
+    ("altitude_stamina_penalty", "Altitude Penalty", "Extra drain at high-altitude venues."),
+    ("travel_fatigue_enabled", "Travel Fatigue", "Whether travel distance affects stamina."),
+    ("travel_fatigue_per_mile", "Travel Fatigue Rate", "Stamina drain per mile of travel."),
 ]
 
 _LEAGUE_STRUCTURE_RULES = [
-    ("teams_count", "Teams in League",
-     "Number of teams in the league."),
-    ("round_robins_per_season", "Round Robins",
-     "Times each team plays every other."),
-    ("playoff_teams", "Playoff Teams",
-     "Teams that qualify for playoffs."),
-    ("playoff_semis_best_of", "Semifinal Series",
-     "Best-of format for semifinals."),
-    ("playoff_finals_best_of", "Finals Series",
-     "Best-of format for the championship."),
+    ("teams_count", "Teams in League", "Number of teams in the league."),
+    ("round_robins_per_season", "Round Robins", "Times each team plays every other."),
+    ("playoff_teams", "Playoff Teams", "Teams that qualify for playoffs."),
+    ("playoff_semis_best_of", "Semifinal Series", "Best-of format for semifinals."),
+    ("playoff_finals_best_of", "Finals Series", "Best-of format for the championship."),
 ]
 
 _META_GOVERNANCE_RULES = [
-    ("proposals_per_window", "Proposals per Window",
-     "Max proposals per governance window."),
-    ("vote_threshold", "Vote Threshold",
-     "Votes needed to pass (0.5 = majority)."),
+    ("proposals_per_window", "Proposals per Window", "Max proposals per governance window."),
+    ("vote_threshold", "Vote Threshold", "Votes needed to pass (0.5 = majority)."),
 ]
 
 RULE_TIERS = [
@@ -1145,7 +1130,7 @@ RULE_TIERS = [
         "key": "meta_governance",
         "title": "Meta-Governance",
         "subtitle": "The rules about rules.",
-        "color": "var(--accent-mirror)",
+        "color": "var(--accent-report)",
         "rules": _META_GOVERNANCE_RULES,
     },
 ]
@@ -1200,21 +1185,25 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
                 if len(bounds) == 2:
                     range_str = f"{bounds[0]}–{bounds[1]}"
             changed = param in changes_from_default
-            tier_rules.append({
-                "param": param,
-                "label": label,
-                "desc": desc,
-                "value": value,
-                "range": range_str,
-                "changed": changed,
-            })
-        tiers.append({
-            "key": tier["key"],
-            "title": tier["title"],
-            "subtitle": tier["subtitle"],
-            "color": tier["color"],
-            "rules": tier_rules,
-        })
+            tier_rules.append(
+                {
+                    "param": param,
+                    "label": label,
+                    "desc": desc,
+                    "value": value,
+                    "range": range_str,
+                    "changed": changed,
+                }
+            )
+        tiers.append(
+            {
+                "key": tier["key"],
+                "title": tier["title"],
+                "subtitle": tier["subtitle"],
+                "color": tier["color"],
+                "rules": tier_rules,
+            }
+        )
 
     community_changes = len(changes_from_default)
 
@@ -1232,34 +1221,32 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
     )
 
 
-@router.get("/mirrors", response_class=HTMLResponse)
-async def mirrors_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Mirrors archive page."""
+@router.get("/reports", response_class=HTMLResponse)
+async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """Reports archive page."""
     season_id = await _get_active_season_id(repo)
-    mirrors = []
+    reports = []
 
     if season_id:
         for rn in range(100, 0, -1):
-            round_mirrors = await repo.get_mirrors_for_round(season_id, rn)
-            for m in round_mirrors:
-                if m.mirror_type != "private":
-                    mirrors.append(
+            round_reports = await repo.get_reports_for_round(season_id, rn)
+            for m in round_reports:
+                if m.report_type != "private":
+                    reports.append(
                         {
-                            "mirror_type": m.mirror_type,
+                            "report_type": m.report_type,
                             "round_number": m.round_number,
                             "content": m.content,
-                            "created_at": (
-                                m.created_at.isoformat() if m.created_at else ""
-                            ),
+                            "created_at": (m.created_at.isoformat() if m.created_at else ""),
                         }
                     )
-            if mirrors and rn < 95 and len(mirrors) > 20:
+            if reports and rn < 95 and len(reports) > 20:
                 break
 
     return templates.TemplateResponse(
         request,
-        "pages/mirrors.html",
-        {"active_page": "mirrors", "mirrors": mirrors, **_auth_context(request, current_user)},
+        "pages/reports.html",
+        {"active_page": "reports", "reports": reports, **_auth_context(request, current_user)},
     )
 
 
@@ -1269,16 +1256,18 @@ async def season_archives_page(request: Request, repo: RepoDep, current_user: Op
     archives = await repo.get_all_archives()
     archive_list = []
     for a in archives:
-        archive_list.append({
-            "season_id": a.season_id,
-            "season_name": a.season_name,
-            "champion_team_name": a.champion_team_name,
-            "total_games": a.total_games,
-            "total_proposals": a.total_proposals,
-            "total_rule_changes": a.total_rule_changes,
-            "governor_count": a.governor_count,
-            "created_at": a.created_at.isoformat() if a.created_at else "",
-        })
+        archive_list.append(
+            {
+                "season_id": a.season_id,
+                "season_name": a.season_name,
+                "champion_team_name": a.champion_team_name,
+                "total_games": a.total_games,
+                "total_proposals": a.total_proposals,
+                "total_rule_changes": a.total_rule_changes,
+                "governor_count": a.governor_count,
+                "created_at": a.created_at.isoformat() if a.created_at else "",
+            }
+        )
 
     return templates.TemplateResponse(
         request,

@@ -1,16 +1,16 @@
 # Pinwheel Fates
 
-Auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social mirror — surfacing patterns in gameplay and governance that players can't see from inside the system.
+Auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social reporter — surfacing patterns in gameplay and governance that players can't see from inside the system.
 
 ## Prior Art & Philosophy
 
 Pinwheel is built on the principles of [Resonant Computing](https://resonantcomputing.org) — technology designed to align with human values rather than exploit attention. The five principles map directly to the game:
 
-- **Private:** Each player's private mirror is theirs alone. The AI's reflection of your behavior is visible only to you. In the era of AI, whoever controls the context holds the power. In Pinwheel, players steward their own context.
+- **Private:** Each player's private report is theirs alone. The AI's reflection of your behavior is visible only to you. In the era of AI, whoever controls the context holds the power. In Pinwheel, players steward their own context.
 - **Dedicated:** The AI works exclusively for the players. No engagement optimization, no hidden agendas. Its only function is making the group's dynamics visible to the group.
 - **Plural:** No single player — and not the AI — controls the rules. Governance is genuinely distributed. The AI models consequences; humans decide.
 - **Adaptable:** The rules are open-ended. Players can change game mechanics, league structure, and even the meta-rules of governance itself. The game evolves as the community evolves.
-- **Prosocial:** Playing Pinwheel practices collective self-governance. The private mirror builds self-awareness. The governance mirror builds systems awareness. The game is a rehearsal space for being better stewards of shared systems.
+- **Prosocial:** Playing Pinwheel practices collective self-governance. The private report builds self-awareness. The governance report builds systems awareness. The game is a rehearsal space for being better stewards of shared systems.
 
 See also: `docs/VISION.md` for the full philosophical grounding.
 
@@ -32,7 +32,7 @@ See also: `docs/VISION.md` for the full philosophical grounding.
 - Use async FastAPI endpoints throughout. No blocking calls in request handlers.
 - Simulation is CPU-bound: pure Python with standard library random. Profile before adding dependencies.
 - Database: proper indexing, batch inserts for game results, connection pooling.
-- Opus 4.6 calls are I/O-bound: use async httpx, batch where possible, cache mirror outputs.
+- Opus 4.6 calls are I/O-bound: use async httpx, batch where possible, cache report outputs.
 - FrontEnd must be *fast* and *delightful*. This is a game is about governance but must also be joyful. 
 
 ### Open Source
@@ -50,7 +50,7 @@ See also: `docs/VISION.md` for the full philosophical grounding.
 ### Instrumentation
 - Structured logging, middleware timing, and AI call tracking from Day 1. Not optional, not bolted on later.
 - Every API request timed via middleware. Every Opus 4.6 call tracked (tokens, latency, context type). Every simulation block profiled.
-- Player behavior events captured for gameplay health metrics (governance participation, mirror engagement, token velocity).
+- Player behavior events captured for gameplay health metrics (governance participation, report engagement, token velocity).
 - See `docs/INSTRUMENTATION.md` for the full spec: joy metrics, performance targets, token cost accounting.
 
 ### API/Client Abstractions
@@ -85,12 +85,12 @@ pinwheel/
 │       │   ├── events.py        # SSE event streaming
 │       │   ├── games.py         # Game results, schedules, box scores
 │       │   ├── governance.py    # Proposals, votes, amendments
-│       │   ├── mirrors.py       # AI reflections (public only)
+│       │   ├── reports.py       # AI reflections (public only)
 │       │   ├── pages.py         # HTML page routes (Jinja2)
 │       │   ├── pace.py          # GET/POST /api/pace (presenter pacing)
 │       │   ├── standings.py     # League standings
 │       │   ├── teams.py         # Team/agent management
-│       │   └── eval_dashboard.py # /admin/evals (aggregate stats, no mirror text)
+│       │   └── eval_dashboard.py # /admin/evals (aggregate stats, no report text)
 │       ├── core/                # Domain logic
 │       │   ├── __init__.py
 │       │   ├── simulation.py    # Basketball sim engine (pure functions)
@@ -105,13 +105,13 @@ pinwheel/
 │       │   ├── tokens.py        # Token economy, trading
 │       │   ├── scheduler.py     # Round-robin schedule generation
 │       │   ├── scheduler_runner.py # APScheduler tick_round() for auto-advance
-│       │   ├── game_loop.py     # step_round() orchestrator (sim → gov → mirrors → evals → commentary)
+│       │   ├── game_loop.py     # step_round() orchestrator (sim → gov → reports → evals → commentary)
 │       │   ├── event_bus.py     # In-process pub/sub event bus
 │       │   └── hooks.py         # Event bus hook registrations
 │       ├── ai/                  # Claude integration
 │       │   ├── __init__.py
 │       │   ├── interpreter.py   # Rule proposal → structured rule (sandboxed)
-│       │   ├── mirror.py        # Reflection generation (sim, gov, private)
+│       │   ├── report.py        # Reflection generation (sim, gov, private)
 │       │   └── commentary.py    # Broadcaster-style game commentary + highlight reels
 │       ├── auth/                # Discord OAuth2
 │       │   ├── __init__.py
@@ -129,7 +129,7 @@ pinwheel/
 │       │   ├── prescriptive.py  # S.2c — directive language scan
 │       │   ├── grounding.py     # S.2b — entity reference validation
 │       │   ├── behavioral.py    # S.2a — governance action shift detection
-│       │   ├── rubric.py        # S.1 — manual scoring (public mirrors only)
+│       │   ├── rubric.py        # S.1 — manual scoring (public reports only)
 │       │   ├── golden.py        # M.1 — 20 eval cases
 │       │   ├── ab_compare.py    # M.2 — dual-prompt comparison
 │       │   ├── attribution.py   # M.3 — treatment/control assignment
@@ -143,7 +143,7 @@ pinwheel/
 │       │   ├── rules.py         # RuleSet, RuleChange, GameEffect
 │       │   ├── governance.py    # Proposal, Amendment, Vote
 │       │   ├── tokens.py        # TokenBalance, Trade, TokenType
-│       │   └── mirror.py        # Reflection, MirrorUpdate
+│       │   └── report.py        # Reflection, ReportUpdate
 │       └── db/                  # Database layer
 │           ├── __init__.py
 │           ├── engine.py        # Connection setup
@@ -155,7 +155,7 @@ pinwheel/
 │   ├── test_governance.py
 │   ├── test_game_loop.py
 │   ├── test_event_bus.py
-│   ├── test_mirrors.py
+│   ├── test_reports.py
 │   ├── test_models.py
 │   ├── test_seeding.py
 │   ├── test_observe.py
@@ -176,7 +176,7 @@ pinwheel/
 │       ├── test_rule_evaluator.py, test_models.py, test_eval_dashboard.py
 ├── templates/                   # Jinja2 HTML templates
 │   ├── base.html
-│   └── pages/                   # arena, standings, governance, mirrors, rules, teams, game detail
+│   └── pages/                   # arena, standings, governance, reports, rules, teams, game detail
 ├── static/                      # CSS + JS (htmx)
 ├── scripts/
 │   ├── demo_seed.py             # CLI: seed, step, status, propose
@@ -261,7 +261,7 @@ Commit when you have a complete, valuable unit of change — not "WIP." If you c
 Player-submitted text never enters the simulation engine's context. Opus 4.6 interprets proposals in an isolated context with strict system instructions. The structured output is validated against the rule space schema before it can affect the simulation. This is both a security boundary and a gameplay feature — the AI acts as a constitutional interpreter.
 
 ### Governance is append-only events
-Every governance action (propose, amend, vote, trade, enact) is an immutable event. Token balances are derived from the event log, not stored as mutable state. This gives full auditability and makes the governance mirror's job straightforward — it reads the event log.
+Every governance action (propose, amend, vote, trade, enact) is an immutable event. Token balances are derived from the event log, not stored as mutable state. This gives full auditability and makes the governance reporter's job straightforward — it reads the event log.
 
 ### Rules are parameterized, not arbitrary
 The rule space is a defined set of parameters with types, ranges, and validation. Players propose changes in natural language, but what actually changes are typed parameters: `shot_clock_seconds: int (range: 10-60)`, `three_point_value: int (range: 1-10)`, etc. This prevents the simulation from entering undefined states.
@@ -288,11 +288,14 @@ The rule space is a defined set of parameters with types, ranges, and validation
 ANTHROPIC_API_KEY=              # Claude API key (mock fallback if unset)
 DATABASE_URL=                   # PostgreSQL or sqlite+aiosqlite:///:memory:
 PINWHEEL_ENV=development        # development | staging | production
-PINWHEEL_GAME_CRON="0 * * * *" # Explicit cron override (optional, pace derives it)
 PINWHEEL_PRESENTATION_PACE=fast # fast (1min) | normal (5min) | slow (15min) | manual
+PINWHEEL_PRESENTATION_MODE=instant # instant | replay
+PINWHEEL_GAME_CRON="0 * * * *" # Explicit cron override (optional, pace derives it)
 PINWHEEL_AUTO_ADVANCE=true      # APScheduler auto-advance toggle
-PINWHEEL_GOV_WINDOW=900         # Seconds per governance window
+PINWHEEL_GOVERNANCE_INTERVAL=3  # Tally governance every N rounds
+PINWHEEL_GOV_WINDOW=900         # Governance window duration (for GQI vote deliberation)
 PINWHEEL_EVALS_ENABLED=true     # Run evals after each round
+PINWHEEL_ADMIN_DISCORD_ID=      # Discord user ID for admin notifications (veto flow)
 SESSION_SECRET_KEY=             # ⚠️ MUST set in production (P1 issue)
 DISCORD_TOKEN=                  # Discord bot token
 DISCORD_GUILD_ID=               # Target guild ID
@@ -342,7 +345,7 @@ bash scripts/run_demo.sh
 
 # Manual seeding for local dev (no Showboat/Rodney needed)
 python scripts/demo_seed.py seed            # Create 4 teams + round-robin schedule
-python scripts/demo_seed.py step 3          # Advance 3 rounds (sim + gov + mirrors + evals)
+python scripts/demo_seed.py step 3          # Advance 3 rounds (sim + gov + reports + evals)
 python scripts/demo_seed.py status          # Show current standings
 python scripts/demo_seed.py propose TEXT    # Submit a governance proposal
 
@@ -366,8 +369,8 @@ Rodney is headless Chrome automation for screenshots. It captures the exact visu
 
 ### run_demo.sh
 
-A 15-step script: seed the league, start the server, capture each major page (home, arena, standings, game detail, mirrors, governance, rules, team profile, evals dashboard), then run the test suite as verification.
+A 15-step script: seed the league, start the server, capture each major page (home, arena, standings, game detail, reports, governance, rules, team profile, evals dashboard), then run the test suite as verification.
 
 ### demo_seed.py
 
-Uses `step_round()` from the game loop directly, so all hooks (mirrors, evals, event bus) run automatically — no separate seeding needed for new features that integrate into the game loop.
+Uses `step_round()` from the game loop directly, so all hooks (reports, evals, event bus) run automatically — no separate seeding needed for new features that integrate into the game loop.

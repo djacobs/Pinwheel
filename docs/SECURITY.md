@@ -51,8 +51,8 @@ def sanitize_proposal_text(raw_text: str) -> str:
 The AI interpreter runs in an isolated context with strict system instructions. This is the most critical defense layer.
 
 **Architectural isolation:**
-- The interpreter has its **own system prompt**, separate from the mirror system prompt and the bot's conversational prompt. It never shares context with other AI functions.
-- The interpreter receives **only** the sanitized proposal text and the current rule space schema. It does not receive: game state, player identities, team strategies, mirror content, previous proposals, or any other context that could be leaked.
+- The interpreter has its **own system prompt**, separate from the reporter system prompt and the bot's conversational prompt. It never shares context with other AI functions.
+- The interpreter receives **only** the sanitized proposal text and the current rule space schema. It does not receive: game state, player identities, team strategies, report content, previous proposals, or any other context that could be leaked.
 - The interpreter's **only job** is: `natural_language_text → structured_rule_change | rejection`. It cannot take any other action.
 
 **System prompt design:**
@@ -184,23 +184,23 @@ Steps 4 and 5 are human-in-the-loop defenses. A proposal that says "change three
 - Strategy output is a structured `TeamStrategy` object, not freeform
 - The simulation engine only reads structured strategy fields — it never evaluates strategy text as code or instructions
 
-### 3. Mirror Manipulation
+### 3. Report Manipulation
 
-**Attack:** A governor crafts proposals or game actions designed to influence what the AI mirror says about other teams.
+**Attack:** A governor crafts proposals or game actions designed to influence what the AI reporter says about other teams.
 
 **Defenses:**
-- The mirror and interpreter are separate AI contexts with separate system prompts — you can't reach the mirror through the interpreter
-- Mirror inputs are game data (structured), not player-submitted text
-- Mirror output is reflective, not actionable — it can't modify game state
+- The reporter and interpreter are separate AI contexts with separate system prompts — you can't reach the reporter through the interpreter
+- Report inputs are game data (structured), not player-submitted text
+- Report output is reflective, not actionable — it can't modify game state
 
 ### 4. Cross-Context Leakage
 
-**Attack:** Information from one AI context (interpreter) leaks to another (mirror) or vice versa.
+**Attack:** Information from one AI context (interpreter) leaks to another (reporter) or vice versa.
 
 **Defenses:**
-- Each AI function (interpreter, simulation mirror, governance mirror, private mirror, bot conversation) has its own isolated API call with its own system prompt
+- Each AI function (interpreter, simulation report, governance report, private report, bot conversation) has its own isolated API call with its own system prompt
 - No shared conversation history between contexts
-- The interpreter never sees game state; the mirror never sees raw proposal text
+- The interpreter never sees game state; the reporter never sees raw proposal text
 - API calls are stateless — each is an independent request
 
 ### 5. Token Trading Social Engineering
@@ -210,7 +210,7 @@ Steps 4 and 5 are human-in-the-loop defenses. A proposal that says "change three
 **Defenses:**
 - The bot does not facilitate persuasion — it executes trades, it doesn't advocate for them
 - Trade offers are displayed neutrally with current token balances visible
-- The governance mirror may notice and comment on trading patterns (social defense, not technical)
+- The governance report may notice and comment on trading patterns (social defense, not technical)
 
 ### 6. Discord Bot Injection
 
@@ -229,9 +229,9 @@ Following the principle of minimum privilege, each AI context has only the acces
 | AI Context | Can Read | Can Write | Tools |
 |---|---|---|---|
 | **Interpreter** | Rule space schema only | Nothing (returns JSON) | None |
-| **Simulation mirror** | Game results, rule history | Mirror output to DB | None |
-| **Governance mirror** | Governance events, game results | Mirror output to DB | None |
-| **Private mirror** | Per-player governance + game data | Mirror output to DB (per-player) | None |
+| **Simulation reporter** | Game results, rule history | Report output to DB | None |
+| **Governance reporter** | Governance events, game results | Report output to DB | None |
+| **Private reporter** | Per-player governance + game data | Report output to DB (per-player) | None |
 | **Bot (conversational)** | Public game data, standings | Nothing (responds in Discord) | None that modify state |
 | **Bot (governance commands)** | Delegates to interpreter | Delegates to backend API | Structured API calls only |
 
@@ -259,7 +259,7 @@ Being honest about limitations:
 - [ ] RuleChange Pydantic model with schema validation, range enforcement, tier checks
 - [ ] Governor confirmation step in the `/propose` flow (bot shows interpretation, waits for confirm)
 - [ ] Governance event log capturing raw input, sanitized input, AI output, validation result
-- [ ] Separate API call contexts for: interpreter, sim mirror, gov mirror, private mirror, bot chat
+- [ ] Separate API call contexts for: interpreter, sim report, gov report, private report, bot chat
 - [ ] Red team exercise against the interpreter before launch
 - [ ] Rate limiting on proposals per governor per window
 - [ ] Anomaly alerting on high rejection rates or unusual patterns

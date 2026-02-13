@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pinwheel Fates has two surfaces: a **web dashboard** for watching and a **Discord server** for governing. The dashboard is the stadium — you go there to watch games, check standings, read box scores, and see the AI mirror's public reflections. Discord is the floor of the legislature — you go there to debate, propose rules, vote, trade tokens, strategize with your team, and receive Opus 4.6's private reflections on your governance behavior.
+Pinwheel Fates has two surfaces: a **web dashboard** for watching and a **Discord server** for governing. The dashboard is the stadium — you go there to watch games, check standings, read box scores, and see the AI reporter's public reflections. Discord is the floor of the legislature — you go there to debate, propose rules, vote, trade tokens, strategize with your team, and receive Opus 4.6's private reflections on your governance behavior.
 
 ## The Two Surfaces
 
@@ -10,11 +10,11 @@ Pinwheel Fates has two surfaces: a **web dashboard** for watching and a **Discor
 
 The dashboard is a live-updating, spectator-friendly view of the league. It's built with HTMX + SSE + Jinja2 (see CLAUDE.md). Designed for both governors and spectators — anyone can watch.
 
-The centerpiece is **The Arena** — a live multi-game view showing all 4 simultaneous games per round with AI-generated commentary, dramatic moment highlights, and Elam Ending countdowns. Beyond the Arena, the dashboard includes standings, box scores, team/agent pages, rule history, mirrors, and season stats.
+The centerpiece is **The Arena** — a live multi-game view showing all 4 simultaneous games per round with AI-generated commentary, dramatic moment highlights, and Elam Ending countdowns. Beyond the Arena, the dashboard includes standings, box scores, team/agent pages, rule history, reports, and season stats.
 
 **See `VIEWER.md` for the full viewer experience spec** — Arena layout, Single Game view, AI commentary engine architecture, API endpoints, dashboard pages, and presentation pacing.
 
-**Auth:** Discord OAuth. Governors log in with their Discord account to see personalized content — their team highlighted, their private mirror accessible on the dashboard, their governance history. Spectators can view everything except private mirrors without logging in.
+**Auth:** Discord OAuth. Governors log in with their Discord account to see personalized content — their team highlighted, their private report accessible on the dashboard, their governance history. Spectators can view everything except private reports without logging in.
 
 ### Discord Server (Govern)
 
@@ -31,10 +31,10 @@ PINWHEEL FATES
 │
 ├── 📢 LEAGUE-WIDE
 │   ├── #announcements       → Bot posts: game results, standings, governance outcomes
-│   ├── #game-day            → Live game updates mirrored from dashboard
+│   ├── #game-day            → Live game updates relayed from dashboard
 │   ├── #governance-floor    → Active proposals, voting, public debate
 │   ├── #governance-log      → Append-only record of all governance actions
-│   ├── #mirrors             → Shared AI mirrors (simulation, governance, series, season)
+│   ├── #reports             → Shared AI reports (simulation, governance, series, season)
 │   ├── #trash-talk          → Cross-team banter (spectators welcome)
 │   ├── #rules               → Current ruleset, pinned and updated by bot
 │   └── #new-governors       → Onboarding, team selection, FAQ
@@ -47,11 +47,11 @@ PINWHEEL FATES
 │       ├── Strategy discussion
 │       ├── Proposal drafting (before submitting publicly)
 │       ├── Token balance visibility
-│       ├── Private mirror delivery (individual DMs, but team mirrors here)
+│       ├── Private report delivery (individual DMs, but team reports here)
 │       └── Bot responds to /strategy commands
 │
 ├── 👤 DIRECT MESSAGES (bot → individual governor)
-│   ├── Private mirrors — "You voted for X, which benefited team Y..."
+│   ├── Private reports — "You voted for X, which benefited team Y..."
 │   ├── Token balance updates
 │   └── Trade offers
 │
@@ -67,7 +67,7 @@ PINWHEEL FATES
 | **Governor** | Active player on a team | Full governance: propose, amend, vote, boost, trade. Access to their team's private channel. |
 | **Spectator** | Anyone in the server | Read league-wide channels. React. Post in #trash-talk. No governance actions. |
 | **Team: [Name]** | Governor assigned to a specific team | Access to that team's private channel. One team per governor per season. |
-| **Commissioner** | The Pinwheel bot | Posts in all channels. Manages governance lifecycle. Delivers mirrors. |
+| **Commissioner** | The Pinwheel bot | Posts in all channels. Manages governance lifecycle. Delivers reports. |
 | **Admin** | Server operator | Server management, season setup, emergency controls. |
 
 ## Governor Lifecycle
@@ -181,7 +181,7 @@ Trade tokens with another governor.
 @governor_b, react ✅ to accept.
 
 (A wise trade? Or a Faustian bargain?
-The mirror will have thoughts.)
+The reporter will have thoughts.)
 ```
 
 ### `/tokens`
@@ -268,20 +268,20 @@ Each governor receives governance tokens that regenerate on a schedule (governed
 Governors can trade tokens with any other governor (within or across teams). This creates a secondary economy:
 - A governor with no proposals to make can sell PROPOSE tokens to someone who's full of ideas
 - Cross-team token trades create alliances and obligations
-- The AI mirror tracks trading patterns — "Team A has been funneling PROPOSE tokens to one governor. What are they building toward?"
+- The AI reporter tracks trading patterns — "Team A has been funneling PROPOSE tokens to one governor. What are they building toward?"
 
 ### Regeneration
 
 Tokens regenerate at each governance window based on `propose_regen_rate`, `amend_regen_rate`, and `boost_regen_rate` (Tier 4 parameters, governable). Tokens cap at their regen rate — you can't stockpile indefinitely.
 
-## Mirror Delivery
+## Report Delivery
 
-### Shared Mirrors → Discord Channels
+### Shared Reports → Discord Channels
 
-When a shared mirror generates (simulation, governance, series, season, State of the League), the bot posts it to #mirrors with a summary and a link to the full analysis on the web dashboard.
+When a shared report generates (simulation, governance, series, season, State of the League), the bot posts it to #reports with a summary and a link to the full analysis on the web dashboard.
 
 ```
-🤖 Pinwheel: 📊 Governance Mirror — Round 7
+🤖 Pinwheel: 📊 Governance Report — Round 7
 
 The Rose City Thorns and Burnside Breakers voted together on
 4 of 5 proposals this round-robin. A coalition is forming.
@@ -294,16 +294,16 @@ Coincidence? The data says no.
 Full analysis → [dashboard link]
 ```
 
-### Private Mirrors → DMs
+### Private Reports → DMs
 
-Private mirrors are delivered via bot DM to individual governors. No one else sees them.
+Private reports are delivered via bot DM to individual governors. No one else sees them.
 
 ```
-🤖 Pinwheel: 🪞 Your Private Mirror — Round 7
+🤖 Pinwheel: 🪞 Your Private Report — Round 7
 
 You've voted YES on every proposal from @other_governor.
 Every single one. You might not have noticed, but the
-governance mirror did.
+governance report did.
 
 Those proposals have collectively benefited the Breakers
 more than any other team. Your team, the Thorns, has
@@ -312,9 +312,9 @@ dropped two spots in the standings since Round 3.
 Something to think about. Or not — you're the governor.
 ```
 
-### Mirror Tone
+### Report Tone
 
-Mirrors are not neutral reports. They have voice. They're observational, sometimes pointed, occasionally funny. They notice things humans miss — coalition patterns, unintended consequences of rule changes, correlations between governance behavior and game outcomes. They never tell governors what to do. They hold up the mirror and let players see themselves.
+Reports are not neutral summaries. They have voice. They're observational, sometimes pointed, occasionally funny. They notice things humans miss — coalition patterns, unintended consequences of rule changes, correlations between governance behavior and game outcomes. They never tell governors what to do. The reporter holds up a lens and lets players see themselves.
 
 ## Bot Personality
 
@@ -329,7 +329,7 @@ The Pinwheel bot is the league's commissioner, town crier, and constitutional in
 **The bot does NOT:**
 - Vote or express opinions on proposals
 - Reveal hidden votes before window close
-- Share private mirrors or team strategy with other teams
+- Share private reports or team strategy with other teams
 - Make governance decisions autonomously (except for Fate events, if enabled)
 
 ## Web ↔ Discord Integration
@@ -342,11 +342,11 @@ The web dashboard and Discord server share the same backend (FastAPI). They're t
 │  (HTMX + SSE)   │         │  (Pinwheel Bot)   │
 │                  │         │                   │
 │  Watch games     │         │  Govern           │
-│  Read mirrors    │         │  Debate           │
+│  Read reports    │         │  Debate           │
 │  View standings  │         │  Propose/Vote     │
 │  Check box scores│         │  Trade tokens     │
 │  Browse rules    │         │  Team strategy    │
-│  Private mirror  │         │  Receive mirrors  │
+│  Private report  │         │  Receive reports  │
 │  (logged in)     │         │                   │
 └────────┬─────────┘         └────────┬──────────┘
          │                            │
@@ -366,12 +366,12 @@ The web dashboard and Discord server share the same backend (FastAPI). They're t
 2. Redirected to Discord OAuth
 3. Dashboard receives Discord user ID + guild membership
 4. Backend maps Discord user ID → governor → team
-5. Dashboard shows personalized content (team highlighted, private mirror, governance history)
+5. Dashboard shows personalized content (team highlighted, private report, governance history)
 
 **Real-time sync:**
 - Game results computed by backend → pushed to dashboard via SSE AND posted to Discord via bot
 - Governance actions submitted in Discord → processed by backend → reflected on dashboard in real time
-- Mirrors generated by backend → delivered to Discord AND displayed on dashboard
+- Reports generated by backend → delivered to Discord AND displayed on dashboard
 
 ## Implementation Priority
 
@@ -380,7 +380,7 @@ The web dashboard and Discord server share the same backend (FastAPI). They're t
 3. **`/propose` → AI interpretation → confirm flow** — the core governance loop
 4. **`/vote` with hidden votes + window close reveal** — voting lifecycle
 5. **Token management** — balances, spending, regeneration, display
-6. **Mirror delivery** — bot posts shared mirrors to channels, private mirrors via DM
+6. **Report delivery** — bot posts shared reports to channels, private reports via DM
 7. **`/trade`** — token trading between governors
 8. **`/strategy`** — team tactical overrides (Day 1-2)
 9. **Discord OAuth for web dashboard** — personalized dashboard experience
@@ -389,10 +389,10 @@ The web dashboard and Discord server share the same backend (FastAPI). They're t
 ## Decisions
 
 1. **Governor minimum per team:** None. A team with 0 governors has 0 vote weight. That's their problem.
-2. **Cross-team communication:** Allowed. Governors can DM each other through the bot. Back-channel dealing is politically interesting — and the mirror may notice patterns even if it can't see the messages.
+2. **Cross-team communication:** Allowed. Governors can DM each other through the bot. Back-channel dealing is politically interesting — and the reporter may notice patterns even if it can't see the messages.
 3. **Proposal debate threads:** Yes. Bot auto-creates a thread for each proposal in #governance-floor.
 4. **Bot personality:** The bot responds to governance actions but does not insert itself into player conversations. Players are the personality. The bot's personality may evolve over time, but it starts restrained.
 
 ## Open Questions
 
-1. **Mirror frequency vs. cost:** Every mirror is an Opus 4.6 API call. With 8 mirror types and 21 rounds, that's a lot of calls. Batch at a minimum. Can some mirrors be cached (e.g., if no rule changes happened, skip the simulation mirror)? Can mirrors share context across calls to reduce redundancy? Needs costing analysis once we know actual API usage.
+1. **Report frequency vs. cost:** Every report is an Opus 4.6 API call. With 8 report types and 21 rounds, that's a lot of calls. Batch at a minimum. Can some reports be cached (e.g., if no rule changes happened, skip the simulation report)? Can reports share context across calls to reduce redundancy? Needs costing analysis once we know actual API usage.

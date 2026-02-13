@@ -4,7 +4,7 @@ Each round:
 1. Simulate all games for the round
 2. Store results
 3. Close any open governance windows, enact rule changes
-4. Generate mirrors (simulation, governance, private)
+4. Generate reports (simulation, governance, private)
 5. Publish events to EventBus for SSE clients
 6. Advance to next round
 
@@ -24,13 +24,13 @@ from pinwheel.ai.commentary import (
     generate_highlight_reel,
     generate_highlight_reel_mock,
 )
-from pinwheel.ai.mirror import (
-    generate_governance_mirror,
-    generate_governance_mirror_mock,
-    generate_private_mirror,
-    generate_private_mirror_mock,
-    generate_simulation_mirror,
-    generate_simulation_mirror_mock,
+from pinwheel.ai.report import (
+    generate_governance_report,
+    generate_governance_report_mock,
+    generate_private_report,
+    generate_private_report_mock,
+    generate_simulation_report,
+    generate_simulation_report_mock,
 )
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import tally_governance
@@ -40,7 +40,7 @@ from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.repository import Repository
 from pinwheel.models.game import GameResult
 from pinwheel.models.governance import Proposal, Vote, VoteTally
-from pinwheel.models.mirror import Mirror
+from pinwheel.models.report import Report
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
 
@@ -103,13 +103,15 @@ async def compute_standings_from_repo(repo: Repository, season_id: str) -> list[
     games = await repo.get_all_games(season_id)
     results: list[dict] = []
     for g in games:
-        results.append({
-            "home_team_id": g.home_team_id,
-            "away_team_id": g.away_team_id,
-            "home_score": g.home_score,
-            "away_score": g.away_score,
-            "winner_team_id": g.winner_team_id,
-        })
+        results.append(
+            {
+                "home_team_id": g.home_team_id,
+                "away_team_id": g.away_team_id,
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "winner_team_id": g.winner_team_id,
+            }
+        )
     standings = compute_standings(results)
     # Enrich with team names
     for s in standings:
@@ -174,15 +176,17 @@ async def generate_playoff_bracket(
                 phase="playoff",
             )
         # Finals placeholder (round_number = semis + 1)
-        bracket.append({
-            "playoff_round": "finals",
-            "matchup_index": 0,
-            "round_number": playoff_round_start + 1,
-            "home_team_id": "TBD",
-            "away_team_id": "TBD",
-            "home_seed": None,
-            "away_seed": None,
-        })
+        bracket.append(
+            {
+                "playoff_round": "finals",
+                "matchup_index": 0,
+                "round_number": playoff_round_start + 1,
+                "home_team_id": "TBD",
+                "away_team_id": "TBD",
+                "home_seed": None,
+                "away_seed": None,
+            }
+        )
     elif len(playoff_teams) >= 2:
         # 2-team bracket: direct finals
         matchup = {
@@ -211,12 +215,12 @@ async def _run_evals(
     repo: Repository,
     season_id: str,
     round_number: int,
-    mirrors: list[Mirror],
+    reports: list[Report],
     game_summaries: list[dict],
     teams_cache: dict,
 ) -> None:
-    """Run automated evals after mirror generation. Non-blocking."""
-    from pinwheel.evals.behavioral import compute_mirror_impact_rate
+    """Run automated evals after report generation. Non-blocking."""
+    from pinwheel.evals.behavioral import compute_report_impact_rate
     from pinwheel.evals.grounding import GroundingContext, check_grounding
     from pinwheel.evals.prescriptive import scan_prescriptive
 
@@ -234,49 +238,49 @@ async def _run_evals(
         rule_params=list((ruleset_dict or {}).keys()),
     )
 
-    for mirror in mirrors:
+    for report in reports:
         # Prescriptive scan
-        presc = scan_prescriptive(mirror.content, mirror.id, mirror.mirror_type)
+        presc = scan_prescriptive(report.content, report.id, report.report_type)
         await repo.store_eval_result(
             season_id=season_id,
             round_number=round_number,
             eval_type="prescriptive",
-            eval_subtype=mirror.mirror_type,
+            eval_subtype=report.report_type,
             score=float(presc.prescriptive_count),
             details_json={
-                "mirror_id": mirror.id,
-                "mirror_type": mirror.mirror_type,
+                "report_id": report.id,
+                "report_type": report.report_type,
                 "count": presc.prescriptive_count,
                 "flagged": presc.flagged,
             },
         )
 
         # Grounding check
-        grounding = check_grounding(mirror.content, context, mirror.id, mirror.mirror_type)
+        grounding = check_grounding(report.content, context, report.id, report.report_type)
         await repo.store_eval_result(
             season_id=season_id,
             round_number=round_number,
             eval_type="grounding",
-            eval_subtype=mirror.mirror_type,
+            eval_subtype=report.report_type,
             score=float(grounding.entities_found),
             details_json={
-                "mirror_id": mirror.id,
-                "mirror_type": mirror.mirror_type,
+                "report_id": report.id,
+                "report_type": report.report_type,
                 "entities_expected": grounding.entities_expected,
                 "entities_found": grounding.entities_found,
                 "grounded": grounding.grounded,
             },
         )
 
-    # Behavioral shift (Mirror Impact Rate)
-    impact_rate = await compute_mirror_impact_rate(repo, season_id, round_number)
+    # Behavioral shift (Report Impact Rate)
+    impact_rate = await compute_report_impact_rate(repo, season_id, round_number)
     await repo.store_eval_result(
         season_id=season_id,
         round_number=round_number,
         eval_type="behavioral",
-        eval_subtype="mirror_impact_rate",
+        eval_subtype="report_impact_rate",
         score=impact_rate,
-        details_json={"mirror_impact_rate": impact_rate},
+        details_json={"report_impact_rate": impact_rate},
     )
 
     # Scenario flags
@@ -309,7 +313,7 @@ async def step_round(
 ) -> RoundResult:
     """Execute one complete round of the game loop.
 
-    Returns a RoundResult with game results, governance outcomes, and mirrors.
+    Returns a RoundResult with game results, governance outcomes, and reports.
     """
     start = time.monotonic()
     logger.info("round_start season=%s round=%d", season_id, round_number)
@@ -324,7 +328,7 @@ async def step_round(
     schedule = await repo.get_schedule_for_round(season_id, round_number)
     if not schedule:
         logger.warning("No games scheduled for round %d", round_number)
-        return RoundResult(round_number=round_number, games=[], mirrors=[], tallies=[])
+        return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
 
     # 3. Load teams
     teams_cache: dict[str, Team] = {}
@@ -411,7 +415,11 @@ async def step_round(
         try:
             if api_key:
                 commentary = await generate_game_commentary(
-                    result, home, away, ruleset, api_key,
+                    result,
+                    home,
+                    away,
+                    ruleset,
+                    api_key,
                 )
             else:
                 commentary = generate_game_commentary_mock(result, home, away)
@@ -419,7 +427,9 @@ async def step_round(
         except Exception:
             logger.exception(
                 "commentary_failed game=%s season=%s round=%d",
-                game_id, season_id, round_number,
+                game_id,
+                season_id,
+                round_number,
             )
 
         game_summaries.append(summary)
@@ -433,16 +443,20 @@ async def step_round(
         try:
             if api_key:
                 highlight_reel = await generate_highlight_reel(
-                    game_summaries, round_number, api_key,
+                    game_summaries,
+                    round_number,
+                    api_key,
                 )
             else:
                 highlight_reel = generate_highlight_reel_mock(
-                    game_summaries, round_number,
+                    game_summaries,
+                    round_number,
                 )
         except Exception:
             logger.exception(
                 "highlight_reel_failed season=%s round=%d",
-                season_id, round_number,
+                season_id,
+                round_number,
             )
 
     # 5. Governance — tally every Nth round (interval-based)
@@ -563,65 +577,65 @@ async def step_round(
         if regen_count > 0:
             logger.info(
                 "tokens_regenerated season=%s round=%d governors=%d",
-                season_id, round_number, regen_count,
+                season_id,
+                round_number,
+                regen_count,
             )
 
-    # 6. Generate mirrors
-    mirrors: list[Mirror] = []
+    # 6. Generate reports
+    reports: list[Report] = []
     round_data = {"round_number": round_number, "games": game_summaries}
 
     if api_key:
-        sim_mirror = await generate_simulation_mirror(
-            round_data, season_id, round_number, api_key
-        )
+        sim_report = await generate_simulation_report(round_data, season_id, round_number, api_key)
     else:
-        sim_mirror = generate_simulation_mirror_mock(round_data, season_id, round_number)
+        sim_report = generate_simulation_report_mock(round_data, season_id, round_number)
 
-    await repo.store_mirror(
+    await repo.store_report(
         season_id=season_id,
-        mirror_type="simulation",
+        report_type="simulation",
         round_number=round_number,
-        content=sim_mirror.content,
+        content=sim_report.content,
     )
-    mirrors.append(sim_mirror)
+    reports.append(sim_report)
 
     if event_bus:
         await event_bus.publish(
-            "mirror.generated",
+            "report.generated",
             {
-                "mirror_type": "simulation",
+                "report_type": "simulation",
                 "round": round_number,
-                "excerpt": sim_mirror.content[:200],
+                "excerpt": sim_report.content[:200],
             },
         )
 
-    # Governance mirror (even if no activity — silence is a pattern)
+    # Governance report (even if no activity — silence is a pattern)
     if api_key:
-        gov_mirror = await generate_governance_mirror(
+        gov_report = await generate_governance_report(
             governance_data, season_id, round_number, api_key
         )
     else:
-        gov_mirror = generate_governance_mirror_mock(governance_data, season_id, round_number)
+        gov_report = generate_governance_report_mock(governance_data, season_id, round_number)
 
-    await repo.store_mirror(
+    await repo.store_report(
         season_id=season_id,
-        mirror_type="governance",
+        report_type="governance",
         round_number=round_number,
-        content=gov_mirror.content,
+        content=gov_report.content,
     )
-    mirrors.append(gov_mirror)
+    reports.append(gov_report)
 
     if event_bus:
         await event_bus.publish(
-            "mirror.generated",
+            "report.generated",
             {
-                "mirror_type": "governance",
+                "report_type": "governance",
                 "round": round_number,
-                "excerpt": gov_mirror.content[:200],
+                "excerpt": gov_report.content[:200],
             },
         )
 
-    # Private mirrors for active governors
+    # Private reports for active governors
     active_governor_events = await repo.get_events_by_type(
         season_id=season_id,
         event_types=["proposal.submitted", "vote.cast"],
@@ -630,11 +644,13 @@ async def step_round(
 
     for gov_id in governor_ids:
         gov_proposals = [
-            e for e in active_governor_events
+            e
+            for e in active_governor_events
             if e.governor_id == gov_id and e.event_type == "proposal.submitted"
         ]
         gov_votes = [
-            e for e in active_governor_events
+            e
+            for e in active_governor_events
             if e.governor_id == gov_id and e.event_type == "vote.cast"
         ]
         governor_data = {
@@ -645,32 +661,32 @@ async def step_round(
         }
 
         if api_key:
-            priv_mirror = await generate_private_mirror(
+            priv_report = await generate_private_report(
                 governor_data, gov_id, season_id, round_number, api_key
             )
         else:
-            priv_mirror = generate_private_mirror_mock(
+            priv_report = generate_private_report_mock(
                 governor_data, gov_id, season_id, round_number
             )
 
-        mirror_row = await repo.store_mirror(
+        report_row = await repo.store_report(
             season_id=season_id,
-            mirror_type="private",
+            report_type="private",
             round_number=round_number,
-            content=priv_mirror.content,
+            content=priv_report.content,
             governor_id=gov_id,
         )
-        mirrors.append(priv_mirror)
+        reports.append(priv_report)
 
         if event_bus:
             await event_bus.publish(
-                "mirror.generated",
+                "report.generated",
                 {
-                    "mirror_type": "private",
+                    "report_type": "private",
                     "round": round_number,
                     "governor_id": gov_id,
-                    "mirror_id": mirror_row.id,
-                    "excerpt": priv_mirror.content[:200],
+                    "report_id": report_row.id,
+                    "excerpt": priv_report.content[:200],
                 },
             )
 
@@ -680,7 +696,7 @@ async def step_round(
 
         eval_settings = Settings()
         if eval_settings.pinwheel_evals_enabled:
-            await _run_evals(repo, season_id, round_number, mirrors, game_summaries, teams_cache)
+            await _run_evals(repo, season_id, round_number, reports, game_summaries, teams_cache)
     except Exception:
         logger.exception("eval_step_failed season=%s round=%d", season_id, round_number)
 
@@ -697,7 +713,8 @@ async def step_round(
         except Exception:
             logger.exception(
                 "season_complete_check_failed season=%s round=%d",
-                season_id, round_number,
+                season_id,
+                round_number,
             )
 
         if season_complete:
@@ -705,7 +722,9 @@ async def step_round(
             final_standings = await compute_standings_from_repo(repo, season_id)
             logger.info(
                 "regular_season_complete season=%s round=%d teams=%d",
-                season_id, round_number, len(final_standings),
+                season_id,
+                round_number,
+                len(final_standings),
             )
 
             # Generate playoff bracket
@@ -713,11 +732,13 @@ async def step_round(
                 playoff_bracket = await generate_playoff_bracket(repo, season_id)
                 logger.info(
                     "playoff_bracket_generated season=%s matchups=%d",
-                    season_id, len(playoff_bracket),
+                    season_id,
+                    len(playoff_bracket),
                 )
             except Exception:
                 logger.exception(
-                    "playoff_bracket_failed season=%s", season_id,
+                    "playoff_bracket_failed season=%s",
+                    season_id,
                 )
 
             # Publish season.regular_season_complete event
@@ -735,18 +756,18 @@ async def step_round(
     # 9. Publish round complete
     elapsed = time.monotonic() - start
     logger.info(
-        "round_complete season=%s round=%d games=%d mirrors=%d elapsed_ms=%.1f",
+        "round_complete season=%s round=%d games=%d reports=%d elapsed_ms=%.1f",
         season_id,
         round_number,
         len(game_summaries),
-        len(mirrors),
+        len(reports),
         elapsed * 1000,
     )
 
     round_completed_data: dict = {
         "round": round_number,
         "games": len(game_summaries),
-        "mirrors": len(mirrors),
+        "reports": len(reports),
         "elapsed_ms": round(elapsed * 1000, 1),
     }
     if highlight_reel:
@@ -760,7 +781,7 @@ async def step_round(
     return RoundResult(
         round_number=round_number,
         games=game_summaries,
-        mirrors=mirrors,
+        reports=reports,
         tallies=tallies,
         game_results=game_results,
         game_row_ids=game_row_ids,
@@ -779,7 +800,7 @@ class RoundResult:
         self,
         round_number: int,
         games: list[dict],
-        mirrors: list[Mirror],
+        reports: list[Report],
         tallies: list[VoteTally],
         game_results: list[GameResult] | None = None,
         game_row_ids: list[str] | None = None,
@@ -791,7 +812,7 @@ class RoundResult:
     ) -> None:
         self.round_number = round_number
         self.games = games
-        self.mirrors = mirrors
+        self.reports = reports
         self.tallies = tallies
         self.game_results = game_results or []
         self.game_row_ids = game_row_ids or []

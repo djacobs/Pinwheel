@@ -47,9 +47,7 @@ NUM_AXES = len(ATTRIBUTE_ORDER)
 ANGLE_STEP = 360 / NUM_AXES  # 40 degrees
 
 
-def _point(
-    center: float, radius: float, index: int
-) -> tuple[float, float]:
+def _point(center: float, radius: float, index: int) -> tuple[float, float]:
     """Compute (x, y) for the given axis index at the given radius."""
     angle_deg = index * ANGLE_STEP - 90  # start from top
     angle_rad = math.radians(angle_deg)

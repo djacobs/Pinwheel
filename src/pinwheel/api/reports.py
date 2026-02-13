@@ -1,4 +1,4 @@
-"""Mirror API endpoints — retrieval with access control."""
+"""Report API endpoints — retrieval with access control."""
 
 from __future__ import annotations
 
@@ -6,25 +6,25 @@ from fastapi import APIRouter, HTTPException
 
 from pinwheel.api.deps import RepoDep
 
-router = APIRouter(prefix="/api/mirrors", tags=["mirrors"])
+router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
 @router.get("/round/{season_id}/{round_number}")
-async def get_round_mirrors(
+async def get_round_reports(
     season_id: str,
     round_number: int,
     repo: RepoDep,
-    mirror_type: str | None = None,
+    report_type: str | None = None,
 ) -> dict:
-    """Get all public mirrors for a round. Private mirrors are excluded."""
-    rows = await repo.get_mirrors_for_round(season_id, round_number, mirror_type)
-    # Filter out private mirrors from public endpoint
-    public = [r for r in rows if r.mirror_type != "private"]
+    """Get all public reports for a round. Private reports are excluded."""
+    rows = await repo.get_reports_for_round(season_id, round_number, report_type)
+    # Filter out private reports from public endpoint
+    public = [r for r in rows if r.report_type != "private"]
     return {
         "data": [
             {
                 "id": r.id,
-                "mirror_type": r.mirror_type,
+                "report_type": r.report_type,
                 "round_number": r.round_number,
                 "content": r.content,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -35,23 +35,23 @@ async def get_round_mirrors(
 
 
 @router.get("/private/{season_id}/{governor_id}")
-async def get_private_mirrors(
+async def get_private_reports(
     season_id: str,
     governor_id: str,
     repo: RepoDep,
     round_number: int | None = None,
 ) -> dict:
-    """Get private mirrors for a specific governor.
+    """Get private reports for a specific governor.
 
     Access control: in production, this would verify the requester IS the governor.
     For hackathon, we trust the governor_id parameter.
     """
-    rows = await repo.get_private_mirrors(season_id, governor_id, round_number)
+    rows = await repo.get_private_reports(season_id, governor_id, round_number)
     return {
         "data": [
             {
                 "id": r.id,
-                "mirror_type": r.mirror_type,
+                "report_type": r.report_type,
                 "round_number": r.round_number,
                 "governor_id": r.governor_id,
                 "content": r.content,
@@ -63,10 +63,10 @@ async def get_private_mirrors(
 
 
 @router.get("/latest/{season_id}")
-async def get_latest_mirrors(season_id: str, repo: RepoDep) -> dict:
-    """Get the most recent simulation and governance mirrors."""
-    sim = await repo.get_latest_mirror(season_id, "simulation")
-    gov = await repo.get_latest_mirror(season_id, "governance")
+async def get_latest_reports(season_id: str, repo: RepoDep) -> dict:
+    """Get the most recent simulation and governance reports."""
+    sim = await repo.get_latest_report(season_id, "simulation")
+    gov = await repo.get_latest_report(season_id, "governance")
 
     result: dict = {}
     if sim:
@@ -85,6 +85,6 @@ async def get_latest_mirrors(season_id: str, repo: RepoDep) -> dict:
         }
 
     if not result:
-        raise HTTPException(status_code=404, detail="No mirrors found for this season")
+        raise HTTPException(status_code=404, detail="No reports found for this season")
 
     return {"data": result}

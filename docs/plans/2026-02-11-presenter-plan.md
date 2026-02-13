@@ -28,7 +28,7 @@ EventBus (in-memory pub/sub)
         │
         ├─ SSE endpoint reads from EventBus → pushes to connected HTTP clients
         ├─ Discord bot reads from EventBus → posts to channels
-        └─ Presenter reads from EventBus → triggers mirrors when games complete
+        └─ Presenter reads from EventBus → triggers reports when games complete
 ```
 
 ## EventBus
@@ -70,7 +70,7 @@ async def event_stream(
     games: bool = True,
     commentary: bool = True,
     governance: bool = True,
-    mirrors: bool = True,
+    reports: bool = True,
     game_id: str | None = None,
     team_id: str | None = None,
 ):
@@ -78,7 +78,7 @@ async def event_stream(
     if games: event_types.extend(["game.possession", "game.move", "game.highlight", ...])
     if commentary: event_types.append("game.commentary")
     if governance: event_types.extend(["governance.open", "governance.close", ...])
-    if mirrors: event_types.extend(["mirror.simulation", "mirror.governance", ...])
+    if reports: event_types.extend(["report.simulation", "report.governance", ...])
 
     async def generate():
         async for event in event_bus.subscribe(event_types or None):
@@ -396,8 +396,8 @@ async def on_game_clock_fire(season, round_number):
     )
     asyncio.create_task(round_presenter.present_all())
 
-    # 7. Trigger simulation mirror (runs in parallel with presentation)
-    asyncio.create_task(generate_simulation_mirror(game_results, rules))
+    # 7. Trigger simulation report (runs in parallel with presentation)
+    asyncio.create_task(generate_simulation_report(game_results, rules))
 ```
 
 ## File Structure

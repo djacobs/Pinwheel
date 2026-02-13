@@ -397,9 +397,16 @@ class TestTrading:
         await regenerate_tokens(repo, "gov-2", team.id, season_id)
 
         trade = await offer_trade(
-            repo, "gov-1", team.id, "gov-2", team.id, season_id,
-            offered_type="propose", offered_amount=1,
-            requested_type="boost", requested_amount=1,
+            repo,
+            "gov-1",
+            team.id,
+            "gov-2",
+            team.id,
+            season_id,
+            offered_type="propose",
+            offered_amount=1,
+            requested_type="boost",
+            requested_amount=1,
         )
         assert trade.status == "offered"
 
@@ -410,9 +417,9 @@ class TestTrading:
         b1 = await get_token_balance(repo, "gov-1", season_id)
         b2 = await get_token_balance(repo, "gov-2", season_id)
         assert b1.propose == 1  # Started 2, gave 1
-        assert b1.boost == 3    # Started 2, got 1
+        assert b1.boost == 3  # Started 2, got 1
         assert b2.propose == 3  # Started 2, got 1
-        assert b2.boost == 1    # Started 2, gave 1
+        assert b2.boost == 1  # Started 2, gave 1
 
 
 # --- Full Governance Lifecycle (with DB) ---
@@ -445,9 +452,14 @@ class TestGovernanceLifecycle:
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
         assert proposal.status == "confirmed"
@@ -457,9 +469,14 @@ class TestGovernanceLifecycle:
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         assert (await get_token_balance(repo, gov_id, season_id)).propose == 1
 
@@ -475,20 +492,33 @@ class TestGovernanceLifecycle:
 
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
 
         # Two governors vote yes
         vote1 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
         vote2 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov2_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov2_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
 
         # Close window
@@ -512,15 +542,24 @@ class TestGovernanceLifecycle:
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
 
         vote1 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov_id,
-            team_id=team_id, vote_choice="no", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="no",
+            weight=1.0,
         )
 
         window = GovernanceWindow(id="w-1", season_id=season_id, round_number=1)
@@ -542,7 +581,10 @@ class TestGovernanceLifecycle:
 
 class TestTallyGovernance:
     async def test_tally_enacts_passing_proposal(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """tally_governance enacts a passing proposal without window concept."""
         gov_id, team_id = seeded_governor
@@ -551,19 +593,32 @@ class TestTallyGovernance:
 
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
 
         vote1 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
         vote2 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov2_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov2_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
 
         new_ruleset, tallies = await tally_governance(
@@ -580,21 +635,33 @@ class TestTallyGovernance:
         assert new_ruleset.three_point_value == 5
 
     async def test_tally_does_not_emit_window_closed(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """tally_governance should NOT write a window.closed event."""
         gov_id, team_id = seeded_governor
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
 
         vote1 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
 
         await tally_governance(
@@ -614,21 +681,33 @@ class TestTallyGovernance:
         assert len(window_events) == 0
 
     async def test_close_governance_window_delegates_to_tally(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """close_governance_window delegates to tally_governance + emits window.closed."""
         gov_id, team_id = seeded_governor
         interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
 
         vote1 = await cast_vote(
-            repo=repo, proposal=proposal, governor_id=gov_id,
-            team_id=team_id, vote_choice="yes", weight=1.0,
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
         )
 
         window = GovernanceWindow(id="w-1", season_id=season_id, round_number=1)
@@ -657,7 +736,10 @@ class TestTallyGovernance:
 
 class TestAdminReview:
     async def test_tier5_proposal_goes_to_pending_review(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """Tier 5 proposals (parameter=None) should be held for admin review."""
         gov_id, team_id = seeded_governor
@@ -669,9 +751,14 @@ class TestAdminReview:
         )
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make the game more fun and exciting",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make the game more fun and exciting",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         assert proposal.tier == 5  # No parameter → Tier 5
 
@@ -686,7 +773,10 @@ class TestAdminReview:
         assert len(pending_events) == 1
 
     async def test_low_confidence_proposal_goes_to_pending_review(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """Proposals with confidence < 0.5 should be held for admin review."""
         gov_id, team_id = seeded_governor
@@ -699,9 +789,14 @@ class TestAdminReview:
         )
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Maybe change three pointers?",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Maybe change three pointers?",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         assert proposal.tier == 1  # three_point_value is Tier 1
 
@@ -709,7 +804,10 @@ class TestAdminReview:
         assert proposal.status == "pending_review"
 
     async def test_normal_proposal_skips_review(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """Normal proposals (Tier 1-4, confidence >= 0.5) go straight to confirmed."""
         gov_id, team_id = seeded_governor
@@ -721,9 +819,14 @@ class TestAdminReview:
         )
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Make three pointers worth 5",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         assert proposal.tier == 1
 
@@ -738,16 +841,24 @@ class TestAdminReview:
         assert len(pending_events) == 0
 
     async def test_admin_approve_moves_to_confirmed(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """admin_approve_proposal should move a pending_review proposal to confirmed."""
         gov_id, team_id = seeded_governor
         interpretation = RuleInterpretation(parameter=None, confidence=0.8)
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Wild proposal",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Wild proposal",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
         assert proposal.status == "pending_review"
@@ -763,7 +874,10 @@ class TestAdminReview:
         assert len(confirmed_events) == 1
 
     async def test_admin_reject_moves_to_rejected_and_refunds_token(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """admin_reject_proposal should reject and refund the PROPOSE token."""
         gov_id, team_id = seeded_governor
@@ -775,9 +889,14 @@ class TestAdminReview:
         interpretation = RuleInterpretation(parameter=None, confidence=0.8)
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Wild proposal",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Wild proposal",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
 
         # Token was spent on submission (tier 5 costs 2 tokens)
@@ -803,7 +922,10 @@ class TestAdminReview:
         assert rejected_events[0].payload.get("rejection_reason") == "Too vague"
 
     async def test_tier4_with_high_confidence_skips_review(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """Tier 4 proposal with high confidence should skip admin review."""
         gov_id, team_id = seeded_governor
@@ -815,9 +937,14 @@ class TestAdminReview:
         )
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Set vote threshold to 60%",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Set vote threshold to 60%",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         assert proposal.tier == 4
 
@@ -825,7 +952,10 @@ class TestAdminReview:
         assert proposal.status == "confirmed"
 
     async def test_confidence_exactly_0_5_skips_review(
-        self, repo: Repository, season_id: str, seeded_governor,
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor,
     ):
         """Confidence exactly 0.5 should NOT trigger review (< 0.5 is the threshold)."""
         gov_id, team_id = seeded_governor
@@ -837,9 +967,14 @@ class TestAdminReview:
         )
 
         proposal = await submit_proposal(
-            repo=repo, governor_id=gov_id, team_id=team_id, season_id=season_id,
-            window_id="w-1", raw_text="Change three pointer value",
-            interpretation=interpretation, ruleset=RuleSet(),
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Change three pointer value",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
         assert proposal.status == "confirmed"

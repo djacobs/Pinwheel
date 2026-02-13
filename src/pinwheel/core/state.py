@@ -59,7 +59,9 @@ class HooperState:
 
 
 def AgentState(  # noqa: N802
-    agent: Hooper | None = None, hooper: Hooper | None = None, **kwargs: object,
+    agent: Hooper | None = None,
+    hooper: Hooper | None = None,
+    **kwargs: object,
 ) -> HooperState:
     """Backward-compatible factory: accepts agent= or hooper= keyword."""
     h = hooper or agent

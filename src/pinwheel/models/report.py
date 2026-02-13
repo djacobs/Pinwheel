@@ -1,6 +1,6 @@
-"""Mirror models — AI-generated reflections.
+"""Report models — AI-generated reports.
 
-See docs/GLOSSARY.md: Mirror.
+See docs/GLOSSARY.md: Report.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-MirrorType = Literal[
+ReportType = Literal[
     "simulation",
     "governance",
     "private",
@@ -22,22 +22,22 @@ MirrorType = Literal[
 ]
 
 
-class Mirror(BaseModel):
-    """An AI-generated reflection on gameplay or governance patterns. Never prescriptive."""
+class Report(BaseModel):
+    """An AI-generated report on gameplay or governance patterns. Never prescriptive."""
 
     id: str
-    mirror_type: MirrorType
+    report_type: ReportType
     round_number: int = 0
     team_id: str = ""
-    governor_id: str = ""  # Only for private mirrors
+    governor_id: str = ""  # Only for private reports
     content: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-class MirrorUpdate(BaseModel):
-    """SSE payload when a mirror is delivered."""
+class ReportUpdate(BaseModel):
+    """SSE payload when a report is delivered."""
 
-    mirror_id: str
-    mirror_type: MirrorType
+    report_id: str
+    report_type: ReportType
     round_number: int
     excerpt: str = ""

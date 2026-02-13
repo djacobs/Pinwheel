@@ -137,10 +137,10 @@
       {% endfor %}
     </div>
 
-    {% if round.mirror %}
-    <div class="mirror-card mt-1">
-      <div class="mirror-type">Simulation Mirror &mdash; Round {{ round.mirror.round_number }}</div>
-      <div class="mirror-content">{{ round.mirror.content }}</div>
+    {% if round.report %}
+    <div class="report-card mt-1">
+      <div class="report-type">Simulation Report &mdash; Round {{ round.report.round_number }}</div>
+      <div class="report-content">{{ round.report.content }}</div>
     </div>
     {% endif %}
   </div>
