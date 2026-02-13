@@ -378,3 +378,12 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** `demo_seed.py step` ran in a separate process, so its EventBus events never reached SSE clients connected to the web server. No way to trigger a round and see it stream live.
 
 **Fix:** Added `POST /api/pace/advance` endpoint that triggers `tick_round()` within the server process via `asyncio.create_task()`. Forces `presentation_mode="replay"` with demo-friendly timing (15s per quarter, 5s between games). Returns 409 if a presentation is already active. Added `GET /api/pace/status` for polling presentation state.
+
+---
+
+## Completed — Session 30 (SSE Heartbeat Fix)
+
+### 42. [DONE] SSE stream frozen behind Fly.io reverse proxy
+**Problem:** The arena live zone never appeared on the deployed site. The `EventSource` connection opened but no events reached the browser — the page was completely static during live presentations. The SSE generator yielded nothing until the first EventBus event, and Fly.io's proxy buffered the response waiting for body data.
+
+**Fix:** Added an immediate `: connected\n\n` SSE comment when the stream opens, flushing bytes through the proxy so the browser transitions from "connecting" to "open" state. Added 15-second `: heartbeat\n\n` keep-alive comments to prevent proxy timeout during quiet periods. Added `es.onopen` and `es.onerror` console logging to the frontend for future debugging.

@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **488 tests**, zero lint errors
+- **489 tests**, zero lint errors
 - **Days 1-6 complete:** simulation engine, governance + AI interpretation, mirrors + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening
 - **Day 7 complete:** Production fixes, player pages overhaul, simulation tuning, home page redesign
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 29 (Live play-by-play streaming)
+- **Latest commit:** Session 30 (SSE heartbeat fix)
 
 ## Today's Agenda (Day 7: Player Experience + Polish)
 
@@ -493,3 +493,20 @@ Bottom-up through the full stack:
 **488 tests, zero lint errors.**
 
 **What could have gone better:** The original plan included filtering the arena page to `presented_only=True`, but the user clarified that all games should be visible — live games should just be *presented as live*. Adjusted on the fly.
+
+---
+
+## Session 30 — SSE Heartbeat Fix
+
+**What was asked:** Live games on the arena page were completely frozen — no live zone appeared, no SSE events reached the browser. The page was static despite games running.
+
+**What was built:**
+- **Root cause:** The SSE generator in `events.py` yielded nothing until the first EventBus event arrived. Fly.io's reverse proxy buffered the response waiting for body data, so the browser's `EventSource` was stuck in "connecting" state and never transitioned to "open" — no events could be received.
+- **Fix:** Added an immediate `: connected\n\n` SSE comment on connection to flush bytes through the proxy and establish the stream. Added a 15-second heartbeat (`: heartbeat\n\n`) to keep the connection alive through reverse proxies during quiet periods.
+- **Frontend:** Added `es.onopen` and `es.onerror` console logging for future SSE debugging.
+
+**Files modified (2):** `api/events.py`, `templates/pages/arena.html`
+
+**489 tests, zero lint errors.**
+
+**What could have gone better:** Should have anticipated proxy buffering when implementing SSE in Session 27. The `: connected` initial comment is standard practice for SSE behind reverse proxies — this was a known pattern we missed.

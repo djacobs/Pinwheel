@@ -13,6 +13,8 @@ from pinwheel.core.event_bus import EventBus
 router = APIRouter(prefix="/api/events", tags=["events"])
 logger = logging.getLogger(__name__)
 
+_HEARTBEAT_INTERVAL = 15  # seconds
+
 
 def _get_bus(request: Request) -> EventBus:
     """Get the EventBus from app state."""
@@ -31,14 +33,25 @@ async def sse_stream(
                     If omitted, receives all events.
 
     Returns an SSE stream that stays open until the client disconnects.
+    Sends an initial comment to flush proxy buffers and periodic heartbeats
+    to keep the connection alive through reverse proxies.
     """
     bus = _get_bus(request)
 
     async def generate():
+        # Immediately flush a comment through the proxy so the browser
+        # transitions from "connecting" to "open" state.
+        yield ": connected\n\n"
+
         async with bus.subscribe(event_type) as sub:
-            async for event in sub:
+            while True:
                 if await request.is_disconnected():
                     break
+                event = await sub.get(timeout=_HEARTBEAT_INTERVAL)
+                if event is None:
+                    # No event within the heartbeat window — send keep-alive
+                    yield ": heartbeat\n\n"
+                    continue
                 data = json.dumps(event, default=str)
                 yield f"event: {event['type']}\ndata: {data}\n\n"
 

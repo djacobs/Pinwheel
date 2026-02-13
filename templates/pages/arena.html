@@ -112,6 +112,9 @@
   var container = document.getElementById('live-container');
   var maxPlays = 30;
 
+  es.onopen = function() { console.log('[SSE] connected'); };
+  es.onerror = function(e) { console.error('[SSE] error', e); };
+
   function getOrCreateZone(gameIdx, d) {
     var zoneId = 'live-game-' + gameIdx;
     var zone = document.getElementById(zoneId);
