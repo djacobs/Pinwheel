@@ -2335,12 +2335,20 @@ h3 { font-size: 1.05rem; }
 }
 
 /* ===== Live Zone (Arena) ===== */
+
+/* Container grid — side by side on desktop, stacked on mobile */
+.live-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
 .live-zone {
   background: var(--bg-card);
   border: 2px solid var(--accent-highlight);
   border-radius: var(--radius-lg);
   padding: 1.25rem;
-  margin-bottom: 1.5rem;
   animation: live-pulse 2s ease-in-out infinite;
 }
 
@@ -2358,7 +2366,7 @@ h3 { font-size: 1.05rem; }
 }
 
 .live-badge {
-  background: var(--accent-highlight);
+  background: #e22;
   color: #fff;
   font-size: 0.7rem;
   font-weight: 800;
@@ -2369,15 +2377,14 @@ h3 { font-size: 1.05rem; }
   animation: live-blink 1.5s step-end infinite;
 }
 
-@keyframes live-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.live-badge-done {
+  background: var(--text-muted);
+  animation: none;
 }
 
-.live-game-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 600;
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .live-quarter {
@@ -2405,18 +2412,18 @@ h3 { font-size: 1.05rem; }
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-  min-width: 100px;
+  min-width: 90px;
 }
 
 .live-team-name {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .live-score {
   font-family: var(--font-mono);
-  font-size: 2rem;
+  font-size: 2.25rem;
   font-weight: 800;
   color: var(--accent-score);
 }
@@ -2444,7 +2451,7 @@ h3 { font-size: 1.05rem; }
 }
 
 .live-plays {
-  max-height: 200px;
+  max-height: 280px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
   padding-top: 0.5rem;
@@ -2453,7 +2460,7 @@ h3 { font-size: 1.05rem; }
 .live-play-line {
   font-size: 0.8rem;
   color: var(--text-secondary);
-  padding: 0.2rem 0;
+  padding: 0.25rem 0;
   border-bottom: 1px solid var(--border);
   line-height: 1.5;
 }

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _add_column_if_missing(
-    conn: "AsyncConnection", table: str, column: str, col_def: str,
+    conn: object, table: str, column: str, col_def: str,
 ) -> None:
     """Add a column to an existing table if it doesn't already exist (SQLite)."""
     from sqlalchemy import text

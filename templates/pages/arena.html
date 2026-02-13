@@ -9,36 +9,14 @@
   {% endif %}
 </div>
 
-<!-- Live Zone — hidden until presentation starts -->
-<div id="live-zone" class="live-zone" style="display:none;">
-  <div class="live-zone-header">
-    <span class="live-badge">LIVE</span>
-    <span id="live-game-label" class="live-game-label">Game 1 of 2</span>
-    <span id="live-quarter" class="live-quarter">Q1</span>
-    <span id="live-clock" class="live-clock"></span>
-  </div>
-  <div class="live-zone-scoreboard">
-    <div class="live-team">
-      <span id="live-home-name" class="live-team-name">Home</span>
-      <span id="live-home-score" class="live-score">0</span>
-    </div>
-    <div class="live-vs">vs</div>
-    <div class="live-team">
-      <span id="live-away-name" class="live-team-name">Away</span>
-      <span id="live-away-score" class="live-score">0</span>
-    </div>
-  </div>
-  <div id="live-status" class="live-status"></div>
-  <div id="live-plays" class="live-plays"></div>
-</div>
+<!-- Live Games Container — populated dynamically when presentation starts -->
+<div id="live-container" class="live-container" style="display:none;"></div>
 
-<!-- Advance Round button (dev/staging) -->
-{% if pinwheel_env != 'production' %}
+<!-- Advance Round button -->
 <div style="margin-bottom:1rem;">
   <button id="advance-btn" class="advance-btn" onclick="advanceRound()">Advance Round</button>
   <span id="advance-status" style="margin-left:0.5rem; color:var(--text-muted); font-size:0.85rem;"></span>
 </div>
-{% endif %}
 
 {% if rounds %}
 <div hx-ext="sse" sse-connect="/api/events/stream">
@@ -129,59 +107,86 @@
 <script>
 (function() {
   var es = new EventSource('/api/events/stream');
-  var liveZone = document.getElementById('live-zone');
-  var livePlays = document.getElementById('live-plays');
-  var maxPlays = 20;
+  var container = document.getElementById('live-container');
+  var maxPlays = 30;
+
+  function getOrCreateZone(gameIdx, d) {
+    var zoneId = 'live-game-' + gameIdx;
+    var zone = document.getElementById(zoneId);
+    if (zone) return zone;
+    container.style.display = '';
+    zone = document.createElement('div');
+    zone.id = zoneId;
+    zone.className = 'live-zone';
+    zone.innerHTML =
+      '<div class="live-zone-header">' +
+        '<span class="live-badge">LIVE</span>' +
+        '<span class="live-quarter" data-g="' + gameIdx + '">Q1</span>' +
+        '<span class="live-clock" data-g="' + gameIdx + '"></span>' +
+      '</div>' +
+      '<div class="live-zone-scoreboard">' +
+        '<div class="live-team">' +
+          '<span class="live-team-name" data-role="home" data-g="' + gameIdx + '">' + (d.home_team_name || 'Home') + '</span>' +
+          '<span class="live-score" data-role="home" data-g="' + gameIdx + '">0</span>' +
+        '</div>' +
+        '<div class="live-vs">vs</div>' +
+        '<div class="live-team">' +
+          '<span class="live-team-name" data-role="away" data-g="' + gameIdx + '">' + (d.away_team_name || 'Away') + '</span>' +
+          '<span class="live-score" data-role="away" data-g="' + gameIdx + '">0</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="live-status" data-g="' + gameIdx + '"></div>' +
+      '<div class="live-plays" data-g="' + gameIdx + '"></div>';
+    container.appendChild(zone);
+    return zone;
+  }
+
+  function q(sel) { return document.querySelector(sel); }
 
   es.addEventListener('presentation.game_starting', function(e) {
     var d = JSON.parse(e.data).data;
-    liveZone.style.display = '';
-    document.getElementById('live-home-name').textContent = d.home_team_name || d.home_team_id;
-    document.getElementById('live-away-name').textContent = d.away_team_name || d.away_team_id;
-    document.getElementById('live-home-score').textContent = '0';
-    document.getElementById('live-away-score').textContent = '0';
-    document.getElementById('live-quarter').textContent = 'Q1';
-    document.getElementById('live-clock').textContent = '';
-    document.getElementById('live-game-label').textContent =
-      'Game ' + (d.game_index + 1) + ' of ' + d.total_games;
-    document.getElementById('live-status').textContent = '';
-    livePlays.innerHTML = '';
+    getOrCreateZone(d.game_index, d);
     var btn = document.getElementById('advance-btn');
     if (btn) btn.disabled = true;
   });
 
   es.addEventListener('presentation.possession', function(e) {
     var d = JSON.parse(e.data).data;
-    document.getElementById('live-home-score').textContent = d.home_score;
-    document.getElementById('live-away-score').textContent = d.away_score;
-    document.getElementById('live-quarter').textContent = 'Q' + d.quarter;
-    if (d.game_clock) {
-      document.getElementById('live-clock').textContent = d.game_clock;
-    }
-    if (d.narration) {
+    var gi = d.game_index;
+    var homeScore = q('.live-score[data-role="home"][data-g="' + gi + '"]');
+    var awayScore = q('.live-score[data-role="away"][data-g="' + gi + '"]');
+    var quarter = q('.live-quarter[data-g="' + gi + '"]');
+    var clock = q('.live-clock[data-g="' + gi + '"]');
+    var plays = q('.live-plays[data-g="' + gi + '"]');
+    if (homeScore) homeScore.textContent = d.home_score;
+    if (awayScore) awayScore.textContent = d.away_score;
+    if (quarter) quarter.textContent = 'Q' + d.quarter;
+    if (clock && d.game_clock) clock.textContent = d.game_clock;
+    if (plays && d.narration) {
       var line = document.createElement('div');
       line.className = 'live-play-line';
       var pts = d.points_scored > 0 ? ' <span class="live-play-pts">+' + d.points_scored + '</span>' : '';
       line.innerHTML = '<span class="live-play-clock">' + (d.game_clock || '') + '</span> ' + d.narration + pts;
-      livePlays.insertBefore(line, livePlays.firstChild);
-      while (livePlays.children.length > maxPlays) {
-        livePlays.removeChild(livePlays.lastChild);
-      }
+      plays.insertBefore(line, plays.firstChild);
+      while (plays.children.length > maxPlays) plays.removeChild(plays.lastChild);
     }
   });
 
   es.addEventListener('presentation.game_finished', function(e) {
     var d = JSON.parse(e.data).data;
-    document.getElementById('live-home-score').textContent = d.home_score;
-    document.getElementById('live-away-score').textContent = d.away_score;
-    document.getElementById('live-status').textContent = 'FINAL';
-    document.getElementById('live-status').className = 'live-status live-final';
+    var gi = d.game_index;
+    var homeScore = q('.live-score[data-role="home"][data-g="' + gi + '"]');
+    var awayScore = q('.live-score[data-role="away"][data-g="' + gi + '"]');
+    var status = q('.live-status[data-g="' + gi + '"]');
+    if (homeScore) homeScore.textContent = d.home_score;
+    if (awayScore) awayScore.textContent = d.away_score;
+    if (status) { status.textContent = 'FINAL'; status.className = 'live-status live-final'; }
+    var badge = document.querySelector('#live-game-' + gi + ' .live-badge');
+    if (badge) { badge.textContent = 'DONE'; badge.className = 'live-badge live-badge-done'; }
   });
 
   es.addEventListener('presentation.round_finished', function(e) {
-    setTimeout(function() {
-      window.location.reload();
-    }, 2000);
+    setTimeout(function() { window.location.reload(); }, 3000);
   });
 })();
 
@@ -192,22 +197,11 @@ function advanceRound() {
   status.textContent = 'Starting...';
   fetch('/api/pace/advance', { method: 'POST' })
     .then(function(r) {
-      if (r.status === 409) {
-        status.textContent = 'Already running';
-        btn.disabled = false;
-        return;
-      }
-      if (!r.ok) {
-        status.textContent = 'Error: ' + r.status;
-        btn.disabled = false;
-        return;
-      }
-      status.textContent = 'Round advancing...';
+      if (r.status === 409) { status.textContent = 'Already running'; btn.disabled = false; return; }
+      if (!r.ok) { status.textContent = 'Error: ' + r.status; btn.disabled = false; return; }
+      status.textContent = 'Games are live!';
     })
-    .catch(function(err) {
-      status.textContent = 'Failed';
-      btn.disabled = false;
-    });
+    .catch(function() { status.textContent = 'Failed'; btn.disabled = false; });
 }
 </script>
 {% endblock %}

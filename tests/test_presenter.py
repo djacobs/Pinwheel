@@ -58,12 +58,12 @@ def _make_game(possessions: list[PossessionLog] | None = None) -> GameResult:
 
 @pytest.mark.asyncio
 async def test_present_round_publishes_events_in_order():
-    """Events should be: game_starting, possessions, game_finished, round_finished."""
+    """Events should include: game_starting, possessions, game_finished, round_finished."""
     bus = MockEventBus()
     state = PresentationState()
     game = _make_game()
 
-    await present_round([game], bus, state, game_interval_seconds=0, quarter_replay_seconds=0.01)
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
 
     event_types = [e[0] for e in bus.events]
     assert event_types[0] == "presentation.game_starting"
@@ -91,7 +91,6 @@ async def test_present_round_cancellation():
 
     await present_round(
         [game], bus, state,
-        game_interval_seconds=0,
         quarter_replay_seconds=5.0,  # Long enough that cancellation interrupts
     )
 
@@ -146,8 +145,8 @@ async def test_presentation_state_reset():
 
 
 @pytest.mark.asyncio
-async def test_present_round_multiple_games():
-    """Multiple games should all produce events with inter-game intervals."""
+async def test_present_round_multiple_games_concurrent():
+    """Multiple games should run concurrently and all produce events."""
     bus = MockEventBus()
     state = PresentationState()
 
@@ -155,7 +154,6 @@ async def test_present_round_multiple_games():
 
     await present_round(
         games, bus, state,
-        game_interval_seconds=0,  # No real delay in tests
         quarter_replay_seconds=0.01,
     )
 
@@ -164,6 +162,24 @@ async def test_present_round_multiple_games():
     assert event_types.count("presentation.game_finished") == 2
     assert event_types.count("presentation.round_finished") == 1
     assert not state.is_active
+
+
+@pytest.mark.asyncio
+async def test_present_round_possession_events_have_game_index():
+    """Possession events should include game_index for frontend routing."""
+    bus = MockEventBus()
+    state = PresentationState()
+
+    games = [_make_game(), _make_game()]
+
+    await present_round(
+        games, bus, state,
+        quarter_replay_seconds=0.01,
+    )
+
+    possessions = [e for e in bus.events if e[0] == "presentation.possession"]
+    game_indices = {p[1]["game_index"] for p in possessions}
+    assert game_indices == {0, 1}
 
 
 @pytest.mark.asyncio
@@ -181,7 +197,6 @@ async def test_present_round_enriched_with_names():
 
     await present_round(
         [game], bus, state,
-        game_interval_seconds=0,
         quarter_replay_seconds=0.01,
         name_cache=name_cache,
     )
@@ -210,7 +225,7 @@ async def test_present_round_enriched_with_names():
 
 @pytest.mark.asyncio
 async def test_present_round_on_game_finished_callback():
-    """on_game_finished should be called with game_index after each game."""
+    """on_game_finished should be called for each game (order may vary with concurrency)."""
     bus = MockEventBus()
     state = PresentationState()
 
@@ -223,12 +238,11 @@ async def test_present_round_on_game_finished_callback():
 
     await present_round(
         games, bus, state,
-        game_interval_seconds=0,
         quarter_replay_seconds=0.01,
         on_game_finished=track_callback,
     )
 
-    assert callback_indices == [0, 1]
+    assert sorted(callback_indices) == [0, 1]
 
 
 @pytest.mark.asyncio
@@ -244,7 +258,6 @@ async def test_present_round_callback_error_does_not_break():
 
     await present_round(
         games, bus, state,
-        game_interval_seconds=0,
         quarter_replay_seconds=0.01,
         on_game_finished=failing_callback,
     )
@@ -264,7 +277,6 @@ async def test_present_round_without_name_cache():
 
     await present_round(
         [game], bus, state,
-        game_interval_seconds=0,
         quarter_replay_seconds=0.01,
     )
 
