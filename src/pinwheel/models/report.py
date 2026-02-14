@@ -41,3 +41,29 @@ class ReportUpdate(BaseModel):
     report_type: ReportType
     round_number: int
     excerpt: str = ""
+
+
+class SeasonMemorial(BaseModel):
+    """Permanent memorial record for a completed season.
+
+    Combines computed data sections (statistical leaders, key moments,
+    head-to-head records, rule timeline, awards) with placeholder fields
+    for AI-generated narrative sections (filled in a later phase).
+    """
+
+    # AI-written narrative sections (placeholder — populated by AI generation phase)
+    season_narrative: str = ""
+    championship_recap: str = ""
+    champion_profile: str = ""
+    governance_legacy: str = ""
+
+    # Computed data sections
+    awards: list[dict] = Field(default_factory=list)
+    statistical_leaders: dict = Field(default_factory=dict)
+    key_moments: list[dict] = Field(default_factory=list)
+    head_to_head: list[dict] = Field(default_factory=list)
+    rule_timeline: list[dict] = Field(default_factory=list)
+
+    # Metadata
+    generated_at: str = ""
+    model_used: str = ""

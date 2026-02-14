@@ -175,7 +175,9 @@ class ProposalConfirmView(discord.ui.View):
         except Exception:
             logger.exception("proposal_confirm_failed")
             await interaction.response.send_message(
-                "Something went wrong confirming the proposal.",
+                "Your proposal could not be submitted right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Confirm again, or use `/propose` to start over.",
                 ephemeral=True,
             )
 
@@ -266,11 +268,26 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             api_key = self.parent_view.settings.anthropic_api_key
             if api_key:
                 from pinwheel.ai.classifier import classify_injection
+                from pinwheel.evals.injection import store_injection_classification
                 from pinwheel.models.governance import (
                     RuleInterpretation as RI,
                 )
 
                 classification = await classify_injection(new_text, api_key)
+
+                # Store classification result for dashboard visibility
+                async with get_session(self.parent_view.engine) as cls_session:
+                    cls_repo = Repository(cls_session)
+                    await store_injection_classification(
+                        repo=cls_repo,
+                        season_id=self.parent_view.governor_info.season_id,
+                        proposal_text=new_text,
+                        result=classification,
+                        governor_id=self.parent_view.governor_info.player_id,
+                        source="discord_views",
+                    )
+                    await cls_session.commit()
+
                 if classification.classification == "injection" and classification.confidence > 0.8:
                     interpretation = RI(
                         confidence=0.0,
@@ -319,7 +336,9 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
         except Exception:
             logger.exception("proposal_revise_failed")
             await interaction.response.send_message(
-                "Something went wrong re-interpreting.",
+                "Your revised proposal could not be re-interpreted right now. "
+                "This might be a temporary issue with the AI interpreter -- "
+                "try clicking Revise again, or use `/propose` to start fresh.",
                 ephemeral=True,
             )
 
@@ -394,7 +413,9 @@ class TradeOfferView(discord.ui.View):
         except Exception:
             logger.exception("trade_accept_failed")
             await interaction.response.send_message(
-                "Something went wrong accepting the trade.",
+                "The trade could not be accepted right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Accept again. If it keeps failing, let an admin know.",
                 ephemeral=True,
             )
 
@@ -449,7 +470,9 @@ class TradeOfferView(discord.ui.View):
         except Exception:
             logger.exception("trade_reject_failed")
             await interaction.response.send_message(
-                "Something went wrong rejecting the trade.",
+                "The trade could not be rejected right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Reject again. If it keeps failing, let an admin know.",
                 ephemeral=True,
             )
 
@@ -561,7 +584,9 @@ class StrategyConfirmView(discord.ui.View):
         except Exception:
             logger.exception("strategy_confirm_failed")
             await interaction.response.send_message(
-                "Something went wrong setting the strategy.",
+                f"Could not set the strategy for **{self.team_name}** right now. "
+                "This might be a temporary issue -- "
+                "try clicking Confirm again, or use `/strategy` to start over.",
                 ephemeral=True,
             )
 
@@ -698,7 +723,9 @@ class HooperTradeView(discord.ui.View):
                 except Exception:
                     logger.exception("hooper_trade_execute_failed")
                     await interaction.response.send_message(
-                        "Trade approved but execution failed.",
+                        "Both teams approved the trade, but it could not be executed right now. "
+                        "This is likely a temporary database issue -- let an admin know "
+                        "so they can finalize the trade manually.",
                         ephemeral=True,
                     )
                     return
@@ -873,7 +900,9 @@ class AdminReviewView(discord.ui.View):
         except Exception:
             logger.exception("admin_clear_failed")
             await interaction.response.send_message(
-                "Something went wrong clearing the proposal.",
+                "The proposal could not be cleared right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Clear again. If it keeps failing, check the server logs.",
                 ephemeral=True,
             )
 
@@ -960,6 +989,8 @@ class AdminVetoReasonModal(discord.ui.Modal, title="Veto Proposal"):
         except Exception:
             logger.exception("admin_veto_failed")
             await interaction.response.send_message(
-                "Something went wrong vetoing the proposal.",
+                "The proposal could not be vetoed right now. "
+                "This might be a temporary database issue -- "
+                "try again. If it keeps failing, check the server logs.",
                 ephemeral=True,
             )

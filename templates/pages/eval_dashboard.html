@@ -6,11 +6,78 @@
 <h1>Evals Dashboard</h1>
 <p class="eval-subtitle">Aggregate report quality & Floor health metrics. No individual report text.</p>
 
+<!-- Round Navigation -->
+{% if available_rounds %}
+<div class="eval-round-nav">
+  <div class="eval-round-nav-controls">
+    {% if selected_round is not none %}
+      {% if prev_round is not none %}
+      <a href="/admin/evals?round={{ prev_round }}" class="eval-round-btn">&larr; Round {{ prev_round }}</a>
+      {% else %}
+      <span class="eval-round-btn eval-round-btn-disabled">&larr;</span>
+      {% endif %}
+      <span class="eval-round-current">Round {{ selected_round }}</span>
+      {% if next_round is not none %}
+      <a href="/admin/evals?round={{ next_round }}" class="eval-round-btn">Round {{ next_round }} &rarr;</a>
+      {% else %}
+      <span class="eval-round-btn eval-round-btn-disabled">&rarr;</span>
+      {% endif %}
+      <a href="/admin/evals" class="eval-round-btn eval-round-btn-all">All Rounds</a>
+    {% else %}
+      <span class="eval-round-current">All Rounds</span>
+    {% endif %}
+  </div>
+  <div class="eval-round-dropdown">
+    <select onchange="if(this.value){window.location='/admin/evals?round='+this.value}else{window.location='/admin/evals'}">
+      <option value=""{% if selected_round is none %} selected{% endif %}>All Rounds</option>
+      {% for rn in available_rounds %}
+      <option value="{{ rn }}"{% if selected_round == rn %} selected{% endif %}>Round {{ rn }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+{% endif %}
+
 {% if not has_data %}
 <div class="eval-empty">
   <p>No eval data yet. Run some rounds first.</p>
 </div>
 {% else %}
+
+<!-- Safety Summary Card -->
+<div class="safety-summary safety-{{ safety_summary.status }}">
+  <div class="safety-header">
+    <span class="safety-light"></span>
+    <h2 class="safety-title">{{ safety_summary.label }}</h2>
+  </div>
+  <div class="safety-metrics">
+    <div class="safety-metric">
+      <span class="safety-metric-value">{{ safety_summary.total_evaluated }}</span>
+      <span class="safety-metric-label">Reports Evaluated</span>
+    </div>
+    <div class="safety-metric">
+      <span class="safety-metric-value">{{ safety_summary.injection_attempts }}</span>
+      <span class="safety-metric-label">Injection Attempts</span>
+    </div>
+    <div class="safety-metric">
+      <span class="safety-metric-value">{{ "%.0f"|format(safety_summary.eval_coverage_pct) }}%</span>
+      <span class="safety-metric-label">Eval Coverage</span>
+    </div>
+    <div class="safety-metric">
+      <span class="safety-metric-value">{{ "%.2f"|format(safety_summary.gqi_score) }}</span>
+      <span class="safety-metric-label">GQI Score</span>
+    </div>
+  </div>
+  {% if safety_summary.concerns %}
+  <div class="safety-concerns">
+    <ul>
+      {% for concern in safety_summary.concerns %}
+      <li>{{ concern }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 
 <!-- Signal Cards -->
 <div class="eval-cards">
@@ -182,6 +249,63 @@
 </div>
 {% endif %}
 
+<!-- Injection Classification History -->
+<div class="eval-section">
+  <h2>Injection Classification History</h2>
+  <div class="eval-cards" style="margin-bottom: 1rem;">
+    <div class="eval-card">
+      <h3>Total Classified</h3>
+      <div class="eval-metric">{{ injection_total }}</div>
+      <p class="eval-detail">Proposals scanned by classifier</p>
+    </div>
+    <div class="eval-card">
+      <h3>Attempts Detected</h3>
+      <div class="eval-metric {% if injection_attempts > 0 %}eval-warn{% endif %}">{{ injection_attempts }}</div>
+      <p class="eval-detail">Injection or suspicious classifications</p>
+    </div>
+    <div class="eval-card">
+      <h3>Blocked</h3>
+      <div class="eval-metric {% if injection_blocked > 0 %}eval-warn{% endif %}">{{ injection_blocked }}</div>
+      <p class="eval-detail">High-confidence injections blocked</p>
+    </div>
+  </div>
+
+  {% if recent_classifications %}
+  <table class="eval-table">
+    <thead>
+      <tr>
+        <th>Proposal Preview</th>
+        <th>Classification</th>
+        <th>Confidence</th>
+        <th>Reason</th>
+        <th>Source</th>
+        <th>Blocked</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cls in recent_classifications %}
+      <tr class="{% if cls.classification == 'injection' %}eval-flag-critical{% elif cls.classification == 'suspicious' %}eval-flag-warning{% endif %}">
+        <td class="eval-cls-preview">{{ cls.preview }}</td>
+        <td>
+          <span class="eval-severity eval-severity-{% if cls.classification == 'injection' %}critical{% elif cls.classification == 'suspicious' %}warning{% else %}info{% endif %}">
+            {{ cls.classification }}
+          </span>
+        </td>
+        <td>{{ "%.0f"|format(cls.confidence * 100) }}%</td>
+        <td class="eval-cls-reason">{{ cls.reason }}</td>
+        <td>{{ cls.source }}</td>
+        <td>{% if cls.blocked %}Yes{% else %}No{% endif %}</td>
+        <td>{{ cls.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="eval-detail">No classifications recorded yet. Classifications are stored when the injection classifier runs on proposals (requires ANTHROPIC_API_KEY).</p>
+  {% endif %}
+</div>
+
 {% endif %}
 
 <style>
@@ -211,5 +335,40 @@
 .eval-flag-critical { background: rgba(244,67,54,0.05); }
 .eval-flag-warning { background: rgba(255,152,0,0.05); }
 .eval-detail-kv { display: inline-block; margin-right: 0.75rem; font-size: 0.8rem; }
+
+/* Safety Summary Card */
+.safety-summary { border-radius: 10px; padding: 1.25rem; margin-bottom: 1.5rem; border: 2px solid; }
+.safety-green { border-color: #4caf50; background: rgba(76,175,80,0.08); }
+.safety-yellow { border-color: #ff9800; background: rgba(255,152,0,0.08); }
+.safety-red { border-color: #f44336; background: rgba(244,67,54,0.08); }
+.safety-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.safety-light { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; }
+.safety-green .safety-light { background: #4caf50; box-shadow: 0 0 8px rgba(76,175,80,0.6); }
+.safety-yellow .safety-light { background: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.6); }
+.safety-red .safety-light { background: #f44336; box-shadow: 0 0 8px rgba(244,67,54,0.6); }
+.safety-title { margin: 0; font-size: 1.1rem; color: #eee; }
+.safety-metrics { display: flex; gap: 2rem; flex-wrap: wrap; }
+.safety-metric { display: flex; flex-direction: column; }
+.safety-metric-value { font-size: 1.5rem; font-weight: bold; color: #eee; }
+.safety-metric-label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+.safety-concerns { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.1); }
+.safety-concerns ul { margin: 0; padding-left: 1.25rem; }
+.safety-concerns li { font-size: 0.85rem; color: #ccc; margin-bottom: 0.25rem; }
+
+/* Round Navigation */
+.eval-round-nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; }
+.eval-round-nav-controls { display: flex; align-items: center; gap: 0.75rem; }
+.eval-round-current { font-weight: bold; font-size: 1rem; color: #eee; }
+.eval-round-btn { display: inline-block; padding: 0.3rem 0.75rem; background: #2a2a3e; border: 1px solid #444; border-radius: 4px; color: #aaa; text-decoration: none; font-size: 0.85rem; transition: background 0.2s, color 0.2s; }
+.eval-round-btn:hover { background: #3a3a5e; color: #eee; }
+.eval-round-btn-disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+.eval-round-btn-all { background: #1a3a5c; border-color: #2a5a8c; color: #64b5f6; }
+.eval-round-btn-all:hover { background: #2a4a6c; }
+.eval-round-dropdown select { background: #2a2a3e; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.85rem; cursor: pointer; }
+.eval-round-dropdown select:hover { border-color: #666; }
+
+/* Injection Classification Table */
+.eval-cls-preview { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.eval-cls-reason { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: #aaa; }
 </style>
 {% endblock %}

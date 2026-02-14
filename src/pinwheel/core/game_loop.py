@@ -14,6 +14,7 @@ or stepped manually for testing.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 import uuid
@@ -267,6 +268,7 @@ async def _run_evals(
     reports: list[Report],
     game_summaries: list[dict],
     teams_cache: dict,
+    api_key: str = "",
 ) -> None:
     """Run automated evals after report generation. Non-blocking."""
     from pinwheel.evals.behavioral import compute_report_impact_rate
@@ -348,6 +350,38 @@ async def _run_evals(
             )
     except Exception:
         logger.exception("flag_detection_failed season=%s round=%d", season_id, round_number)
+
+    # GQI (Governance Quality Index)
+    try:
+        from pinwheel.evals.gqi import compute_gqi, store_gqi
+
+        gqi_result = await compute_gqi(repo, season_id, round_number)
+        await store_gqi(repo, season_id, round_number, gqi_result)
+        logger.info(
+            "gqi_computed season=%s round=%d composite=%.3f",
+            season_id,
+            round_number,
+            gqi_result.composite,
+        )
+    except Exception:
+        logger.exception("gqi_computation_failed season=%s round=%d", season_id, round_number)
+
+    # Rule Evaluator (Opus-powered admin analysis)
+    try:
+        from pinwheel.evals.rule_evaluator import evaluate_rules, store_rule_evaluation
+
+        rule_eval = await evaluate_rules(repo, season_id, round_number, api_key=api_key)
+        await store_rule_evaluation(repo, season_id, round_number, rule_eval)
+        logger.info(
+            "rule_evaluation_complete season=%s round=%d experiments=%d",
+            season_id,
+            round_number,
+            len(rule_eval.suggested_experiments),
+        )
+    except Exception:
+        logger.exception(
+            "rule_evaluation_failed season=%s round=%d", season_id, round_number
+        )
 
     logger.info("evals_complete season=%s round=%d", season_id, round_number)
 
@@ -462,22 +496,24 @@ async def tally_pending_governance(
     return ruleset, tallies, governance_data
 
 
-async def step_round(
+# ---------------------------------------------------------------------------
+# Phase functions — extracted from step_round for multi-session orchestration
+# ---------------------------------------------------------------------------
+
+
+async def _phase_simulate_and_govern(
     repo: Repository,
     season_id: str,
     round_number: int,
     event_bus: EventBus | None = None,
-    api_key: str = "",
     governance_interval: int = 1,
     suppress_spoiler_events: bool = False,
-) -> RoundResult:
-    """Execute one complete round of the game loop.
+) -> _SimPhaseResult | None:
+    """Phase 1: Simulate games, store results, tally governance.
 
-    Returns a RoundResult with game results, governance outcomes, and reports.
+    Fast DB reads/writes only — no AI calls. Returns None if no games are
+    scheduled for this round.
     """
-    start = time.monotonic()
-    logger.info("round_start season=%s round=%d", season_id, round_number)
-
     # 1. Get season + ruleset
     season = await repo.get_season(season_id)
     if not season:
@@ -488,7 +524,7 @@ async def step_round(
     schedule = await repo.get_schedule_for_round(season_id, round_number)
     if not schedule:
         logger.warning("No games scheduled for round %d", round_number)
-        return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
+        return None
 
     # 3. Load teams
     teams_cache: dict[str, Team] = {}
@@ -499,7 +535,7 @@ async def step_round(
                 if row:
                     teams_cache[tid] = _row_to_team(row)
 
-    # 3b. Load team strategies from latest strategy.interpreted events
+    # 3b. Load team strategies
     from pinwheel.models.team import TeamStrategy
 
     strategies: dict[str, TeamStrategy] = {}
@@ -517,13 +553,11 @@ async def step_round(
                 break
 
     # 4. Simulate games
-    # Determine playoff context for commentary
     playoff_context: str | None = None
     if schedule and schedule[0].phase == "playoff":
-        # 2 games = semifinal, 1 game = finals (for 4-team bracket)
         playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
 
-    game_summaries = []
+    game_summaries: list[dict] = []
     game_results: list[GameResult] = []
     game_row_ids: list[str] = []
     for entry in schedule:
@@ -602,58 +636,11 @@ async def step_round(
             "total_possessions": result.total_possessions,
         }
 
-        # Generate commentary (non-blocking — never break the game loop)
-        try:
-            if api_key:
-                commentary = await generate_game_commentary(
-                    result,
-                    home,
-                    away,
-                    ruleset,
-                    api_key,
-                    playoff_context=playoff_context,
-                )
-            else:
-                commentary = generate_game_commentary_mock(
-                    result, home, away, playoff_context=playoff_context
-                )
-            summary["commentary"] = commentary
-        except Exception:
-            logger.exception(
-                "commentary_failed game=%s season=%s round=%d",
-                game_id,
-                season_id,
-                round_number,
-            )
-
         game_summaries.append(summary)
 
+        # Publish game.completed without commentary (commentary added in AI phase)
         if event_bus and not suppress_spoiler_events:
             await event_bus.publish("game.completed", summary)
-
-    # Generate highlight reel for the round (non-blocking)
-    highlight_reel = ""
-    if game_summaries:
-        try:
-            if api_key:
-                highlight_reel = await generate_highlight_reel(
-                    game_summaries,
-                    round_number,
-                    api_key,
-                    playoff_context=playoff_context,
-                )
-            else:
-                highlight_reel = generate_highlight_reel_mock(
-                    game_summaries,
-                    round_number,
-                    playoff_context=playoff_context,
-                )
-        except Exception:
-            logger.exception(
-                "highlight_reel_failed season=%s round=%d",
-                season_id,
-                round_number,
-            )
 
     # 5. Governance — tally every Nth round (interval-based)
     tallies: list[VoteTally] = []
@@ -702,64 +689,15 @@ async def step_round(
                 regen_count,
             )
 
-    # 6. Generate reports
-    reports: list[Report] = []
-    deferred_report_events: list[dict] = []
-    round_data = {"round_number": round_number, "games": game_summaries}
-
-    if api_key:
-        sim_report = await generate_simulation_report(round_data, season_id, round_number, api_key)
-    else:
-        sim_report = generate_simulation_report_mock(round_data, season_id, round_number)
-
-    await repo.store_report(
-        season_id=season_id,
-        report_type="simulation",
-        round_number=round_number,
-        content=sim_report.content,
-    )
-    reports.append(sim_report)
-
-    deferred_report_events.append(
-        {
-            "report_type": "simulation",
-            "round": round_number,
-            "excerpt": sim_report.content[:200],
-        },
-    )
-
-    # Governance report (even if no activity — silence is a pattern)
-    if api_key:
-        gov_report = await generate_governance_report(
-            governance_data, season_id, round_number, api_key
-        )
-    else:
-        gov_report = generate_governance_report_mock(governance_data, season_id, round_number)
-
-    await repo.store_report(
-        season_id=season_id,
-        report_type="governance",
-        round_number=round_number,
-        content=gov_report.content,
-    )
-    reports.append(gov_report)
-
-    deferred_report_events.append(
-        {
-            "report_type": "governance",
-            "round": round_number,
-            "excerpt": gov_report.content[:200],
-        },
-    )
-
-    # Private reports for active governors
+    # Query governor activity for private reports
     active_governor_events = await repo.get_events_by_type(
         season_id=season_id,
         event_types=["proposal.submitted", "vote.cast"],
     )
-    governor_ids = {e.governor_id for e in active_governor_events if e.governor_id}
+    active_governor_ids = {e.governor_id for e in active_governor_events if e.governor_id}
 
-    for gov_id in governor_ids:
+    governor_activity: dict[str, dict] = {}
+    for gov_id in active_governor_ids:
         gov_proposals = [
             e
             for e in active_governor_events
@@ -770,60 +708,246 @@ async def step_round(
             for e in active_governor_events
             if e.governor_id == gov_id and e.event_type == "vote.cast"
         ]
-        governor_data = {
+        governor_activity[gov_id] = {
             "governor_id": gov_id,
             "proposals_submitted": len(gov_proposals),
             "votes_cast": len(gov_votes),
-            "tokens_spent": len(gov_proposals),  # 1 propose token per proposal
+            "tokens_spent": len(gov_proposals),
         }
 
+    return _SimPhaseResult(
+        season_id=season_id,
+        round_number=round_number,
+        ruleset=ruleset,
+        teams_cache=teams_cache,
+        game_results=game_results,
+        game_row_ids=game_row_ids,
+        game_summaries=game_summaries,
+        playoff_context=playoff_context,
+        tallies=tallies,
+        governance_data=governance_data,
+        governance_summary=governance_summary,
+        governor_activity=governor_activity,
+        active_governor_ids=active_governor_ids,
+    )
+
+
+async def _phase_ai(
+    sim: _SimPhaseResult,
+    api_key: str = "",
+) -> _AIPhaseResult:
+    """Phase 2: Generate all AI content. No DB access needed.
+
+    Makes all AI calls: commentary per game, highlight reel, simulation report,
+    governance report, and private reports per active governor.
+    """
+    commentaries: dict[str, str] = {}
+    round_data = {"round_number": sim.round_number, "games": sim.game_summaries}
+
+    # Commentary per game
+    for i, result in enumerate(sim.game_results):
+        if i >= len(sim.game_summaries):
+            break
+        game_id = sim.game_summaries[i].get("game_id", "")
+
+        # Find teams from cache
+        home = sim.teams_cache.get(result.home_team_id)
+        away = sim.teams_cache.get(result.away_team_id)
+        if not home or not away:
+            continue
+
+        try:
+            if api_key:
+                commentary = await generate_game_commentary(
+                    result,
+                    home,
+                    away,
+                    sim.ruleset,
+                    api_key,
+                    playoff_context=sim.playoff_context,
+                )
+            else:
+                commentary = generate_game_commentary_mock(
+                    result, home, away, playoff_context=sim.playoff_context
+                )
+            commentaries[game_id] = commentary
+        except Exception:
+            logger.exception(
+                "commentary_failed game=%s season=%s round=%d",
+                game_id,
+                sim.season_id,
+                sim.round_number,
+            )
+
+    # Highlight reel
+    highlight_reel = ""
+    if sim.game_summaries:
+        try:
+            if api_key:
+                highlight_reel = await generate_highlight_reel(
+                    sim.game_summaries,
+                    sim.round_number,
+                    api_key,
+                    playoff_context=sim.playoff_context,
+                )
+            else:
+                highlight_reel = generate_highlight_reel_mock(
+                    sim.game_summaries,
+                    sim.round_number,
+                    playoff_context=sim.playoff_context,
+                )
+        except Exception:
+            logger.exception(
+                "highlight_reel_failed season=%s round=%d",
+                sim.season_id,
+                sim.round_number,
+            )
+
+    # Simulation report
+    if api_key:
+        sim_report = await generate_simulation_report(
+            round_data, sim.season_id, sim.round_number, api_key
+        )
+    else:
+        sim_report = generate_simulation_report_mock(
+            round_data, sim.season_id, sim.round_number
+        )
+
+    # Governance report
+    if api_key:
+        gov_report = await generate_governance_report(
+            sim.governance_data, sim.season_id, sim.round_number, api_key
+        )
+    else:
+        gov_report = generate_governance_report_mock(
+            sim.governance_data, sim.season_id, sim.round_number
+        )
+
+    # Private reports for active governors
+    private_reports: list[tuple[str, Report]] = []
+    for gov_id in sim.active_governor_ids:
+        governor_data = sim.governor_activity.get(gov_id, {})
         if api_key:
             priv_report = await generate_private_report(
-                governor_data, gov_id, season_id, round_number, api_key
+                governor_data, gov_id, sim.season_id, sim.round_number, api_key
             )
         else:
             priv_report = generate_private_report_mock(
-                governor_data, gov_id, season_id, round_number
+                governor_data, gov_id, sim.season_id, sim.round_number
             )
+        private_reports.append((gov_id, priv_report))
 
+    return _AIPhaseResult(
+        commentaries=commentaries,
+        highlight_reel=highlight_reel,
+        sim_report=sim_report,
+        gov_report=gov_report,
+        private_reports=private_reports,
+    )
+
+
+async def _phase_persist_and_finalize(
+    repo: Repository,
+    sim: _SimPhaseResult,
+    ai: _AIPhaseResult,
+    event_bus: EventBus | None = None,
+    suppress_spoiler_events: bool = False,
+    start_time: float | None = None,
+    api_key: str = "",
+) -> RoundResult:
+    """Phase 3: Store AI outputs, run evals, handle season progression.
+
+    Fast DB writes only — all slow AI calls already completed in Phase 2.
+    """
+    reports: list[Report] = []
+    deferred_report_events: list[dict] = []
+
+    # Attach commentary to game_summaries
+    for summary in sim.game_summaries:
+        game_id = summary.get("game_id", "")
+        if game_id in ai.commentaries:
+            summary["commentary"] = ai.commentaries[game_id]
+
+    # Store simulation report
+    await repo.store_report(
+        season_id=sim.season_id,
+        report_type="simulation",
+        round_number=sim.round_number,
+        content=ai.sim_report.content,
+    )
+    reports.append(ai.sim_report)
+    deferred_report_events.append(
+        {
+            "report_type": "simulation",
+            "round": sim.round_number,
+            "excerpt": ai.sim_report.content[:200],
+        },
+    )
+
+    # Store governance report
+    await repo.store_report(
+        season_id=sim.season_id,
+        report_type="governance",
+        round_number=sim.round_number,
+        content=ai.gov_report.content,
+    )
+    reports.append(ai.gov_report)
+    deferred_report_events.append(
+        {
+            "report_type": "governance",
+            "round": sim.round_number,
+            "excerpt": ai.gov_report.content[:200],
+        },
+    )
+
+    # Store private reports
+    for gov_id, priv_report in ai.private_reports:
         report_row = await repo.store_report(
-            season_id=season_id,
+            season_id=sim.season_id,
             report_type="private",
-            round_number=round_number,
+            round_number=sim.round_number,
             content=priv_report.content,
             governor_id=gov_id,
         )
         reports.append(priv_report)
-
         deferred_report_events.append(
             {
                 "report_type": "private",
-                "round": round_number,
+                "round": sim.round_number,
                 "governor_id": gov_id,
                 "report_id": report_row.id,
                 "excerpt": priv_report.content[:200],
             },
         )
 
-    # 7. Run evals (non-blocking — failures here never break the game loop)
+    # Run evals
     try:
         from pinwheel.config import Settings
 
         eval_settings = Settings()
         if eval_settings.pinwheel_evals_enabled:
-            await _run_evals(repo, season_id, round_number, reports, game_summaries, teams_cache)
+            await _run_evals(
+                repo,
+                sim.season_id,
+                sim.round_number,
+                reports,
+                sim.game_summaries,
+                sim.teams_cache,
+                api_key=api_key,
+            )
     except Exception:
-        logger.exception("eval_step_failed season=%s round=%d", season_id, round_number)
+        logger.exception(
+            "eval_step_failed season=%s round=%d", sim.season_id, sim.round_number
+        )
 
-    # 8. Check if the regular season is complete + playoff progression
+    # Season progression checks
     season_complete = False
     final_standings: list[dict] | None = None
     playoff_bracket: list[dict] | None = None
     playoffs_complete = False
     finals_matchup: dict | None = None
 
-    # Re-read season to get current status
-    season = await repo.get_season(season_id)
+    season = await repo.get_season(sim.season_id)
     if season and season.status not in (
         "regular_season_complete",
         "playoffs",
@@ -831,181 +955,214 @@ async def step_round(
         "complete",
         "championship",
         "offseason",
+        "tiebreaker_check",
+        "tiebreakers",
     ):
         try:
-            season_complete = await _check_season_complete(repo, season_id)
+            season_complete = await _check_season_complete(repo, sim.season_id)
         except Exception:
             logger.exception(
                 "season_complete_check_failed season=%s round=%d",
-                season_id,
-                round_number,
+                sim.season_id,
+                sim.round_number,
             )
 
         if season_complete:
-            await repo.update_season_status(season_id, "regular_season_complete")
-            final_standings = await compute_standings_from_repo(repo, season_id)
+            final_standings = await compute_standings_from_repo(repo, sim.season_id)
             logger.info(
                 "regular_season_complete season=%s round=%d teams=%d",
-                season_id,
-                round_number,
+                sim.season_id,
+                sim.round_number,
                 len(final_standings),
             )
 
-            # Generate playoff bracket
             try:
-                playoff_bracket = await generate_playoff_bracket(repo, season_id)
-                logger.info(
-                    "playoff_bracket_generated season=%s matchups=%d",
-                    season_id,
-                    len(playoff_bracket),
+                from pinwheel.core.season import check_and_handle_tiebreakers
+
+                result_phase = await check_and_handle_tiebreakers(
+                    repo,
+                    sim.season_id,
+                    event_bus=event_bus,
                 )
             except Exception:
                 logger.exception(
-                    "playoff_bracket_failed season=%s",
-                    season_id,
+                    "tiebreaker_check_failed season=%s",
+                    sim.season_id,
                 )
+                await repo.update_season_status(sim.season_id, "regular_season_complete")
+                result_phase = None
 
-            # Publish season.regular_season_complete event
+            if result_phase == "playoffs":
+                try:
+                    playoff_bracket = await generate_playoff_bracket(repo, sim.season_id)
+                    logger.info(
+                        "playoff_bracket_generated season=%s matchups=%d",
+                        sim.season_id,
+                        len(playoff_bracket),
+                    )
+                except Exception:
+                    logger.exception(
+                        "playoff_bracket_failed season=%s",
+                        sim.season_id,
+                    )
+
             if event_bus:
                 await event_bus.publish(
                     "season.regular_season_complete",
                     {
-                        "season_id": season_id,
-                        "final_round": round_number,
+                        "season_id": sim.season_id,
+                        "final_round": sim.round_number,
                         "standings": final_standings,
                         "playoff_bracket": playoff_bracket,
+                        "tiebreakers_needed": result_phase == "tiebreakers",
                     },
                 )
 
+    elif season and season.status == "tiebreakers":
+        tb_schedule = await repo.get_full_schedule(sim.season_id, phase="tiebreaker")
+        if tb_schedule:
+            games = await repo.get_all_games(sim.season_id)
+            played = {(g.round_number, g.matchup_index) for g in games}
+            tb_scheduled = {(s.round_number, s.matchup_index) for s in tb_schedule}
+            if tb_scheduled.issubset(played):
+                from pinwheel.core.season import SeasonPhase, transition_season
+
+                await transition_season(
+                    repo,
+                    sim.season_id,
+                    SeasonPhase.PLAYOFFS,
+                    event_bus=event_bus,
+                )
+                try:
+                    playoff_bracket = await generate_playoff_bracket(repo, sim.season_id)
+                    logger.info(
+                        "tiebreaker_resolved season=%s -> playoffs matchups=%d",
+                        sim.season_id,
+                        len(playoff_bracket),
+                    )
+                except Exception:
+                    logger.exception(
+                        "playoff_bracket_failed_after_tiebreaker season=%s",
+                        sim.season_id,
+                    )
+
     elif season and season.status in ("regular_season_complete", "playoffs"):
-        # Playoff progression: check semi→finals advancement first, then completion.
-        # Must check semis before completion because _check_all_playoffs_complete
-        # would return True prematurely if finals haven't been scheduled yet.
-        playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+        playoff_schedule = await repo.get_full_schedule(sim.season_id, phase="playoff")
         created_finals = False
 
         if playoff_schedule:
             playoff_rounds = sorted({s.round_number for s in playoff_schedule})
 
-            # Check if semis are done and finals need to be created
             if len(playoff_rounds) == 1:
                 semi_round_num = playoff_rounds[0]
                 semi_entries = [
                     s for s in playoff_schedule if s.round_number == semi_round_num
                 ]
-                # 2 matchups in a single round = semis needing finals
                 if len(semi_entries) == 2:
                     semi_games = await repo.get_games_for_round(
-                        season_id, semi_round_num
+                        sim.season_id, semi_round_num
                     )
                     if len(semi_games) == 2:
-                        # Both semis played — create finals
                         winners = await _determine_semifinal_winners(
-                            repo, season_id, semi_round_num
+                            repo, sim.season_id, semi_round_num
                         )
                         finals_matchup = await _create_finals_entry(
-                            repo, season_id, semi_round_num, winners
+                            repo, sim.season_id, semi_round_num, winners
                         )
                         created_finals = True
-                        await repo.update_season_status(season_id, "playoffs")
+                        await repo.update_season_status(sim.season_id, "playoffs")
                         logger.info(
                             "semifinals_complete season=%s finals=%s",
-                            season_id,
+                            sim.season_id,
                             finals_matchup,
                         )
                         if event_bus:
                             await event_bus.publish(
                                 "season.semifinals_complete",
                                 {
-                                    "season_id": season_id,
+                                    "season_id": sim.season_id,
                                     "semifinal_winners": winners,
                                     "finals_matchup": finals_matchup,
                                 },
                             )
 
-        # Check if all playoffs are complete (skip if we just created finals)
         if not created_finals:
             try:
-                playoffs_complete = await _check_all_playoffs_complete(repo, season_id)
+                playoffs_complete = await _check_all_playoffs_complete(
+                    repo, sim.season_id
+                )
             except Exception:
                 logger.exception(
                     "playoffs_complete_check_failed season=%s round=%d",
-                    season_id,
-                    round_number,
+                    sim.season_id,
+                    sim.round_number,
                 )
 
             if playoffs_complete:
-                # Determine champion from the finals game
                 if not playoff_schedule:
                     playoff_schedule = await repo.get_full_schedule(
-                        season_id, phase="playoff"
+                        sim.season_id, phase="playoff"
                     )
                 finals_round_num = max(s.round_number for s in playoff_schedule)
                 finals_games = await repo.get_games_for_round(
-                    season_id, finals_round_num
+                    sim.season_id, finals_round_num
                 )
                 champion_team_id = (
                     finals_games[0].winner_team_id if finals_games else None
                 )
                 logger.info(
                     "season_playoffs_complete season=%s champion=%s",
-                    season_id,
+                    sim.season_id,
                     champion_team_id,
                 )
 
-                # Enter championship phase (awards, ceremony window)
-                # instead of jumping directly to "completed"
                 if champion_team_id:
                     from pinwheel.core.season import enter_championship
 
                     try:
                         await enter_championship(
                             repo,
-                            season_id,
+                            sim.season_id,
                             champion_team_id,
                             event_bus=event_bus,
                         )
                     except Exception:
                         logger.exception(
                             "enter_championship_failed season=%s",
-                            season_id,
+                            sim.season_id,
                         )
-                        # Fallback: mark completed directly
-                        await repo.update_season_status(
-                            season_id, "completed"
-                        )
+                        await repo.update_season_status(sim.season_id, "completed")
                 else:
-                    # No champion determined — skip championship, mark done
-                    await repo.update_season_status(season_id, "completed")
+                    await repo.update_season_status(sim.season_id, "completed")
 
                 if event_bus:
                     await event_bus.publish(
                         "season.playoffs_complete",
                         {
-                            "season_id": season_id,
+                            "season_id": sim.season_id,
                             "champion_team_id": champion_team_id,
                         },
                     )
 
-    # 9. Publish round complete
-    elapsed = time.monotonic() - start
+    # Publish round complete
+    elapsed = (time.monotonic() - start_time) if start_time is not None else 0.0
     logger.info(
         "round_complete season=%s round=%d games=%d reports=%d elapsed_ms=%.1f",
-        season_id,
-        round_number,
-        len(game_summaries),
+        sim.season_id,
+        sim.round_number,
+        len(sim.game_summaries),
         len(reports),
         elapsed * 1000,
     )
 
     round_completed_data: dict = {
-        "round": round_number,
-        "games": len(game_summaries),
+        "round": sim.round_number,
+        "games": len(sim.game_summaries),
         "reports": len(reports),
         "elapsed_ms": round(elapsed * 1000, 1),
     }
-    if highlight_reel:
-        round_completed_data["highlight_reel"] = highlight_reel
+    if ai.highlight_reel:
+        round_completed_data["highlight_reel"] = ai.highlight_reel
     if season_complete:
         round_completed_data["season_complete"] = True
     if playoffs_complete:
@@ -1017,14 +1174,14 @@ async def step_round(
         await event_bus.publish("round.completed", round_completed_data)
 
     return RoundResult(
-        round_number=round_number,
-        games=game_summaries,
+        round_number=sim.round_number,
+        games=sim.game_summaries,
         reports=reports,
-        tallies=tallies,
-        game_results=game_results,
-        game_row_ids=game_row_ids,
-        teams_cache=teams_cache,
-        governance_summary=governance_summary,
+        tallies=sim.tallies,
+        game_results=sim.game_results,
+        game_row_ids=sim.game_row_ids,
+        teams_cache=sim.teams_cache,
+        governance_summary=sim.governance_summary,
         season_complete=season_complete,
         final_standings=final_standings,
         playoff_bracket=playoff_bracket,
@@ -1032,6 +1189,113 @@ async def step_round(
         finals_matchup=finals_matchup,
         report_events=deferred_report_events,
     )
+
+
+async def step_round(
+    repo: Repository,
+    season_id: str,
+    round_number: int,
+    event_bus: EventBus | None = None,
+    api_key: str = "",
+    governance_interval: int = 1,
+    suppress_spoiler_events: bool = False,
+) -> RoundResult:
+    """Execute one complete round of the game loop.
+
+    Returns a RoundResult with game results, governance outcomes, and reports.
+    Delegates to the three phase functions but keeps everything in one session
+    (backward-compatible single-session behavior).
+    """
+    start = time.monotonic()
+    logger.info("round_start season=%s round=%d", season_id, round_number)
+
+    sim = await _phase_simulate_and_govern(
+        repo,
+        season_id,
+        round_number,
+        event_bus=event_bus,
+        governance_interval=governance_interval,
+        suppress_spoiler_events=suppress_spoiler_events,
+    )
+    if sim is None:
+        return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
+
+    ai = await _phase_ai(sim, api_key)
+
+    return await _phase_persist_and_finalize(
+        repo,
+        sim,
+        ai,
+        event_bus=event_bus,
+        suppress_spoiler_events=suppress_spoiler_events,
+        start_time=start,
+        api_key=api_key,
+    )
+
+
+async def step_round_multisession(
+    engine: object,
+    season_id: str,
+    round_number: int,
+    event_bus: EventBus | None = None,
+    api_key: str = "",
+    governance_interval: int = 1,
+    suppress_spoiler_events: bool = False,
+) -> RoundResult:
+    """Execute one round with separate DB sessions per phase.
+
+    Releases the SQLite write lock between phases so Discord commands
+    (/join, /propose, /vote) can write freely during slow AI calls.
+
+    Lock timeline:
+        Session 1 (~2-3s): simulate games, store results, tally governance
+           [LOCK RELEASED]
+        AI calls (~30-90s): commentary, highlights, reports (NO session open)
+           [LOCK RELEASED]
+        Session 2 (~1-2s): store reports, run evals, season progression
+           [LOCK RELEASED]
+
+    The ``engine`` parameter is typed as ``object`` to avoid importing
+    AsyncEngine at module level; callers pass an ``AsyncEngine`` instance.
+    """
+    from pinwheel.db.engine import get_session as _get_session
+    from pinwheel.db.repository import Repository as _Repository
+
+    start = time.monotonic()
+    logger.info("round_start_multisession season=%s round=%d", season_id, round_number)
+
+    # Session 1: simulate + govern (fast)
+    async with _get_session(engine) as session:
+        repo = _Repository(session)
+        sim = await _phase_simulate_and_govern(
+            repo,
+            season_id,
+            round_number,
+            event_bus=event_bus,
+            governance_interval=governance_interval,
+            suppress_spoiler_events=suppress_spoiler_events,
+        )
+    # Session closed — lock released
+
+    if sim is None:
+        return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
+
+    # NO SESSION: AI calls (slow, 30-90s)
+    ai = await _phase_ai(sim, api_key)
+
+    # Session 2: persist + finalize (fast)
+    async with _get_session(engine) as session:
+        repo = _Repository(session)
+        return await _phase_persist_and_finalize(
+            repo,
+            sim,
+            ai,
+            event_bus=event_bus,
+            suppress_spoiler_events=suppress_spoiler_events,
+            start_time=start,
+            api_key=api_key,
+        )
+    # Session closed
 
 
 class RoundResult:
@@ -1068,3 +1332,38 @@ class RoundResult:
         self.playoffs_complete = playoffs_complete
         self.finals_matchup = finals_matchup
         self.report_events = report_events or []
+
+
+# ---------------------------------------------------------------------------
+# Phase dataclasses — intermediate results passed between multi-session phases
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class _SimPhaseResult:
+    """Data from the simulate-and-store phase (Session 1)."""
+
+    season_id: str
+    round_number: int
+    ruleset: RuleSet
+    teams_cache: dict[str, Team]
+    game_results: list[GameResult]
+    game_row_ids: list[str]
+    game_summaries: list[dict]  # without commentary yet
+    playoff_context: str | None
+    tallies: list[VoteTally]
+    governance_data: dict
+    governance_summary: dict | None
+    governor_activity: dict[str, dict]  # gov_id -> {proposals, votes, etc.}
+    active_governor_ids: set[str]
+
+
+@dataclasses.dataclass
+class _AIPhaseResult:
+    """AI-generated content (no DB access needed)."""
+
+    commentaries: dict[str, str]  # game_id -> commentary text
+    highlight_reel: str
+    sim_report: Report
+    gov_report: Report
+    private_reports: list[tuple[str, Report]]  # (governor_id, report)

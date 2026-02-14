@@ -827,7 +827,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /join slash command for team enrollment."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available. Try again later.",
+                "The league database is temporarily unavailable. "
+                "Try `/join` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -854,7 +855,8 @@ class PinwheelBot(commands.Bot):
                         season = await repo.get_active_season()
                         if not season:
                             await interaction.followup.send(
-                                "No active season.",
+                                "There's no active season right now. "
+                                "Ask an admin to start one with `/new-season`.",
                                 ephemeral=True,
                             )
                             return
@@ -1014,14 +1016,30 @@ class PinwheelBot(commands.Bot):
             if last_error is not None:
                 raise last_error
 
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "discord_join_failed user=%s team=%s",
                 interaction.user.display_name if interaction.user else "unknown",
                 team_name,
             )
+            exc_str = str(exc).lower()
+            if "locked" in exc_str or "busy" in exc_str:
+                msg = (
+                    "The league database is busy right now -- "
+                    f"try `/join {team_name}` again in a few seconds."
+                )
+            elif team_name:
+                msg = (
+                    f"Having trouble joining **{team_name}**. "
+                    "This might be a temporary glitch -- try again, or ask an admin for help."
+                )
+            else:
+                msg = (
+                    "Something unexpected happened while looking up teams. "
+                    "Try `/join` again -- if it keeps failing, let an admin know."
+                )
             await interaction.followup.send(
-                "Something went wrong joining the team.",
+                msg,
                 ephemeral=True,
             )
 
@@ -1295,7 +1313,10 @@ class PinwheelBot(commands.Bot):
         await interaction.response.defer()
 
         if not self.engine:
-            await interaction.followup.send("Database not available.")
+            await interaction.followup.send(
+                "The league database is temporarily unavailable. "
+                "Try `/roster` again in a moment -- if this persists, let an admin know.",
+            )
             return
 
         try:
@@ -1307,7 +1328,10 @@ class PinwheelBot(commands.Bot):
                 repo = Repository(session)
                 season = await repo.get_active_season()
                 if not season:
-                    await interaction.followup.send("No active season.")
+                    await interaction.followup.send(
+                        "There's no active season right now. "
+                        "Ask an admin to start one with `/new-season`.",
+                    )
                     return
 
                 players = await repo.get_players_for_season(season.id)
@@ -1340,7 +1364,10 @@ class PinwheelBot(commands.Bot):
                 await interaction.followup.send(embed=embed)
         except Exception:
             logger.exception("discord_roster_failed")
-            await interaction.followup.send("Something went wrong loading the roster.")
+            await interaction.followup.send(
+                "Could not load the governor roster right now. "
+                "Try `/roster` again -- if this persists, let an admin know.",
+            )
 
     async def _handle_proposals(
         self,
@@ -1350,7 +1377,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /proposals slash command -- show all proposals with status."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/proposals` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1372,7 +1400,10 @@ class PinwheelBot(commands.Bot):
                 else:
                     season = await repo.get_active_season()
                     if not season:
-                        await interaction.followup.send("No active season.")
+                        await interaction.followup.send(
+                            "There's no active season right now. "
+                            "Ask an admin to start one with `/new-season`.",
+                        )
                         return
                     seasons_to_query = [(season.id, season.name or "this season")]
 
@@ -1397,7 +1428,10 @@ class PinwheelBot(commands.Bot):
                     await interaction.followup.send("No proposals found.")
         except Exception:
             logger.exception("discord_proposals_failed")
-            await interaction.followup.send("Something went wrong loading proposals.")
+            await interaction.followup.send(
+                "Could not load proposals right now. "
+                "Try `/proposals` again -- if this persists, let an admin know.",
+            )
 
     async def _handle_propose(self, interaction: discord.Interaction, text: str) -> None:
         """Handle the /propose slash command with AI interpretation."""
@@ -1411,7 +1445,8 @@ class PinwheelBot(commands.Bot):
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available. Try again later.",
+                "The league database is temporarily unavailable. "
+                "Try `/propose` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1472,8 +1507,23 @@ class PinwheelBot(commands.Bot):
             api_key = self.settings.anthropic_api_key
             if api_key:
                 from pinwheel.ai.classifier import classify_injection
+                from pinwheel.evals.injection import store_injection_classification
 
                 classification = await classify_injection(text, api_key)
+
+                # Store classification result for dashboard visibility
+                async with get_session(self.engine) as session:
+                    cls_repo = Repository(session)
+                    await store_injection_classification(
+                        repo=cls_repo,
+                        season_id=gov.season_id,
+                        proposal_text=text,
+                        result=classification,
+                        governor_id=gov.player_id,
+                        source="discord_bot",
+                    )
+                    await session.commit()
+
                 if classification.classification == "injection" and classification.confidence > 0.8:
                     from pinwheel.models.governance import (
                         RuleInterpretation as RI,
@@ -1534,7 +1584,10 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_propose_failed")
             await interaction.followup.send(
-                "Something went wrong interpreting your proposal.",
+                "Your proposal could not be interpreted right now. "
+                "This might be a temporary issue with the AI interpreter -- "
+                "try `/propose` again with the same text. "
+                "If it keeps failing, ask an admin for help.",
                 ephemeral=True,
             )
 
@@ -1659,7 +1712,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /vote slash command. Votes are hidden until window closes."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/vote` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1740,7 +1794,10 @@ class PinwheelBot(commands.Bot):
                                 break
                     if not proposal_id:
                         await interaction.followup.send(
-                            "Could not find a matching open proposal.",
+                            "Could not find an open proposal matching your selection. "
+                            "Use `/proposals` to see what's currently on the Floor, "
+                            "or try `/vote` without specifying a proposal "
+                            "to vote on the latest one.",
                             ephemeral=True,
                         )
                         return
@@ -1764,7 +1821,9 @@ class PinwheelBot(commands.Bot):
 
                 if not proposal_data:
                     await interaction.followup.send(
-                        "Could not find the proposal.",
+                        "The proposal data could not be loaded. "
+                        "It may have been removed or there may be a database issue. "
+                        "Try `/proposals` to see what's currently on the Floor.",
                         ephemeral=True,
                     )
                     return
@@ -1793,7 +1852,9 @@ class PinwheelBot(commands.Bot):
                     "boost",
                 ):
                     await interaction.followup.send(
-                        "You don't have any BOOST tokens.",
+                        "You don't have any BOOST tokens to double your vote weight. "
+                        "Use `/tokens` to check your balance. "
+                        "You can still vote without boosting: `/vote yes` or `/vote no`.",
                         ephemeral=True,
                     )
                     return
@@ -1835,7 +1896,9 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_vote_failed")
             await interaction.followup.send(
-                "Something went wrong recording your vote.",
+                "Your vote could not be recorded right now. "
+                "This might be a temporary database issue -- "
+                "try `/vote` again. If it keeps failing, let an admin know.",
                 ephemeral=True,
             )
 
@@ -1846,7 +1909,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /tokens slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/tokens` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1889,7 +1953,8 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_tokens_failed")
             await interaction.followup.send(
-                "Something went wrong checking your tokens.",
+                "Could not retrieve your token balance right now. "
+                "Try `/tokens` again -- if this persists, let an admin know.",
                 ephemeral=True,
             )
 
@@ -1900,7 +1965,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /profile slash command -- show governor's governance record."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/profile` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1942,7 +2008,8 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_profile_failed")
             await interaction.followup.send(
-                "Something went wrong loading your profile.",
+                "Could not load your governor profile right now. "
+                "Try `/profile` again -- if this persists, let an admin know.",
                 ephemeral=True,
             )
 
@@ -1958,7 +2025,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /trade slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/trade` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -1994,7 +2062,8 @@ class PinwheelBot(commands.Bot):
             )
         except GovernorNotFound:
             await interaction.followup.send(
-                f"{target.display_name} is not enrolled.",
+                f"**{target.display_name}** isn't enrolled as a governor this season. "
+                "They need to `/join` a team before you can trade with them.",
                 ephemeral=True,
             )
             return
@@ -2059,7 +2128,9 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_trade_failed")
             await interaction.followup.send(
-                "Something went wrong with the trade.",
+                f"Could not send the trade offer to **{target.display_name}** right now. "
+                "This might be a temporary issue -- try `/trade` again. "
+                "If it keeps failing, let an admin know.",
                 ephemeral=True,
             )
 
@@ -2111,7 +2182,8 @@ class PinwheelBot(commands.Bot):
         """Handle the /trade-hooper slash command."""
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/trade-hooper` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -2259,7 +2331,9 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_trade_hooper_failed")
             await interaction.followup.send(
-                "Something went wrong with the trade.",
+                "The hooper trade could not be created right now. "
+                "This might be a temporary issue -- try `/trade-hooper` again. "
+                "If it keeps failing, let an admin know.",
                 ephemeral=True,
             )
 
@@ -2278,7 +2352,8 @@ class PinwheelBot(commands.Bot):
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/strategy` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -2344,7 +2419,8 @@ class PinwheelBot(commands.Bot):
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/bio` again in a moment -- if this persists, let an admin know.",
                 ephemeral=True,
             )
             return
@@ -2375,7 +2451,8 @@ class PinwheelBot(commands.Bot):
                 team = await repo.get_team(gov.team_id)
                 if not team:
                     await interaction.followup.send(
-                        "Team not found.",
+                        "Your team could not be found in the database. "
+                        "This is unexpected -- let an admin know so they can investigate.",
                         ephemeral=True,
                     )
                     return
@@ -2407,7 +2484,8 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_bio_failed")
             await interaction.followup.send(
-                "Something went wrong setting the bio.",
+                f"Could not save the bio for **{hooper_name}** right now. "
+                "Try `/bio` again -- if this persists, let an admin know.",
                 ephemeral=True,
             )
 
@@ -2421,21 +2499,23 @@ class PinwheelBot(commands.Bot):
         # Check admin permissions
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                "This command can only be used in a server.",
+                "`/new-season` can only be used inside a Discord server, not in DMs.",
                 ephemeral=True,
             )
             return
 
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
-                "Admin only.",
+                "`/new-season` is restricted to server administrators. "
+                "Ask an admin to start the new season for you.",
                 ephemeral=True,
             )
             return
 
         if not self.engine:
             await interaction.response.send_message(
-                "Database not available.",
+                "The league database is temporarily unavailable. "
+                "Try `/new-season` again in a moment -- if this persists, check the server logs.",
                 ephemeral=True,
             )
             return
@@ -2460,7 +2540,9 @@ class PinwheelBot(commands.Bot):
                 latest_season = result.scalar_one_or_none()
                 if not latest_season:
                     await interaction.followup.send(
-                        "No existing season found. Seed a league first.",
+                        "No existing season or league found in the database. "
+                        "The league needs to be seeded first -- "
+                        "run `demo_seed.py seed` or set up the league through the API.",
                         ephemeral=True,
                     )
                     return
@@ -2515,7 +2597,9 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_new_season_failed")
             await interaction.followup.send(
-                "Something went wrong creating the new season.",
+                f"Could not create season **{name}** right now. "
+                "This might be a database issue -- try `/new-season` again. "
+                "If it keeps failing, check the server logs for details.",
                 ephemeral=True,
             )
 

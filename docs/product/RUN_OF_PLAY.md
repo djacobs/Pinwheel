@@ -108,3 +108,124 @@ The admin keeps the game running.
 | `/reports` | View latest AI reports |
 | `/profile` | View your governance record |
 | `/rules` | View current ruleset |
+
+## Run of Admin
+
+Everything above is the player experience. This section is for the person keeping the lights on.
+
+### Starting a New Season
+
+When a season ends, type `/new-season NAME` in Discord. You must have the Discord server's Administrator permission.
+
+> `/new-season` name: **Summer Classic** carry_rules: **True**
+
+- **carry_rules** (default: yes) brings the current ruleset forward. Set to `False` to reset to defaults.
+- Teams, hoopers, and governor enrollments carry over automatically. All governors receive fresh tokens.
+- A public announcement is posted to the main channel. Players do not need to re-enroll.
+- There must be an existing season in the database. If there isn't one, seed the league first.
+
+### Wild Proposal Review
+
+When a player confirms a "wild" proposal (Tier 5+, or one the AI flagged with low confidence), two things happen at once:
+
+1. The proposal goes to the Floor and voting opens normally.
+2. You receive a DM with two buttons: **Clear** and **Veto**.
+
+**Clear** acknowledges you've reviewed it. Voting continues. The proposer gets a DM saying their proposal was cleared.
+
+**Veto** kills the proposal. You'll be asked for an optional reason. The proposer gets a DM explaining the veto and receives their PROPOSE token back.
+
+If you do nothing for 24 hours, the buttons expire. Voting continues regardless -- you are a safety valve, not a gatekeeper. The system does not block on your review.
+
+The admin who receives these DMs is determined by the `PINWHEEL_ADMIN_DISCORD_ID` environment variable. If that isn't set, the server owner gets the DMs instead.
+
+### Admin Roster
+
+Visit `/admin/roster` in the web UI. This page shows every enrolled governor with:
+
+- Team assignment and team color
+- Token balances (PROPOSE, AMEND, BOOST)
+- Proposals submitted, passed, and failed
+- Total votes cast
+
+In production (with OAuth enabled), only the admin can see this page. In local dev, it's open to everyone for testing.
+
+### Eval Dashboard
+
+Visit `/admin/evals` in the web UI. This is your health check on the AI and the game's governance quality. It shows aggregate stats only -- no individual report text, no private content.
+
+What you'll find:
+
+- **Grounding rate** -- how often the AI's reports reference real entities from the simulation
+- **Prescriptive flags** -- how often the AI slips into telling players what to do (it shouldn't)
+- **Report Impact Rate** -- whether AI reports appear to influence governance behavior
+- **Rubric summary** -- manual quality scores for public reports
+- **Golden dataset pass rate** -- how well the AI handles a fixed set of 20 eval cases
+- **A/B win rates** -- dual-prompt comparison results
+- **GQI trend** -- Governance Quality Index over the last 5 rounds (diversity, participation breadth, consequence awareness, vote deliberation)
+- **Active scenario flags** -- recent flags for unusual game states (dominant strategies, degenerate equilibria, etc.)
+- **Rule evaluation** -- the AI's admin-facing analysis: suggested experiments, stale parameters, equilibrium health, and flagged concerns
+
+The rule evaluator is different from the reporter. The reporter describes and never prescribes. The rule evaluator prescribes freely -- it's your advisor, not the players'.
+
+### Pace Control
+
+The game advances automatically on a cron schedule. You can change the speed at runtime without restarting.
+
+**Check current pace:**
+
+```
+GET /api/pace
+```
+
+**Change pace:**
+
+```
+POST /api/pace
+{"pace": "fast"}
+```
+
+| Pace | Cron | Round Interval |
+|------|------|----------------|
+| `fast` | every 1 minute | 1 min |
+| `normal` | every 5 minutes | 5 min |
+| `slow` | every 15 minutes | 15 min |
+| `manual` | none (auto-advance off) | you trigger it |
+
+**Advance one round manually** (useful in `manual` pace or for demos):
+
+```
+POST /api/pace/advance?quarter_seconds=300&game_gap_seconds=0
+```
+
+This triggers a single round with replay-mode presentation. Returns 409 if a presentation is already running.
+
+**Check presentation status:**
+
+```
+GET /api/pace/status
+```
+
+Returns whether a presentation is currently active, and if so, which round and game index.
+
+### Environment Variables for Admin
+
+| Variable | What It Controls | Default |
+|----------|-----------------|---------|
+| `PINWHEEL_ADMIN_DISCORD_ID` | Your Discord user ID. Receives wild proposal DMs. Gates admin web pages in production. | (unset -- falls back to server owner) |
+| `PINWHEEL_PRESENTATION_PACE` | Game speed: `fast`, `normal`, `slow`, `manual` | `slow` |
+| `PINWHEEL_PRESENTATION_MODE` | `replay` (live quarter-by-quarter arena) or `instant` (results appear immediately). Production forces `replay`. | `replay` |
+| `PINWHEEL_AUTO_ADVANCE` | Whether the scheduler auto-advances rounds on the cron schedule | `true` |
+| `PINWHEEL_GAME_CRON` | Explicit cron override. If set, ignores pace. | derived from pace |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N rounds | `1` |
+| `PINWHEEL_EVALS_ENABLED` | Run evals (grounding, prescriptive, GQI, flags, rule evaluator) after each round | `true` |
+| `PINWHEEL_QUARTER_REPLAY_SECONDS` | How long each quarter takes in replay mode | `300` (5 min) |
+| `PINWHEEL_GAME_INTERVAL_SECONDS` | Gap between games in a round during replay | `1800` (30 min) |
+| `ANTHROPIC_API_KEY` | Claude API key. If unset, AI features fall back to mocks. | (unset) |
+
+### Other Things to Know
+
+- **Presentation survives restarts.** If a replay is in progress and the server redeploys, it picks up where it left off. The presentation state is persisted in the database, and on startup the system calculates how many quarters elapsed and skips ahead.
+- **Completed seasons still tally governance.** After a season's games are done, the scheduler keeps running governance tally cycles so late votes still count.
+- **Championship window.** When a season enters championship status, the scheduler checks a `championship_ends_at` timestamp. When the window expires, the season transitions to complete automatically.
+- **The admin permission check uses Discord's server Administrator flag**, not the `PINWHEEL_ADMIN_DISCORD_ID` variable. Those are separate: the env var controls who gets DMs and web page access; the Discord permission controls who can run `/new-season`.

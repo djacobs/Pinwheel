@@ -457,3 +457,64 @@ class TestGovernanceNotificationTiming:
 
         event_types = [e["type"] for e in received]
         assert "governance.window_closed" in event_types
+
+
+class TestMultisessionLockRelease:
+    """Verify that tick_round uses step_round_multisession and releases the lock."""
+
+    async def test_tick_round_uses_multisession(self, engine: AsyncEngine):
+        """tick_round should use step_round_multisession, allowing writes between phases."""
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+
+        await tick_round(engine, event_bus)
+
+        # Verify the round completed successfully (games + reports stored)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            assert len(games) == 6
+            reports = await repo.get_reports_for_round(season_id, 1)
+            assert len(reports) >= 2
+
+    async def test_concurrent_write_during_tick(self, engine: AsyncEngine):
+        """Demonstrate that writes can happen while tick_round is in the AI phase.
+
+        We patch _phase_ai to perform a concurrent DB write, proving the lock
+        is released between session 1 (simulate) and session 2 (persist).
+        """
+        import unittest.mock
+
+        from pinwheel.core.game_loop import _phase_ai as real_phase_ai
+
+        await _setup_season(engine)
+        event_bus = EventBus()
+        concurrent_write_succeeded = False
+
+        original_phase_ai = real_phase_ai
+
+        async def phase_ai_with_concurrent_write(sim, api_key=""):
+            nonlocal concurrent_write_succeeded
+            # While AI phase is running (no DB session held),
+            # try a concurrent DB write to prove the lock is released
+            try:
+                async with get_session(engine) as session:
+                    repo = Repository(session)
+                    # A simple read/write operation that would fail if locked
+                    await repo.get_active_season()
+                    concurrent_write_succeeded = True
+            except Exception:
+                concurrent_write_succeeded = False
+
+            return await original_phase_ai(sim, api_key)
+
+        with unittest.mock.patch(
+            "pinwheel.core.game_loop._phase_ai",
+            side_effect=phase_ai_with_concurrent_write,
+        ):
+            await tick_round(engine, event_bus)
+
+        assert concurrent_write_succeeded, (
+            "Expected concurrent DB access to succeed during AI phase "
+            "(lock should be released between sessions)"
+        )

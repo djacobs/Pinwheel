@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **725 tests**, zero lint errors (Session 53)
+- **857 tests**, zero lint errors (Session 55)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -14,7 +14,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 13:** Self-heal missing player enrollments, decouple governance from game simulation
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 53 (save TECH_ARCHITECTURE + API_ARCHITECTURE plans, update CLAUDE.md Discord commands)
+- **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
+- **Latest commit:** Session 55 (SQLite write lock contention fix)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -46,9 +47,9 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 
 ### P2 — Missing features (complete the arc)
 - [ ] **Playoff progression fixes** — Three bugs preventing playoffs from completing. *(Small — `plans/2026-02-13-fix-playoff-progression-pipeline.md`)*
-- [ ] **Offseason governance** — Governance window between seasons for meta-rule changes. *(Part of season lifecycle plan)*
-- [ ] **Tiebreakers** — Head-to-head, point differential for tied standings. *(Part of season lifecycle plan)*
-- [ ] **Season reports** — End-of-season summary: MVP, most impactful rule changes, governance participation stats. *(Medium — no plan file yet)*
+- [x] **Offseason governance** — Configurable governance window between seasons (`PINWHEEL_OFFSEASON_WINDOW`). Championship → offseason → complete. *(Session 54)*
+- [x] **Tiebreakers** — Head-to-head, point differential, points scored. Tiebreaker games when all three criteria tie. *(Session 54)*
+- [x] **Season memorial data** — Statistical leaders, key moments, head-to-head records, rule timeline. Data backbone for end-of-season reports. *(Session 54)*
 - [ ] **Demo verification** — Run full Showboat/Rodney pipeline, update screenshots for hackathon submission. *(Small)*
 
 ### P3 — Infrastructure (quality of life)
@@ -247,3 +248,121 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 **725 tests, zero lint errors.**
 
 **What could have gone better:** Context ran out mid-session due to many large background agents running in parallel. The API_ARCHITECTURE plan completed but wasn't saved before the context compacted. Recovered cleanly on resume.
+
+---
+
+## Session 54 — Tiebreakers + Offseason + Memorial + Evals Wiring + Discord UX
+
+**What was asked:** Run the post-commit checklist. The uncommitted changes from the previous session(s) included tiebreaker logic, offseason governance, season memorial data, injection classifier evals, GQI/rule evaluator wiring into the game loop, Discord error message humanization, eval dashboard expansion, and RUN_OF_PLAY updates.
+
+**What was built:**
+
+### Tiebreaker system (`season.py`, +458 lines)
+- `check_tiebreakers()` resolves ties at playoff cutoff using three criteria in order: (a) head-to-head record, (b) point differential, (c) points scored.
+- `_compute_head_to_head()` helper scans game results for direct matchups between tied teams.
+- When all three criteria are identical, flags that tiebreaker games are needed.
+- `step_round()` updated to recognize `tiebreaker_check` and `tiebreakers` season statuses.
+
+### Offseason governance (`season.py` + `scheduler_runner.py`)
+- `enter_offseason()` transitions season from championship to offseason phase, creates a governance window for meta-rule changes between seasons.
+- Scheduler runner now transitions championship → offseason → complete (was championship → complete).
+- Configurable window duration via `PINWHEEL_OFFSEASON_WINDOW` setting (default 3600s).
+- During offseason, `tick_round()` tallies governance proposals on every tick and closes the window when expired.
+
+### Season memorial data (`memorial.py`, new, 406 lines)
+- `compute_statistical_leaders()` — top 3 per category (PPG, APG, SPG, FG%).
+- Key moments, head-to-head records, rule timeline data collection.
+- Data backbone for end-of-season narrative reports (AI generation is separate phase).
+
+### Injection classifier evals (`injection.py`, new, 93 lines)
+- `store_injection_classification()` stores prompt injection classification results as eval records.
+- No private report content stored — only classification outcome and truncated preview.
+
+### GQI + Rule Evaluator wired into game loop
+- `_run_evals()` now runs GQI computation (`compute_gqi` + `store_gqi`) after each round.
+- `_run_evals()` now runs Opus-powered rule evaluation (`evaluate_rules` + `store_rule_evaluation`) after each round.
+- Both pass `api_key` through from `step_round()`.
+
+### Eval dashboard expansion
+- Additional eval types shown on `/admin/evals` page (template + route updates).
+- New `InjectionClassification` Pydantic model in `evals/models.py`.
+
+### Discord error message humanization
+- All bot error messages rewritten to be actionable and friendly.
+- "Database not available" → "The league database is temporarily unavailable. Try `/join` again in a moment -- if this persists, let an admin know."
+- "No active season" → "There's no active season right now. Ask an admin to start one with `/new-season`."
+- Generic "Something went wrong" messages now include specific recovery actions and context-aware suggestions (e.g., locked DB vs team-specific vs general failures).
+- `GovernorNotFound` message updated in `helpers.py`.
+
+### RUN_OF_PLAY.md expanded (+121 lines)
+- Additional product documentation for the run of play.
+
+### Test fixes (3)
+- Fixed `test_handle_roster_no_engine` — assert "unavailable" instead of old "Database not available".
+- Fixed `test_trade_target_not_enrolled` — assert "isn't enrolled" instead of old "not enrolled".
+- Fixed `test_governor_not_found_no_season` — case-insensitive regex for "no active season".
+- Fixed lint error in `bot.py:1799` — line too long.
+
+**Files modified (21):** `docs/product/RUN_OF_PLAY.md`, `src/pinwheel/api/eval_dashboard.py`, `src/pinwheel/api/governance.py`, `src/pinwheel/config.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `src/pinwheel/core/season.py`, `src/pinwheel/db/models.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/helpers.py`, `src/pinwheel/discord/views.py`, `src/pinwheel/evals/ab_compare.py`, `src/pinwheel/evals/models.py`, `src/pinwheel/evals/rubric.py`, `src/pinwheel/main.py`, `src/pinwheel/models/report.py`, `templates/pages/eval_dashboard.html`, `tests/test_discord.py`, `tests/test_evals/test_eval_dashboard.py`, `tests/test_game_loop.py`, `tests/test_season_lifecycle.py`
+
+**New files (5):** `src/pinwheel/core/memorial.py`, `src/pinwheel/evals/injection.py`, `tests/test_memorial.py`, `tests/test_evals/test_injection.py`, `tests/test_evals/test_eval_wiring.py`
+
+**840 tests (115 new), zero lint errors.**
+
+**What could have gone better:** Three test assertions broke because error messages were humanized but the tests still asserted the old strings. Caught immediately by the test run — quick pattern-match fixes.
+
+---
+
+## Session 55 — Fix SQLite Write Lock Contention During `/join`
+
+**What was asked:** Players get "Something went wrong joining the team" when `/join` coincides with `tick_round`. Root cause: `tick_round` holds a single SQLite session for 30-90 seconds while `step_round` interleaves fast DB writes with slow AI API calls. SQLite allows only one writer — so `/join`, `/propose`, `/vote` all fail during that window. Fix: release the DB write lock between AI calls.
+
+**What was built:**
+
+### Phase dataclasses (`game_loop.py`)
+- `_SimPhaseResult` — carries simulation/governance data between phases (teams, game results, tallies, governor activity).
+- `_AIPhaseResult` — carries AI-generated content (commentaries, highlight reel, reports).
+
+### Three extracted phase functions (`game_loop.py`)
+- `_phase_simulate_and_govern()` — Session 1 (~2-3s): load season/teams, simulate games, store results + box scores, tally governance, query governor activity. No AI calls.
+- `_phase_ai()` — No DB session: generate commentary, highlights, simulation/governance/private reports via mock or API. Pure I/O.
+- `_phase_persist_and_finalize()` — Session 2 (~1-2s): attach commentary, store reports, run evals, season progression checks, publish round.completed event.
+
+### `step_round_multisession(engine, ...)` (`game_loop.py`)
+- New function that opens/closes separate DB sessions per phase. The write lock is released during the 30-90s AI phase, allowing Discord commands to write freely.
+
+### `step_round()` refactored (`game_loop.py`)
+- Body replaced with calls to the three phase functions. Same signature, same behavior, backward-compatible.
+
+### `tick_round()` restructured (`scheduler_runner.py`)
+- Pre-flight session: get active season, handle championship/offseason/completed checks, determine next round number. Session closed.
+- Calls `step_round_multisession(engine, ...)` — manages its own sessions with lock release.
+- Post-round session: mark games presented (instant mode), publish presentation events.
+
+### Lock timeline after fix
+```
+Pre-flight session (~1s): get season, check status, determine round
+   [LOCK RELEASED]
+Session 1 (~2-3s): simulate games, store results, tally governance
+   [LOCK RELEASED — /join, /propose, /vote can write here]
+AI calls (~30-90s): commentary, highlights, reports (NO session)
+   [LOCK RELEASED — /join, /propose, /vote can write here]
+Session 2 (~1-2s): store reports, run evals, season progression
+   [LOCK RELEASED]
+Post-round session (~1s): mark games presented
+   [LOCK RELEASED]
+```
+
+### Tests (17 new)
+- `TestPhaseSimulateAndGovern` (4): returns `_SimPhaseResult`, handles empty rounds, governance tally, DB storage.
+- `TestPhaseAI` (2): returns `_AIPhaseResult` with mock content, private reports for active governors.
+- `TestPhasePersistAndFinalize` (2): stores reports, attaches commentary to summaries.
+- `TestStepRoundMultisession` (5): produces same results, stores games/reports in DB, handles empty rounds, publishes events.
+- `TestStepRoundBackwardCompat` (2): existing `step_round` still works identically.
+- `TestMultisessionLockRelease` (2): verifies tick_round uses multisession, proves concurrent DB access succeeds during AI phase.
+
+**Files modified (4):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `tests/test_game_loop.py`, `tests/test_scheduler_runner.py`
+
+**857 tests (17 new), zero lint errors.**
+
+**What could have gone better:** Nothing significant — the phase extraction was clean, all 53 existing tests passed on first run after refactoring.

@@ -121,9 +121,12 @@ async def store_ab_comparison(
 async def get_ab_win_rates(
     repo: Repository,
     season_id: str,
+    round_number: int | None = None,
 ) -> dict:
     """Get A/B win rates across all comparisons."""
-    results = await repo.get_eval_results(season_id, eval_type="ab_comparison")
+    results = await repo.get_eval_results(
+        season_id, eval_type="ab_comparison", round_number=round_number
+    )
     if not results:
         return {"total": 0, "a_wins": 0, "b_wins": 0, "ties": 0}
 

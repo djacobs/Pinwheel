@@ -6,11 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pinwheel.ai.interpreter import interpret_proposal_mock
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import (
+    _AIPhaseResult,
     _check_all_playoffs_complete,
     _check_season_complete,
+    _phase_ai,
+    _phase_persist_and_finalize,
+    _phase_simulate_and_govern,
+    _SimPhaseResult,
     compute_standings_from_repo,
     generate_playoff_bracket,
     step_round,
+    step_round_multisession,
 )
 from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
 from pinwheel.core.scheduler import generate_round_robin
@@ -493,7 +499,7 @@ class TestSeasonEndDetection:
         assert is_complete is False
 
     async def test_step_round_sets_status_on_final_round(self, repo: Repository):
-        """step_round updates season status to 'regular_season_complete' on final round."""
+        """step_round updates season to playoffs (via tiebreaker check) on final round."""
         season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
         # Set season status to active first
         await repo.update_season_status(season_id, "active")
@@ -511,9 +517,10 @@ class TestSeasonEndDetection:
         assert result.final_standings is not None
         assert len(result.final_standings) == 4
 
-        # Season status in DB should be updated
+        # Season status in DB should be updated.
+        # New lifecycle: ACTIVE -> TIEBREAKER_CHECK -> PLAYOFFS (or TIEBREAKERS)
         season = await repo.get_season(season_id)
-        assert season.status == "regular_season_complete"
+        assert season.status in ("playoffs", "tiebreakers")
 
     async def test_step_round_does_not_set_status_mid_season(self, repo: Repository):
         """step_round does NOT set season_complete mid-season."""
@@ -842,9 +849,9 @@ class TestPlayoffProgression:
         for rnd in range(1, tt_total + 1):
             await step_round(repo, s2.id, round_number=rnd)
 
-        # Now generate a 2-team bracket manually and set status
+        # After regular season, tiebreaker check transitions to playoffs (or tiebreakers)
         season_row = await repo.get_season(s2.id)
-        assert season_row.status == "regular_season_complete"
+        assert season_row.status in ("playoffs", "tiebreakers")
 
         # Clear existing playoff schedule entries and create 2-team bracket
         await generate_playoff_bracket(repo, s2.id, num_playoff_teams=2)
@@ -893,7 +900,7 @@ class TestPlayoffProgression:
             await step_round(repo, s3.id, round_number=rnd)
 
         season_row = await repo.get_season(s3.id)
-        assert season_row.status == "regular_season_complete"
+        assert season_row.status in ("playoffs", "tiebreakers")
 
         # Play finals (the bracket for 2 teams is a direct finals entry)
         finals_round = duo_total + 1
@@ -1035,3 +1042,300 @@ class TestPlayoffProgression:
 
         # After all playoff games
         assert await _check_all_playoffs_complete(repo, season_id) is True
+
+
+class TestPhaseSimulateAndGovern:
+    """Tests for the extracted _phase_simulate_and_govern function."""
+
+    async def test_returns_sim_phase_result(self, repo: Repository):
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+
+        assert sim is not None
+        assert isinstance(sim, _SimPhaseResult)
+        assert sim.season_id == season_id
+        assert sim.round_number == 1
+        assert len(sim.game_results) == 6
+        assert len(sim.game_row_ids) == 6
+        assert len(sim.game_summaries) == 6
+        assert len(sim.teams_cache) == 4
+        # Summaries should NOT have commentary (that's added in AI phase)
+        for gs in sim.game_summaries:
+            assert "commentary" not in gs
+
+    async def test_returns_none_for_empty_round(self, repo: Repository):
+        league = await repo.create_league("Empty")
+        season = await repo.create_season(league.id, "Empty Season")
+
+        sim = await _phase_simulate_and_govern(repo, season.id, round_number=99)
+        assert sim is None
+
+    async def test_governance_tallied(self, repo: Repository):
+        """Governance tally occurs when interval matches."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Submit a proposal
+        gov_id = "gov-phase-test"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+        from pinwheel.ai.interpreter import interpret_proposal_mock
+        from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        sim = await _phase_simulate_and_govern(
+            repo, season_id, round_number=1, governance_interval=1,
+        )
+
+        assert sim is not None
+        assert len(sim.tallies) == 1
+        assert sim.tallies[0].passed is True
+        assert sim.governance_summary is not None
+
+    async def test_stores_game_results_in_db(self, repo: Repository):
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        await _phase_simulate_and_govern(repo, season_id, round_number=1)
+
+        games = await repo.get_games_for_round(season_id, 1)
+        assert len(games) == 6
+
+
+class TestPhaseAI:
+    """Tests for the extracted _phase_ai function (mock mode)."""
+
+    async def test_returns_ai_phase_result(self, repo: Repository):
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+        assert sim is not None
+
+        ai = await _phase_ai(sim, api_key="")
+
+        assert isinstance(ai, _AIPhaseResult)
+        # Mock commentary for each game
+        assert len(ai.commentaries) == 6
+        assert ai.highlight_reel != ""
+        assert ai.sim_report is not None
+        assert ai.sim_report.report_type == "simulation"
+        assert ai.gov_report is not None
+        assert ai.gov_report.report_type == "governance"
+
+    async def test_private_reports_for_active_governors(self, repo: Repository):
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Create governor activity so private reports get generated
+        gov_id = "gov-ai-test"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+        from pinwheel.ai.interpreter import interpret_proposal_mock
+        from pinwheel.core.governance import confirm_proposal, submit_proposal
+
+        interpretation = interpret_proposal_mock("Test rule", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Test rule",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        await confirm_proposal(repo, proposal)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+        assert sim is not None
+        assert gov_id in sim.active_governor_ids
+
+        ai = await _phase_ai(sim, api_key="")
+
+        assert len(ai.private_reports) >= 1
+        gov_ids = [gid for gid, _ in ai.private_reports]
+        assert gov_id in gov_ids
+
+
+class TestPhasePersistAndFinalize:
+    """Tests for the extracted _phase_persist_and_finalize function."""
+
+    async def test_stores_reports_and_returns_round_result(self, repo: Repository):
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+        assert sim is not None
+        ai = await _phase_ai(sim, api_key="")
+
+        result = await _phase_persist_and_finalize(repo, sim, ai)
+
+        assert result.round_number == 1
+        assert len(result.games) == 6
+        assert len(result.reports) >= 2  # sim + gov
+
+        # Reports stored in DB
+        reports = await repo.get_reports_for_round(season_id, 1)
+        assert len(reports) >= 2
+
+    async def test_commentary_attached_to_summaries(self, repo: Repository):
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+        assert sim is not None
+        ai = await _phase_ai(sim, api_key="")
+
+        result = await _phase_persist_and_finalize(repo, sim, ai)
+
+        # After finalization, commentary should be attached to game summaries
+        for game in result.games:
+            assert "commentary" in game
+
+
+class TestStepRoundMultisession:
+    """Tests for step_round_multisession — same results, separate DB sessions."""
+
+    async def test_produces_same_results_as_step_round(self, engine: AsyncEngine):
+        """step_round_multisession produces equivalent results to step_round."""
+        # Set up a season using a session
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Run multisession variant
+        result = await step_round_multisession(
+            engine, season_id, round_number=1,
+        )
+
+        assert result.round_number == 1
+        assert len(result.games) == 6
+        assert len(result.reports) >= 2
+        for game in result.games:
+            assert game["home_score"] > 0 or game["away_score"] > 0
+            assert game["winner_team_id"] in team_ids
+
+    async def test_stores_games_in_db(self, engine: AsyncEngine):
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season_id, _ = await _setup_season_with_teams(repo)
+
+        await step_round_multisession(engine, season_id, round_number=1)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            assert len(games) == 6
+
+    async def test_stores_reports_in_db(self, engine: AsyncEngine):
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season_id, _ = await _setup_season_with_teams(repo)
+
+        await step_round_multisession(engine, season_id, round_number=1)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            reports = await repo.get_reports_for_round(season_id, 1)
+            assert len(reports) >= 2
+
+    async def test_empty_round(self, engine: AsyncEngine):
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Empty")
+            season = await repo.create_season(league.id, "Empty Season")
+            season_id = season.id
+
+        result = await step_round_multisession(engine, season_id, round_number=99)
+        assert result.games == []
+        assert result.reports == []
+
+    async def test_publishes_events(self, engine: AsyncEngine):
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season_id, _ = await _setup_season_with_teams(repo)
+
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe(None) as sub:
+            await step_round_multisession(
+                engine, season_id, round_number=1, event_bus=bus,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "game.completed" in event_types
+        assert "round.completed" in event_types
+
+
+class TestStepRoundBackwardCompat:
+    """Verify step_round still works identically after refactoring."""
+
+    async def test_existing_behavior_preserved(self, repo: Repository):
+        """step_round with single repo still works as before."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        result = await step_round(repo, season_id, round_number=1)
+
+        assert result.round_number == 1
+        assert len(result.games) == 6
+        assert len(result.reports) >= 2
+        for game in result.games:
+            assert game["home_score"] > 0 or game["away_score"] > 0
+            assert game["winner_team_id"] in team_ids
+            # Commentary should be present (added by _phase_ai + _phase_persist_and_finalize)
+            assert "commentary" in game
+
+    async def test_governance_still_works(self, repo: Repository):
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        gov_id = "gov-compat-test"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        result = await step_round(
+            repo, season_id, round_number=1, governance_interval=1,
+        )
+
+        assert len(result.tallies) == 1
+        assert result.tallies[0].passed is True

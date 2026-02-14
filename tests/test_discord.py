@@ -182,14 +182,14 @@ class TestSlashCommands:
         assert isinstance(embed, discord.Embed)
 
     async def test_handle_roster_no_engine(self, bot: PinwheelBot) -> None:
-        """Without an engine, roster defers and returns 'Database not available'."""
+        """Without an engine, roster defers and returns a database unavailable message."""
         interaction = make_interaction()
         await bot._handle_roster(interaction)
         interaction.response.defer.assert_called_once()
         interaction.followup.send.assert_called_once()
         call_args = interaction.followup.send.call_args
         msg = call_args.args[0] if call_args.args else call_args.kwargs.get("content", "")
-        assert "Database not available" in str(msg)
+        assert "unavailable" in str(msg).lower()
 
     async def test_handle_propose_with_text_no_engine(self, bot: PinwheelBot) -> None:
         """Without an engine, propose returns an ephemeral error (before defer)."""
@@ -1613,7 +1613,7 @@ class TestTradeCommand:
         )
         interaction.response.defer.assert_called_once()
         call_kwargs = interaction.followup.send.call_args
-        assert "not enrolled" in str(call_kwargs.args[0]).lower()
+        assert "isn't enrolled" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
 
     async def test_trade_insufficient_tokens(
@@ -2818,7 +2818,7 @@ class TestGetGovernorCompletedSeason:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        with pytest.raises(GovernorNotFound, match="No active season"):
+        with pytest.raises(GovernorNotFound, match="(?i)no active season"):
             await get_governor(engine, "99999")
 
         await engine.dispose()

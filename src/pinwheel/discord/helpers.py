@@ -56,11 +56,17 @@ async def get_governor(engine: AsyncEngine, discord_id: str) -> GovernorInfo:
         repo = Repository(session)
         season = await repo.get_active_season()
         if not season:
-            raise GovernorNotFound("No active season.")
+            raise GovernorNotFound(
+                "There's no active season right now. "
+                "Ask an admin to start one with `/new-season`."
+            )
 
         player = await repo.get_player_by_discord_id(discord_id)
         if player is None or player.team_id is None or player.enrolled_season_id != season.id:
-            raise GovernorNotFound("You need to `/join` a team first.")
+            raise GovernorNotFound(
+                "You're not enrolled as a governor this season. "
+                "Use `/join` to pick a team and get started."
+            )
 
         team = await repo.get_team(player.team_id)
         team_name = team.name if team else player.team_id

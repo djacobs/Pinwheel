@@ -57,9 +57,12 @@ async def score_report(
 async def get_rubric_summary(
     repo: Repository,
     season_id: str,
+    round_number: int | None = None,
 ) -> dict:
     """Get per-dimension averages and pass rate for all rubric scores."""
-    results = await repo.get_eval_results(season_id, eval_type="rubric")
+    results = await repo.get_eval_results(
+        season_id, eval_type="rubric", round_number=round_number
+    )
     if not results:
         return {"count": 0, "averages": {}, "pass_rate": 0.0}
 

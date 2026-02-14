@@ -27,6 +27,9 @@ from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.models import SeasonArchiveRow
 from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 
+# Default offseason governance window: 1 hour (configurable via PINWHEEL_OFFSEASON_WINDOW)
+DEFAULT_OFFSEASON_WINDOW_SECONDS = 3600
+
 if TYPE_CHECKING:
     from pinwheel.core.event_bus import EventBus
     from pinwheel.db.models import SeasonRow
@@ -445,9 +448,10 @@ async def enter_championship(
     # Store in season.config
     season = await repo.get_season(season_id)
     if season:
-        existing_config = season.config or {}
-        existing_config.update(championship_config)
-        season.config = existing_config
+        # Create a new dict to ensure SQLAlchemy detects the mutation
+        new_config = dict(season.config or {})
+        new_config.update(championship_config)
+        season.config = new_config
         await repo.session.flush()
 
     logger.info(
@@ -473,6 +477,458 @@ async def enter_championship(
         )
 
     return championship_config
+
+
+# ---------------------------------------------------------------------------
+# Tiebreaker Logic
+# ---------------------------------------------------------------------------
+
+
+def _compute_head_to_head(
+    results: list[dict],
+    team_a: str,
+    team_b: str,
+) -> tuple[int, int]:
+    """Compute head-to-head wins between two teams.
+
+    Args:
+        results: List of game result dicts with home_team_id, away_team_id,
+                 winner_team_id.
+        team_a: First team ID.
+        team_b: Second team ID.
+
+    Returns:
+        Tuple of (team_a_wins, team_b_wins) in head-to-head matchups.
+    """
+    a_wins = 0
+    b_wins = 0
+    for r in results:
+        teams_in_game = {r["home_team_id"], r["away_team_id"]}
+        if teams_in_game == {team_a, team_b}:
+            if r["winner_team_id"] == team_a:
+                a_wins += 1
+            elif r["winner_team_id"] == team_b:
+                b_wins += 1
+    return a_wins, b_wins
+
+
+def check_tiebreakers(
+    standings: list[dict],
+    results: list[dict],
+    num_playoff_teams: int = 4,
+) -> tuple[list[dict], bool]:
+    """Check for ties at the playoff cutoff and attempt to resolve them.
+
+    Tiebreaker order:
+        (a) Head-to-head record between tied teams
+        (b) Point differential (higher is better)
+        (c) Points scored (higher is better)
+
+    If all three criteria are identical, tiebreaker games are needed.
+
+    Args:
+        standings: Sorted standings list from compute_standings().
+            Each dict has: team_id, wins, losses, points_for,
+            points_against, point_diff.
+        results: Raw game result dicts for head-to-head computation.
+        num_playoff_teams: Number of teams that qualify for playoffs.
+
+    Returns:
+        Tuple of (resolved_standings, needs_tiebreaker_games).
+        - resolved_standings: standings re-sorted with tiebreakers applied.
+        - needs_tiebreaker_games: True if ties could not be resolved and
+          tiebreaker games must be played.
+    """
+    if len(standings) <= num_playoff_teams:
+        # Everyone qualifies -- no tiebreaker needed
+        return standings, False
+
+    # Find the wins at the cutoff boundary
+    cutoff_wins = standings[num_playoff_teams - 1]["wins"]
+
+    # Identify teams tied at the cutoff boundary
+    # (teams just inside AND just outside the cutoff with the same win count)
+    tied_teams = [
+        s for s in standings if s["wins"] == cutoff_wins
+    ]
+
+    if len(tied_teams) <= 1:
+        # No tie at the boundary
+        return standings, False
+
+    # Check if all tied teams are clearly above or below the cutoff
+    above_cutoff = [s for s in standings[:num_playoff_teams] if s["wins"] == cutoff_wins]
+    below_cutoff = [s for s in standings[num_playoff_teams:] if s["wins"] == cutoff_wins]
+
+    if not above_cutoff or not below_cutoff:
+        # All tied teams are on the same side of the cutoff -- no conflict
+        return standings, False
+
+    # There IS a tie at the cutoff boundary. Attempt resolution.
+    # Collect all teams that are tied at the cutoff boundary
+    contested_teams = above_cutoff + below_cutoff
+
+    # Apply tiebreaker criteria to sort the contested group
+    resolved, unresolved = _resolve_tie_group(contested_teams, results)
+
+    if unresolved:
+        # Could not break the tie -- tiebreaker games needed
+        return standings, True
+
+    # Rebuild standings with the resolved order
+    resolved_ids = [t["team_id"] for t in resolved]
+    non_contested = [s for s in standings if s["team_id"] not in resolved_ids]
+
+    # Split non_contested into above and below the tie group
+    above = [s for s in non_contested if s["wins"] > cutoff_wins]
+    below = [s for s in non_contested if s["wins"] < cutoff_wins]
+
+    # Reassemble: above + resolved tie group + below
+    final = above + resolved + below
+    return final, False
+
+
+def _resolve_tie_group(
+    tied_teams: list[dict],
+    results: list[dict],
+) -> tuple[list[dict], bool]:
+    """Attempt to resolve a tie group using tiebreaker criteria.
+
+    Returns (sorted_teams, unresolved). If unresolved is True,
+    the tie could not be broken.
+    """
+    if len(tied_teams) <= 1:
+        return tied_teams, False
+
+    # For 2-team tiebreakers, use head-to-head first
+    if len(tied_teams) == 2:
+        a, b = tied_teams[0], tied_teams[1]
+        a_wins, b_wins = _compute_head_to_head(
+            results, a["team_id"], b["team_id"]
+        )
+        if a_wins > b_wins:
+            return [a, b], False
+        if b_wins > a_wins:
+            return [b, a], False
+
+        # Head-to-head tied -> try point differential
+        if a["point_diff"] != b["point_diff"]:
+            if a["point_diff"] > b["point_diff"]:
+                return [a, b], False
+            return [b, a], False
+
+        # Point differential tied -> try points scored
+        if a["points_for"] != b["points_for"]:
+            if a["points_for"] > b["points_for"]:
+                return [a, b], False
+            return [b, a], False
+
+        # Everything tied -- cannot resolve
+        return tied_teams, True
+
+    # For multi-team tiebreakers (3+), sort by composite tiebreaker key.
+    # Build head-to-head records among the tied group.
+    team_ids = {t["team_id"] for t in tied_teams}
+    h2h_wins: dict[str, int] = {tid: 0 for tid in team_ids}
+
+    for r in results:
+        if r["home_team_id"] in team_ids and r["away_team_id"] in team_ids:
+            winner = r["winner_team_id"]
+            if winner in h2h_wins:
+                h2h_wins[winner] += 1
+
+    def _sort_key(team: dict) -> tuple[int, int, int]:
+        return (
+            -h2h_wins.get(team["team_id"], 0),
+            -team["point_diff"],
+            -team["points_for"],
+        )
+
+    sorted_teams = sorted(tied_teams, key=_sort_key)
+
+    # Check if the sort actually resolved the tie (i.e., no two adjacent
+    # teams have the same key).
+    for i in range(len(sorted_teams) - 1):
+        if _sort_key(sorted_teams[i]) == _sort_key(sorted_teams[i + 1]):
+            return sorted_teams, True
+
+    return sorted_teams, False
+
+
+async def generate_tiebreaker_games(
+    repo: Repository,
+    season_id: str,
+    standings: list[dict],
+    num_playoff_teams: int = 4,
+    event_bus: EventBus | None = None,
+) -> list[dict]:
+    """Generate tiebreaker game schedule entries for unresolved ties.
+
+    Creates schedule entries with phase='tiebreaker' for teams that
+    cannot be separated by standard tiebreaker criteria.
+
+    Args:
+        repo: Database repository.
+        season_id: The season with ties.
+        standings: Current standings.
+        num_playoff_teams: Playoff cutoff.
+        event_bus: Optional event bus.
+
+    Returns:
+        List of tiebreaker matchup dicts.
+    """
+    # Find the cutoff boundary
+    cutoff_wins = standings[num_playoff_teams - 1]["wins"]
+
+    # Only include teams that straddle the cutoff
+    above = [s for s in standings[:num_playoff_teams] if s["wins"] == cutoff_wins]
+    below = [s for s in standings[num_playoff_teams:] if s["wins"] == cutoff_wins]
+    contested_ids = [s["team_id"] for s in above + below]
+
+    if len(contested_ids) < 2:
+        return []
+
+    # Find the next available round number
+    full_schedule = await repo.get_full_schedule(season_id)
+    games = await repo.get_all_games(season_id)
+    max_sched = max((s.round_number for s in full_schedule), default=0) if full_schedule else 0
+    max_played = max((g.round_number for g in games), default=0) if games else 0
+    tb_round = max(max_sched, max_played) + 1
+
+    # Create round-robin among contested teams
+    matchups: list[dict] = []
+    match_idx = 0
+    for i in range(len(contested_ids)):
+        for j in range(i + 1, len(contested_ids)):
+            matchup = {
+                "round_number": tb_round,
+                "matchup_index": match_idx,
+                "home_team_id": contested_ids[i],
+                "away_team_id": contested_ids[j],
+                "phase": "tiebreaker",
+            }
+            await repo.create_schedule_entry(
+                season_id=season_id,
+                round_number=tb_round,
+                matchup_index=match_idx,
+                home_team_id=contested_ids[i],
+                away_team_id=contested_ids[j],
+                phase="tiebreaker",
+            )
+            matchups.append(matchup)
+            match_idx += 1
+
+    logger.info(
+        "tiebreaker_games_generated season=%s round=%d matchups=%d teams=%s",
+        season_id,
+        tb_round,
+        len(matchups),
+        contested_ids,
+    )
+
+    if event_bus:
+        await event_bus.publish(
+            "season.tiebreaker_games_generated",
+            {
+                "season_id": season_id,
+                "tiebreaker_round": tb_round,
+                "matchups": matchups,
+                "contested_teams": contested_ids,
+            },
+        )
+
+    return matchups
+
+
+async def check_and_handle_tiebreakers(
+    repo: Repository,
+    season_id: str,
+    num_playoff_teams: int = 4,
+    event_bus: EventBus | None = None,
+) -> SeasonPhase:
+    """Check for ties at the playoff cutoff and handle them.
+
+    Called after the regular season ends. Transitions the season to either
+    TIEBREAKERS (if games needed) or PLAYOFFS (if ties resolved or none).
+
+    Returns the phase the season transitioned to.
+    """
+    # Ensure season is in ACTIVE state before transitioning through
+    # tiebreaker phases.  Seasons in "setup" or other pre-active states
+    # need to be moved to ACTIVE first.
+    season = await repo.get_season(season_id)
+    if season is None:
+        raise ValueError(f"Season {season_id} not found")
+    current_phase = normalize_phase(season.status)
+    if current_phase != SeasonPhase.ACTIVE:
+        # Move to ACTIVE if allowed (e.g., from SETUP)
+        allowed = ALLOWED_TRANSITIONS.get(current_phase, set())
+        if SeasonPhase.ACTIVE in allowed:
+            await transition_season(
+                repo, season_id, SeasonPhase.ACTIVE, event_bus=event_bus,
+            )
+        elif current_phase != SeasonPhase.ACTIVE:
+            # If we can't get to ACTIVE, update status directly
+            await repo.update_season_status(season_id, SeasonPhase.ACTIVE.value)
+
+    # Compute standings from all games
+    games = await repo.get_all_games(season_id)
+    game_dicts = [
+        {
+            "home_team_id": g.home_team_id,
+            "away_team_id": g.away_team_id,
+            "home_score": g.home_score,
+            "away_score": g.away_score,
+            "winner_team_id": g.winner_team_id,
+        }
+        for g in games
+    ]
+    standings = compute_standings(game_dicts)
+
+    resolved_standings, needs_games = check_tiebreakers(
+        standings, game_dicts, num_playoff_teams
+    )
+
+    if needs_games:
+        # Transition ACTIVE -> TIEBREAKER_CHECK -> TIEBREAKERS
+        await transition_season(
+            repo, season_id, SeasonPhase.TIEBREAKER_CHECK, event_bus=event_bus,
+        )
+        await transition_season(
+            repo, season_id, SeasonPhase.TIEBREAKERS, event_bus=event_bus,
+        )
+        await generate_tiebreaker_games(
+            repo, season_id, standings, num_playoff_teams, event_bus=event_bus,
+        )
+        return SeasonPhase.TIEBREAKERS
+    else:
+        # No tiebreaker games needed -- go straight to PLAYOFFS
+        # First pass through TIEBREAKER_CHECK (transient)
+        await transition_season(
+            repo, season_id, SeasonPhase.TIEBREAKER_CHECK, event_bus=event_bus,
+        )
+        await transition_season(
+            repo, season_id, SeasonPhase.PLAYOFFS, event_bus=event_bus,
+        )
+        return SeasonPhase.PLAYOFFS
+
+
+# ---------------------------------------------------------------------------
+# Offseason Governance
+# ---------------------------------------------------------------------------
+
+
+async def enter_offseason(
+    repo: Repository,
+    season_id: str,
+    duration_seconds: int = DEFAULT_OFFSEASON_WINDOW_SECONDS,
+    event_bus: EventBus | None = None,
+) -> dict:
+    """Transition a season from CHAMPIONSHIP to OFFSEASON.
+
+    Opens a governance window where governors can submit and vote on
+    meta-rule proposals for the next season. Any rules enacted during
+    the offseason carry forward.
+
+    Args:
+        repo: Database repository.
+        season_id: The season entering offseason.
+        duration_seconds: How long the offseason window lasts.
+        event_bus: Optional event bus.
+
+    Returns:
+        Offseason config dict stored on the season.
+    """
+    await transition_season(repo, season_id, SeasonPhase.OFFSEASON, event_bus=None)
+
+    ends_at = datetime.now(UTC) + timedelta(seconds=duration_seconds)
+    offseason_config = {
+        "offseason_ends_at": ends_at.isoformat(),
+        "offseason_duration_seconds": duration_seconds,
+    }
+
+    season = await repo.get_season(season_id)
+    if season:
+        # Create a new dict to ensure SQLAlchemy detects the mutation
+        new_config = dict(season.config or {})
+        new_config.update(offseason_config)
+        season.config = new_config
+        await repo.session.flush()
+
+    logger.info(
+        "offseason_started season=%s duration=%ds ends_at=%s",
+        season_id,
+        duration_seconds,
+        ends_at.isoformat(),
+    )
+
+    if event_bus:
+        await event_bus.publish(
+            "season.offseason_started",
+            {
+                "season_id": season_id,
+                "offseason_ends_at": ends_at.isoformat(),
+                "offseason_duration_seconds": duration_seconds,
+            },
+        )
+
+    return offseason_config
+
+
+async def close_offseason(
+    repo: Repository,
+    season_id: str,
+    event_bus: EventBus | None = None,
+) -> None:
+    """Close the offseason window and transition to COMPLETE.
+
+    Tallies any pending governance proposals, enacts rule changes,
+    then archives the season.
+
+    Args:
+        repo: Database repository.
+        season_id: The season to close.
+        event_bus: Optional event bus.
+    """
+    from pinwheel.core.game_loop import tally_pending_governance
+    from pinwheel.models.rules import RuleSet
+
+    season = await repo.get_season(season_id)
+    if not season:
+        raise ValueError(f"Season {season_id} not found")
+
+    ruleset = RuleSet(**(season.current_ruleset or {}))
+
+    # Determine the last round number for governance tally
+    games = await repo.get_all_games(season_id)
+    last_round = max((g.round_number for g in games), default=0) if games else 0
+
+    # Tally any pending governance proposals
+    _new_ruleset, tallies, _gov_data = await tally_pending_governance(
+        repo=repo,
+        season_id=season_id,
+        round_number=last_round,
+        ruleset=ruleset,
+        event_bus=event_bus,
+    )
+
+    logger.info(
+        "offseason_governance_tallied season=%s tallies=%d",
+        season_id,
+        len(tallies),
+    )
+
+    # Transition to COMPLETE
+    await transition_season(repo, season_id, SeasonPhase.COMPLETE, event_bus=event_bus)
+
+    if event_bus:
+        await event_bus.publish(
+            "season.offseason_closed",
+            {
+                "season_id": season_id,
+                "rules_enacted": len([t for t in tallies if t.passed]),
+            },
+        )
 
 
 async def start_new_season(
@@ -732,6 +1188,16 @@ async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
     # update_season_status which sets completed_at when status == "completed")
     await repo.update_season_status(season_id, "completed")
 
+    # Gather memorial data (computed sections — AI narratives added later)
+    from pinwheel.core.memorial import gather_memorial_data
+
+    # Pull awards from championship config if available
+    awards: list[dict] = []
+    if season and season.config:
+        awards = season.config.get("awards", [])
+
+    memorial_data = await gather_memorial_data(repo, season_id, awards=awards)
+
     # Create archive
     archive = SeasonArchiveRow(
         season_id=season_id,
@@ -745,6 +1211,7 @@ async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
         total_proposals=len(proposal_events),
         total_rule_changes=len(rule_changes),
         governor_count=len(governors),
+        memorial=memorial_data,
     )
     await repo.store_season_archive(archive)
 

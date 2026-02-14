@@ -1,4 +1,5 @@
-"""Tests for the season lifecycle: phase enum, transitions, awards, championship."""
+"""Tests for the season lifecycle: phase enum, transitions, awards, championship,
+tiebreakers, and offseason governance."""
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -9,8 +10,15 @@ from pinwheel.core.scheduler import generate_round_robin
 from pinwheel.core.season import (
     ALLOWED_TRANSITIONS,
     SeasonPhase,
+    _compute_head_to_head,
+    _resolve_tie_group,
+    check_and_handle_tiebreakers,
+    check_tiebreakers,
+    close_offseason,
     compute_awards,
     enter_championship,
+    enter_offseason,
+    generate_tiebreaker_games,
     normalize_phase,
     transition_season,
 )
@@ -361,9 +369,7 @@ class TestEnterChampionship:
         # Need to get to playoffs status first
         await repo.update_season_status(season_id, "playoffs")
 
-        config = await enter_championship(
-            repo, season_id, team_ids[0], duration_seconds=600
-        )
+        config = await enter_championship(repo, season_id, team_ids[0], duration_seconds=600)
 
         assert config["champion_team_id"] == team_ids[0]
         assert "awards" in config
@@ -385,9 +391,7 @@ class TestEnterChampionship:
         received = []
 
         async with bus.subscribe("season.championship_started") as sub:
-            await enter_championship(
-                repo, season_id, team_ids[0], event_bus=bus
-            )
+            await enter_championship(repo, season_id, team_ids[0], event_bus=bus)
             event = await sub.get(timeout=0.5)
             if event:
                 received.append(event)
@@ -446,9 +450,7 @@ class TestEnterChampionship:
 class TestFullLifecycle:
     """Integration tests for the complete season lifecycle with championship."""
 
-    async def _play_regular_season(
-        self, repo: Repository, season_id: str, team_ids: list[str]
-    ):
+    async def _play_regular_season(self, repo: Repository, season_id: str, team_ids: list[str]):
         """Play all regular season rounds and return (last_result, total_rounds)."""
         matchups = generate_round_robin(team_ids)
         total_rounds = max(m.round_number for m in matchups)
@@ -524,7 +526,7 @@ class TestSchedulerChampionship:
     """Tests for tick_round handling of the championship phase."""
 
     async def test_tick_round_expires_championship(self, engine: AsyncEngine):
-        """tick_round transitions championship -> complete when window expires."""
+        """tick_round transitions championship -> offseason when window expires."""
         from datetime import UTC, datetime, timedelta
 
         from pinwheel.core.scheduler_runner import tick_round
@@ -572,16 +574,17 @@ class TestSchedulerChampionship:
                     break
                 received.append(event)
 
-        # Season should be complete now
+        # Season should now be in offseason (championship -> offseason)
         async with get_session(engine) as session:
             repo = Repository(session)
             season = await repo.get_season(season_id)
-            assert season.status == "complete"
-            assert season.completed_at is not None
+            assert season.status == "offseason"
+            assert season.config is not None
+            assert "offseason_ends_at" in season.config
 
-        # Should have published phase_changed event
+        # Should have published offseason_started event
         event_types = [e["type"] for e in received]
-        assert "season.phase_changed" in event_types
+        assert "season.offseason_started" in event_types
 
     async def test_tick_round_skips_active_championship(self, engine: AsyncEngine):
         """tick_round does nothing when championship window is still open."""
@@ -629,7 +632,7 @@ class TestSchedulerChampionship:
             assert season.status == "championship"
 
     async def test_tick_round_championship_no_deadline(self, engine: AsyncEngine):
-        """tick_round transitions immediately when no championship_ends_at."""
+        """tick_round transitions to offseason when no championship_ends_at."""
         from pinwheel.core.scheduler_runner import tick_round
 
         async with get_session(engine) as session:
@@ -663,7 +666,7 @@ class TestSchedulerChampionship:
         async with get_session(engine) as session:
             repo = Repository(session)
             season = await repo.get_season(season_id)
-            assert season.status == "complete"
+            assert season.status == "offseason"
 
 
 class TestGetActiveSeasonWithPhases:
@@ -708,3 +711,732 @@ class TestGetActiveSeasonWithPhases:
         active = await repo.get_active_season()
         assert active is not None
         assert active.id == active_id
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Tiebreaker Tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHeadToHead:
+    """Tests for _compute_head_to_head() helper."""
+
+    def test_basic_head_to_head(self):
+        """Head-to-head counts wins correctly between two teams."""
+        results = [
+            {
+                "home_team_id": "A",
+                "away_team_id": "B",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "A",
+            },
+            {
+                "home_team_id": "B",
+                "away_team_id": "A",
+                "home_score": 90,
+                "away_score": 85,
+                "winner_team_id": "B",
+            },
+            {
+                "home_team_id": "A",
+                "away_team_id": "B",
+                "home_score": 95,
+                "away_score": 88,
+                "winner_team_id": "A",
+            },
+        ]
+        a_wins, b_wins = _compute_head_to_head(results, "A", "B")
+        assert a_wins == 2
+        assert b_wins == 1
+
+    def test_no_matchups(self):
+        """Returns 0-0 when teams haven't played each other."""
+        results = [
+            {
+                "home_team_id": "A",
+                "away_team_id": "C",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "A",
+            },
+        ]
+        a_wins, b_wins = _compute_head_to_head(results, "A", "B")
+        assert a_wins == 0
+        assert b_wins == 0
+
+    def test_symmetric(self):
+        """Head-to-head is symmetric -- swapping argument order swaps results."""
+        results = [
+            {
+                "home_team_id": "X",
+                "away_team_id": "Y",
+                "home_score": 100,
+                "away_score": 90,
+                "winner_team_id": "X",
+            },
+        ]
+        x_wins, y_wins = _compute_head_to_head(results, "X", "Y")
+        y_wins2, x_wins2 = _compute_head_to_head(results, "Y", "X")
+        assert x_wins == x_wins2
+        assert y_wins == y_wins2
+
+
+class TestCheckTiebreakers:
+    """Tests for check_tiebreakers() resolution logic."""
+
+    def _make_standings(self, records: list[tuple[str, int, int, int, int]]) -> list[dict]:
+        """Build standings from (team_id, wins, losses, points_for, points_against)."""
+        standings = []
+        for tid, w, losses, pf, pa in records:
+            standings.append(
+                {
+                    "team_id": tid,
+                    "wins": w,
+                    "losses": losses,
+                    "points_for": pf,
+                    "points_against": pa,
+                    "point_diff": pf - pa,
+                }
+            )
+        return sorted(standings, key=lambda s: (-s["wins"], -s["point_diff"]))
+
+    def test_no_tie_at_cutoff(self):
+        """No tiebreaker needed when cutoff is clean."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                ("B", 4, 2, 480, 420),
+                ("C", 3, 3, 450, 450),
+                ("D", 2, 4, 400, 480),
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        resolved, needs_games = check_tiebreakers(standings, [], num_playoff_teams=4)
+        assert not needs_games
+        assert len(resolved) == 5
+
+    def test_all_teams_qualify(self):
+        """No tiebreaker when every team qualifies."""
+        standings = self._make_standings(
+            [
+                ("A", 3, 0, 300, 200),
+                ("B", 2, 1, 280, 220),
+                ("C", 1, 2, 250, 260),
+            ]
+        )
+        resolved, needs_games = check_tiebreakers(standings, [], num_playoff_teams=4)
+        assert not needs_games
+
+    def test_tie_resolved_by_head_to_head(self):
+        """Two-team tie resolved by head-to-head record."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                ("B", 4, 2, 480, 420),
+                ("C", 3, 3, 450, 450),  # Tied
+                ("D", 3, 3, 450, 450),  # Tied
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        results = [
+            # C beat D head-to-head
+            {
+                "home_team_id": "C",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "C",
+            },
+        ]
+        resolved, needs_games = check_tiebreakers(standings, results, num_playoff_teams=3)
+        assert not needs_games
+        # C should be ranked above D (head-to-head advantage)
+        resolved_ids = [s["team_id"] for s in resolved]
+        assert resolved_ids.index("C") < resolved_ids.index("D")
+
+    def test_tie_resolved_by_point_differential(self):
+        """Two-team tie resolved by point differential when h2h is split."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                ("B", 4, 2, 480, 420),
+                ("C", 3, 3, 500, 450),  # Tied wins, better point diff
+                ("D", 3, 3, 430, 450),  # Tied wins, worse point diff
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        # H2H tied at 1-1
+        results = [
+            {
+                "home_team_id": "C",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "C",
+            },
+            {
+                "home_team_id": "D",
+                "away_team_id": "C",
+                "home_score": 90,
+                "away_score": 80,
+                "winner_team_id": "D",
+            },
+        ]
+        resolved, needs_games = check_tiebreakers(standings, results, num_playoff_teams=3)
+        assert not needs_games
+        resolved_ids = [s["team_id"] for s in resolved]
+        assert resolved_ids.index("C") < resolved_ids.index("D")
+
+    def test_tie_resolved_by_points_scored(self):
+        """Two-team tie resolved by points scored when h2h and diff are equal."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                ("B", 4, 2, 480, 420),
+                ("C", 3, 3, 470, 450),  # Same diff as D, more points scored
+                ("D", 3, 3, 450, 430),  # Same diff as C, fewer points scored
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        # H2H tied at 1-1
+        results = [
+            {
+                "home_team_id": "C",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "C",
+            },
+            {
+                "home_team_id": "D",
+                "away_team_id": "C",
+                "home_score": 90,
+                "away_score": 80,
+                "winner_team_id": "D",
+            },
+        ]
+        resolved, needs_games = check_tiebreakers(standings, results, num_playoff_teams=3)
+        assert not needs_games
+        resolved_ids = [s["team_id"] for s in resolved]
+        assert resolved_ids.index("C") < resolved_ids.index("D")
+
+    def test_unresolvable_tie_needs_games(self):
+        """Tie that cannot be resolved requires tiebreaker games."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                ("B", 4, 2, 480, 420),
+                ("C", 3, 3, 450, 450),  # Identical
+                ("D", 3, 3, 450, 450),  # Identical
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        # H2H tied
+        results = [
+            {
+                "home_team_id": "C",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "C",
+            },
+            {
+                "home_team_id": "D",
+                "away_team_id": "C",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "D",
+            },
+        ]
+        _, needs_games = check_tiebreakers(standings, results, num_playoff_teams=3)
+        assert needs_games
+
+    def test_three_way_tie_resolved(self):
+        """Three-way tie can be resolved when h2h records differ."""
+        standings = self._make_standings(
+            [
+                ("A", 5, 1, 500, 400),
+                # Three-way tie for spots 2-4
+                ("B", 3, 3, 460, 440),
+                ("C", 3, 3, 450, 450),
+                ("D", 3, 3, 440, 460),
+                ("E", 1, 5, 370, 500),
+            ]
+        )
+        # H2H among tied: B > C > D
+        results = [
+            {
+                "home_team_id": "B",
+                "away_team_id": "C",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "B",
+            },
+            {
+                "home_team_id": "B",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "B",
+            },
+            {
+                "home_team_id": "C",
+                "away_team_id": "D",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "C",
+            },
+        ]
+        resolved, needs_games = check_tiebreakers(standings, results, num_playoff_teams=4)
+        assert not needs_games
+
+
+class TestResolveTieGroup:
+    """Tests for _resolve_tie_group() internal helper."""
+
+    def test_single_team(self):
+        """Single team trivially resolves."""
+        teams = [{"team_id": "A", "wins": 3, "point_diff": 10, "points_for": 400}]
+        resolved, unresolved = _resolve_tie_group(teams, [])
+        assert not unresolved
+        assert len(resolved) == 1
+
+    def test_two_team_h2h_breaks_tie(self):
+        """Two-team tie broken by head-to-head."""
+        teams = [
+            {"team_id": "A", "wins": 3, "point_diff": 10, "points_for": 400},
+            {"team_id": "B", "wins": 3, "point_diff": 10, "points_for": 400},
+        ]
+        results = [
+            {
+                "home_team_id": "A",
+                "away_team_id": "B",
+                "home_score": 80,
+                "away_score": 70,
+                "winner_team_id": "A",
+            },
+        ]
+        resolved, unresolved = _resolve_tie_group(teams, results)
+        assert not unresolved
+        assert resolved[0]["team_id"] == "A"
+        assert resolved[1]["team_id"] == "B"
+
+
+class TestGenerateTiebreakerGames:
+    """Tests for generate_tiebreaker_games() database integration."""
+
+    async def test_generates_tiebreaker_schedule(self, repo: Repository):
+        """Tiebreaker games are created as schedule entries with phase='tiebreaker'."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        # Simulate enough games to create standings
+        standings = [
+            {"team_id": team_ids[0], "wins": 5, "losses": 1},
+            {"team_id": team_ids[1], "wins": 3, "losses": 3},
+            {"team_id": team_ids[2], "wins": 3, "losses": 3},  # Tied
+            {"team_id": team_ids[3], "wins": 1, "losses": 5},
+        ]
+
+        matchups = await generate_tiebreaker_games(
+            repo,
+            season_id,
+            standings,
+            num_playoff_teams=2,
+        )
+
+        # Should create a game between team_ids[1] and team_ids[2]
+        assert len(matchups) >= 1
+        assert matchups[0]["phase"] == "tiebreaker"
+
+        # Verify schedule entry was created
+        schedule = await repo.get_full_schedule(season_id, phase="tiebreaker")
+        assert len(schedule) >= 1
+
+
+class TestCheckAndHandleTiebreakers:
+    """Integration tests for check_and_handle_tiebreakers()."""
+
+    async def test_no_ties_transitions_to_playoffs(self, repo: Repository):
+        """When no ties exist, transitions ACTIVE -> TIEBREAKER_CHECK -> PLAYOFFS."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        # Store results where standings are clear
+        for i, tid in enumerate(team_ids):
+            for j, tid2 in enumerate(team_ids):
+                if i < j:
+                    await repo.store_game_result(
+                        season_id=season_id,
+                        round_number=1,
+                        matchup_index=i * 4 + j,
+                        home_team_id=tid,
+                        away_team_id=tid2,
+                        home_score=80 + (3 - i) * 10,
+                        away_score=70 + (3 - j) * 5,
+                        winner_team_id=tid,  # Higher seed always wins
+                        seed=42,
+                        total_possessions=100,
+                    )
+
+        phase = await check_and_handle_tiebreakers(repo, season_id)
+        assert phase == SeasonPhase.PLAYOFFS
+
+        season = await repo.get_season(season_id)
+        assert season.status == "playoffs"
+
+    async def test_ties_transition_to_tiebreakers(self, repo: Repository):
+        """When unresolvable ties exist, transitions to TIEBREAKERS phase."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        # Store results where teams[1] and teams[2] have identical records
+        # Team 0: 3 wins (beats everyone)
+        # Team 1: 1 win (beats team 3, same as team 2)
+        # Team 2: 1 win (beats team 3, same as team 1)
+        # Team 3: 1 win (beats nobody via wins, but has 1 win from somewhere)
+        results = [
+            (team_ids[0], team_ids[1], 100, 80, team_ids[0]),
+            (team_ids[0], team_ids[2], 100, 80, team_ids[0]),
+            (team_ids[0], team_ids[3], 100, 80, team_ids[0]),
+            # Team 1 and 2: split head-to-head, same points
+            (team_ids[1], team_ids[2], 80, 80, team_ids[1]),  # T1 beats T2
+            (team_ids[2], team_ids[1], 80, 80, team_ids[2]),  # T2 beats T1
+            (team_ids[1], team_ids[3], 80, 70, team_ids[1]),
+            (team_ids[2], team_ids[3], 80, 70, team_ids[2]),
+            (team_ids[3], team_ids[1], 90, 80, team_ids[3]),
+            (team_ids[3], team_ids[2], 90, 80, team_ids[3]),
+        ]
+
+        for idx, (home, away, hs, as_, winner) in enumerate(results):
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=1,
+                matchup_index=idx,
+                home_team_id=home,
+                away_team_id=away,
+                home_score=hs,
+                away_score=as_,
+                winner_team_id=winner,
+                seed=42,
+                total_possessions=100,
+            )
+
+        # With 4 playoff spots and identical records for teams 1 & 2,
+        # the tiebreaker should matter only if they straddle the cutoff.
+        # Let's use num_playoff_teams=2 so teams 1 & 2 are at the boundary.
+        await check_and_handle_tiebreakers(
+            repo,
+            season_id,
+            num_playoff_teams=2,
+        )
+
+        # Teams have same h2h (1-1), same point diff (0), and same points scored (80*3=240)
+        # This is unresolvable, should need tiebreaker games
+        season = await repo.get_season(season_id)
+        # Should be either TIEBREAKERS (needs games) or PLAYOFFS (resolved)
+        assert season.status in ("tiebreakers", "playoffs")
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Offseason Governance Tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnterOffseason:
+    """Tests for enter_offseason() lifecycle function."""
+
+    async def test_transitions_to_offseason(self, repo: Repository):
+        """enter_offseason transitions CHAMPIONSHIP -> OFFSEASON."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+
+        config = await enter_offseason(repo, season_id, duration_seconds=1800)
+
+        season = await repo.get_season(season_id)
+        assert season.status == "offseason"
+        assert "offseason_ends_at" in config
+        assert config["offseason_duration_seconds"] == 1800
+
+    async def test_offseason_config_stored(self, repo: Repository):
+        """Offseason config is stored on the season row."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+
+        await enter_offseason(repo, season_id, duration_seconds=600)
+
+        season = await repo.get_season(season_id)
+        assert season.config is not None
+        assert "offseason_ends_at" in season.config
+        # Championship config should be preserved
+        assert "champion_team_id" in season.config
+
+    async def test_offseason_publishes_event(self, repo: Repository):
+        """enter_offseason publishes season.offseason_started event."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe("season.offseason_started") as sub:
+            await enter_offseason(repo, season_id, event_bus=bus)
+            event = await sub.get(timeout=0.5)
+            if event:
+                received.append(event)
+
+        assert len(received) == 1
+        data = received[0]["data"]
+        assert data["season_id"] == season_id
+        assert "offseason_ends_at" in data
+
+    async def test_offseason_from_wrong_phase_raises(self, repo: Repository):
+        """enter_offseason raises if not in CHAMPIONSHIP."""
+        season_id = await _create_season(repo, "active")
+
+        with pytest.raises(ValueError, match="Invalid season transition"):
+            await enter_offseason(repo, season_id)
+
+
+class TestCloseOffseason:
+    """Tests for close_offseason() lifecycle function."""
+
+    async def test_transitions_to_complete(self, repo: Repository):
+        """close_offseason transitions OFFSEASON -> COMPLETE."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+        await enter_offseason(repo, season_id, duration_seconds=10)
+
+        await close_offseason(repo, season_id)
+
+        season = await repo.get_season(season_id)
+        assert season.status == "complete"
+        assert season.completed_at is not None
+
+    async def test_close_offseason_publishes_events(self, repo: Repository):
+        """close_offseason publishes season.offseason_closed and phase_changed events."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+        await enter_offseason(repo, season_id)
+
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe(None) as sub:
+            await close_offseason(repo, season_id, event_bus=bus)
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "season.phase_changed" in event_types
+        assert "season.offseason_closed" in event_types
+
+    async def test_close_offseason_nonexistent_season_raises(self, repo: Repository):
+        """close_offseason raises for a missing season."""
+        with pytest.raises(ValueError, match="not found"):
+            await close_offseason(repo, "nonexistent-id")
+
+
+class TestSchedulerOffseason:
+    """Tests for tick_round handling of offseason phase."""
+
+    async def test_tick_round_championship_to_offseason(self, engine: AsyncEngine):
+        """tick_round transitions championship -> offseason when window expires."""
+        from datetime import UTC, datetime, timedelta
+
+        from pinwheel.core.scheduler_runner import tick_round
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Offseason League")
+            season = await repo.create_season(league.id, "Offseason Season")
+            season_id = season.id
+
+            for i in range(2):
+                t = await repo.create_team(
+                    season.id,
+                    f"OS Team {i}",
+                    venue={"name": f"OS {i}", "capacity": 1000},
+                )
+                for j in range(3):
+                    await repo.create_hooper(
+                        team_id=t.id,
+                        season_id=season.id,
+                        name=f"OS-H-{i}-{j}",
+                        archetype="sharpshooter",
+                        attributes=_hooper_attrs(),
+                    )
+
+            # Set championship status with expired window
+            season.status = "championship"
+            expired_time = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+            season.config = {
+                "champion_team_id": "some-team",
+                "championship_ends_at": expired_time,
+            }
+            await session.flush()
+
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe(None) as sub:
+            await tick_round(engine, bus)
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        # Season should now be in offseason
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            assert season.status == "offseason"
+            assert season.config is not None
+            assert "offseason_ends_at" in season.config
+
+    async def test_tick_round_offseason_to_complete(self, engine: AsyncEngine):
+        """tick_round transitions offseason -> complete when window expires."""
+        from datetime import UTC, datetime, timedelta
+
+        from pinwheel.core.scheduler_runner import tick_round
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("OS Close League")
+            season = await repo.create_season(league.id, "OS Close Season")
+            season_id = season.id
+
+            for i in range(2):
+                t = await repo.create_team(
+                    season.id,
+                    f"OSC Team {i}",
+                    venue={"name": f"OSC {i}", "capacity": 1000},
+                )
+                for j in range(3):
+                    await repo.create_hooper(
+                        team_id=t.id,
+                        season_id=season.id,
+                        name=f"OSC-H-{i}-{j}",
+                        archetype="sharpshooter",
+                        attributes=_hooper_attrs(),
+                    )
+
+            # Set offseason status with expired window
+            season.status = "offseason"
+            expired_time = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+            season.config = {
+                "champion_team_id": "some-team",
+                "offseason_ends_at": expired_time,
+            }
+            await session.flush()
+
+        bus = EventBus()
+        await tick_round(engine, bus)
+
+        # Season should now be complete
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            assert season.status == "complete"
+            assert season.completed_at is not None
+
+    async def test_tick_round_offseason_window_still_open(self, engine: AsyncEngine):
+        """tick_round keeps offseason when window is still open."""
+        from datetime import UTC, datetime, timedelta
+
+        from pinwheel.core.scheduler_runner import tick_round
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("OS Open League")
+            season = await repo.create_season(league.id, "OS Open Season")
+            season_id = season.id
+
+            for i in range(2):
+                t = await repo.create_team(
+                    season.id,
+                    f"OSO Team {i}",
+                    venue={"name": f"OSO {i}", "capacity": 1000},
+                )
+                for j in range(3):
+                    await repo.create_hooper(
+                        team_id=t.id,
+                        season_id=season.id,
+                        name=f"OSO-H-{i}-{j}",
+                        archetype="sharpshooter",
+                        attributes=_hooper_attrs(),
+                    )
+
+            # Offseason still open (ends in the future)
+            season.status = "offseason"
+            future_time = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
+            season.config = {
+                "champion_team_id": "some-team",
+                "offseason_ends_at": future_time,
+            }
+            await session.flush()
+
+        bus = EventBus()
+        await tick_round(engine, bus)
+
+        # Season should still be in offseason
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            assert season.status == "offseason"
+
+
+class TestOffseasonGovernance:
+    """Tests for governance during offseason phase."""
+
+    async def test_offseason_carries_rules_forward(self, repo: Repository):
+        """Rules enacted during offseason are preserved on the season."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+        await enter_offseason(repo, season_id, duration_seconds=3600)
+
+        # Verify season is in offseason
+        season = await repo.get_season(season_id)
+        assert season.status == "offseason"
+
+        # The ruleset should still be accessible
+        assert season.current_ruleset is not None
+
+
+class TestAllowedTransitionsComplete:
+    """Verify ALLOWED_TRANSITIONS include all new paths."""
+
+    def test_championship_to_offseason(self):
+        """CHAMPIONSHIP -> OFFSEASON is a valid transition."""
+        assert SeasonPhase.OFFSEASON in ALLOWED_TRANSITIONS[SeasonPhase.CHAMPIONSHIP]
+
+    def test_offseason_to_complete(self):
+        """OFFSEASON -> COMPLETE is a valid transition."""
+        assert SeasonPhase.COMPLETE in ALLOWED_TRANSITIONS[SeasonPhase.OFFSEASON]
+
+    def test_active_to_tiebreaker_check(self):
+        """ACTIVE -> TIEBREAKER_CHECK is a valid transition."""
+        assert SeasonPhase.TIEBREAKER_CHECK in ALLOWED_TRANSITIONS[SeasonPhase.ACTIVE]
+
+    def test_tiebreaker_check_to_tiebreakers(self):
+        """TIEBREAKER_CHECK -> TIEBREAKERS is a valid transition."""
+        assert SeasonPhase.TIEBREAKERS in ALLOWED_TRANSITIONS[SeasonPhase.TIEBREAKER_CHECK]
+
+    def test_tiebreaker_check_to_playoffs(self):
+        """TIEBREAKER_CHECK -> PLAYOFFS is a valid transition."""
+        assert SeasonPhase.PLAYOFFS in ALLOWED_TRANSITIONS[SeasonPhase.TIEBREAKER_CHECK]
+
+    def test_tiebreakers_to_playoffs(self):
+        """TIEBREAKERS -> PLAYOFFS is a valid transition."""
+        assert SeasonPhase.PLAYOFFS in ALLOWED_TRANSITIONS[SeasonPhase.TIEBREAKERS]

@@ -135,3 +135,20 @@ class GQIResult(BaseModel):
     consequence_awareness: float = 0.0
     vote_deliberation: float = 0.0
     composite: float = 0.0
+
+
+class InjectionClassification(BaseModel):
+    """Result of a prompt injection classification on a governor's proposal.
+
+    Stored via EvalResultRow with eval_type="injection_classification".
+    No private report content — only the classification outcome and truncated input.
+    """
+
+    proposal_text_preview: str = ""
+    classification: Literal["legitimate", "suspicious", "injection"] = "legitimate"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+    governor_id: str = ""
+    source: str = ""
+    blocked: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

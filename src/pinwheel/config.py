@@ -107,6 +107,7 @@ class Settings(BaseSettings):
 
     # Seasons
     pinwheel_carry_forward_rules: bool = True  # Default: rules carry over between seasons
+    pinwheel_offseason_window: int = 3600  # Offseason governance window in seconds
 
     # Evals
     pinwheel_evals_enabled: bool = True

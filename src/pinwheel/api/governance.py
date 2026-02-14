@@ -65,9 +65,21 @@ async def api_submit_proposal(
     if settings.anthropic_api_key:
         from pinwheel.ai.classifier import classify_injection
         from pinwheel.ai.interpreter import interpret_proposal as interpret_ai
+        from pinwheel.evals.injection import store_injection_classification
 
         # Pre-flight injection classification
         classification = await classify_injection(body.raw_text, settings.anthropic_api_key)
+
+        # Store classification result for dashboard visibility
+        await store_injection_classification(
+            repo=repo,
+            season_id=body.season_id,
+            proposal_text=body.raw_text,
+            result=classification,
+            governor_id=body.governor_id,
+            source="api",
+        )
+
         if classification.classification == "injection" and classification.confidence > 0.8:
             from pinwheel.models.governance import RuleInterpretation as RI
 

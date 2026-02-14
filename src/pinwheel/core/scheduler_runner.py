@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.game_loop import step_round, tally_pending_governance
+from pinwheel.core.game_loop import step_round_multisession, tally_pending_governance
 from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
 from pinwheel.db.models import GameResultRow
@@ -338,13 +338,11 @@ async def tick_round(
         return
 
     try:
-        # Phase 1: Simulate the round inside a single session.
-        # Collect everything we need, then close the session BEFORE opening
-        # any new connections (avoids SQLite "database is locked").
         round_result = None
         season_id = ""
         next_round = 0
 
+        # --- Pre-flight session: determine season state + next round number ---
         async with get_session(engine) as session:
             repo = Repository(session)
 
@@ -354,20 +352,30 @@ async def tick_round(
                 logger.info("tick_round_skip: no active season")
                 return
 
-            # Championship phase: check if window expired, then transition
+            # Championship phase: check if window expired, then transition to OFFSEASON
             if season.status == "championship":
                 config = season.config or {}
                 ends_at_str = config.get("championship_ends_at")
                 if ends_at_str:
                     ends_at = datetime.fromisoformat(ends_at_str)
                     if datetime.now(UTC) >= ends_at:
-                        from pinwheel.core.season import SeasonPhase, transition_season
+                        from pinwheel.core.season import enter_offseason
 
-                        await transition_season(
-                            repo, season.id, SeasonPhase.COMPLETE, event_bus=event_bus,
+                        try:
+                            from pinwheel.config import Settings
+
+                            offseason_window = Settings().pinwheel_offseason_window
+                        except Exception:
+                            offseason_window = 3600
+
+                        await enter_offseason(
+                            repo,
+                            season.id,
+                            duration_seconds=offseason_window,
+                            event_bus=event_bus,
                         )
                         logger.info(
-                            "championship_window_expired season=%s -> complete",
+                            "championship_window_expired season=%s -> offseason",
                             season.id,
                         )
                     else:
@@ -378,14 +386,96 @@ async def tick_round(
                             ends_at_str,
                         )
                 else:
-                    # No ends_at configured — transition immediately
-                    from pinwheel.core.season import SeasonPhase, transition_season
+                    # No ends_at configured — transition to offseason immediately
+                    from pinwheel.core.season import enter_offseason
 
-                    await transition_season(
-                        repo, season.id, SeasonPhase.COMPLETE, event_bus=event_bus,
+                    try:
+                        from pinwheel.config import Settings
+
+                        offseason_window = Settings().pinwheel_offseason_window
+                    except Exception:
+                        offseason_window = 3600
+
+                    await enter_offseason(
+                        repo,
+                        season.id,
+                        duration_seconds=offseason_window,
+                        event_bus=event_bus,
                     )
                     logger.info(
-                        "championship_no_deadline season=%s -> complete",
+                        "championship_no_deadline season=%s -> offseason",
+                        season.id,
+                    )
+                return
+
+            # Offseason phase: tally governance on each tick, then close when window expires
+            if season.status == "offseason":
+                config = season.config or {}
+                ends_at_str = config.get("offseason_ends_at")
+
+                # Tally pending governance proposals every tick during offseason
+                from pinwheel.models.rules import RuleSet as _RuleSet
+
+                ruleset = _RuleSet(**(season.current_ruleset or {}))
+                max_round_result = await session.execute(
+                    select(func.coalesce(func.max(GameResultRow.round_number), 0)).where(
+                        GameResultRow.season_id == season.id
+                    )
+                )
+                last_round: int = max_round_result.scalar_one()
+                _new_ruleset, tallies, gov_data = await tally_pending_governance(
+                    repo, season.id, last_round, ruleset, event_bus,
+                )
+                if tallies:
+                    proposals_data = gov_data.get("proposals", [])
+                    proposal_tallies = []
+                    for tally in tallies:
+                        tally_data = tally.model_dump(mode="json")
+                        for p_data in proposals_data:
+                            if p_data.get("id") == tally.proposal_id:
+                                tally_data["proposal_text"] = p_data.get("raw_text", "")
+                                break
+                        proposal_tallies.append(tally_data)
+                    governance_summary = {
+                        "round": last_round,
+                        "proposals_count": len(tallies),
+                        "rules_changed": len([t for t in tallies if t.passed]),
+                        "tallies": proposal_tallies,
+                    }
+                    await event_bus.publish(
+                        "governance.window_closed",
+                        governance_summary,
+                    )
+                    logger.info(
+                        "offseason_governance_tick season=%s tallies=%d",
+                        season.id,
+                        len(tallies),
+                    )
+
+                # Check if offseason window has expired
+                if ends_at_str:
+                    ends_at = datetime.fromisoformat(ends_at_str)
+                    if datetime.now(UTC) >= ends_at:
+                        from pinwheel.core.season import close_offseason
+
+                        await close_offseason(repo, season.id, event_bus=event_bus)
+                        logger.info(
+                            "offseason_window_expired season=%s -> complete",
+                            season.id,
+                        )
+                    else:
+                        logger.info(
+                            "offseason_window_still_open season=%s ends_at=%s",
+                            season.id,
+                            ends_at_str,
+                        )
+                else:
+                    # No ends_at configured — close immediately
+                    from pinwheel.core.season import close_offseason
+
+                    await close_offseason(repo, season.id, event_bus=event_bus)
+                    logger.info(
+                        "offseason_no_deadline season=%s -> complete",
                         season.id,
                     )
                 return
@@ -445,62 +535,64 @@ async def tick_round(
             last_round = max_round_result.scalar_one()
             next_round = last_round + 1
 
-            logger.info(
-                "tick_round_start season=%s round=%d",
-                season_id,
-                next_round,
-            )
+        # --- Pre-flight session closed — lock released ---
 
-            round_result = await step_round(
-                repo,
-                season_id,
-                round_number=next_round,
-                event_bus=event_bus,
-                api_key=api_key,
-                governance_interval=governance_interval,
-                suppress_spoiler_events=(presentation_mode == "replay"),
-            )
+        logger.info(
+            "tick_round_start season=%s round=%d",
+            season_id,
+            next_round,
+        )
 
-            # If instant mode (dev only), mark all games presented immediately
-            # and publish presentation events so Discord notifications fire
-            if presentation_mode != "replay" and round_result.game_results:
+        # --- Main phase: multi-session round (releases lock during AI calls) ---
+        round_result = await step_round_multisession(
+            engine,
+            season_id,
+            round_number=next_round,
+            event_bus=event_bus,
+            api_key=api_key,
+            governance_interval=governance_interval,
+            suppress_spoiler_events=(presentation_mode == "replay"),
+        )
+
+        # --- Post-round session: instant-mode presentation bookkeeping ---
+        if presentation_mode != "replay" and round_result.game_results:
+            async with get_session(engine) as session:
+                repo = Repository(session)
                 for gid in round_result.game_row_ids:
                     await repo.mark_game_presented(gid)
-                await session.commit()
 
-                # Publish presentation.game_finished for each game
-                for summary in round_result.games:
-                    await event_bus.publish(
-                        "presentation.game_finished",
-                        dict(summary),
-                    )
-                # Publish presentation.round_finished
+            # Publish presentation.game_finished for each game
+            for summary in round_result.games:
                 await event_bus.publish(
-                    "presentation.round_finished",
-                    {
-                        "round": next_round,
-                        "games_presented": len(round_result.game_results),
-                    },
+                    "presentation.game_finished",
+                    dict(summary),
+                )
+            # Publish presentation.round_finished
+            await event_bus.publish(
+                "presentation.round_finished",
+                {
+                    "round": next_round,
+                    "games_presented": len(round_result.game_results),
+                },
+            )
+
+            # Publish deferred report events now (no delay in instant mode)
+            for rev in round_result.report_events:
+                await event_bus.publish("report.generated", rev)
+
+            # Publish governance notification alongside presentation events
+            if round_result.governance_summary:
+                await event_bus.publish(
+                    "governance.window_closed",
+                    round_result.governance_summary,
                 )
 
-                # Publish deferred report events now (no delay in instant mode)
-                for rev in round_result.report_events:
-                    await event_bus.publish("report.generated", rev)
+            logger.info(
+                "instant_mode: marked %d games as presented",
+                len(round_result.game_row_ids),
+            )
 
-                # Publish governance notification alongside presentation events
-                if round_result.governance_summary:
-                    await event_bus.publish(
-                        "governance.window_closed",
-                        round_result.governance_summary,
-                    )
-
-                logger.info(
-                    "instant_mode: marked %d games as presented",
-                    len(round_result.game_row_ids),
-                )
-
-        # Phase 2: Session is now closed. Safe to open new connections for
-        # presentation persistence and the presenter background task.
+        # Replay-mode presentation (background task with its own sessions)
         if (
             presentation_mode == "replay"
             and presentation_state is not None

@@ -62,6 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _add_column_if_missing(conn, "players", "team_id", "VARCHAR(36)")
         await _add_column_if_missing(conn, "players", "enrolled_season_id", "VARCHAR(36)")
         await _add_column_if_missing(conn, "hoopers", "is_active", "BOOLEAN DEFAULT 1")
+        await _add_column_if_missing(conn, "season_archives", "memorial", "JSON")
     app.state.engine = engine
     app.state.event_bus = EventBus()
     app.state.presentation_state = PresentationState()
