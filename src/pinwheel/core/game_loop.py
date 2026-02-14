@@ -407,6 +407,12 @@ async def step_round(
                 break
 
     # 4. Simulate games
+    # Determine playoff context for commentary
+    playoff_context: str | None = None
+    if schedule and schedule[0].phase == "playoff":
+        # 2 games = semifinal, 1 game = finals (for 4-team bracket)
+        playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
+
     game_summaries = []
     game_results: list[GameResult] = []
     game_row_ids: list[str] = []
@@ -495,9 +501,12 @@ async def step_round(
                     away,
                     ruleset,
                     api_key,
+                    playoff_context=playoff_context,
                 )
             else:
-                commentary = generate_game_commentary_mock(result, home, away)
+                commentary = generate_game_commentary_mock(
+                    result, home, away, playoff_context=playoff_context
+                )
             summary["commentary"] = commentary
         except Exception:
             logger.exception(
@@ -521,11 +530,13 @@ async def step_round(
                     game_summaries,
                     round_number,
                     api_key,
+                    playoff_context=playoff_context,
                 )
             else:
                 highlight_reel = generate_highlight_reel_mock(
                     game_summaries,
                     round_number,
+                    playoff_context=playoff_context,
                 )
         except Exception:
             logger.exception(

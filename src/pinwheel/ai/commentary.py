@@ -30,7 +30,24 @@ Write 2-3 short paragraphs of play-by-play commentary for this game. Your style:
 - Note any dominant performances, big scoring runs, or statistical oddities.
 - Keep it fun. The weird is the point — players change the rules, and the game gets stranger.
 
+{playoff_instructions}
+
 Be concise. No headers. No bullet points. Just vivid prose."""
+
+_PLAYOFF_COMMENTARY_INSTRUCTIONS = {
+    "semifinal": (
+        "THIS IS A SEMIFINAL PLAYOFF GAME. The stakes are enormous — lose and you go home. "
+        "Treat every possession like it matters more than usual. Reference the playoff context "
+        "explicitly: 'semifinal,' 'win or go home,' 'season on the line.' The intensity should "
+        "come through in every sentence."
+    ),
+    "finals": (
+        "THIS IS THE CHAMPIONSHIP FINALS. The biggest game of the season. Two teams, one title. "
+        "Treat this with maximum drama — 'championship,' 'for all the marbles,' 'legacy game.' "
+        "Every basket, every stop, every turnover carries the weight of the entire season. "
+        "This is the moment everyone has been playing for."
+    ),
+}
 
 HIGHLIGHT_REEL_SYSTEM_PROMPT = """\
 You are the highlight desk anchor for Pinwheel Fates, a chaotic 3v3 basketball league.
@@ -38,7 +55,21 @@ You are the highlight desk anchor for Pinwheel Fates, a chaotic 3v3 basketball l
 Write a round highlights summary. For each game, one punchy sentence. Then 1-2 sentences \
 of overall round narrative — trends, surprises, the vibe. Keep it brisk and entertaining.
 
+{playoff_instructions}
+
 No headers. No bullet points. Just vivid, concise prose."""
+
+_PLAYOFF_HIGHLIGHT_INSTRUCTIONS = {
+    "semifinal": (
+        "These are SEMIFINAL PLAYOFF games. Frame the entire summary around the "
+        "elimination stakes. Who survived? Who goes home? Build the narrative "
+        "toward the upcoming finals."
+    ),
+    "finals": (
+        "This is THE CHAMPIONSHIP FINALS. The culmination of the entire season. "
+        "Frame everything as historic — a champion is crowned tonight."
+    ),
+}
 
 
 def _build_game_context(
@@ -46,13 +77,20 @@ def _build_game_context(
     home_team: Team,
     away_team: Team,
     ruleset: RuleSet,
+    playoff_context: str | None = None,
 ) -> str:
     """Build a concise context string for the AI from game data."""
-    lines = [
+    lines = []
+
+    if playoff_context:
+        label = "SEMIFINAL" if playoff_context == "semifinal" else "CHAMPIONSHIP FINALS"
+        lines.append(f"*** {label} PLAYOFF GAME ***")
+
+    lines.extend([
         f"{home_team.name} (home) vs {away_team.name} (away)",
         f"Final: {game_result.home_score}-{game_result.away_score}",
         f"Total possessions: {game_result.total_possessions}",
-    ]
+    ])
 
     if game_result.elam_activated:
         lines.append(f"ELAM ENDING activated! Target score: {game_result.elam_target_score}")
@@ -92,20 +130,27 @@ async def generate_game_commentary(
     away_team: Team,
     ruleset: RuleSet,
     api_key: str,
+    playoff_context: str | None = None,
 ) -> str:
     """Generate AI-powered broadcaster commentary for a completed game.
 
     Uses Claude Sonnet for cost-effective high-volume generation.
     Falls back to a bracketed error message on API failure.
     """
-    context = _build_game_context(game_result, home_team, away_team, ruleset)
+    context = _build_game_context(
+        game_result, home_team, away_team, ruleset, playoff_context
+    )
+    playoff_instructions = _PLAYOFF_COMMENTARY_INSTRUCTIONS.get(
+        playoff_context or "", ""
+    )
+    system = COMMENTARY_SYSTEM_PROMPT.format(playoff_instructions=playoff_instructions)
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
             model="claude-sonnet-4-5-20250929",
             max_tokens=400,
-            system=COMMENTARY_SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": f"Call this game:\n\n{context}"}],
         )
         return response.content[0].text
@@ -118,6 +163,7 @@ def generate_game_commentary_mock(
     game_result: GameResult,
     home_team: Team,
     away_team: Team,
+    playoff_context: str | None = None,
 ) -> str:
     """Template-based fallback commentary when no API key is set.
 
@@ -141,24 +187,58 @@ def generate_game_commentary_mock(
 
     paragraphs = []
 
+    # Playoff context — dramatic opener
+    if playoff_context == "finals":
+        paragraphs.append(
+            "THE CHAMPIONSHIP IS ON THE LINE. This is what the entire season has been building "
+            "toward — two teams, one title, and a crowd that can barely breathe."
+        )
+    elif playoff_context == "semifinal":
+        paragraphs.append(
+            "Win or go home. The playoff pressure is suffocating, and every possession "
+            "carries the weight of a full season's worth of work."
+        )
+
     # Opening paragraph — the result
     if margin <= 3:
-        opener = (
-            f"What a nail-biter at the buzzer! The {winner_name} edged out the {loser_name} "
-            f"{winner_score}-{loser_score} in a game that could have gone either way. "
-            f"The crowd is still vibrating."
-        )
+        if playoff_context:
+            opener = (
+                f"And it came down to the wire! The {winner_name} survived against the "
+                f"{loser_name} {winner_score}-{loser_score} in a {_playoff_label(playoff_context)}"
+                f" classic that will be talked about for seasons to come."
+            )
+        else:
+            opener = (
+                f"What a nail-biter at the buzzer! The {winner_name} edged out the {loser_name} "
+                f"{winner_score}-{loser_score} in a game that could have gone either way. "
+                f"The crowd is still vibrating."
+            )
     elif margin >= 15:
-        opener = (
-            f"A statement game from the {winner_name}, who absolutely dismantled the "
-            f"{loser_name} {winner_score}-{loser_score}. "
-            f"That was less a basketball game and more a public demonstration."
-        )
+        if playoff_context:
+            opener = (
+                f"A dominant {_playoff_label(playoff_context)} performance from the "
+                f"{winner_name}, who dismantled the {loser_name} {winner_score}-{loser_score}. "
+                f"The {loser_name}'s season ends not with a bang, but a whimper."
+            )
+        else:
+            opener = (
+                f"A statement game from the {winner_name}, who absolutely dismantled the "
+                f"{loser_name} {winner_score}-{loser_score}. "
+                f"That was less a basketball game and more a public demonstration."
+            )
     else:
-        opener = (
-            f"The {winner_name} take this one {winner_score}-{loser_score} over the "
-            f"{loser_name} in a hard-fought {game_result.total_possessions}-possession battle."
-        )
+        if playoff_context:
+            opener = (
+                f"The {winner_name} advance with a {winner_score}-{loser_score} "
+                f"{_playoff_label(playoff_context)} victory over the {loser_name}. "
+                f"{game_result.total_possessions} possessions of pure playoff intensity."
+            )
+        else:
+            opener = (
+                f"The {winner_name} take this one {winner_score}-{loser_score} over the "
+                f"{loser_name} in a hard-fought "
+                f"{game_result.total_possessions}-possession battle."
+            )
     paragraphs.append(opener)
 
     # Elam paragraph
@@ -185,13 +265,35 @@ def generate_game_commentary_mock(
         star_line += "."
         paragraphs.append(star_line)
 
+    # Playoff closing
+    if playoff_context == "finals":
+        paragraphs.append(
+            f"The {winner_name} are your CHAMPIONS. Confetti is falling. "
+            f"The {loser_name} gave everything they had, but tonight belongs to the {winner_name}."
+        )
+    elif playoff_context == "semifinal":
+        paragraphs.append(
+            f"The {winner_name} punch their ticket to the finals. "
+            f"The {loser_name}'s season is over."
+        )
+
     return "\n\n".join(paragraphs)
+
+
+def _playoff_label(playoff_context: str | None) -> str:
+    """Return a human-readable label for the playoff round."""
+    if playoff_context == "finals":
+        return "championship"
+    if playoff_context == "semifinal":
+        return "semifinal"
+    return ""
 
 
 async def generate_highlight_reel(
     game_summaries: list[dict],
     round_number: int,
     api_key: str,
+    playoff_context: str | None = None,
 ) -> str:
     """Generate an AI-powered highlights summary for all games in a round.
 
@@ -203,7 +305,11 @@ async def generate_highlight_reel(
             "No games were played. The silence is deafening."
         )
 
-    lines = [f"Round {round_number} results:"]
+    if playoff_context:
+        label = "SEMIFINAL" if playoff_context == "semifinal" else "CHAMPIONSHIP FINALS"
+        lines = [f"Round {round_number} — {label} PLAYOFFS:"]
+    else:
+        lines = [f"Round {round_number} results:"]
     for g in game_summaries:
         home = g.get("home_team", "Home")
         away = g.get("away_team", "Away")
@@ -213,13 +319,19 @@ async def generate_highlight_reel(
         lines.append(f"  {home} {hs} - {aws} {away}{elam}")
 
     context = "\n".join(lines)
+    playoff_instructions = _PLAYOFF_HIGHLIGHT_INSTRUCTIONS.get(
+        playoff_context or "", ""
+    )
+    system = HIGHLIGHT_REEL_SYSTEM_PROMPT.format(
+        playoff_instructions=playoff_instructions
+    )
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
             model="claude-sonnet-4-5-20250929",
             max_tokens=300,
-            system=HIGHLIGHT_REEL_SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": f"Highlights:\n\n{context}"}],
         )
         return response.content[0].text
@@ -231,6 +343,7 @@ async def generate_highlight_reel(
 def generate_highlight_reel_mock(
     game_summaries: list[dict],
     round_number: int,
+    playoff_context: str | None = None,
 ) -> str:
     """Template-based fallback highlight reel when no API key is set.
 
@@ -240,41 +353,103 @@ def generate_highlight_reel_mock(
         return f"Round {round_number}: No games scheduled. The league rests."
 
     lines = []
+
+    # Playoff header
+    if playoff_context == "finals":
+        lines.append(
+            "THE CHAMPIONSHIP FINALS ARE HERE. One game to decide it all."
+        )
+    elif playoff_context == "semifinal":
+        lines.append(
+            "SEMIFINAL PLAYOFF ACTION — win or go home."
+        )
+
     for g in game_summaries:
         home = g.get("home_team", "Home")
         away = g.get("away_team", "Away")
         hs = g.get("home_score", 0)
         aws = g.get("away_score", 0)
         winner = home if hs > aws else away
+        loser = away if winner == home else home
         margin = abs(hs - aws)
 
         if g.get("elam_activated"):
-            lines.append(
-                f"The {winner} survived an Elam Ending thriller against "
-                f"the {away if winner == home else home}, {max(hs, aws)}-{min(hs, aws)}."
-            )
+            if playoff_context:
+                lines.append(
+                    f"The {winner} survived an Elam Ending "
+                    f"{_playoff_label(playoff_context)} thriller against "
+                    f"the {loser}, {max(hs, aws)}-{min(hs, aws)}."
+                )
+            else:
+                lines.append(
+                    f"The {winner} survived an Elam Ending thriller against "
+                    f"the {loser}, {max(hs, aws)}-{min(hs, aws)}."
+                )
         elif margin >= 15:
-            lines.append(
-                f"The {winner} blew out the {away if winner == home else home} "
-                f"by {margin} in a game that was never close."
-            )
+            if playoff_context:
+                lines.append(
+                    f"The {winner} dominated the {loser} {max(hs, aws)}-{min(hs, aws)} "
+                    f"in a {_playoff_label(playoff_context)} blowout. "
+                    f"The {loser}'s season is over."
+                )
+            else:
+                lines.append(
+                    f"The {winner} blew out the {loser} "
+                    f"by {margin} in a game that was never close."
+                )
         elif margin <= 3:
-            lines.append(
-                f"A razor-thin finish: {home} {hs}, {away} {aws}. Every possession mattered."
-            )
+            if playoff_context:
+                lines.append(
+                    f"A {_playoff_label(playoff_context)} instant classic: "
+                    f"{home} {hs}, {away} {aws}. Absolute agony for the {loser}."
+                )
+            else:
+                lines.append(
+                    f"A razor-thin finish: {home} {hs}, {away} {aws}. "
+                    f"Every possession mattered."
+                )
         else:
-            lines.append(
-                f"The {winner} handled the {away if winner == home else home} "
-                f"{max(hs, aws)}-{min(hs, aws)}."
-            )
+            if playoff_context:
+                lines.append(
+                    f"The {winner} eliminate the {loser} "
+                    f"{max(hs, aws)}-{min(hs, aws)} in the {_playoff_label(playoff_context)}."
+                )
+            else:
+                lines.append(
+                    f"The {winner} handled the {loser} "
+                    f"{max(hs, aws)}-{min(hs, aws)}."
+                )
 
-    total_points = sum(g.get("home_score", 0) + g.get("away_score", 0) for g in game_summaries)
+    total_points = sum(
+        g.get("home_score", 0) + g.get("away_score", 0)
+        for g in game_summaries
+    )
     elam_count = sum(1 for g in game_summaries if g.get("elam_activated"))
 
-    summary = (
-        f"Round {round_number} delivered {len(game_summaries)} games "
-        f"and {total_points} total points."
-    )
+    if playoff_context == "finals":
+        winners = []
+        for g in game_summaries:
+            home = g.get("home_team", "Home")
+            away = g.get("away_team", "Away")
+            hs = g.get("home_score", 0)
+            aws = g.get("away_score", 0)
+            winners.append(home if hs > aws else away)
+        summary = (
+            f"Your champion: the {winners[0]}. "
+            f"What a season. What a game. {total_points} points in the finale."
+        )
+    elif playoff_context == "semifinal":
+        summary = (
+            f"The semifinal round is in the books — "
+            f"{total_points} total points across {len(game_summaries)} elimination games. "
+            f"The finals await."
+        )
+    else:
+        summary = (
+            f"Round {round_number} delivered {len(game_summaries)} games "
+            f"and {total_points} total points."
+        )
+
     if elam_count:
         summary += (
             f" The Elam Ending made its presence felt in {elam_count} contest"

@@ -283,6 +283,157 @@ class TestGameCommentaryMock:
 
 
 # ---------------------------------------------------------------------------
+# Playoff commentary tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlayoffCommentaryMock:
+    def test_semifinal_mentions_playoff(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        commentary = generate_game_commentary_mock(
+            result, home, away, playoff_context="semifinal"
+        )
+
+        assert "playoff" in commentary.lower() or "semifinal" in commentary.lower()
+        assert "go home" in commentary.lower() or "finals" in commentary.lower()
+
+    def test_finals_mentions_championship(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        commentary = generate_game_commentary_mock(
+            result, home, away, playoff_context="finals"
+        )
+
+        assert "champion" in commentary.lower()
+
+    def test_finals_has_champion_closing(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        commentary = generate_game_commentary_mock(
+            result, home, away, playoff_context="finals"
+        )
+
+        # Should mention confetti/champion in closing
+        assert "confetti" in commentary.lower() or "champion" in commentary.lower()
+        # Winner should be named
+        assert "Rose City Thorns" in commentary
+
+    def test_semifinal_close_game_narrative(self) -> None:
+        result = _make_game_result(home_score=42, away_score=41)
+        home = _make_home_team()
+        away = _make_away_team()
+
+        commentary = generate_game_commentary_mock(
+            result, home, away, playoff_context="semifinal"
+        )
+
+        # Should reference the stakes
+        assert "semifinal" in commentary.lower() or "go home" in commentary.lower()
+
+    def test_no_playoff_context_unchanged(self) -> None:
+        """Regular season commentary should not mention playoffs."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        commentary = generate_game_commentary_mock(result, home, away)
+
+        assert "playoff" not in commentary.lower()
+        assert "semifinal" not in commentary.lower()
+        assert "champion" not in commentary.lower()
+        assert "finals" not in commentary.lower()
+
+    def test_more_paragraphs_in_playoffs(self) -> None:
+        """Playoff commentary should have more content than regular season."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        regular = generate_game_commentary_mock(result, home, away)
+        playoff = generate_game_commentary_mock(
+            result, home, away, playoff_context="finals"
+        )
+
+        regular_paras = [p for p in regular.split("\n\n") if p.strip()]
+        playoff_paras = [p for p in playoff.split("\n\n") if p.strip()]
+        assert len(playoff_paras) > len(regular_paras)
+
+
+# ---------------------------------------------------------------------------
+# Playoff highlight reel tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlayoffHighlightReelMock:
+    def test_semifinal_highlights(self) -> None:
+        summaries = [
+            {
+                "home_team": "Rose City Thorns",
+                "away_team": "Burnside Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            },
+            {
+                "home_team": "Sellwood Herons",
+                "away_team": "Alberta Hammers",
+                "home_score": 50,
+                "away_score": 45,
+                "elam_activated": False,
+            },
+        ]
+
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=10, playoff_context="semifinal"
+        )
+
+        assert "semifinal" in reel.lower()
+        assert "finals await" in reel.lower() or "finals" in reel.lower()
+
+    def test_finals_highlights(self) -> None:
+        summaries = [
+            {
+                "home_team": "Rose City Thorns",
+                "away_team": "Sellwood Herons",
+                "home_score": 60,
+                "away_score": 52,
+                "elam_activated": False,
+            },
+        ]
+
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=11, playoff_context="finals"
+        )
+
+        assert "champion" in reel.lower()
+        assert "Rose City Thorns" in reel
+
+    def test_no_playoff_context_unchanged(self) -> None:
+        summaries = [
+            {
+                "home_team": "A",
+                "away_team": "B",
+                "home_score": 50,
+                "away_score": 45,
+                "elam_activated": False,
+            }
+        ]
+
+        reel = generate_highlight_reel_mock(summaries, round_number=3)
+
+        assert "semifinal" not in reel.lower()
+        assert "champion" not in reel.lower()
+        assert "playoff" not in reel.lower()
+
+
+# ---------------------------------------------------------------------------
 # Mock highlight reel tests
 # ---------------------------------------------------------------------------
 
