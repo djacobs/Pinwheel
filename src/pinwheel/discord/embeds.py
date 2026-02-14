@@ -179,6 +179,7 @@ def build_proposal_announcement_embed(
     new_value: object = None,
     tier: int = 1,
     threshold: float = 0.5,
+    wild: bool = False,
 ) -> discord.Embed:
     """Build a public embed announcing a proposal is open for voting.
 
@@ -189,6 +190,7 @@ def build_proposal_announcement_embed(
         new_value: Proposed new value.
         tier: Governance tier of the proposal.
         threshold: Vote threshold needed to pass.
+        wild: Whether this is a wild proposal (Tier 5+ or low confidence).
     """
     embed = discord.Embed(
         title="New Proposal on the Floor",
@@ -200,6 +202,12 @@ def build_proposal_announcement_embed(
         embed.add_field(name="Parameter Change", value=change_str, inline=False)
     embed.add_field(name="Tier", value=str(tier), inline=True)
     embed.add_field(name="Threshold", value=f"{threshold:.0%}", inline=True)
+    if wild:
+        embed.add_field(
+            name="Wild Proposal",
+            value=f"This is a wild proposal (Tier {tier}). Admin may veto before tally.",
+            inline=False,
+        )
     embed.set_footer(text="Use /vote to cast your vote")
     return embed
 
@@ -630,6 +638,7 @@ def build_governor_profile_embed(
     proposals_failed = activity.get("proposals_failed", 0)
     votes_cast = activity.get("votes_cast", 0)
     balance = activity.get("token_balance")
+    proposal_list = activity.get("proposal_list", [])
 
     embed = discord.Embed(
         title=f"Governor Profile: {governor_name}",
@@ -652,6 +661,25 @@ def build_governor_profile_embed(
             value=(f"PROPOSE: {balance.propose} | AMEND: {balance.amend} | BOOST: {balance.boost}"),
             inline=False,
         )
+
+    # Show individual proposal details
+    if proposal_list:
+        for p in proposal_list[:5]:
+            raw = str(p.get("raw_text", ""))
+            text_preview = raw[:60] + ("..." if len(raw) > 60 else "")
+            status = _STATUS_LABELS.get(str(p.get("status", "")), str(p.get("status", "")))
+            param = p.get("parameter") or "none"
+            embed.add_field(
+                name=f'"{text_preview}"',
+                value=f"**Status:** {status} | **Param:** {param} | **Tier:** {p.get('tier', '?')}",
+                inline=False,
+            )
+        if len(proposal_list) > 5:
+            embed.add_field(
+                name="",
+                value=f"_...and {len(proposal_list) - 5} more_",
+                inline=False,
+            )
 
     embed.set_author(name=governor_name)
     embed.set_footer(text="Pinwheel Fates")
@@ -684,15 +712,21 @@ def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
 def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> discord.Embed:
     """Build an embed for admin review of a wild proposal.
 
-    Shown to the admin when a Tier 5+ or low-confidence proposal needs approval.
+    Shown to the admin when a Tier 5+ or low-confidence proposal is submitted.
+    The proposal is already confirmed and open for voting — the admin can
+    veto before tally or clear to acknowledge review.
 
     Args:
         proposal: The Proposal model instance needing review.
         governor_name: Display name of the proposing governor.
     """
     embed = discord.Embed(
-        title="Proposal Needs Review",
-        description=proposal.raw_text[:2000],
+        title="Wild Proposal -- Veto or Clear",
+        description=(
+            f"{proposal.raw_text[:2000]}\n\n"
+            "This proposal is already open for voting. "
+            "Use **Veto** to remove it before tally, or **Clear** to acknowledge."
+        ),
         color=COLOR_WARNING,
     )
 
@@ -709,5 +743,66 @@ def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> dis
     embed.add_field(name="Tier", value=str(proposal.tier), inline=True)
     if governor_name:
         embed.add_field(name="Governor", value=governor_name, inline=True)
-    embed.set_footer(text="Pinwheel Fates -- Admin Review Required")
+    embed.set_footer(text="Pinwheel Fates -- Veto or Clear")
+    return embed
+
+
+_STATUS_LABELS: dict[str, str] = {
+    "pending": "Submitted",
+    "pending_review": "Awaiting Admin Review",
+    "confirmed": "On the Floor (voting open)",
+    "flagged_for_review": "On the Floor (wild -- admin may veto)",
+    "passed": "Passed",
+    "failed": "Failed",
+    "rejected": "Rejected by Admin",
+    "vetoed": "Vetoed by Admin",
+}
+
+
+def build_proposals_embed(
+    proposals: list[dict[str, object]],
+    season_name: str,
+    governor_names: dict[str, str] | None = None,
+) -> discord.Embed:
+    """Build an embed listing all proposals in a season with their status.
+
+    Args:
+        proposals: List of proposal dicts from get_all_proposals.
+        season_name: Display name for the season.
+        governor_names: Optional mapping of governor_id -> display name.
+    """
+    if not proposals:
+        return discord.Embed(
+            title=f"Proposals -- {season_name}",
+            description="No proposals have been submitted this season.",
+            color=COLOR_GOVERNANCE,
+        )
+
+    embed = discord.Embed(
+        title=f"Proposals -- {season_name}",
+        color=COLOR_GOVERNANCE,
+    )
+
+    for i, p in enumerate(proposals[:10]):
+        raw = str(p.get("raw_text", ""))
+        text_preview = raw[:80] + ("..." if len(raw) > 80 else "")
+        status = _STATUS_LABELS.get(str(p.get("status", "")), str(p.get("status", "")))
+        tier = p.get("tier", "?")
+        param = p.get("parameter") or "none"
+        gov_id = str(p.get("governor_id", ""))
+        gov_name = (governor_names or {}).get(gov_id, "unknown")
+
+        embed.add_field(
+            name=f"#{i + 1}: {text_preview}",
+            value=(
+                f"**Status:** {status}\n"
+                f"**Tier:** {tier} | **Parameter:** {param} | **By:** {gov_name}"
+            ),
+            inline=False,
+        )
+
+    if len(proposals) > 10:
+        embed.set_footer(text=f"Showing 10 of {len(proposals)} proposals -- Pinwheel Fates")
+    else:
+        embed.set_footer(text="Pinwheel Fates")
     return embed

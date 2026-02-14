@@ -118,35 +118,17 @@ class ProposalConfirmView(discord.ui.View):
 
             self._disable_all()
 
-            if proposal.status == "pending_review":
-                # Wild proposal held for admin review
-                embed = discord.Embed(
-                    title="Proposal Submitted -- Pending Admin Review",
-                    description=(
-                        f'"{self.raw_text}"\n\n'
-                        "Your proposal has been submitted but requires "
-                        "admin review before it can go to a vote. "
-                        "You will be notified once a decision is made."
-                    ),
-                    color=0xE67E22,
-                )
-                embed.set_footer(text="Pinwheel Fates")
-                await interaction.response.edit_message(
-                    embed=embed,
-                    view=self,
-                )
+            from pinwheel.core.governance import (
+                _needs_admin_review,
+                vote_threshold_for_tier,
+            )
 
-                # Notify admin via DM
-                await _notify_admin_for_review(
-                    interaction,
-                    proposal,
-                    self.settings,
-                    governor_name=interaction.user.display_name,
-                )
-                return
+            is_wild = _needs_admin_review(proposal)
 
+            # Always show green "Proposal Submitted" embed
+            wild_note = " (Wild -- Admin may veto)" if is_wild else ""
             embed = discord.Embed(
-                title="Proposal Submitted",
+                title=f"Proposal Submitted{wild_note}",
                 description=(
                     f'"{self.raw_text}"\n\nYour proposal is now on the Floor and open for voting.'
                 ),
@@ -159,7 +141,6 @@ class ProposalConfirmView(discord.ui.View):
             )
 
             # Post public announcement to the channel
-            from pinwheel.core.governance import vote_threshold_for_tier
             from pinwheel.discord.embeds import (
                 build_proposal_announcement_embed,
             )
@@ -172,6 +153,7 @@ class ProposalConfirmView(discord.ui.View):
                 new_value=(self.interpretation.new_value if self.interpretation else None),
                 tier=self.tier,
                 threshold=threshold,
+                wild=is_wild,
             )
             if interaction.channel is not None:
                 import contextlib
@@ -181,6 +163,15 @@ class ProposalConfirmView(discord.ui.View):
                     discord.HTTPException,
                 ):
                     await interaction.channel.send(embed=announcement)
+
+            # Wild proposals also notify admin via DM for potential veto
+            if is_wild:
+                await _notify_admin_for_review(
+                    interaction,
+                    proposal,
+                    self.settings,
+                    governor_name=interaction.user.display_name,
+                )
         except Exception:
             logger.exception("proposal_confirm_failed")
             await interaction.response.send_message(
@@ -751,9 +742,11 @@ async def _notify_admin_for_review(
     settings: Settings,
     governor_name: str = "",
 ) -> None:
-    """Send a DM to the admin with an AdminReviewView for a pending proposal.
+    """Send a DM to the admin with Veto/Clear buttons for a wild proposal.
 
-    Tries settings.pinwheel_admin_discord_id first, falls back to guild owner.
+    The proposal is already confirmed and open for voting. The admin can
+    veto before tally if needed. Tries settings.pinwheel_admin_discord_id
+    first, falls back to guild owner.
     """
     import contextlib
 
@@ -802,10 +795,12 @@ async def _notify_admin_for_review(
 
 
 class AdminReviewView(discord.ui.View):
-    """Approve/Reject buttons for admin review of wild proposals.
+    """Clear/Veto buttons for admin review of wild proposals.
 
     Sent via DM to the admin when a Tier 5+ or low-confidence proposal
-    is submitted. Timeout: 24 hours.
+    is submitted. The proposal is already confirmed and open for voting.
+    Admin can veto before tally or clear to acknowledge review.
+    Timeout: 24 hours.
     """
 
     def __init__(
@@ -828,33 +823,32 @@ class AdminReviewView(discord.ui.View):
                 item.disabled = True
 
     @discord.ui.button(
-        label="Approve",
+        label="Clear",
         style=discord.ButtonStyle.green,
     )
-    async def approve(
+    async def clear(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,  # noqa: ARG002
     ) -> None:
         import contextlib
 
-        from pinwheel.core.governance import admin_approve_proposal
+        from pinwheel.core.governance import admin_clear_proposal
         from pinwheel.db.engine import get_session
         from pinwheel.db.repository import Repository
 
         try:
             async with get_session(self.engine) as session:
                 repo = Repository(session)
-                await admin_approve_proposal(repo, self.proposal)
+                await admin_clear_proposal(repo, self.proposal)
                 await session.commit()
 
             self._disable_all()
             embed = discord.Embed(
-                title="Proposal Approved",
+                title="Proposal Cleared",
                 description=(
                     f'"{self.proposal.raw_text[:200]}"\n\n'
-                    "The proposal has been approved and is now "
-                    "open for voting."
+                    "The proposal has been cleared. Voting continues normally."
                 ),
                 color=0x2ECC71,
             )
@@ -874,35 +868,35 @@ class AdminReviewView(discord.ui.View):
                     self.proposer_discord_id,
                 )
                 await proposer.send(
-                    "Your proposal has been approved and is now open for voting.",
+                    "Admin has cleared your proposal. Voting continues normally.",
                 )
         except Exception:
-            logger.exception("admin_approve_failed")
+            logger.exception("admin_clear_failed")
             await interaction.response.send_message(
-                "Something went wrong approving the proposal.",
+                "Something went wrong clearing the proposal.",
                 ephemeral=True,
             )
 
     @discord.ui.button(
-        label="Reject",
+        label="Veto",
         style=discord.ButtonStyle.red,
     )
-    async def reject(
+    async def veto(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,  # noqa: ARG002
     ) -> None:
-        modal = AdminRejectReasonModal(parent_view=self)
+        modal = AdminVetoReasonModal(parent_view=self)
         await interaction.response.send_modal(modal)
 
 
-class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
-    """Text input for admin to provide a rejection reason."""
+class AdminVetoReasonModal(discord.ui.Modal, title="Veto Proposal"):
+    """Text input for admin to provide a veto reason."""
 
     reason = discord.ui.TextInput(
-        label="Rejection reason (optional)",
+        label="Veto reason (optional)",
         style=discord.TextStyle.paragraph,
-        placeholder="Why is this proposal being rejected?",
+        placeholder="Why is this proposal being vetoed?",
         required=False,
         max_length=500,
     )
@@ -917,7 +911,7 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
     ) -> None:
         import contextlib
 
-        from pinwheel.core.governance import admin_reject_proposal
+        from pinwheel.core.governance import admin_veto_proposal
         from pinwheel.db.engine import get_session
         from pinwheel.db.repository import Repository
 
@@ -926,7 +920,7 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
         try:
             async with get_session(self.parent_view.engine) as session:
                 repo = Repository(session)
-                await admin_reject_proposal(
+                await admin_veto_proposal(
                     repo,
                     self.parent_view.proposal,
                     reason=reason,
@@ -935,7 +929,7 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
 
             self.parent_view._disable_all()
             embed = discord.Embed(
-                title="Proposal Rejected",
+                title="Proposal Vetoed",
                 description=(
                     f'"{self.parent_view.proposal.raw_text[:200]}"\n\n'
                     f"Reason: {reason or 'No reason provided.'}"
@@ -959,13 +953,13 @@ class AdminRejectReasonModal(discord.ui.Modal, title="Reject Proposal"):
                 )
                 reason_msg = f" Reason: {reason}" if reason else ""
                 await proposer.send(
-                    "Your proposal was not approved."
+                    "Your proposal has been vetoed by an admin."
                     f"{reason_msg} "
                     "Your PROPOSE token has been refunded.",
                 )
         except Exception:
-            logger.exception("admin_reject_failed")
+            logger.exception("admin_veto_failed")
             await interaction.response.send_message(
-                "Something went wrong rejecting the proposal.",
+                "Something went wrong vetoing the proposal.",
                 ephemeral=True,
             )

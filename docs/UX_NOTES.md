@@ -573,3 +573,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 78. [DONE] Championship ceremony Discord notification
 **Problem:** When playoffs completed, the season silently flipped to "completed" with no fanfare. No champion announcement, no awards, no narrative closure.
 **Fix:** Season lifecycle now transitions to a CHAMPIONSHIP phase after playoffs. A gold-colored Discord embed is posted announcing the champion team and listing up to 6 awards (MVP, Defensive Player, Most Efficient, Most Active Governor, Coalition Builder, Rule Architect). A separate "Season Complete" embed posts when the championship window expires and the season fully closes.
+
+### 79. [DONE] `/proposals` command — proposal lifecycle visibility
+**Problem:** Governors had no way to see what happened to their proposals. JudgeJedd's Season 1 proposal sat in `pending_review` invisibly — the roster showed 0 proposals, and the profile gave no detail. Proposals stuck in admin review were indistinguishable from proposals that never existed.
+**Fix:** New `/proposals` command shows all proposals with human-readable lifecycle status: Submitted, Awaiting Admin Review, On the Floor (voting open), Passed, Failed, Rejected by Admin. Supports "Current season" and "All seasons" filter. Enhanced `/profile` embed now shows individual proposal details with status badges below the summary stats.
+
+### 80. [DONE] `pending_review` and `rejected` status detection
+**Problem:** `get_governor_activity()` only checked for `confirmed`, `passed`, and `failed` statuses. Proposals in `pending_review` or `rejected` showed up as generic "pending" — misleading governors about their proposal's actual state.
+**Fix:** Activity query now detects `proposal.pending_review` and `proposal.rejected` events, correctly labeling proposals throughout the system (profile, roster, proposals command).

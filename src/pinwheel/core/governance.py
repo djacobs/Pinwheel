@@ -190,10 +190,11 @@ async def submit_proposal(
 
 
 def _needs_admin_review(proposal: Proposal) -> bool:
-    """Check if a proposal requires admin review before going to vote.
+    """Check if a proposal is "wild" and should be flagged for admin review.
 
     Tier 5+ proposals (uninterpretable, parameter=None, or unknown params)
-    and proposals with low AI confidence (< 0.5) are held for admin approval.
+    and proposals with low AI confidence (< 0.5) are flagged for admin veto.
+    Wild proposals still go to vote immediately — the admin can veto before tally.
     """
     if proposal.tier >= 5:
         return True
@@ -201,23 +202,13 @@ def _needs_admin_review(proposal: Proposal) -> bool:
 
 
 async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
-    """Governor confirms AI interpretation. Moves to voting or pending_review.
+    """Governor confirms AI interpretation. Always moves to confirmed (voting open).
 
-    Wild proposals (Tier 5+ or confidence < 0.5) are held for admin review
-    before they can proceed to voting.
+    All proposals go to vote immediately. Wild proposals (Tier 5+ or
+    confidence < 0.5) are also flagged for admin review — the admin can
+    veto before tally, but the democratic process proceeds by default.
     """
-    if _needs_admin_review(proposal):
-        await repo.append_event(
-            event_type="proposal.pending_review",
-            aggregate_id=proposal.id,
-            aggregate_type="proposal",
-            season_id=proposal.season_id,
-            governor_id=proposal.governor_id,
-            payload=proposal.model_dump(mode="json"),
-        )
-        proposal.status = "pending_review"
-        return proposal
-
+    # Always confirm — opens voting
     await repo.append_event(
         event_type="proposal.confirmed",
         aggregate_id=proposal.id,
@@ -227,37 +218,62 @@ async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
         payload={"proposal_id": proposal.id},
     )
     proposal.status = "confirmed"
+
+    # Wild proposals also get flagged for admin review (audit trail)
+    if _needs_admin_review(proposal):
+        await repo.append_event(
+            event_type="proposal.flagged_for_review",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=proposal.season_id,
+            governor_id=proposal.governor_id,
+            payload=proposal.model_dump(mode="json"),
+        )
+
     return proposal
 
 
-async def admin_approve_proposal(repo: Repository, proposal: Proposal) -> Proposal:
-    """Admin approves a proposal held for review. Moves to confirmed status."""
-    proposal.status = "confirmed"
+async def admin_clear_proposal(repo: Repository, proposal: Proposal) -> Proposal:
+    """Admin clears a flagged proposal. No-op since proposal is already confirmed.
+
+    Emits a review_cleared event for audit trail and notifies the proposer.
+    """
     await repo.append_event(
-        event_type="proposal.confirmed",
+        event_type="proposal.review_cleared",
         aggregate_id=proposal.id,
         aggregate_type="proposal",
         season_id=proposal.season_id,
         governor_id=proposal.governor_id,
-        payload=proposal.model_dump(mode="json"),
+        payload={"proposal_id": proposal.id},
     )
     return proposal
 
 
-async def admin_reject_proposal(
+# Backward-compatible alias
+admin_approve_proposal = admin_clear_proposal
+
+
+async def admin_veto_proposal(
     repo: Repository,
     proposal: Proposal,
     reason: str = "",
 ) -> Proposal:
-    """Admin rejects a proposal held for review. Refunds the PROPOSE token."""
-    proposal.status = "rejected"
+    """Admin vetoes a wild proposal. Refunds the PROPOSE token.
+
+    If the proposal has already passed or been enacted, veto is a no-op
+    (too late — the democratic process completed).
+    """
+    if proposal.status in ("passed", "enacted"):
+        return proposal
+
+    proposal.status = "vetoed"
     await repo.append_event(
-        event_type="proposal.rejected",
+        event_type="proposal.vetoed",
         aggregate_id=proposal.id,
         aggregate_type="proposal",
         season_id=proposal.season_id,
         governor_id=proposal.governor_id,
-        payload={**proposal.model_dump(mode="json"), "rejection_reason": reason},
+        payload={**proposal.model_dump(mode="json"), "veto_reason": reason},
     )
     # Refund PROPOSE token
     await repo.append_event(
@@ -269,10 +285,14 @@ async def admin_reject_proposal(
         payload={
             "token_type": "propose",
             "amount": proposal.token_cost,
-            "reason": "admin_rejection_refund",
+            "reason": "admin_veto_refund",
         },
     )
     return proposal
+
+
+# Backward-compatible alias
+admin_reject_proposal = admin_veto_proposal
 
 
 async def cancel_proposal(repo: Repository, proposal: Proposal) -> Proposal:

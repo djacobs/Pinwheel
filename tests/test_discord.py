@@ -2822,3 +2822,80 @@ class TestGetGovernorCompletedSeason:
             await get_governor(engine, "99999")
 
         await engine.dispose()
+
+
+class TestProposalsEmbed:
+    """Tests for proposal listing and profile embed enhancements."""
+
+    def test_proposals_embed_empty(self) -> None:
+        from pinwheel.discord.embeds import build_proposals_embed
+
+        embed = build_proposals_embed([], season_name="Season 1")
+        assert "No proposals" in embed.description
+
+    def test_proposals_embed_with_data(self) -> None:
+        from pinwheel.discord.embeds import build_proposals_embed
+
+        proposals = [
+            {
+                "id": "p1",
+                "raw_text": "Make three-pointers worth 5 points",
+                "status": "confirmed",
+                "governor_id": "gov1",
+                "team_id": "t1",
+                "parameter": "three_point_value",
+                "tier": 1,
+                "round_number": 3,
+            },
+            {
+                "id": "p2",
+                "raw_text": "The first team to 69 wins",
+                "status": "pending_review",
+                "governor_id": "gov2",
+                "team_id": "t2",
+                "parameter": None,
+                "tier": 5,
+                "round_number": 5,
+            },
+        ]
+        governor_names = {"gov1": "Alice", "gov2": "Bob"}
+        embed = build_proposals_embed(
+            proposals,
+            season_name="Season 1",
+            governor_names=governor_names,
+        )
+        assert embed.title == "Proposals -- Season 1"
+        assert len(embed.fields) == 2
+        assert "On the Floor" in embed.fields[0].value
+        assert "Awaiting Admin Review" in embed.fields[1].value
+        assert "Alice" in embed.fields[0].value
+        assert "Bob" in embed.fields[1].value
+
+    def test_profile_embed_shows_proposal_details(self) -> None:
+        from pinwheel.discord.embeds import build_governor_profile_embed
+        from pinwheel.models.tokens import TokenBalance
+
+        activity = {
+            "proposals_submitted": 1,
+            "proposals_passed": 0,
+            "proposals_failed": 0,
+            "votes_cast": 2,
+            "token_balance": TokenBalance(governor_id="g1", propose=1, amend=1, boost=1),
+            "proposal_list": [
+                {
+                    "id": "p1",
+                    "raw_text": "Test proposal text",
+                    "status": "pending_review",
+                    "parameter": None,
+                    "tier": 5,
+                }
+            ],
+        }
+        embed = build_governor_profile_embed(
+            governor_name="JudgeJedd",
+            team_name="Thorns",
+            activity=activity,
+        )
+        # Should have proposal detail field
+        field_values = [f.value for f in embed.fields]
+        assert any("Awaiting Admin Review" in v for v in field_values)

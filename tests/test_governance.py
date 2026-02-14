@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.ai.interpreter import interpret_proposal_mock
 from pinwheel.core.governance import (
-    admin_approve_proposal,
-    admin_reject_proposal,
+    admin_clear_proposal,
+    admin_veto_proposal,
     apply_rule_change,
     cancel_proposal,
     cast_vote,
@@ -735,13 +735,13 @@ class TestTallyGovernance:
 
 
 class TestAdminReview:
-    async def test_tier5_proposal_goes_to_pending_review(
+    async def test_tier5_proposal_goes_to_vote_immediately(
         self,
         repo: Repository,
         season_id: str,
         seeded_governor,
     ):
-        """Tier 5 proposals (parameter=None) should be held for admin review."""
+        """Tier 5 proposals (parameter=None) go to vote immediately and get flagged."""
         gov_id, team_id = seeded_governor
         # Create a Tier 5 interpretation (parameter=None → uninterpretable)
         interpretation = RuleInterpretation(
@@ -763,22 +763,29 @@ class TestAdminReview:
         assert proposal.tier == 5  # No parameter → Tier 5
 
         proposal = await confirm_proposal(repo, proposal)
-        assert proposal.status == "pending_review"
+        assert proposal.status == "confirmed"
 
-        # Verify pending_review event was recorded
-        pending_events = await repo.get_events_by_type(
+        # Verify confirmed event was recorded
+        confirmed_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["proposal.pending_review"],
+            event_types=["proposal.confirmed"],
         )
-        assert len(pending_events) == 1
+        assert len(confirmed_events) == 1
 
-    async def test_low_confidence_proposal_goes_to_pending_review(
+        # Verify flagged_for_review event was also recorded (audit trail)
+        flagged_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.flagged_for_review"],
+        )
+        assert len(flagged_events) == 1
+
+    async def test_low_confidence_proposal_goes_to_vote_and_flagged(
         self,
         repo: Repository,
         season_id: str,
         seeded_governor,
     ):
-        """Proposals with confidence < 0.5 should be held for admin review."""
+        """Proposals with confidence < 0.5 go to vote immediately and get flagged."""
         gov_id, team_id = seeded_governor
         # Create a low-confidence interpretation (valid param but low confidence)
         interpretation = RuleInterpretation(
@@ -801,7 +808,14 @@ class TestAdminReview:
         assert proposal.tier == 1  # three_point_value is Tier 1
 
         proposal = await confirm_proposal(repo, proposal)
-        assert proposal.status == "pending_review"
+        assert proposal.status == "confirmed"
+
+        # Verify flagged_for_review event was recorded
+        flagged_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.flagged_for_review"],
+        )
+        assert len(flagged_events) == 1
 
     async def test_normal_proposal_skips_review(
         self,
@@ -833,20 +847,20 @@ class TestAdminReview:
         proposal = await confirm_proposal(repo, proposal)
         assert proposal.status == "confirmed"
 
-        # No pending_review event should exist
-        pending_events = await repo.get_events_by_type(
+        # No flagged_for_review event should exist for normal proposals
+        flagged_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["proposal.pending_review"],
+            event_types=["proposal.flagged_for_review"],
         )
-        assert len(pending_events) == 0
+        assert len(flagged_events) == 0
 
-    async def test_admin_approve_moves_to_confirmed(
+    async def test_admin_clear_is_noop_on_confirmed(
         self,
         repo: Repository,
         season_id: str,
         seeded_governor,
     ):
-        """admin_approve_proposal should move a pending_review proposal to confirmed."""
+        """admin_clear_proposal on already-confirmed proposal emits review_cleared."""
         gov_id, team_id = seeded_governor
         interpretation = RuleInterpretation(parameter=None, confidence=0.8)
 
@@ -861,25 +875,26 @@ class TestAdminReview:
             ruleset=RuleSet(),
         )
         proposal = await confirm_proposal(repo, proposal)
-        assert proposal.status == "pending_review"
-
-        proposal = await admin_approve_proposal(repo, proposal)
         assert proposal.status == "confirmed"
 
-        # Verify confirmed event was recorded
-        confirmed_events = await repo.get_events_by_type(
-            season_id=season_id,
-            event_types=["proposal.confirmed"],
-        )
-        assert len(confirmed_events) == 1
+        proposal = await admin_clear_proposal(repo, proposal)
+        # Status stays confirmed — clearing is a no-op on confirmed
+        assert proposal.status == "confirmed"
 
-    async def test_admin_reject_moves_to_rejected_and_refunds_token(
+        # Verify review_cleared event was recorded
+        cleared_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.review_cleared"],
+        )
+        assert len(cleared_events) == 1
+
+    async def test_admin_veto_excludes_from_tally_and_refunds_token(
         self,
         repo: Repository,
         season_id: str,
         seeded_governor,
     ):
-        """admin_reject_proposal should reject and refund the PROPOSE token."""
+        """admin_veto_proposal should veto and refund the PROPOSE token."""
         gov_id, team_id = seeded_governor
 
         # Check initial balance
@@ -904,22 +919,22 @@ class TestAdminReview:
         assert balance_after_submit.propose == 0  # 2 - 2 (tier 5 cost)
 
         proposal = await confirm_proposal(repo, proposal)
-        assert proposal.status == "pending_review"
+        assert proposal.status == "confirmed"
 
-        proposal = await admin_reject_proposal(repo, proposal, reason="Too vague")
-        assert proposal.status == "rejected"
+        proposal = await admin_veto_proposal(repo, proposal, reason="Too vague")
+        assert proposal.status == "vetoed"
 
         # Token should be refunded
-        balance_after_reject = await get_token_balance(repo, gov_id, season_id)
-        assert balance_after_reject.propose == 2  # Refunded the 2 tokens
+        balance_after_veto = await get_token_balance(repo, gov_id, season_id)
+        assert balance_after_veto.propose == 2  # Refunded the 2 tokens
 
-        # Verify rejected event was recorded with reason
-        rejected_events = await repo.get_events_by_type(
+        # Verify vetoed event was recorded with reason
+        vetoed_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["proposal.rejected"],
+            event_types=["proposal.vetoed"],
         )
-        assert len(rejected_events) == 1
-        assert rejected_events[0].payload.get("rejection_reason") == "Too vague"
+        assert len(vetoed_events) == 1
+        assert vetoed_events[0].payload.get("veto_reason") == "Too vague"
 
     async def test_tier4_with_high_confidence_skips_review(
         self,

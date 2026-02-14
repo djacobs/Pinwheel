@@ -251,6 +251,151 @@ class TestHooperBackstory:
         assert retrieved.backstory == ""
 
 
+class TestGovernorActivity:
+    """Tests for get_governor_activity and get_all_proposals."""
+
+    async def test_pending_review_status_detected(self, repo: Repository):
+        """Proposals in pending_review should show that status, not 'pending'."""
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team = await repo.create_team(season.id, "Team A")
+        player = await repo.get_or_create_player("12345", "TestGov")
+        player.team_id = team.id
+        player.enrolled_season_id = season.id
+        await repo.session.flush()
+
+        proposal_id = "prop-001"
+        await repo.append_event(
+            event_type="proposal.submitted",
+            aggregate_id=proposal_id,
+            aggregate_type="proposal",
+            season_id=season.id,
+            governor_id=player.id,
+            team_id=team.id,
+            payload={
+                "id": proposal_id,
+                "raw_text": "Wild proposal text",
+                "tier": 5,
+                "status": "submitted",
+            },
+        )
+        await repo.append_event(
+            event_type="proposal.pending_review",
+            aggregate_id=proposal_id,
+            aggregate_type="proposal",
+            season_id=season.id,
+            governor_id=player.id,
+            payload={"id": proposal_id},
+        )
+
+        activity = await repo.get_governor_activity(player.id, season.id)
+        assert activity["proposals_submitted"] == 1
+        assert activity["proposal_list"][0]["status"] == "pending_review"
+
+    async def test_rejected_status_detected(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team = await repo.create_team(season.id, "Team A")
+        player = await repo.get_or_create_player("12345", "TestGov")
+        player.team_id = team.id
+        player.enrolled_season_id = season.id
+        await repo.session.flush()
+
+        proposal_id = "prop-002"
+        await repo.append_event(
+            event_type="proposal.submitted",
+            aggregate_id=proposal_id,
+            aggregate_type="proposal",
+            season_id=season.id,
+            governor_id=player.id,
+            team_id=team.id,
+            payload={
+                "id": proposal_id,
+                "raw_text": "Rejected proposal",
+                "tier": 5,
+                "status": "submitted",
+            },
+        )
+        await repo.append_event(
+            event_type="proposal.rejected",
+            aggregate_id=proposal_id,
+            aggregate_type="proposal",
+            season_id=season.id,
+            governor_id=player.id,
+            payload={"id": proposal_id, "rejection_reason": "Too wild"},
+        )
+
+        activity = await repo.get_governor_activity(player.id, season.id)
+        assert activity["proposal_list"][0]["status"] == "rejected"
+
+    async def test_get_all_proposals(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team = await repo.create_team(season.id, "Team A")
+        player = await repo.get_or_create_player("12345", "Gov1")
+        player.team_id = team.id
+        player.enrolled_season_id = season.id
+        await repo.session.flush()
+
+        # Submit two proposals, one confirmed, one pending_review
+        for i, status_event in enumerate(
+            ["proposal.confirmed", "proposal.pending_review"]
+        ):
+            pid = f"prop-{i}"
+            await repo.append_event(
+                event_type="proposal.submitted",
+                aggregate_id=pid,
+                aggregate_type="proposal",
+                season_id=season.id,
+                governor_id=player.id,
+                team_id=team.id,
+                payload={
+                    "id": pid,
+                    "raw_text": f"Proposal {i}",
+                    "tier": 1 if i == 0 else 5,
+                    "status": "submitted",
+                },
+            )
+            payload = (
+                {"proposal_id": pid}
+                if status_event == "proposal.confirmed"
+                else {"id": pid}
+            )
+            await repo.append_event(
+                event_type=status_event,
+                aggregate_id=pid,
+                aggregate_type="proposal",
+                season_id=season.id,
+                governor_id=player.id,
+                payload=payload,
+            )
+
+        proposals = await repo.get_all_proposals(season.id)
+        assert len(proposals) == 2
+        statuses = {p["id"]: p["status"] for p in proposals}
+        assert statuses["prop-0"] == "confirmed"
+        assert statuses["prop-1"] == "pending_review"
+
+    async def test_get_all_seasons(self, repo: Repository):
+        league = await repo.create_league("L")
+        s1 = await repo.create_season(league.id, "Season 1")
+        s2 = await repo.create_season(league.id, "Season 2")
+
+        seasons = await repo.get_all_seasons()
+        ids = {s.id for s in seasons}
+        assert s1.id in ids
+        assert s2.id in ids
+
+    async def test_get_all_players(self, repo: Repository):
+        p1 = await repo.get_or_create_player("111", "Alice")
+        p2 = await repo.get_or_create_player("222", "Bob")
+
+        players = await repo.get_all_players()
+        ids = {p.id for p in players}
+        assert p1.id in ids
+        assert p2.id in ids
+
+
 class TestSchedule:
     async def test_create_and_retrieve_schedule(self, repo: Repository):
         league = await repo.create_league("L")

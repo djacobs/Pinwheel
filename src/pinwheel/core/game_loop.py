@@ -377,12 +377,19 @@ async def tally_pending_governance(
     )
     resolved_ids = {e.aggregate_id for e in resolved_events}
 
+    # Exclude vetoed proposals from tally
+    vetoed_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.vetoed"],
+    )
+    vetoed_ids = {e.aggregate_id for e in vetoed_events}
+
     # Deduplicate: use proposal_id from payload, falling back to aggregate_id
     pending_proposal_ids: list[str] = []
     seen_ids: set[str] = set()
     for ce in confirmed_events:
         pid = ce.payload.get("proposal_id", ce.aggregate_id)
-        if pid not in resolved_ids and pid not in seen_ids:
+        if pid not in resolved_ids and pid not in seen_ids and pid not in vetoed_ids:
             pending_proposal_ids.append(pid)
             seen_ids.add(pid)
 

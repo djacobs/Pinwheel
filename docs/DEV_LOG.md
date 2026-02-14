@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **717 tests**, zero lint errors (Session 50)
+- **725 tests**, zero lint errors (Session 51)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -14,7 +14,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 13:** Self-heal missing player enrollments, decouple governance from game simulation
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 50 (admin visibility + season lifecycle)
+- **Latest commit:** Session 51 (governor proposal inspection + hooper trade fix)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -161,3 +161,50 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 **717 tests (47 new), zero lint errors.**
 
 **What could have gone better:** Both tasks ran as parallel background agents. The season lifecycle agent reported 717 tests but the admin visibility agent reported 638 — likely because it ran its subset before the other agent's tests existed. Running the full suite after both completed confirmed 717 all passing with no conflicts.
+
+---
+
+## Session 51 — Governor Proposal Inspection + Hooper Trade Fix
+
+**What was asked:** Investigate why `/roster` shows 0 proposals for JudgeJedd despite having submitted one. Find out what happened to the proposal. Fix any ID mismatch bugs. Make the bot powerful enough to answer these questions itself.
+
+**What was built:**
+
+### Production investigation
+- Queried production database via `fly ssh`: JudgeJedd's proposal ("The first team to score 69 points wins the game") was Tier 5, confidence 0.3 — flagged for admin review. It was stuck in `pending_review` in Season 1 (now completed). Admin notification DM was likely lost during early deploys.
+- Formally rejected the proposal with a message explaining the season ended before review. Refunded 2 PROPOSE tokens.
+- Sent JudgeJedd a DM explaining what happened and encouraging resubmission in Season TWO.
+- Posted a public announcement in #general honoring the league's first-ever proposal.
+
+### Fix hooper trade ID mismatch (bug)
+- `bot.py:2128` used `str(interaction.user.id)` (Discord snowflake) as `proposer_id` instead of `gov.player_id` (UUID). This caused hooper trade events to store the wrong `governor_id`, making them invisible to activity queries. Fixed to use `gov.player_id`.
+
+### Fix `get_governor_activity` — detect `pending_review` and `rejected` status
+- `repository.py:get_governor_activity()` now queries for `proposal.pending_review` and `proposal.rejected` events, correctly assigning those statuses instead of showing them as generic "pending".
+
+### New `/proposals` command
+- Shows all proposals in the current season (or all seasons) with full lifecycle status labels: Submitted, Awaiting Admin Review, On the Floor (voting open), Passed, Failed, Rejected by Admin.
+- Displays proposer name, tier, parameter, and status for each proposal.
+- Season filter parameter: "Current season" or "All seasons".
+
+### Enhanced `/profile` embed
+- Now shows individual proposal details with status badges below the summary. Governors can see exactly what happened to each of their proposals.
+
+### New `_STATUS_LABELS` dict + `build_proposals_embed()` in embeds.py
+- Human-readable status labels for all proposal lifecycle states.
+- `build_proposals_embed()` builds a Discord embed listing up to 10 proposals with status, tier, parameter, and proposer name.
+
+### New repository methods
+- `get_all_proposals(season_id)` — returns all proposals in a season with full lifecycle status.
+- `get_all_seasons()` — returns all seasons, most recent first.
+- `get_all_players()` — returns all players regardless of season or team.
+
+### Tests (8 new)
+- `test_db.py`: `TestGovernorActivity` — 5 tests: `pending_review` status detected, `rejected` status detected, `get_all_proposals` with mixed statuses, `get_all_seasons`, `get_all_players`.
+- `test_discord.py`: `TestProposalsEmbed` — 3 tests: empty proposals, proposals with data and governor names, profile embed shows proposal details.
+
+**Files modified (4):** `src/pinwheel/discord/bot.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/discord/embeds.py`, `tests/test_db.py`, `tests/test_discord.py`
+
+**725 tests (8 new), zero lint errors.**
+
+**What could have gone better:** The `fly ssh` command doesn't support shell pipes, so the initial DB query failed on quote escaping. Writing a standalone Python script and piping it via stdin (`cat script.py | fly ssh console -C "python -"`) worked cleanly. Also, Discord secrets are named `DISCORD_BOT_TOKEN` not `DISCORD_TOKEN` in Fly — the notification script needed a fallback lookup.

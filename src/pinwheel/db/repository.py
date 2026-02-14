@@ -108,6 +108,18 @@ class Repository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_all_seasons(self) -> list[SeasonRow]:
+        """Return all seasons, most recent first."""
+        stmt = select(SeasonRow).order_by(SeasonRow.created_at.desc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_players(self) -> list[PlayerRow]:
+        """Return all players regardless of season or team."""
+        stmt = select(PlayerRow)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_players_for_season(self, season_id: str) -> list[PlayerRow]:
         """Return all players enrolled in a season."""
         stmt = select(PlayerRow).where(
@@ -433,6 +445,23 @@ class Repository:
             pid = e.payload.get("proposal_id", e.aggregate_id)
             confirmed_ids.add(pid)
 
+        # Get pending_review, rejected, and vetoed proposals
+        review_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.pending_review", "proposal.rejected", "proposal.vetoed"],
+        )
+        pending_review_ids: set[str] = set()
+        rejected_ids: set[str] = set()
+        vetoed_ids: set[str] = set()
+        for e in review_events:
+            pid = e.payload.get("id", e.aggregate_id)
+            if e.event_type == "proposal.pending_review":
+                pending_review_ids.add(pid)
+            elif e.event_type == "proposal.vetoed":
+                vetoed_ids.add(pid)
+            else:
+                rejected_ids.add(pid)
+
         # Build proposal list with outcomes
         proposals_passed = 0
         proposals_failed = 0
@@ -443,9 +472,19 @@ class Repository:
             if "id" not in p_data or "raw_text" not in p_data:
                 continue
             pid = p_data["id"]
-            status = outcomes.get(pid, "pending")
-            if pid in confirmed_ids and pid not in outcomes:
+            # Determine status from lifecycle events (most specific wins)
+            if pid in outcomes:
+                status = outcomes[pid]
+            elif pid in vetoed_ids:
+                status = "vetoed"
+            elif pid in rejected_ids:
+                status = "rejected"
+            elif pid in confirmed_ids:
                 status = "confirmed"
+            elif pid in pending_review_ids:
+                status = "pending_review"
+            else:
+                status = "pending"
             if status == "passed":
                 proposals_passed += 1
             elif status == "failed":
@@ -477,6 +516,87 @@ class Repository:
             "proposal_list": proposal_list,
             "token_balance": balance,
         }
+
+    async def get_all_proposals(self, season_id: str) -> list[dict]:
+        """Get all proposals in a season with full lifecycle status.
+
+        Returns a list of dicts with id, raw_text, status, governor_id,
+        team_id, parameter, tier, round_number.
+        """
+        submitted_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        outcome_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.passed", "proposal.failed"],
+        )
+        outcomes: dict[str, str] = {}
+        for e in outcome_events:
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            outcomes[pid] = "passed" if e.event_type == "proposal.passed" else "failed"
+
+        confirmed_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.confirmed"],
+        )
+        confirmed_ids = {
+            e.payload.get("proposal_id", e.aggregate_id) for e in confirmed_events
+        }
+
+        review_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.pending_review", "proposal.rejected", "proposal.vetoed"],
+        )
+        pending_review_ids: set[str] = set()
+        rejected_ids: set[str] = set()
+        vetoed_ids: set[str] = set()
+        for e in review_events:
+            pid = e.payload.get("id", e.aggregate_id)
+            if e.event_type == "proposal.pending_review":
+                pending_review_ids.add(pid)
+            elif e.event_type == "proposal.vetoed":
+                vetoed_ids.add(pid)
+            else:
+                rejected_ids.add(pid)
+
+        proposals: list[dict] = []
+        for evt in submitted_events:
+            p_data = evt.payload
+            if "id" not in p_data:
+                continue
+            pid = p_data["id"]
+            if pid in outcomes:
+                status = outcomes[pid]
+            elif pid in vetoed_ids:
+                status = "vetoed"
+            elif pid in rejected_ids:
+                status = "rejected"
+            elif pid in confirmed_ids:
+                status = "confirmed"
+            elif pid in pending_review_ids:
+                status = "pending_review"
+            else:
+                status = "pending"
+
+            interp = p_data.get("interpretation")
+            parameter = None
+            if interp and isinstance(interp, dict):
+                parameter = interp.get("parameter")
+
+            proposals.append(
+                {
+                    "id": pid,
+                    "raw_text": p_data.get("raw_text", ""),
+                    "status": status,
+                    "governor_id": evt.governor_id,
+                    "team_id": evt.team_id,
+                    "parameter": parameter,
+                    "tier": p_data.get("tier", 1),
+                    "round_number": evt.round_number,
+                }
+            )
+        return proposals
 
     async def update_season_ruleset(self, season_id: str, ruleset_data: dict) -> None:
         """Update the cached current_ruleset on a season."""

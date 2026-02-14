@@ -282,6 +282,25 @@ class PinwheelBot(commands.Bot):
             await self._handle_new_season(interaction, name, carry_rules)
 
         @self.tree.command(
+            name="proposals",
+            description="View all proposals and their status",
+        )
+        @app_commands.describe(
+            season="Which season to show (default: current)",
+        )
+        @app_commands.choices(
+            season=[
+                app_commands.Choice(name="Current season", value="current"),
+                app_commands.Choice(name="All seasons", value="all"),
+            ]
+        )
+        async def proposals_command(
+            interaction: discord.Interaction,
+            season: str = "current",
+        ) -> None:
+            await self._handle_proposals(interaction, season)
+
+        @self.tree.command(
             name="roster",
             description="View all enrolled governors for this season",
         )
@@ -1323,6 +1342,63 @@ class PinwheelBot(commands.Bot):
             logger.exception("discord_roster_failed")
             await interaction.followup.send("Something went wrong loading the roster.")
 
+    async def _handle_proposals(
+        self,
+        interaction: discord.Interaction,
+        season_filter: str = "current",
+    ) -> None:
+        """Handle the /proposals slash command -- show all proposals with status."""
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database not available.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+            from pinwheel.discord.embeds import build_proposals_embed
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                seasons_to_query: list[tuple[str, str]] = []
+                if season_filter == "all":
+                    all_seasons = await repo.get_all_seasons()
+                    seasons_to_query = [(s.id, s.name or s.id) for s in all_seasons]
+                else:
+                    season = await repo.get_active_season()
+                    if not season:
+                        await interaction.followup.send("No active season.")
+                        return
+                    seasons_to_query = [(season.id, season.name or "this season")]
+
+                # Build governor_id -> username lookup
+                all_players = await repo.get_all_players()
+                governor_names = {p.id: p.username for p in all_players}
+
+                embeds: list[object] = []
+                for season_id, season_name in seasons_to_query:
+                    proposals = await repo.get_all_proposals(season_id)
+                    if proposals or season_filter == "current":
+                        embed = build_proposals_embed(
+                            proposals,
+                            season_name=season_name,
+                            governor_names=governor_names,
+                        )
+                        embeds.append(embed)
+
+                if embeds:
+                    await interaction.followup.send(embeds=embeds[:10])
+                else:
+                    await interaction.followup.send("No proposals found.")
+        except Exception:
+            logger.exception("discord_proposals_failed")
+            await interaction.followup.send("Something went wrong loading proposals.")
+
     async def _handle_propose(self, interaction: discord.Interaction, text: str) -> None:
         """Handle the /propose slash command with AI interpretation."""
         if not text.strip():
@@ -2125,7 +2201,7 @@ class PinwheelBot(commands.Bot):
                 )
                 trade = await propose_hooper_trade(
                     repo=repo,
-                    proposer_id=str(interaction.user.id),
+                    proposer_id=gov.player_id,
                     from_team_id=gov.team_id,
                     to_team_id=target_team.id,
                     offered_hooper_ids=[offered.id],
