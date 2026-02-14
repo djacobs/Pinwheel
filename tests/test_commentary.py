@@ -19,6 +19,13 @@ from pinwheel.discord.embeds import build_commentary_embed
 from pinwheel.models.game import GameResult, HooperBoxScore, QuarterScore
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_NUM_TEAMS = 4
+_EXPECTED_GAMES_PER_ROUND = _NUM_TEAMS * (_NUM_TEAMS - 1) // 2  # C(n,2)
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -629,7 +636,7 @@ def _hooper_attrs() -> dict:
 
 
 async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
-    """Create a league, season, 4 teams with 3 hoopers each, and a schedule."""
+    """Create a league, season, _NUM_TEAMS teams with 3 hoopers each, and a schedule."""
     league = await repo.create_league("Commentary Test League")
     season = await repo.create_season(
         league.id,
@@ -638,7 +645,7 @@ async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
     )
 
     team_ids = []
-    for i in range(4):
+    for i in range(_NUM_TEAMS):
         team = await repo.create_team(
             season.id,
             f"Team {i + 1}",
@@ -674,7 +681,7 @@ class TestCommentaryGameLoopIntegration:
 
         result = await step_round(repo, season_id, round_number=1)
 
-        assert len(result.games) == 2  # 4 teams → 2 games per round (circle method)
+        assert len(result.games) == _EXPECTED_GAMES_PER_ROUND
         for game in result.games:
             assert "commentary" in game
             assert len(game["commentary"]) > 20  # not empty placeholder
@@ -692,7 +699,7 @@ class TestCommentaryGameLoopIntegration:
 
         # Core game loop functionality should still work
         assert result.round_number == 1
-        assert len(result.games) == 2  # 4 teams → 2 games per round (circle method)
+        assert len(result.games) == _EXPECTED_GAMES_PER_ROUND
         assert len(result.reports) >= 2  # sim + gov reports
 
     async def test_event_bus_receives_commentary(self, repo: Repository) -> None:
@@ -710,7 +717,7 @@ class TestCommentaryGameLoopIntegration:
                 received.append(event)
 
         game_events = [e for e in received if e["type"] == "game.completed"]
-        assert len(game_events) == 2  # 4 teams → 2 games per round (circle method)
+        assert len(game_events) == _EXPECTED_GAMES_PER_ROUND
         for event in game_events:
             assert "commentary" in event["data"]
 

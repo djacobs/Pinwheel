@@ -31,6 +31,9 @@ async def repo(engine: AsyncEngine) -> Repository:
         yield Repository(session)
 
 
+NUM_TEAMS = 4
+
+
 def _hooper_attrs():
     return {
         "scoring": 50,
@@ -46,7 +49,7 @@ def _hooper_attrs():
 
 
 async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
-    """Create a league with 4 teams, schedule, and run all 3 rounds (complete round-robin)."""
+    """Create a league with NUM_TEAMS teams, schedule, and run all rounds (complete round-robin)."""
     league = await repo.create_league("Test League")
     season = await repo.create_season(
         league.id,
@@ -55,11 +58,12 @@ async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
     )
 
     team_ids = []
-    for i in range(4):
+    colors = ["#aaa", "#bbb", "#ccc", "#ddd", "#eee", "#fff", "#abc", "#def"]
+    for i in range(NUM_TEAMS):
         team = await repo.create_team(
             season.id,
             f"Team {i + 1}",
-            color=f"#{'abcdef'[i]}{'abcdef'[i]}{'abcdef'[i]}",
+            color=colors[i % len(colors)],
             venue={"name": f"Arena {i + 1}", "capacity": 5000},
         )
         team_ids.append(team.id)
@@ -82,10 +86,10 @@ async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
             away_team_id=m.away_team_id,
         )
 
-    # Run all 3 rounds (complete round-robin with 4 teams)
-    await step_round(repo, season.id, round_number=1)
-    await step_round(repo, season.id, round_number=2)
-    await step_round(repo, season.id, round_number=3)
+    # Run all rounds (complete round-robin)
+    num_rounds = NUM_TEAMS - 1 if NUM_TEAMS % 2 == 0 else NUM_TEAMS
+    for rn in range(1, num_rounds + 1):
+        await step_round(repo, season.id, round_number=rn)
 
     return season.id, team_ids
 
@@ -102,7 +106,7 @@ class TestArchiveCreation:
         assert archive.season_id == season_id
         assert archive.season_name == "Season 1"
         assert isinstance(archive.final_standings, list)
-        assert len(archive.final_standings) == 4
+        assert len(archive.final_standings) == NUM_TEAMS
         # Each standing should have team info
         for s in archive.final_standings:
             assert "team_id" in s
@@ -116,8 +120,10 @@ class TestArchiveCreation:
 
         archive = await archive_season(repo, season_id)
 
-        # 4 teams, complete round-robin (3 rounds) = C(4,2) = 6 total games
-        assert archive.total_games == 6
+        # regular-season games = C(NUM_TEAMS, 2) + playoff games (2 semis + 1 final)
+        regular_games = NUM_TEAMS * (NUM_TEAMS - 1) // 2
+        playoff_games = 3  # 2 semis + 1 final
+        assert archive.total_games == regular_games + playoff_games
 
     async def test_archive_has_champion(self, repo: Repository):
         """Archive should identify the champion (top of standings)."""

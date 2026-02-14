@@ -1,5 +1,7 @@
 """End-to-end test: seed → schedule → simulate → store → API → standings."""
 
+from math import comb
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -18,18 +20,18 @@ from pinwheel.models.rules import DEFAULT_RULESET
 
 class TestRoundRobin:
     def test_8_teams_one_cycle(self):
-        """8 teams, 1 cycle = 7 rounds, 4 games each = 28 total."""
+        """8 teams, 1 cycle = 1 round containing all C(8,2) = 28 games."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
         rounds = {m.round_number for m in matchups}
-        # Circle method: N-1 rounds for N teams
-        assert rounds == set(range(1, 8))
+        # 1 round = 1 complete round-robin (all 28 games)
+        assert rounds == {1}
 
     def test_8_teams_28_games_total(self):
         """8 teams, 1 cycle = C(8,2) = 28 total games."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
-        assert len(matchups) == 28
+        assert len(matchups) == comb(len(team_ids), 2)
 
     def test_every_team_plays_every_other(self):
         team_ids = [f"t-{i}" for i in range(8)]
@@ -39,32 +41,31 @@ class TestRoundRobin:
             played[m.home_team_id].add(m.away_team_id)
             played[m.away_team_id].add(m.home_team_id)
         for t in team_ids:
-            assert len(played[t]) == 7, f"{t} only played {len(played[t])} opponents"
+            expected = len(team_ids) - 1
+            assert len(played[t]) == expected, f"{t} only played {len(played[t])} opponents"
 
     def test_total_games(self):
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
-        # 8 choose 2 = 28 games
-        assert len(matchups) == 28
+        assert len(matchups) == comb(len(team_ids), 2)
 
     def test_two_cycles(self):
-        """4 teams, 2 cycles = 6 rounds, 2 games each = 12 total games."""
+        """4 teams, 2 cycles = 2 rounds, 6 games each = 12 total games."""
         team_ids = [f"t-{i}" for i in range(4)]
-        matchups = generate_round_robin(team_ids, num_rounds=2)
-        # 4 teams: C(4,2) = 6 games/cycle * 2 cycles = 12 games
-        assert len(matchups) == 12
+        num_rounds = 2
+        matchups = generate_round_robin(team_ids, num_rounds=num_rounds)
+        games_per_cycle = comb(len(team_ids), 2)
+        assert len(matchups) == games_per_cycle * num_rounds
         rounds = {m.round_number for m in matchups}
-        # 4 teams → 3 rounds/cycle × 2 cycles = 6 rounds
-        assert rounds == set(range(1, 7))
+        assert rounds == {1, 2}
+        for r in rounds:
+            assert sum(1 for m in matchups if m.round_number == r) == games_per_cycle
 
     def test_odd_teams(self):
         team_ids = [f"t-{i}" for i in range(5)]
         matchups = generate_round_robin(team_ids)
-        # 5 teams with bye: C(5,2) = 10 games across 5 rounds
-        assert len(matchups) == 10
-        # 5 teams padded to 6 → 5 rounds
-        rounds = {m.round_number for m in matchups}
-        assert rounds == set(range(1, 6))
+        assert len(matchups) == comb(len(team_ids), 2)
+        assert all(m.round_number == 1 for m in matchups)
 
 
 class TestComputeStandings:
@@ -112,8 +113,9 @@ class TestE2E:
         application, engine = app_and_engine
 
         # 1. Generate league from archetypes
-        league = generate_league(num_teams=4, seed=42)
-        assert len(league.teams) == 4
+        num_teams = 4
+        league = generate_league(num_teams=num_teams, seed=42)
+        assert len(league.teams) == num_teams
 
         # 2. Store league in database
         async with get_session(engine) as session:
@@ -153,7 +155,8 @@ class TestE2E:
         # 3. Generate round-robin schedule
         db_team_ids = list(team_id_map.values())
         schedule = generate_round_robin(db_team_ids)
-        assert len(schedule) == 6  # 4 choose 2 = 6 games
+        expected_games = comb(num_teams, 2)
+        assert len(schedule) == expected_games
 
         # 4. Simulate all games and store results
         async with get_session(engine) as session:
@@ -221,7 +224,7 @@ class TestE2E:
             resp = await client.get(f"/api/teams?season_id={db_season.id}")
             assert resp.status_code == 200
             teams_data = resp.json()["data"]
-            assert len(teams_data) == 4
+            assert len(teams_data) == num_teams
 
             # Single team
             first_team_id = db_team_ids[0]
@@ -235,11 +238,11 @@ class TestE2E:
             resp = await client.get(f"/api/standings?season_id={db_season.id}")
             assert resp.status_code == 200
             standings = resp.json()["data"]
-            assert len(standings) == 4
+            assert len(standings) == num_teams
             total_wins = sum(s["wins"] for s in standings)
             total_losses = sum(s["losses"] for s in standings)
-            assert total_wins == 6  # 6 games total
-            assert total_losses == 6
+            assert total_wins == expected_games
+            assert total_losses == expected_games
 
             # Game detail (get a game from round 1)
             async with get_session(engine) as session:

@@ -36,6 +36,9 @@ async def repo(engine: AsyncEngine) -> Repository:
         yield Repository(session)
 
 
+NUM_TEAMS = 4
+
+
 def _hooper_attrs():
     return {
         "scoring": 50,
@@ -51,9 +54,9 @@ def _hooper_attrs():
 
 
 async def _seed_season_with_games(repo: Repository, rounds: int = 3) -> tuple[str, list[str]]:
-    """Create a league with 4 teams, schedule, and run N rounds.
+    """Create a league with NUM_TEAMS teams, schedule, and run N rounds.
 
-    Default rounds=3 plays a complete round-robin (all C(4,2)=6 games).
+    Default rounds=3 plays a complete round-robin (all C(NUM_TEAMS,2) games).
     """
     league = await repo.create_league("Test League")
     season = await repo.create_season(
@@ -63,11 +66,12 @@ async def _seed_season_with_games(repo: Repository, rounds: int = 3) -> tuple[st
     )
 
     team_ids = []
-    for i in range(4):
+    colors = ["#aaa", "#bbb", "#ccc", "#ddd", "#eee", "#fff", "#abc", "#def"]
+    for i in range(NUM_TEAMS):
         team = await repo.create_team(
             season.id,
             f"Team {i + 1}",
-            color=f"#{'abcdef'[i]}{'abcdef'[i]}{'abcdef'[i]}",
+            color=colors[i % len(colors)],
             venue={"name": f"Arena {i + 1}", "capacity": 5000},
         )
         team_ids.append(team.id)
@@ -237,12 +241,13 @@ class TestHeadToHead:
             assert "team_b_wins" in m
             assert "point_differential" in m
 
-    async def test_four_teams_six_matchups(self, repo: Repository):
-        """4 teams should produce C(4,2)=6 unique matchups."""
+    async def test_correct_number_of_matchups(self, repo: Repository):
+        """N teams should produce C(N,2) unique matchups."""
         season_id, _ = await _seed_season_with_games(repo)
         h2h = await compute_head_to_head(repo, season_id)
 
-        assert len(h2h) == 6
+        expected_matchups = NUM_TEAMS * (NUM_TEAMS - 1) // 2
+        assert len(h2h) == expected_matchups
 
     async def test_wins_consistent(self, repo: Repository):
         """Each matchup's total wins should equal games played between them."""

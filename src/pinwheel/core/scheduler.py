@@ -1,13 +1,16 @@
 """Round-robin schedule generation.
 
-Generates a valid schedule where every team plays every other team once per round.
-Uses the circle method (polygon scheduling) for balanced round-robin.
+Generates a valid schedule where every team plays every other team once per
+round.  Uses the circle method (polygon scheduling) for balanced scheduling.
 
 Terminology:
-  - **round**: one complete round-robin cycle where every team plays every other
-    team exactly once.  With 4 teams this means C(4,2) = 6 games per round.
-  - **num_rounds**: how many complete round-robins make up the regular season
+  - **round**: a complete round-robin cycle — every team plays every other
+    team once.  With 4 teams a round has C(4,2)=6 games.  Games within a
+    round are played consecutively (ordered by ``matchup_index``), so no
+    team ever plays two games at the same time.
+  - **num_round_robins**: how many rounds make up the regular season
     (default from ``RuleSet.round_robins_per_season``).
+    With 4 teams and 3 rounds, that's 18 games total (6 per round).
 """
 
 from __future__ import annotations
@@ -32,16 +35,20 @@ def generate_round_robin(
 ) -> list[Matchup]:
     """Generate round-robin schedule using the circle method.
 
-    Each *round* is one complete round-robin: every team plays every other
-    team exactly once.  With N teams (even) this produces C(N,2) = N*(N-1)/2
-    games per round.  ``num_rounds`` controls how many such complete
-    round-robins are generated.
+    Each round (``round_number``) is a complete round-robin: every team
+    plays every other team once.  With N teams, each round has C(N,2)
+    games.  Games within a round are ordered by ``matchup_index`` and
+    played consecutively — no team ever plays two games at the same time.
 
-    Home/away alternates between rounds so no team is always home.
+    The circle method naturally interleaves matchups: within each pair of
+    consecutive games, no team appears twice.
+
+    ``num_rounds`` controls how many complete rounds are generated.
+    Home/away alternates between rounds.
 
     Args:
         team_ids: List of team IDs to schedule.
-        num_rounds: Number of complete round-robins (default 1).
+        num_rounds: Number of complete rounds (default 1).
 
     Returns:
         List of Matchup objects sorted by round_number, then matchup_index.
@@ -60,8 +67,8 @@ def generate_round_robin(
     matchups: list[Matchup] = []
 
     for cycle in range(num_rounds):
-        round_num = cycle + 1  # 1-indexed round number
-        match_idx = 0
+        round_num = cycle + 1
+        match_idx = 0  # continuous across all games in the round
 
         # Circle method: fix team 0, rotate the rest
         rotating = list(ids[1:])
