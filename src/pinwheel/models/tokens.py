@@ -1,6 +1,6 @@
 """Token economy models.
 
-See docs/GLOSSARY.md: Token, Boost.
+See docs/product/GLOSSARY.md: Token, Boost.
 """
 
 from __future__ import annotations

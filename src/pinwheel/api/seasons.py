@@ -15,7 +15,7 @@ class CreateSeasonRequest(BaseModel):
 
     league_id: str
     name: str
-    carry_forward_rules: bool = False
+    carry_forward_rules: bool = True
     previous_season_id: str | None = None
 
 

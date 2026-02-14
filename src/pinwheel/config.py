@@ -102,11 +102,11 @@ class Settings(BaseSettings):
     pinwheel_quarter_replay_seconds: int = 300  # 5 min per quarter in replay mode
 
     # Governance
-    pinwheel_governance_interval: int = 3  # Tally governance every N rounds
+    pinwheel_governance_interval: int = 1  # Tally governance every N rounds
     pinwheel_admin_discord_id: str = ""  # Discord user ID for admin review notifications
 
     # Seasons
-    pinwheel_carry_forward_rules: bool = False  # Default: fresh rules each season
+    pinwheel_carry_forward_rules: bool = True  # Default: rules carry over between seasons
 
     # Evals
     pinwheel_evals_enabled: bool = True

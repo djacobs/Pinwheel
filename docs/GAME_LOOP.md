@@ -180,7 +180,7 @@ This separation means:
 - The presenter can be upgraded independently (better animations, more drama) without touching the simulation
 - Fans who join late can catch up or watch from the beginning
 
-The presenter works in concert with the **Commentary Engine** (`ai/commentary.py`), which uses Opus 4.6 to generate live play-by-play narration. The commentary engine receives the full GameResult up front — it's an omniscient narrator pretending to watch live. Commentary is generated in batches ahead of the presenter's current position, cached with the GameResult for replay. See `docs/VIEWER.md` for the full commentary architecture, Arena layout, and API endpoint design.
+The presenter works in concert with the **Commentary Engine** (`ai/commentary.py`), which uses Opus 4.6 to generate live play-by-play narration. The commentary engine receives the full GameResult up front — it's an omniscient narrator pretending to watch live. Commentary is generated in batches ahead of the presenter's current position, cached with the GameResult for replay. See `docs/product/VIEWER.md` for the full commentary architecture, Arena layout, and API endpoint design.
 
 ### SSE Architecture
 

@@ -1,6 +1,6 @@
 # Pinwheel Fates
 
-Auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social reporter — surfacing patterns in gameplay and governance that players can't see from inside the system.
+Auto-simulated 3v3 basketball league where human players govern the rules through AI-interpreted natural language proposals. Starts out as basketball, finishes as ???. Built for hackathon track: "Amplify Human Judgment." Claude Opus 4.6 serves as the game's social reporter — surfacing patterns in gameplay and governance that players can't see from inside the system. The details of the game are defined in docs/product/RUN_OF_PLAY.md 
 
 ## Prior Art & Philosophy
 
@@ -12,7 +12,7 @@ Pinwheel is built on the principles of [Resonant Computing](https://resonantcomp
 - **Adaptable:** The rules are open-ended. Players can change game mechanics, league structure, and even the meta-rules of governance itself. The game evolves as the community evolves.
 - **Prosocial:** Playing Pinwheel practices collective self-governance. The private report builds self-awareness. The governance report builds systems awareness. The game is a rehearsal space for being better stewards of shared systems.
 
-See also: `docs/VISION.md` for the full philosophical grounding.
+See also: `docs/product/VISION.md` for the full philosophical grounding.
 
 ## Tech Stack
 
@@ -129,7 +129,7 @@ pinwheel/
 │       │   └── oauth.py         # OAuth2 flow + session management
 │       ├── discord/             # Discord bot integration
 │       │   ├── __init__.py
-│       │   ├── bot.py           # Bot setup, slash commands (/propose, /vote, /tokens, /trade, /strategy)
+│       │   ├── bot.py           # Bot setup, 15 slash commands (see Discord Commands below)
 │       │   ├── embeds.py        # Discord embed builders
 │       │   ├── helpers.py       # Governor auth lookup, session helpers
 │       │   └── views.py         # Interactive views (ProposalConfirm, TradeOffer, StrategyConfirm)
@@ -193,14 +193,20 @@ pinwheel/
 │   └── run_demo.sh              # 15-step Showboat/Rodney demo script
 ├── docs/
 │   ├── TABLE_OF_CONTENTS.md
-│   ├── DEV_LOG.md               # Running log of decisions and work
-│   ├── DEV_LOG_2026-02-10.md    # Days 1-4 log archive
-│   ├── VISION.md, PLAN.md, RUN_OF_PLAY.md
-│   ├── SIMULATION.md, GAME_LOOP.md, PLAYER.md, VIEWER.md
-│   ├── GLOSSARY.md, INTERFACE_CONTRACTS.md, DEMO_MODE.md
-│   ├── PRODUCT_OVERVIEW.md, SECURITY.md, INSTRUMENTATION.md
-│   ├── ACCEPTANCE_CRITERIA.md, OPS.md
-│   └── plans/                   # Feature plans (9 plan docs)
+│   ├── SIMULATION.md, GAME_LOOP.md, INTERFACE_CONTRACTS.md
+│   ├── SECURITY.md, INSTRUMENTATION.md, DEMO_MODE.md, OPS.md
+│   ├── LIFECYCLE.svg
+│   ├── dev_log/                 # Dev logs and UX notes
+│   │   ├── DEV_LOG.md           # Running log of decisions and work
+│   │   ├── DEV_LOG_2026-02-*.md # Archived daily logs
+│   │   └── UX_NOTES.md          # Visual/interaction change record
+│   ├── product/                 # Product and player-facing docs
+│   │   ├── VISION.md, PLAN.md, RUN_OF_PLAY.md
+│   │   ├── PRODUCT_OVERVIEW.md, PLAYER.md, VIEWER.md
+│   │   ├── GLOSSARY.md, GAME_MOMENTS.md, NEW_GOVERNOR_GUIDE.md
+│   │   ├── ACCEPTANCE_CRITERIA.md, COLOPHON.md
+│   │   └── ...
+│   └── plans/                   # Feature plans
 ├── pyproject.toml
 ├── fly.toml                     # Fly.io deployment config
 ├── Dockerfile                   # Multi-stage Docker build
@@ -223,9 +229,9 @@ Every work session must end by running `/post-commit`. This skill automates the 
 
 1. **Tests pass.** Run `uv run pytest -x -q` and confirm green. Every new feature needs tests. Coverage should be as broad as logically possible — not just happy paths, but auth failures, empty states, edge cases. If you added code, you added tests for it.
 2. **Demo artifacts.** After significant visual changes, run Rodney (`uvx rodney screenshot`) and Showboat (`bash scripts/run_demo.sh`) to capture updated screenshots for `demo/`.
-3. **Dev log updated.** Update `docs/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
+3. **Dev log updated.** Update `docs/dev_log/DEV_LOG.md` with what was asked, what was built, issues resolved, and the new test count. Update the "Today's Agenda" checkboxes. This is the project's memory — future sessions depend on it.
 4. **Plans archived.** Copy any Claude Code plan files from `~/.claude/plans/` into `docs/plans/` with descriptive filenames. Plans are project artifacts — they belong in the repo, not just in Claude's local state.
-5. **UX notes updated.** If any visual or interaction changes were made, update `docs/UX_NOTES.md` with numbered entries describing the problem, fix, and implementation.
+5. **UX notes updated.** If any visual or interaction changes were made, update `docs/dev_log/UX_NOTES.md` with numbered entries describing the problem, fix, and implementation.
 6. **Code committed and pushed.** Stage the specific files you changed and commit with a conventional commit message. Push to GitHub. Never leave passing code uncommitted. Never commit failing tests.
 
 If you're unsure whether to commit, the answer is yes — commit the passing state. Uncommitted work is lost work.
@@ -236,8 +242,8 @@ Commit when you have a complete, valuable unit of change — not "WIP." If you c
 
 ### Keeping docs alive
 
-- **`docs/DEV_LOG.md`** — Update after each session. Each entry follows the format: **What was asked**, **What was built**, **Issues resolved**, **test count + lint status**. When a session adds new features, update the "Today's Agenda" checkboxes and note the session number. The dev log is the project's memory — future sessions read it to understand where we are.
-- **`docs/UX_NOTES.md`** — **Update whenever a visual or interaction change is made.** Every UI change — new pages, redesigned layouts, component additions, style changes, narration improvements — gets a numbered entry with the problem, the fix, and implementation details. This is the design decision record. If you touched a template or CSS, you update UX_NOTES.
+- **`docs/dev_log/DEV_LOG.md`** — Update after each session. Each entry follows the format: **What was asked**, **What was built**, **Issues resolved**, **test count + lint status**. When a session adds new features, update the "Today's Agenda" checkboxes and note the session number. The dev log is the project's memory — future sessions read it to understand where we are.
+- **`docs/dev_log/UX_NOTES.md`** — **Update whenever a visual or interaction change is made.** Every UI change — new pages, redesigned layouts, component additions, style changes, narration improvements — gets a numbered entry with the problem, the fix, and implementation details. This is the design decision record. If you touched a template or CSS, you update UX_NOTES.
 - **`scripts/run_demo.sh`** — When a feature adds a new page or route, add a corresponding demo step with a Rodney screenshot. Update the test count in the verification step. The demo script is the project's proof — it must reflect the current state of the application. **Run Rodney and Showboat after significant visual changes** to capture updated screenshots.
 - **Design docs** (`SIMULATION.md`, `GAME_LOOP.md`, etc.) — When a design question is resolved, update the doc. Replace TODOs with decisions. Design docs should reflect the current state of the system, not the state when they were first written.
 - **`CLAUDE.md`** — When a design decision is made that affects architecture, code standards, or project structure, capture it here. This file is the single source of truth for how we build.
@@ -264,27 +270,8 @@ Commit when you have a complete, valuable unit of change — not "WIP." If you c
 
 ## Key Design Decisions
 
-### Simulation engine is pure functions
-`simulate_game(teams, rules, seed) → GameResult`. No side effects, no database access, no API calls. Input determines output. This makes testing trivial, the Rust port mechanical, and the system trustworthy.
-
 ### AI interpretation is sandboxed
 Player-submitted text never enters the simulation engine's context. Opus 4.6 interprets proposals in an isolated context with strict system instructions. The structured output is validated against the rule space schema before it can affect the simulation. This is both a security boundary and a gameplay feature — the AI acts as a constitutional interpreter.
-
-### Governance is append-only events
-Every governance action (propose, amend, vote, trade, enact) is an immutable event. Token balances are derived from the event log, not stored as mutable state. This gives full auditability and makes the governance reporter's job straightforward — it reads the event log.
-
-### Rules are parameterized, not arbitrary
-The rule space is a defined set of parameters with types, ranges, and validation. Players propose changes in natural language, but what actually changes are typed parameters: `shot_clock_seconds: int (range: 10-60)`, `three_point_value: int (range: 1-10)`, etc. This prevents the simulation from entering undefined states.
-
-## Known Issues — Priority Fix List
-
-### P1 (fix before any public exposure) — RESOLVED
-- [x] **`session_secret_key`** — Auto-generates in dev, rejects empty in production (model_validator).
-- [x] **`/admin/evals` auth gate** — Same redirect pattern as `/governance`.
-
-### P2 (fix before broader exposure) — RESOLVED
-- [x] **OAuth cookies `secure` flag** — `secure=True` when `pinwheel_env == "production"`.
-- [x] **OAuth callback error handling** — Both `_exchange_code` and `_fetch_user` wrapped in try/except with graceful redirect to `/`.
 
 ### Game Richness
 
@@ -292,13 +279,27 @@ Every player-facing output (commentary, reports, embeds, Discord messages, web p
 
 A playoff game that reads like a regular-season game is a bug. An AI report that doesn't mention a team's 5-game win streak is a missed opportunity. A Discord embed for the championship finals that looks identical to Round 1 is broken.
 
-The simulation has the data — make sure the outputs use it. When adding or modifying any feature that produces player-visible text, check it against `docs/GAME_MOMENTS.md` for dramatic context that should be included.
+The simulation has the data — make sure the outputs use it. When adding or modifying any feature that produces player-visible text, check it against `docs/product/GAME_MOMENTS.md` for dramatic context that should be included.
 
-## Resolved Design Questions
+## Discord Commands
 
-- [x] **Event sourcing + repository pattern:** The repository pattern wraps an event store. Governance events are the source of truth (append-only, immutable). The repository provides read projections derived from the event log — current token balances, current ruleset, standings, etc. `db/repository.py` reads from and appends to the event store; it never mutates past events. Game results are stored directly (not event-sourced) since they're already immutable outputs of a pure function.
-- [x] **Instrumentation is a foundational principle:** Structured logging, middleware timing, and AI call tracking are built in from Day 1, not bolted on later. See the Instrumentation principle below and `docs/INSTRUMENTATION.md` for the full spec.
-- [x] **RuleSet lives in `models/rules.py`:** RuleSet is a shared Pydantic model consumed by simulation, governance, AI, and the API. It lives in `models/rules.py` alongside the other shared types. `core/rules.py` contains the rule space definitions, parameter boundaries, validation logic, and rule change application functions — the business logic that operates on the model.
+| Command | What It Does | Params |
+|---------|-------------|--------|
+| `/join [team]` | Enroll on a team as a governor | `team` (autocomplete, optional — lists teams if blank) |
+| `/propose TEXT` | Submit a rule change to the Floor | `text` (natural language) |
+| `/vote YES\|NO [boost] [proposal]` | Vote on a proposal | `choice`, `boost` (bool), `proposal` (autocomplete) |
+| `/tokens` | Check your Floor token balance | — |
+| `/trade @USER` | Offer a token trade to another governor | `target`, `offer_type`, `offer_amount`, `request_type`, `request_amount` |
+| `/trade-hooper` | Propose trading hoopers between teams | `offer_hooper` (autocomplete), `request_hooper` (autocomplete) |
+| `/strategy TEXT` | Set your team's strategic direction | `text` (natural language, AI-interpreted) |
+| `/bio HOOPER TEXT` | Write a backstory for a hooper | `hooper` (autocomplete), `text` |
+| `/standings` | View current league standings | — |
+| `/schedule` | View upcoming game schedule | — |
+| `/reports` | View latest AI reports | — |
+| `/profile` | View your governor profile and Floor record | — |
+| `/proposals [season]` | View all proposals and their status | `season` (current\|all) |
+| `/roster` | View all enrolled governors | — |
+| `/new-season NAME [carry_rules]` | Start a new season (admin only) | `name`, `carry_rules` (bool, default true) |
 
 ## Environment Variables
 
@@ -310,7 +311,7 @@ PINWHEEL_PRESENTATION_PACE=fast # fast (1min) | normal (5min) | slow (15min) | m
 PINWHEEL_PRESENTATION_MODE=instant # instant | replay
 PINWHEEL_GAME_CRON="0 * * * *" # Explicit cron override (optional, pace derives it)
 PINWHEEL_AUTO_ADVANCE=true      # APScheduler auto-advance toggle
-PINWHEEL_GOVERNANCE_INTERVAL=3  # Tally governance every N rounds
+PINWHEEL_GOVERNANCE_INTERVAL=1  # Tally governance every N rounds (1 = every round)
 PINWHEEL_GOV_WINDOW=900         # Governance window duration (for GQI vote deliberation)
 PINWHEEL_EVALS_ENABLED=true     # Run evals after each round
 PINWHEEL_ADMIN_DISCORD_ID=      # Discord user ID for admin notifications (veto flow)

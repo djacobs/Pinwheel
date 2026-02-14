@@ -1,6 +1,6 @@
 """Mirror models — AI-generated reflections.
 
-See docs/GLOSSARY.md: Mirror.
+See docs/product/GLOSSARY.md: Mirror.
 """
 
 from __future__ import annotations

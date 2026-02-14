@@ -1,7 +1,13 @@
 """Round-robin schedule generation.
 
-Generates a valid schedule where every team plays every other team once per cycle.
+Generates a valid schedule where every team plays every other team once per round.
 Uses the circle method (polygon scheduling) for balanced round-robin.
+
+Terminology:
+  - **round**: one complete round-robin cycle where every team plays every other
+    team exactly once.  With 4 teams this means C(4,2) = 6 games per round.
+  - **num_rounds**: how many complete round-robins make up the regular season
+    (default from ``RuleSet.round_robins_per_season``).
 """
 
 from __future__ import annotations
@@ -22,17 +28,20 @@ class Matchup:
 
 def generate_round_robin(
     team_ids: list[str],
-    num_cycles: int = 1,
+    num_rounds: int = 1,
 ) -> list[Matchup]:
     """Generate round-robin schedule using the circle method.
 
-    With N teams (even), produces N-1 rounds per cycle, each with N/2 games.
-    Every team plays every other team once per cycle. Home/away alternates
-    between cycles.
+    Each *round* is one complete round-robin: every team plays every other
+    team exactly once.  With N teams (even) this produces C(N,2) = N*(N-1)/2
+    games per round.  ``num_rounds`` controls how many such complete
+    round-robins are generated.
+
+    Home/away alternates between rounds so no team is always home.
 
     Args:
         team_ids: List of team IDs to schedule.
-        num_cycles: Number of complete round-robins (default 1).
+        num_rounds: Number of complete round-robins (default 1).
 
     Returns:
         List of Matchup objects sorted by round_number, then matchup_index.
@@ -49,16 +58,15 @@ def generate_round_robin(
         n += 1
 
     matchups: list[Matchup] = []
-    round_offset = 0
 
-    for cycle in range(num_cycles):
+    for cycle in range(num_rounds):
+        round_num = cycle + 1  # 1-indexed round number
+        match_idx = 0
+
         # Circle method: fix team 0, rotate the rest
         rotating = list(ids[1:])
 
-        for round_idx in range(n - 1):
-            round_num = round_offset + round_idx + 1
-            match_idx = 0
-
+        for _slot in range(n - 1):
             for i in range(n // 2):
                 if i == 0:
                     home_id = ids[0]
@@ -87,8 +95,6 @@ def generate_round_robin(
 
             # Rotate: move last element to front
             rotating = [rotating[-1], *rotating[:-1]]
-
-        round_offset += n - 1
 
     return matchups
 

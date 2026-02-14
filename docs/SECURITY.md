@@ -270,4 +270,4 @@ Being honest about limitations:
 - [Anthropic: Mitigating prompt injection in browser use](https://www.anthropic.com/research/prompt-injection-defenses)
 - CLAUDE.md: "AI interpretation is sandboxed" design decision
 - SIMULATION.md: Rule space with typed, ranged, validated parameters
-- PLAYER.md: Governance command flow with confirmation steps
+- product/PLAYER.md: Governance command flow with confirmation steps

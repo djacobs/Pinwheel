@@ -1,6 +1,6 @@
 """Game result models — output types from the simulation engine.
 
-See docs/GLOSSARY.md: Game, Box Score, Possession, Elam Ending.
+See docs/product/GLOSSARY.md: Game, Box Score, Possession, Elam Ending.
 """
 
 from __future__ import annotations

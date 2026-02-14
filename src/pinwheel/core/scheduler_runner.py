@@ -319,7 +319,7 @@ async def tick_round(
     presentation_mode: str = "instant",
     game_interval_seconds: int = 1800,
     quarter_replay_seconds: int = 300,
-    governance_interval: int = 3,
+    governance_interval: int = 1,
 ) -> None:
     """Advance the active season by one round.
 

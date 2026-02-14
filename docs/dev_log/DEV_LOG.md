@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **725 tests**, zero lint errors (Session 52)
+- **725 tests**, zero lint errors (Session 53)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -14,7 +14,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 13:** Self-heal missing player enrollments, decouple governance from game simulation
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 52 (remove "The AI Sees" branding, simplify reports tagline)
+- **Latest commit:** Session 53 (save TECH_ARCHITECTURE + API_ARCHITECTURE plans, update CLAUDE.md Discord commands)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -35,6 +35,9 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 ### P0 — Broken UX (users hit dead ends)
 - [x] **Season Lifecycle (Phases 1 & 2)** — Phase enum (SETUP→ACTIVE→PLAYOFFS→CHAMPIONSHIP→OFFSEASON→COMPLETE), championship ceremony with awards. Phases 3 (offseason) and 4 (tiebreakers) deferred. *(Session 50)*
 - [x] **Admin visibility / governor roster** — `/roster` Discord command + `/admin/roster` web page. *(Session 50)*
+- [ ] **Proposal Effects System** — Proposals can do ANYTHING, not just tweak RuleSet parameters. Callbacks at every hook point in the system, meta JSON columns on all entities, effect execution engine. The game starts as basketball and finishes as ???. *(Plan: `plans/2026-02-14-proposal-effects-system.md`)*
+- [x] **Season schedule fix** — Seasons stopping after 5 rounds / 7 games. Root cause: `num_cycles=1` default in `generate_round_robin()`. Fix: restructured so each round = 1 complete round-robin (6 games with 4 teams), renamed `num_cycles` → `num_rounds`, `governance_interval` default → 1. 725 tests pass.
+- [x] **Remove Alembic** — Removed from `pyproject.toml` (+ transitive dep `mako`). Never imported anywhere. 725 tests pass.
 
 ### P1 — Thin UX (works but feels empty)
 - [ ] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Medium — `plans/2026-02-13-narrative-physics-making-pinwheel-alive-at-runtime.md`)*
@@ -224,3 +227,23 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 **725 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — straightforward copy change.
+
+---
+
+## Session 53 — Architecture Plans + CLAUDE.md Updates
+
+**What was asked:** Save the completed TECH_ARCHITECTURE.md and API_ARCHITECTURE.md plans to `docs/plans/`. Update CLAUDE.md with all 15 Discord commands and governance_interval default. Fix season schedule (3 rounds of 6 games each). Remove Alembic. Write plan for Proposal Effects System.
+
+**What was built:**
+- Saved `docs/plans/2026-02-14-tech-architecture-doc.md` — 12-section plan covering simulation engine, season lifecycle, presenter system, AI systems, governance pipeline, hooks/effects, database schema, env vars, eval framework, round orchestration, event bus, key design decisions
+- Saved `docs/plans/2026-02-14-api-architecture-doc.md` — 9-section plan covering all REST endpoints, SSE streaming, Discord commands/views/events, web pages, auth flow, design decisions
+- Updated CLAUDE.md: all 15 Discord commands documented in table, `PINWHEEL_GOVERNANCE_INTERVAL=1` (was 3), bot.py comment updated to reflect 15 commands
+- Season schedule restructured (via background agent): `num_cycles` → `num_rounds`, each round = 1 complete round-robin (6 games), `governance_interval` default → 1
+- Alembic removed from `pyproject.toml` (via background agent)
+- Proposal Effects System plan written: callbacks everywhere, meta columns on 7 tables, effect execution engine
+
+**Files modified (11):** `docs/plans/2026-02-14-tech-architecture-doc.md` (new), `docs/plans/2026-02-14-api-architecture-doc.md` (new), `docs/plans/2026-02-14-proposal-effects-system.md` (new), `docs/plans/2026-02-14-season-memorial-system.md` (new), `CLAUDE.md`, `pyproject.toml`, `src/pinwheel/core/scheduler.py`, `src/pinwheel/config.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `scripts/demo_seed.py`
+
+**725 tests, zero lint errors.**
+
+**What could have gone better:** Context ran out mid-session due to many large background agents running in parallel. The API_ARCHITECTURE plan completed but wasn't saved before the context compacted. Recovered cleanly on resume.

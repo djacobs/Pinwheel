@@ -1,6 +1,6 @@
 """Governance models — Proposals, Votes, AI interpretations, and the event store.
 
-See docs/GLOSSARY.md: Proposal, Amendment, Vote, Window, Governor.
+See docs/product/GLOSSARY.md: Proposal, Amendment, Vote, Window, Governor.
 """
 
 from __future__ import annotations

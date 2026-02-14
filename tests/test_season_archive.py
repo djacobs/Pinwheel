@@ -114,8 +114,8 @@ class TestArchiveCreation:
 
         archive = await archive_season(repo, season_id)
 
-        # 4 teams, round 1 has 2 games
-        assert archive.total_games == 2
+        # 4 teams, round 1 has C(4,2) = 6 games
+        assert archive.total_games == 6
 
     async def test_archive_has_champion(self, repo: Repository):
         """Archive should identify the champion (top of standings)."""
@@ -222,9 +222,10 @@ class TestSeasonStatus:
         """Archiving should set season status to 'completed'."""
         season_id, _ = await _seed_season_with_games(repo)
 
-        # Before archive
+        # Before archive — status is regular_season_complete because
+        # step_round on round 1 with num_rounds=1 completes the regular season
         season = await repo.get_season(season_id)
-        assert season.status == "setup"
+        assert season.status != "completed"
 
         await archive_season(repo, season_id)
 

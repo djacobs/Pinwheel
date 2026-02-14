@@ -20,6 +20,7 @@ from pinwheel.core.scheduler import compute_standings, generate_round_robin
 from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
+from pinwheel.models.rules import DEFAULT_RULESET
 
 DEMO_DB = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///demo_pinwheel.db")
 
@@ -329,7 +330,9 @@ async def seed():
                     attributes=attrs,
                 )
 
-        matchups = generate_round_robin(team_ids)
+        matchups = generate_round_robin(
+            team_ids, num_rounds=DEFAULT_RULESET.round_robins_per_season
+        )
         for m in matchups:
             await repo.create_schedule_entry(
                 season_id=season.id,

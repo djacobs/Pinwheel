@@ -1,7 +1,7 @@
 """Move system — special abilities that activate during possessions.
 
 8 moves from SIMULATION.md, one per archetype (plus shared ones).
-See docs/GLOSSARY.md: Move.
+See docs/product/GLOSSARY.md: Move.
 """
 
 from __future__ import annotations

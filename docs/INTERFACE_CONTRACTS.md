@@ -2,7 +2,7 @@
 
 Single canonical source for everything shared across backend, frontend, presenter, and Discord. If it crosses a boundary, it's defined here.
 
-See `docs/GLOSSARY.md` for canonical naming. This document uses those terms exclusively.
+See `docs/product/GLOSSARY.md` for canonical naming. This document uses those terms exclusively.
 
 ---
 
@@ -255,7 +255,7 @@ All REST responses use this shape:
 
 **Total: ~30 endpoints** (28 GET, 1 POST, 1 SSE stream).
 
-Source: `docs/VIEWER.md`
+Source: `docs/product/VIEWER.md`
 
 ---
 
@@ -352,7 +352,7 @@ Analytics events for gameplay health metrics. Each event fires at the described 
 
 **Total: ~22 behavioral events** across 6 categories.
 
-Source: `docs/INSTRUMENTATION.md`, `docs/PRODUCT_OVERVIEW.md`
+Source: `docs/INSTRUMENTATION.md`, `docs/product/PRODUCT_OVERVIEW.md`
 
 ---
 
@@ -364,5 +364,5 @@ Source: `docs/INSTRUMENTATION.md`, `docs/PRODUCT_OVERVIEW.md`
 - **Governance event store schema:** `docs/plans/2026-02-11-database-schema-plan.md`
 - **Presenter pacing and SSE delivery:** `docs/plans/2026-02-11-presenter-plan.md`
 - **Full simulation model definitions:** `docs/SIMULATION.md`
-- **Discord bot commands (governance surface):** `docs/PLAYER.md`
-- **AI commentary engine:** `docs/VIEWER.md`
+- **Discord bot commands (governance surface):** `docs/product/PLAYER.md`
+- **AI commentary engine:** `docs/product/VIEWER.md`

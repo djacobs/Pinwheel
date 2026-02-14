@@ -1,1055 +1,319 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 3200" font-family="'SF Mono', 'Fira Code', 'Consolas', monospace" font-size="12">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1500" font-family="'SF Mono', 'Fira Code', 'Consolas', monospace" font-size="12">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
     </marker>
-    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d63031"/>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#00b894"/>
     </marker>
     <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#0984e3"/>
     </marker>
-    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#00b894"/>
-    </marker>
-    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c5ce7"/>
-    </marker>
     <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#e17055"/>
     </marker>
-
-    <!-- Background pattern -->
-    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f0f0f0" stroke-width="0.5"/>
-    </pattern>
-
-    <!-- Glow filter for headers -->
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d63031"/>
+    </marker>
     <filter id="shadow">
-      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.12"/>
     </filter>
   </defs>
 
   <!-- Background -->
-  <rect width="2400" height="3200" fill="#fafafa"/>
-  <rect width="2400" height="3200" fill="url(#grid)"/>
+  <rect width="1400" height="1500" fill="#fafafa"/>
 
   <!-- ============================================================ -->
   <!-- TITLE -->
   <!-- ============================================================ -->
-  <rect x="0" y="0" width="2400" height="80" fill="#2d3436"/>
-  <text x="1200" y="35" text-anchor="middle" fill="#dfe6e9" font-size="28" font-weight="bold">PINWHEEL FATES -- COMPLETE GAME LIFECYCLE</text>
-  <text x="1200" y="60" text-anchor="middle" fill="#b2bec3" font-size="14">Govern . Simulate . Observe . Reflect</text>
-
-  <!-- Legend -->
-  <rect x="50" y="95" width="2300" height="55" rx="8" fill="white" stroke="#ddd" filter="url(#shadow)"/>
-  <circle cx="80" cy="122" r="8" fill="#e17055"/> <text x="95" y="126" font-size="11" fill="#333">Player Action (Discord)</text>
-  <circle cx="280" cy="122" r="8" fill="#0984e3"/> <text x="295" y="126" font-size="11" fill="#333">System / Scheduler</text>
-  <circle cx="470" cy="122" r="8" fill="#6c5ce7"/> <text x="485" y="126" font-size="11" fill="#333">AI (Claude)</text>
-  <circle cx="620" cy="122" r="8" fill="#00b894"/> <text x="635" y="126" font-size="11" fill="#333">Database Event</text>
-  <circle cx="790" cy="122" r="8" fill="#d63031"/> <text x="805" y="126" font-size="11" fill="#333">Token Economy</text>
-  <circle cx="960" cy="122" r="8" fill="#fdcb6e"/> <text x="975" y="126" font-size="11" fill="#333">Discord Output</text>
-  <rect x="1130" y="114" width="16" height="16" rx="2" fill="none" stroke="#636e72" stroke-dasharray="4,2"/> <text x="1152" y="126" font-size="11" fill="#333">API Route</text>
-  <rect x="1280" y="114" width="16" height="16" rx="3" fill="#dfe6e9" stroke="#b2bec3"/> <text x="1302" y="126" font-size="11" fill="#333">Web Dashboard</text>
+  <rect x="0" y="0" width="1400" height="70" fill="#2d3436"/>
+  <text x="700" y="30" text-anchor="middle" fill="#dfe6e9" font-size="24" font-weight="bold">PINWHEEL FATES</text>
+  <text x="700" y="52" text-anchor="middle" fill="#b2bec3" font-size="13">You govern a basketball league. The simulation runs itself. Your power lives in the rules.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 1: SEASON CREATION -->
+  <!-- THE CORE LOOP -->
   <!-- ============================================================ -->
-  <rect x="50" y="170" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="190" fill="white" font-size="14" font-weight="bold">1. SEASON CREATION</text>
-  <text x="2320" y="190" fill="#b2bec3" font-size="11" text-anchor="end">main.py lifespan / admin /new-season</text>
+  <rect x="50" y="90" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="110" fill="white" font-size="13" font-weight="bold">THE CORE LOOP</text>
 
-  <!-- Season creation flow -->
-  <rect x="80" y="215" width="180" height="50" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="170" y="237" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Admin / Startup</text>
-  <text x="170" y="252" text-anchor="middle" fill="#dfe6e9" font-size="10">start_new_season()</text>
+  <!-- Four pillars in a row -->
+  <rect x="70" y="140" width="270" height="80" rx="10" fill="white" stroke="#e17055" stroke-width="3" filter="url(#shadow)"/>
+  <text x="205" y="168" text-anchor="middle" fill="#e17055" font-size="16" font-weight="bold">GOVERN</text>
+  <text x="205" y="186" text-anchor="middle" fill="#636e72" font-size="10">Propose and vote on rules</text>
+  <text x="205" y="200" text-anchor="middle" fill="#636e72" font-size="10">that change the game</text>
 
-  <line x1="260" y1="240" x2="310" y2="240" stroke="#0984e3" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="340" y1="180" x2="380" y2="180" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <rect x="310" y="215" width="180" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="400" y="237" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Create Season</text>
-  <text x="400" y="252" text-anchor="middle" fill="#dfe6e9" font-size="10">repo.create_season()</text>
+  <rect x="380" y="140" width="270" height="80" rx="10" fill="white" stroke="#0984e3" stroke-width="3" filter="url(#shadow)"/>
+  <text x="515" y="168" text-anchor="middle" fill="#0984e3" font-size="16" font-weight="bold">SIMULATE</text>
+  <text x="515" y="186" text-anchor="middle" fill="#636e72" font-size="10">Games run automatically</text>
+  <text x="515" y="200" text-anchor="middle" fill="#636e72" font-size="10">under whatever rules exist</text>
 
-  <line x1="490" y1="240" x2="540" y2="240" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <line x1="650" y1="180" x2="690" y2="180" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <rect x="540" y="215" width="180" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="630" y="237" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Seed Teams</text>
-  <text x="630" y="252" text-anchor="middle" fill="#dfe6e9" font-size="10">4 teams + hoopers</text>
+  <rect x="690" y="140" width="270" height="80" rx="10" fill="white" stroke="#fdcb6e" stroke-width="3" filter="url(#shadow)"/>
+  <text x="825" y="168" text-anchor="middle" fill="#e17055" font-size="16" font-weight="bold">OBSERVE</text>
+  <text x="825" y="186" text-anchor="middle" fill="#636e72" font-size="10">Watch results, commentary,</text>
+  <text x="825" y="200" text-anchor="middle" fill="#636e72" font-size="10">and standings unfold</text>
 
-  <line x1="720" y1="240" x2="770" y2="240" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <line x1="960" y1="180" x2="1000" y2="180" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <rect x="770" y="215" width="180" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="860" y="237" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Generate Schedule</text>
-  <text x="860" y="252" text-anchor="middle" fill="#dfe6e9" font-size="10">round-robin matchups</text>
+  <rect x="1000" y="140" width="300" height="80" rx="10" fill="white" stroke="#6c5ce7" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1150" y="168" text-anchor="middle" fill="#6c5ce7" font-size="16" font-weight="bold">REFLECT</text>
+  <text x="1150" y="186" text-anchor="middle" fill="#636e72" font-size="10">AI reports surface patterns</text>
+  <text x="1150" y="200" text-anchor="middle" fill="#636e72" font-size="10">you might not see</text>
 
-  <line x1="950" y1="240" x2="1000" y2="240" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
-
-  <rect x="1000" y="215" width="200" height="50" rx="8" fill="#d63031" filter="url(#shadow)"/>
-  <text x="1100" y="237" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Regen Tokens (all govs)</text>
-  <text x="1100" y="252" text-anchor="middle" fill="#dfe6e9" font-size="10">regenerate_tokens() x N</text>
-
-  <line x1="1200" y1="240" x2="1250" y2="240" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1250" y="215" width="200" height="50" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1350" y="237" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">Discord: Season Started</text>
-  <text x="1350" y="252" text-anchor="middle" fill="#636e72" font-size="10">#play-by-play announcement</text>
-
-  <!-- Note about carry_rules -->
-  <rect x="1500" y="215" width="250" height="50" rx="6" fill="#ffeaa7" stroke="#fdcb6e" stroke-dasharray="4,2"/>
-  <text x="1625" y="237" text-anchor="middle" fill="#636e72" font-size="10" font-style="italic">Optional: carry_forward_rules=true</text>
-  <text x="1625" y="252" text-anchor="middle" fill="#636e72" font-size="10" font-style="italic">inherits previous season's RuleSet</text>
+  <!-- Loop-back arrow from REFLECT to GOVERN -->
+  <path d="M 1150 220 Q 1150 248 700 248 Q 205 248 205 220" fill="none" stroke="#555" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow)"/>
+  <text x="700" y="264" text-anchor="middle" fill="#636e72" font-size="10" font-style="italic">Reflections inform your next governance decisions</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 2: PLAYER JOIN -->
+  <!-- JOINING -->
   <!-- ============================================================ -->
-  <rect x="50" y="290" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="310" fill="white" font-size="14" font-weight="bold">2. PLAYER JOIN FLOW</text>
-  <text x="2320" y="310" fill="#b2bec3" font-size="11" text-anchor="end">bot.py _handle_join() ~ line 860-950</text>
+  <rect x="50" y="290" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="310" fill="white" font-size="13" font-weight="bold">JOINING</text>
 
-  <!-- Join flow -->
-  <rect x="80" y="335" width="160" height="60" rx="10" fill="#e17055" filter="url(#shadow)"/>
-  <text x="160" y="357" text-anchor="middle" fill="white" font-size="13" font-weight="bold">/join TEAM</text>
-  <text x="160" y="375" text-anchor="middle" fill="#dfe6e9" font-size="10">Discord slash cmd</text>
+  <rect x="70" y="335" width="150" height="55" rx="8" fill="#e17055" filter="url(#shadow)"/>
+  <text x="145" y="358" text-anchor="middle" fill="white" font-size="13" font-weight="bold">/join TEAM</text>
+  <text x="145" y="376" text-anchor="middle" fill="#dfe6e9" font-size="10">Pick your team</text>
 
-  <line x1="240" y1="365" x2="290" y2="365" stroke="#e17055" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <line x1="220" y1="362" x2="270" y2="362" stroke="#e17055" stroke-width="2" marker-end="url(#arrow-orange)"/>
 
-  <rect x="290" y="340" width="140" height="50" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="360" y="360" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Validate</text>
-  <text x="360" y="374" text-anchor="middle" fill="#636e72" font-size="9">Season active?</text>
-  <text x="360" y="384" text-anchor="middle" fill="#636e72" font-size="9">Team exists?</text>
+  <rect x="270" y="335" width="200" height="55" rx="8" fill="#00b894" filter="url(#shadow)"/>
+  <text x="370" y="358" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Locked to that team</text>
+  <text x="370" y="376" text-anchor="middle" fill="#dfe6e9" font-size="10">for the season</text>
 
-  <line x1="430" y1="365" x2="480" y2="365" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="470" y1="362" x2="520" y2="362" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
 
-  <rect x="480" y="340" width="160" height="50" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="560" y="360" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Already enrolled?</text>
-  <text x="560" y="374" text-anchor="middle" fill="#636e72" font-size="9">get_player_enrollment()</text>
+  <rect x="520" y="335" width="260" height="55" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="650" y="358" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Receive 6 tokens</text>
+  <text x="650" y="376" text-anchor="middle" fill="#fab1a0" font-size="10">2 PROPOSE + 2 AMEND + 2 BOOST</text>
 
-  <!-- Branch: already enrolled -->
-  <line x1="560" y1="390" x2="560" y2="415" stroke="#d63031" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <rect x="490" y="415" width="140" height="30" rx="4" fill="#fab1a0" stroke="#d63031"/>
-  <text x="560" y="434" text-anchor="middle" fill="#d63031" font-size="10">"Ride or die!" (blocked)</text>
+  <line x1="780" y1="362" x2="830" y2="362" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="640" y1="365" x2="690" y2="365" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="690" y="340" width="160" height="50" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="770" y="360" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Create Player</text>
-  <text x="770" y="374" text-anchor="middle" fill="#dfe6e9" font-size="9">get_or_create_player()</text>
-
-  <line x1="850" y1="365" x2="900" y2="365" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
-
-  <rect x="900" y="340" width="160" height="50" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="980" y="360" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Enroll Player</text>
-  <text x="980" y="374" text-anchor="middle" fill="#dfe6e9" font-size="9">enroll_player()</text>
-
-  <line x1="1060" y1="365" x2="1110" y2="365" stroke="#d63031" stroke-width="2" marker-end="url(#arrow-red)"/>
-
-  <rect x="1110" y="335" width="190" height="60" rx="6" fill="#d63031" filter="url(#shadow)"/>
-  <text x="1205" y="357" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Grant Initial Tokens</text>
-  <text x="1205" y="371" text-anchor="middle" fill="#dfe6e9" font-size="9">regenerate_tokens()</text>
-  <text x="1205" y="385" text-anchor="middle" fill="#fab1a0" font-size="9">+2 PROPOSE +2 AMEND +2 BOOST</text>
-
-  <line x1="1300" y1="365" x2="1350" y2="365" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1350" y="340" width="140" height="50" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="1420" y="360" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Assign Role</text>
-  <text x="1420" y="374" text-anchor="middle" fill="#636e72" font-size="9">Discord role assign</text>
-
-  <line x1="1490" y1="365" x2="1540" y2="365" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1540" y="335" width="200" height="60" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1640" y="355" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">Welcome Embed</text>
-  <text x="1640" y="369" text-anchor="middle" fill="#636e72" font-size="9">Team roster, color, motto</text>
-  <text x="1640" y="383" text-anchor="middle" fill="#636e72" font-size="9">Hooper names + archetypes</text>
-
-  <!-- Self-heal note -->
-  <rect x="1800" y="335" width="250" height="60" rx="6" fill="#dfe6e9" stroke="#b2bec3"/>
-  <text x="1925" y="352" text-anchor="middle" fill="#636e72" font-size="10" font-weight="bold">Self-Heal (on bot restart)</text>
-  <text x="1925" y="366" text-anchor="middle" fill="#636e72" font-size="9">_sync_role_enrollments()</text>
-  <text x="1925" y="380" text-anchor="middle" fill="#636e72" font-size="9">Re-enrolls Discord role holders</text>
-  <text x="1925" y="392" text-anchor="middle" fill="#636e72" font-size="9">who lost DB records + grants tokens</text>
+  <rect x="830" y="335" width="270" height="55" rx="8" fill="white" stroke="#636e72" filter="url(#shadow)"/>
+  <text x="965" y="355" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">You are now a Governor</text>
+  <text x="965" y="373" text-anchor="middle" fill="#636e72" font-size="10">Propose, vote, trade, strategize</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 3: THE GAME LOOP -->
+  <!-- SEASONS -->
   <!-- ============================================================ -->
-  <rect x="50" y="470" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="490" fill="white" font-size="14" font-weight="bold">3. GAME LOOP (ROUND CYCLE)</text>
-  <text x="2320" y="490" fill="#b2bec3" font-size="11" text-anchor="end">scheduler_runner.py tick_round() --> game_loop.py step_round()</text>
+  <rect x="50" y="410" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="430" fill="white" font-size="13" font-weight="bold">SEASONS</text>
 
-  <!-- APScheduler trigger -->
-  <rect x="80" y="520" width="180" height="60" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="170" y="542" text-anchor="middle" fill="white" font-size="11" font-weight="bold">APScheduler Cron</text>
-  <text x="170" y="557" text-anchor="middle" fill="#dfe6e9" font-size="9">fast=1min | normal=5min</text>
-  <text x="170" y="569" text-anchor="middle" fill="#dfe6e9" font-size="9">slow=15min | manual</text>
+  <rect x="70" y="455" width="200" height="65" rx="8" fill="#0984e3" filter="url(#shadow)"/>
+  <text x="170" y="478" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Round-Robin</text>
+  <text x="170" y="496" text-anchor="middle" fill="#dfe6e9" font-size="10">4 teams play each other</text>
+  <text x="170" y="510" text-anchor="middle" fill="#dfe6e9" font-size="9">Games auto-simulate on timer</text>
 
-  <line x1="260" y1="550" x2="310" y2="550" stroke="#0984e3" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="270" y1="487" x2="310" y2="487" stroke="#0984e3" stroke-width="2" marker-end="url(#arrow-blue)"/>
 
-  <rect x="310" y="520" width="170" height="60" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="395" y="542" text-anchor="middle" fill="white" font-size="11" font-weight="bold">tick_round()</text>
-  <text x="395" y="557" text-anchor="middle" fill="#dfe6e9" font-size="9">scheduler_runner.py</text>
-  <text x="395" y="569" text-anchor="middle" fill="#dfe6e9" font-size="9">Acquires DB session</text>
+  <rect x="310" y="455" width="220" height="65" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="420" y="478" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Governance Tally</text>
+  <text x="420" y="496" text-anchor="middle" fill="#dfe6e9" font-size="10">Every 3 rounds: votes resolve,</text>
+  <text x="420" y="510" text-anchor="middle" fill="#dfe6e9" font-size="9">tokens regenerate, rules change</text>
 
-  <line x1="480" y1="550" x2="530" y2="550" stroke="#0984e3" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="530" y1="487" x2="570" y2="487" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- step_round box - large -->
-  <rect x="530" y="510" width="1770" height="240" rx="12" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
-  <text x="550" y="530" fill="#0984e3" font-size="13" font-weight="bold">step_round() Orchestrator</text>
-  <text x="1200" y="530" fill="#b2bec3" font-size="10" text-anchor="middle">game_loop.py -- one complete round of the league</text>
+  <rect x="570" y="455" width="180" height="65" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
+  <text x="660" y="478" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">Playoffs</text>
+  <text x="660" y="496" text-anchor="middle" fill="#636e72" font-size="10">#1 vs #4, #2 vs #3</text>
+  <text x="660" y="510" text-anchor="middle" fill="#636e72" font-size="9">Then finals</text>
 
-  <!-- Step A: Simulate -->
-  <rect x="560" y="545" width="200" height="65" rx="6" fill="#74b9ff" filter="url(#shadow)"/>
-  <text x="660" y="563" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">A. Simulate Games</text>
-  <text x="660" y="577" text-anchor="middle" fill="#2d3436" font-size="9">simulate_game(home, away,</text>
-  <text x="660" y="589" text-anchor="middle" fill="#2d3436" font-size="9">ruleset, seed) --> GameResult</text>
-  <text x="660" y="601" text-anchor="middle" fill="#636e72" font-size="8" font-style="italic">Pure function, no side effects</text>
+  <line x1="750" y1="487" x2="790" y2="487" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="760" y1="577" x2="790" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="790" y="455" width="170" height="65" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
+  <text x="875" y="478" text-anchor="middle" fill="#2d3436" font-size="14" font-weight="bold">CHAMPION</text>
+  <text x="875" y="496" text-anchor="middle" fill="#636e72" font-size="10">Season archived</text>
 
-  <!-- Step B: Store -->
-  <rect x="790" y="545" width="170" height="65" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="875" y="563" text-anchor="middle" fill="white" font-size="10" font-weight="bold">B. Store Results</text>
-  <text x="875" y="577" text-anchor="middle" fill="#dfe6e9" font-size="9">repo.store_game_result()</text>
-  <text x="875" y="591" text-anchor="middle" fill="#dfe6e9" font-size="9">repo.store_box_scores()</text>
-  <text x="875" y="603" text-anchor="middle" fill="#dfe6e9" font-size="8">INSERT game_results, box_scores</text>
+  <line x1="960" y1="487" x2="1000" y2="487" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="960" y1="577" x2="990" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Step C: Commentary -->
-  <rect x="990" y="545" width="170" height="65" rx="6" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="1075" y="563" text-anchor="middle" fill="white" font-size="10" font-weight="bold">C. Commentary</text>
-  <text x="1075" y="577" text-anchor="middle" fill="#dfe6e9" font-size="9">generate_game_commentary()</text>
-  <text x="1075" y="591" text-anchor="middle" fill="#dfe6e9" font-size="9">Claude Sonnet 4.5</text>
-  <text x="1075" y="603" text-anchor="middle" fill="#dfe6e9" font-size="8">Sports journalist style</text>
-
-  <line x1="1160" y1="577" x2="1190" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Step D: Governance check -->
-  <rect x="1190" y="545" width="200" height="65" rx="6" fill="#d63031" filter="url(#shadow)"/>
-  <text x="1290" y="563" text-anchor="middle" fill="white" font-size="10" font-weight="bold">D. Governance Tally?</text>
-  <text x="1290" y="577" text-anchor="middle" fill="#dfe6e9" font-size="9">if round % gov_interval == 0</text>
-  <text x="1290" y="591" text-anchor="middle" fill="#dfe6e9" font-size="9">tally_pending_governance()</text>
-  <text x="1290" y="603" text-anchor="middle" fill="#fab1a0" font-size="8">+ regenerate_tokens() for all</text>
-
-  <line x1="1390" y1="577" x2="1420" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Step E: Reports -->
-  <rect x="1420" y="545" width="180" height="65" rx="6" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="1510" y="563" text-anchor="middle" fill="white" font-size="10" font-weight="bold">E. AI Reports</text>
-  <text x="1510" y="577" text-anchor="middle" fill="#dfe6e9" font-size="9">Simulation report</text>
-  <text x="1510" y="591" text-anchor="middle" fill="#dfe6e9" font-size="9">Governance report</text>
-  <text x="1510" y="603" text-anchor="middle" fill="#dfe6e9" font-size="8">Private reports (per governor)</text>
-
-  <line x1="1600" y1="577" x2="1630" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Step F: Evals -->
-  <rect x="1630" y="545" width="160" height="65" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="1710" y="563" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">F. Evals</text>
-  <text x="1710" y="577" text-anchor="middle" fill="#636e72" font-size="9">Prescriptive scan</text>
-  <text x="1710" y="591" text-anchor="middle" fill="#636e72" font-size="9">Grounding check</text>
-  <text x="1710" y="603" text-anchor="middle" fill="#636e72" font-size="8">GQI scoring</text>
-
-  <line x1="1790" y1="577" x2="1820" y2="577" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Step G: Publish events -->
-  <rect x="1820" y="545" width="180" height="65" rx="6" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1910" y="563" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">G. Publish Events</text>
-  <text x="1910" y="577" text-anchor="middle" fill="#636e72" font-size="9">EventBus.publish()</text>
-  <text x="1910" y="591" text-anchor="middle" fill="#636e72" font-size="9">game.completed</text>
-  <text x="1910" y="603" text-anchor="middle" fill="#636e72" font-size="8">report.generated</text>
-
-  <!-- Presentation layer -->
-  <rect x="560" y="630" width="440" height="55" rx="6" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="780" y="650" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">Presentation Layer: present_round()</text>
-  <text x="780" y="667" text-anchor="middle" fill="#636e72" font-size="9">instant mode: emit all at once | replay mode: stream quarters over time (pace_modifier applies)</text>
-
-  <!-- Event bus outputs -->
-  <rect x="560" y="700" width="200" height="40" rx="6" fill="#fdcb6e" stroke="#e17055"/>
-  <text x="660" y="718" text-anchor="middle" fill="#2d3436" font-size="10">Discord: #play-by-play</text>
-  <text x="660" y="732" text-anchor="middle" fill="#636e72" font-size="8">Game embeds + commentary</text>
-
-  <rect x="790" y="700" width="200" height="40" rx="6" fill="#fdcb6e" stroke="#e17055"/>
-  <text x="890" y="718" text-anchor="middle" fill="#2d3436" font-size="10">Discord: #big-plays</text>
-  <text x="890" y="732" text-anchor="middle" fill="#636e72" font-size="8">Blowouts + buzzer-beaters</text>
-
-  <rect x="1020" y="700" width="200" height="40" rx="6" fill="#fdcb6e" stroke="#e17055"/>
-  <text x="1120" y="718" text-anchor="middle" fill="#2d3436" font-size="10">Discord: Team channels</text>
-  <text x="1120" y="732" text-anchor="middle" fill="#636e72" font-size="8">Team-specific results</text>
-
-  <rect x="1250" y="700" width="200" height="40" rx="6" fill="#dfe6e9" stroke="#b2bec3"/>
-  <text x="1350" y="718" text-anchor="middle" fill="#333" font-size="10">SSE /api/events/stream</text>
-  <text x="1350" y="732" text-anchor="middle" fill="#636e72" font-size="8">Web dashboard live updates</text>
-
-  <rect x="1480" y="700" width="200" height="40" rx="6" fill="#fdcb6e" stroke="#e17055"/>
-  <text x="1580" y="718" text-anchor="middle" fill="#2d3436" font-size="10">Discord DM: Private</text>
-  <text x="1580" y="732" text-anchor="middle" fill="#636e72" font-size="8">Governor-only reports</text>
-
-  <!-- Arrows from presentation to outputs -->
-  <line x1="660" y1="685" x2="660" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
-  <line x1="780" y1="685" x2="890" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
-  <line x1="780" y1="685" x2="1120" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
-  <line x1="780" y1="685" x2="1350" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
-  <line x1="780" y1="685" x2="1580" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
-
-  <!-- Season check -->
-  <rect x="1820" y="700" width="200" height="40" rx="6" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="1920" y="718" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Season Complete?</text>
-  <text x="1920" y="732" text-anchor="middle" fill="#dfe6e9" font-size="8">All scheduled rounds played?</text>
-
-  <line x1="1920" y1="640" x2="1920" y2="700" stroke="#0984e3" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <rect x="1000" y="455" width="200" height="65" rx="8" fill="#0984e3" filter="url(#shadow)"/>
+  <text x="1100" y="478" text-anchor="middle" fill="white" font-size="11" font-weight="bold">New Season</text>
+  <text x="1100" y="496" text-anchor="middle" fill="#dfe6e9" font-size="10">Fresh standings</text>
+  <text x="1100" y="510" text-anchor="middle" fill="#dfe6e9" font-size="9">Can inherit previous rules</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 4: GOVERNANCE FLOW -->
+  <!-- GOVERNANCE: PROPOSE -> VOTE -> ENACT -->
   <!-- ============================================================ -->
-  <rect x="50" y="770" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="790" fill="white" font-size="14" font-weight="bold">4. GOVERNANCE: PROPOSE --> INTERPRET --> VOTE --> TALLY --> ENACT</text>
-  <text x="2320" y="790" fill="#b2bec3" font-size="11" text-anchor="end">bot.py + core/governance.py + core/tokens.py</text>
+  <rect x="50" y="545" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="565" fill="white" font-size="13" font-weight="bold">GOVERNANCE: HOW RULES CHANGE</text>
 
-  <!-- /propose flow -->
-  <rect x="80" y="815" width="140" height="55" rx="10" fill="#e17055" filter="url(#shadow)"/>
-  <text x="150" y="837" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/propose</text>
-  <text x="150" y="855" text-anchor="middle" fill="#dfe6e9" font-size="9">TEXT</text>
+  <!-- Main flow -->
+  <rect x="70" y="595" width="140" height="55" rx="8" fill="#e17055" filter="url(#shadow)"/>
+  <text x="140" y="618" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/propose</text>
+  <text x="140" y="636" text-anchor="middle" fill="#dfe6e9" font-size="9">Write a rule in English</text>
 
-  <line x1="220" y1="842" x2="260" y2="842" stroke="#e17055" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <line x1="210" y1="622" x2="245" y2="622" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- Injection check -->
-  <rect x="260" y="820" width="150" height="45" rx="6" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="335" y="838" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Injection Check</text>
-  <text x="335" y="852" text-anchor="middle" fill="#dfe6e9" font-size="9">classify_injection()</text>
+  <rect x="245" y="595" width="170" height="55" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
+  <text x="330" y="618" text-anchor="middle" fill="white" font-size="11" font-weight="bold">AI Interprets</text>
+  <text x="330" y="636" text-anchor="middle" fill="#dfe6e9" font-size="9">Text becomes parameters</text>
 
-  <line x1="410" y1="842" x2="440" y2="842" stroke="#6c5ce7" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <line x1="415" y1="622" x2="450" y2="622" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- Token check -->
-  <rect x="440" y="820" width="140" height="45" rx="6" fill="#d63031" filter="url(#shadow)"/>
-  <text x="510" y="838" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Has PROPOSE?</text>
-  <text x="510" y="852" text-anchor="middle" fill="#dfe6e9" font-size="9">has_token()</text>
+  <rect x="450" y="595" width="140" height="55" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
+  <text x="520" y="618" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">You Confirm</text>
+  <text x="520" y="636" text-anchor="middle" fill="#636e72" font-size="9">or cancel (free)</text>
 
-  <!-- No tokens branch -->
-  <line x1="510" y1="865" x2="510" y2="890" stroke="#d63031" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <rect x="430" y="890" width="160" height="30" rx="4" fill="#fab1a0" stroke="#d63031"/>
-  <text x="510" y="909" text-anchor="middle" fill="#d63031" font-size="9">"No PROPOSE tokens left"</text>
+  <line x1="590" y1="622" x2="625" y2="622" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="580" y1="842" x2="620" y2="842" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="625" y="590" width="190" height="65" rx="8" fill="#00cec9" filter="url(#shadow)"/>
+  <text x="720" y="613" text-anchor="middle" fill="white" font-size="12" font-weight="bold">ON THE FLOOR</text>
+  <text x="720" y="631" text-anchor="middle" fill="#dfe6e9" font-size="10">Voting opens immediately</text>
+  <text x="720" y="647" text-anchor="middle" fill="#dfe6e9" font-size="9">All proposals go to vote</text>
 
-  <!-- AI Interpret -->
-  <rect x="620" y="815" width="190" height="55" rx="6" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="715" y="835" text-anchor="middle" fill="white" font-size="10" font-weight="bold">AI Interpretation</text>
-  <text x="715" y="849" text-anchor="middle" fill="#dfe6e9" font-size="9">interpret_proposal()</text>
-  <text x="715" y="861" text-anchor="middle" fill="#dfe6e9" font-size="8">Claude Sonnet --> RuleInterpretation</text>
+  <line x1="815" y1="622" x2="855" y2="622" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="810" y1="842" x2="850" y2="842" stroke="#6c5ce7" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <rect x="855" y="595" width="160" height="55" rx="8" fill="#0984e3" filter="url(#shadow)"/>
+  <text x="935" y="618" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Tally (every 3 rds)</text>
+  <text x="935" y="636" text-anchor="middle" fill="#dfe6e9" font-size="9">Votes counted at threshold</text>
 
-  <!-- Tier detection -->
-  <rect x="850" y="820" width="150" height="45" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="925" y="838" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Detect Tier</text>
-  <text x="925" y="852" text-anchor="middle" fill="#636e72" font-size="9">1-5 (cost: 1-3 tokens)</text>
+  <line x1="1015" y1="622" x2="1050" y2="622" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <line x1="1000" y1="842" x2="1040" y2="842" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Confirm view -->
-  <rect x="1040" y="815" width="180" height="55" rx="6" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1130" y="835" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">Confirm View</text>
-  <text x="1130" y="849" text-anchor="middle" fill="#636e72" font-size="9">ProposalConfirmView</text>
-  <text x="1130" y="861" text-anchor="middle" fill="#636e72" font-size="8">Confirm | Cancel buttons</text>
-
-  <!-- Cancel branch -->
-  <line x1="1130" y1="870" x2="1130" y2="895" stroke="#636e72" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <rect x="1060" y="895" width="140" height="25" rx="4" fill="#dfe6e9" stroke="#b2bec3"/>
-  <text x="1130" y="912" text-anchor="middle" fill="#636e72" font-size="9">Cancel (no cost)</text>
-
-  <line x1="1220" y1="842" x2="1260" y2="842" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Submit + spend token -->
-  <rect x="1260" y="815" width="180" height="55" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="1350" y="835" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Submit Proposal</text>
-  <text x="1350" y="849" text-anchor="middle" fill="#dfe6e9" font-size="9">proposal.submitted event</text>
-  <text x="1350" y="861" text-anchor="middle" fill="#dfe6e9" font-size="8">token.spent (PROPOSE)</text>
-
-  <line x1="1440" y1="842" x2="1480" y2="842" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Admin review gate -->
-  <rect x="1480" y="815" width="180" height="55" rx="6" fill="white" stroke="#e17055" stroke-width="2" filter="url(#shadow)"/>
-  <text x="1570" y="835" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Needs Review?</text>
-  <text x="1570" y="849" text-anchor="middle" fill="#636e72" font-size="9">tier >= 5 or conf &lt; 0.5</text>
-  <text x="1570" y="861" text-anchor="middle" fill="#636e72" font-size="8">pending_review | confirmed</text>
-
-  <line x1="1660" y1="842" x2="1700" y2="842" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Confirmed / open for voting -->
-  <rect x="1700" y="815" width="160" height="55" rx="8" fill="#00cec9" filter="url(#shadow)"/>
-  <text x="1780" y="837" text-anchor="middle" fill="white" font-size="11" font-weight="bold">CONFIRMED</text>
-  <text x="1780" y="853" text-anchor="middle" fill="#dfe6e9" font-size="9">Open for voting</text>
-  <text x="1780" y="865" text-anchor="middle" fill="#dfe6e9" font-size="8">proposal.confirmed event</text>
-
-  <!-- Voting flow -->
-  <rect x="80" y="950" width="140" height="55" rx="10" fill="#e17055" filter="url(#shadow)"/>
-  <text x="150" y="972" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/vote YES</text>
-  <text x="150" y="990" text-anchor="middle" fill="#dfe6e9" font-size="9">[--boost] [proposal]</text>
-
-  <line x1="220" y1="977" x2="270" y2="977" stroke="#e17055" stroke-width="2" marker-end="url(#arrow-orange)"/>
-
-  <rect x="270" y="955" width="160" height="45" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="350" y="973" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Compute Weight</text>
-  <text x="350" y="987" text-anchor="middle" fill="#636e72" font-size="9">1.0 / team_gov_count</text>
-
-  <line x1="430" y1="977" x2="470" y2="977" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="470" y="955" width="150" height="45" rx="6" fill="#d63031" filter="url(#shadow)"/>
-  <text x="545" y="973" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Boost? (x2)</text>
-  <text x="545" y="987" text-anchor="middle" fill="#dfe6e9" font-size="9">Spend BOOST token</text>
-
-  <line x1="620" y1="977" x2="660" y2="977" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="660" y="955" width="160" height="45" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="740" y="973" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Cast Vote</text>
-  <text x="740" y="987" text-anchor="middle" fill="#dfe6e9" font-size="9">vote.cast event</text>
-
-  <line x1="820" y1="977" x2="860" y2="977" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="860" y="955" width="180" height="45" rx="6" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="950" y="973" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">"Vote recorded"</text>
-  <text x="950" y="987" text-anchor="middle" fill="#636e72" font-size="9">Hidden until tally (ephemeral)</text>
-
-  <!-- Tally flow -->
-  <rect x="1100" y="950" width="220" height="55" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="1210" y="970" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Governance Tally</text>
-  <text x="1210" y="984" text-anchor="middle" fill="#dfe6e9" font-size="9">Every 3 rounds (gov_interval)</text>
-  <text x="1210" y="996" text-anchor="middle" fill="#dfe6e9" font-size="8">tally_pending_governance()</text>
-
-  <line x1="1320" y1="977" x2="1360" y2="977" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Tally results -->
-  <rect x="1360" y="945" width="180" height="65" rx="6" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="1450" y="963" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Tally Votes</text>
-  <text x="1450" y="977" text-anchor="middle" fill="#636e72" font-size="9">T1-2: 50% | T3-4: 60%</text>
-  <text x="1450" y="991" text-anchor="middle" fill="#636e72" font-size="9">T5+: 67% threshold</text>
-  <text x="1450" y="1003" text-anchor="middle" fill="#636e72" font-size="8">Strictly greater-than (ties fail)</text>
-
-  <line x1="1540" y1="977" x2="1580" y2="977" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Passed? -->
-  <polygon points="1650,952 1720,977 1650,1002 1580,977" fill="#ffeaa7" stroke="#fdcb6e" stroke-width="2"/>
-  <text x="1650" y="981" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">Pass?</text>
+  <!-- Pass/Fail diamond -->
+  <polygon points="1120,597 1175,622 1120,647 1065,622" fill="#ffeaa7" stroke="#fdcb6e" stroke-width="2"/>
+  <text x="1120" y="626" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">Pass?</text>
 
   <!-- Yes: Enact -->
-  <line x1="1720" y1="977" x2="1770" y2="977" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
-  <rect x="1770" y="950" width="200" height="55" rx="6" fill="#00b894" filter="url(#shadow)"/>
-  <text x="1870" y="970" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Enact Rule Change</text>
-  <text x="1870" y="984" text-anchor="middle" fill="#dfe6e9" font-size="9">apply_rule_change()</text>
-  <text x="1870" y="998" text-anchor="middle" fill="#dfe6e9" font-size="8">rule.enacted event, update RuleSet</text>
+  <line x1="1175" y1="622" x2="1210" y2="622" stroke="#00b894" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <rect x="1210" y="597" width="140" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
+  <text x="1280" y="618" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Rules Change</text>
+  <text x="1280" y="636" text-anchor="middle" fill="#dfe6e9" font-size="9">Takes effect now</text>
 
   <!-- No: Fail -->
-  <line x1="1650" y1="1002" x2="1650" y2="1030" stroke="#d63031" stroke-width="1.5"/>
-  <rect x="1580" y="1030" width="140" height="25" rx="4" fill="#fab1a0" stroke="#d63031"/>
-  <text x="1650" y="1047" text-anchor="middle" fill="#d63031" font-size="9">proposal.failed event</text>
+  <line x1="1120" y1="647" x2="1120" y2="672" stroke="#d63031" stroke-width="1.5"/>
+  <rect x="1055" y="672" width="130" height="25" rx="4" fill="#fab1a0" stroke="#d63031"/>
+  <text x="1120" y="689" text-anchor="middle" fill="#d63031" font-size="10">Failed. Nothing changes.</text>
 
-  <!-- Regen tokens after tally -->
-  <line x1="1970" y1="977" x2="2020" y2="977" stroke="#d63031" stroke-width="2" marker-end="url(#arrow-red)"/>
-  <rect x="2020" y="950" width="200" height="55" rx="6" fill="#d63031" filter="url(#shadow)"/>
-  <text x="2120" y="970" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Regen All Tokens</text>
-  <text x="2120" y="984" text-anchor="middle" fill="#dfe6e9" font-size="9">regenerate_tokens()</text>
-  <text x="2120" y="998" text-anchor="middle" fill="#fab1a0" font-size="8">+2 PROPOSE +2 AMEND +2 BOOST</text>
-
-  <!-- ============================================================ -->
-  <!-- SECTION 5: TOKEN ECONOMY -->
-  <!-- ============================================================ -->
-  <rect x="50" y="1080" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1100" fill="white" font-size="14" font-weight="bold">5. TOKEN ECONOMY (Event-Sourced)</text>
-  <text x="2320" y="1100" fill="#b2bec3" font-size="11" text-anchor="end">core/tokens.py -- balances derived from append-only events</text>
-
-  <!-- Token types -->
-  <rect x="80" y="1125" width="200" height="100" rx="8" fill="#d63031" filter="url(#shadow)"/>
-  <text x="180" y="1147" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Token Types</text>
-  <text x="180" y="1167" text-anchor="middle" fill="#dfe6e9" font-size="11">PROPOSE (2/window)</text>
-  <text x="180" y="1185" text-anchor="middle" fill="#dfe6e9" font-size="11">AMEND (2/window)</text>
-  <text x="180" y="1203" text-anchor="middle" fill="#dfe6e9" font-size="11">BOOST (2/window)</text>
-
-  <!-- When regenerated -->
-  <rect x="330" y="1125" width="250" height="100" rx="8" fill="white" stroke="#d63031" stroke-width="2" filter="url(#shadow)"/>
-  <text x="455" y="1147" text-anchor="middle" fill="#d63031" font-size="11" font-weight="bold">Regeneration Triggers</text>
-  <text x="455" y="1167" text-anchor="middle" fill="#333" font-size="10">1. /join -- immediate grant</text>
-  <text x="455" y="1185" text-anchor="middle" fill="#333" font-size="10">2. Governance interval (every 3 rds)</text>
-  <text x="455" y="1203" text-anchor="middle" fill="#333" font-size="10">3. Self-heal re-enrollment</text>
-
-  <!-- Spending -->
-  <rect x="630" y="1125" width="250" height="100" rx="8" fill="white" stroke="#e17055" stroke-width="2" filter="url(#shadow)"/>
-  <text x="755" y="1147" text-anchor="middle" fill="#e17055" font-size="11" font-weight="bold">Spending</text>
-  <text x="755" y="1167" text-anchor="middle" fill="#333" font-size="10">PROPOSE: 1-3 per proposal (by tier)</text>
-  <text x="755" y="1185" text-anchor="middle" fill="#333" font-size="10">AMEND: 1 per amendment</text>
-  <text x="755" y="1203" text-anchor="middle" fill="#333" font-size="10">BOOST: 1 per boosted vote (x2 wt)</text>
-
-  <!-- Trading -->
-  <rect x="930" y="1125" width="260" height="100" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
-  <text x="1060" y="1147" text-anchor="middle" fill="#0984e3" font-size="11" font-weight="bold">/trade TOKEN TRADING</text>
-  <text x="1060" y="1167" text-anchor="middle" fill="#333" font-size="10">offer_trade() --> trade.offered event</text>
-  <text x="1060" y="1185" text-anchor="middle" fill="#333" font-size="10">Target accepts/rejects via buttons</text>
-  <text x="1060" y="1203" text-anchor="middle" fill="#333" font-size="10">4 token transfer events on accept</text>
-
-  <!-- Balance derivation -->
-  <rect x="1240" y="1125" width="310" height="100" rx="8" fill="#ffeaa7" stroke="#fdcb6e" stroke-width="2" filter="url(#shadow)"/>
-  <text x="1395" y="1147" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">Balance = SUM(events)</text>
-  <text x="1395" y="1167" text-anchor="middle" fill="#636e72" font-size="10">get_token_balance(gov_id, season_id)</text>
-  <text x="1395" y="1185" text-anchor="middle" fill="#636e72" font-size="10">+ token.regenerated amounts</text>
-  <text x="1395" y="1203" text-anchor="middle" fill="#636e72" font-size="10">- token.spent amounts</text>
-
-  <!-- /tokens command -->
-  <rect x="1600" y="1125" width="180" height="100" rx="10" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1690" y="1147" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/tokens</text>
-  <text x="1690" y="1167" text-anchor="middle" fill="#dfe6e9" font-size="10">Shows balance embed</text>
-  <text x="1690" y="1185" text-anchor="middle" fill="#dfe6e9" font-size="10">PROPOSE: 2</text>
-  <text x="1690" y="1200" text-anchor="middle" fill="#dfe6e9" font-size="10">AMEND: 2 | BOOST: 2</text>
-  <text x="1690" y="1215" text-anchor="middle" fill="#fab1a0" font-size="8">(shows hint if all zero)</text>
-
-  <!-- Tier cost table -->
-  <rect x="1830" y="1125" width="220" height="100" rx="8" fill="white" stroke="#636e72" filter="url(#shadow)"/>
-  <text x="1940" y="1147" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">Proposal Tier Costs</text>
-  <text x="1940" y="1167" text-anchor="middle" fill="#636e72" font-size="10">T1 Game mechanics: 1 token</text>
-  <text x="1940" y="1183" text-anchor="middle" fill="#636e72" font-size="10">T2 Agent behavior: 1 token</text>
-  <text x="1940" y="1199" text-anchor="middle" fill="#636e72" font-size="10">T3-4 League/meta: 2 tokens</text>
-  <text x="1940" y="1215" text-anchor="middle" fill="#636e72" font-size="10">T5+ Uninterpretable: 2 tokens</text>
+  <!-- Wild proposal sidebar -->
+  <rect x="70" y="680" width="700" height="65" rx="8" fill="white" stroke="#e17055" stroke-width="2" stroke-dasharray="6,3" filter="url(#shadow)"/>
+  <text x="90" y="702" fill="#e17055" font-size="11" font-weight="bold">Wild Proposals (Tier 5 or low AI confidence)</text>
+  <text x="90" y="720" fill="#636e72" font-size="10">Go to vote immediately like any other proposal. Admin also gets a DM and can veto before tally.</text>
+  <text x="90" y="735" fill="#636e72" font-size="10">If admin vetoes: proposal removed, tokens refunded. If admin does nothing: the democratic process continues.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 6: CUSTOMIZATION -->
+  <!-- VOTING -->
   <!-- ============================================================ -->
-  <rect x="50" y="1250" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1270" fill="white" font-size="14" font-weight="bold">6. GOVERNOR CUSTOMIZATION FEATURES</text>
-  <text x="2320" y="1270" fill="#b2bec3" font-size="11" text-anchor="end">bot.py slash commands</text>
+  <rect x="50" y="770" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="790" fill="white" font-size="13" font-weight="bold">VOTING</text>
 
-  <!-- /strategy -->
-  <rect x="80" y="1295" width="520" height="85" rx="8" fill="white" stroke="#6c5ce7" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="80" y="1295" width="120" height="85" rx="8" fill="#e17055"/>
-  <text x="140" y="1330" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/strategy</text>
-  <text x="140" y="1350" text-anchor="middle" fill="#dfe6e9" font-size="9">TEXT</text>
-  <text x="370" y="1315" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Team Strategy (AI-interpreted)</text>
-  <text x="370" y="1333" text-anchor="middle" fill="#636e72" font-size="9">interpret_strategy() --> Claude Sonnet --> TeamStrategy</text>
-  <text x="370" y="1348" text-anchor="middle" fill="#636e72" font-size="9">three_point_bias | mid_range_bias | at_rim_bias</text>
-  <text x="370" y="1363" text-anchor="middle" fill="#636e72" font-size="9">defensive_intensity | pace_modifier | substitution_threshold</text>
-  <text x="370" y="1375" text-anchor="middle" fill="#6c5ce7" font-size="8">Applied to next simulate_game() call -- affects shot selection + pacing</text>
+  <rect x="70" y="815" width="140" height="50" rx="8" fill="#e17055" filter="url(#shadow)"/>
+  <text x="140" y="838" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/vote YES</text>
+  <text x="140" y="855" text-anchor="middle" fill="#dfe6e9" font-size="9">or NO</text>
 
-  <!-- /bio -->
-  <rect x="650" y="1295" width="400" height="85" rx="8" fill="white" stroke="#e17055" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="650" y="1295" width="100" height="85" rx="8" fill="#e17055"/>
-  <text x="700" y="1330" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/bio</text>
-  <text x="700" y="1350" text-anchor="middle" fill="#dfe6e9" font-size="9">HOOPER TEXT</text>
-  <text x="880" y="1315" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Hooper Bio Customization</text>
-  <text x="880" y="1333" text-anchor="middle" fill="#636e72" font-size="9">Hooper must belong to governor's team</text>
-  <text x="880" y="1348" text-anchor="middle" fill="#636e72" font-size="9">sanitize_text(text, max_length=500)</text>
-  <text x="880" y="1363" text-anchor="middle" fill="#636e72" font-size="9">repo.update_hooper_bio(hooper_id, text)</text>
-  <text x="880" y="1375" text-anchor="middle" fill="#636e72" font-size="8">Visible on team profile page + Discord embeds</text>
+  <line x1="210" y1="840" x2="250" y2="840" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- /trade-hooper -->
-  <rect x="1100" y="1295" width="520" height="85" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="1100" y="1295" width="140" height="85" rx="8" fill="#e17055"/>
-  <text x="1170" y="1325" text-anchor="middle" fill="white" font-size="11" font-weight="bold">/trade-hooper</text>
-  <text x="1170" y="1345" text-anchor="middle" fill="#dfe6e9" font-size="8">OFFER WANT</text>
-  <text x="1430" y="1315" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Hooper (Agent) Trading</text>
-  <text x="1430" y="1333" text-anchor="middle" fill="#636e72" font-size="9">propose_hooper_trade() --> Both teams vote</text>
-  <text x="1430" y="1348" text-anchor="middle" fill="#636e72" font-size="9">tally_hooper_trade(): majority-yes per team required</text>
-  <text x="1430" y="1363" text-anchor="middle" fill="#636e72" font-size="9">execute_hooper_trade(): swap_hooper_team() both ways</text>
-  <text x="1430" y="1375" text-anchor="middle" fill="#636e72" font-size="8">Teams cannot be forced into unwanted trades</text>
+  <rect x="250" y="815" width="230" height="50" rx="8" fill="white" stroke="#636e72" filter="url(#shadow)"/>
+  <text x="365" y="835" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">Weight = 1.0 / team size</text>
+  <text x="365" y="852" text-anchor="middle" fill="#636e72" font-size="10">3 governors on your team? You get 0.33</text>
 
-  <!-- /profile -->
-  <rect x="1670" y="1295" width="350" height="85" rx="8" fill="white" stroke="#fdcb6e" stroke-width="2" filter="url(#shadow)"/>
-  <rect x="1670" y="1295" width="100" height="85" rx="8" fill="#e17055"/>
-  <text x="1720" y="1330" text-anchor="middle" fill="white" font-size="12" font-weight="bold">/profile</text>
-  <text x="1720" y="1350" text-anchor="middle" fill="#dfe6e9" font-size="9">(no args)</text>
-  <text x="1880" y="1315" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Governor Profile</text>
-  <text x="1880" y="1333" text-anchor="middle" fill="#636e72" font-size="9">Proposals submitted + passed/failed</text>
-  <text x="1880" y="1348" text-anchor="middle" fill="#636e72" font-size="9">Votes cast + boost usage</text>
-  <text x="1880" y="1363" text-anchor="middle" fill="#636e72" font-size="9">Token balance + trade history</text>
-  <text x="1880" y="1375" text-anchor="middle" fill="#636e72" font-size="8">Governance participation record</text>
+  <line x1="480" y1="840" x2="520" y2="840" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- ============================================================ -->
-  <!-- SECTION 7: AI INTEGRATION -->
-  <!-- ============================================================ -->
-  <rect x="50" y="1405" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1425" fill="white" font-size="14" font-weight="bold">7. AI INTEGRATION (Claude)</text>
-  <text x="2320" y="1425" fill="#b2bec3" font-size="11" text-anchor="end">ai/ module -- sandboxed interpretation + reflection</text>
+  <rect x="520" y="815" width="200" height="50" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="620" y="835" text-anchor="middle" fill="white" font-size="11" font-weight="bold">BOOST? (optional)</text>
+  <text x="620" y="852" text-anchor="middle" fill="#dfe6e9" font-size="10">Spend 1 BOOST to double weight</text>
 
-  <!-- Interpreter -->
-  <rect x="80" y="1450" width="360" height="110" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="260" y="1472" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Proposal Interpreter</text>
-  <text x="260" y="1490" text-anchor="middle" fill="#dfe6e9" font-size="10">ai/interpreter.py</text>
-  <text x="260" y="1508" text-anchor="middle" fill="#dfe6e9" font-size="9">Input: raw_text + RuleSet parameter space</text>
-  <text x="260" y="1523" text-anchor="middle" fill="#dfe6e9" font-size="9">Output: RuleInterpretation (param, new_value, confidence)</text>
-  <text x="260" y="1538" text-anchor="middle" fill="#dfe6e9" font-size="9">Model: Claude Sonnet 4.5</text>
-  <text x="260" y="1553" text-anchor="middle" fill="#a29bfe" font-size="8">SANDBOXED: sees only proposal + param definitions</text>
+  <line x1="720" y1="840" x2="760" y2="840" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- Classifier -->
-  <rect x="490" y="1450" width="300" height="110" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="640" y="1472" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Injection Classifier</text>
-  <text x="640" y="1490" text-anchor="middle" fill="#dfe6e9" font-size="10">ai/classifier.py</text>
-  <text x="640" y="1508" text-anchor="middle" fill="#dfe6e9" font-size="9">Distinguishes: legitimate | suspicious | injection</text>
-  <text x="640" y="1523" text-anchor="middle" fill="#dfe6e9" font-size="9">Model: Claude Haiku 4.5 (fast, cheap)</text>
-  <text x="640" y="1538" text-anchor="middle" fill="#dfe6e9" font-size="9">Fail-open: error --> "legitimate"</text>
-  <text x="640" y="1553" text-anchor="middle" fill="#a29bfe" font-size="8">Pre-flight check before interpret_proposal()</text>
+  <rect x="760" y="815" width="220" height="50" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
+  <text x="870" y="835" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">Vote recorded (hidden)</text>
+  <text x="870" y="852" text-anchor="middle" fill="#636e72" font-size="10">Revealed at next governance tally</text>
 
-  <!-- Reports -->
-  <rect x="840" y="1450" width="380" height="110" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="1030" y="1472" text-anchor="middle" fill="white" font-size="12" font-weight="bold">AI Reports (Social Mirror)</text>
-  <text x="1030" y="1490" text-anchor="middle" fill="#dfe6e9" font-size="10">ai/report.py</text>
-  <text x="1030" y="1508" text-anchor="middle" fill="#dfe6e9" font-size="9">Simulation Report: game results, statistical patterns</text>
-  <text x="1030" y="1523" text-anchor="middle" fill="#dfe6e9" font-size="9">Governance Report: voting trends, rule evolution</text>
-  <text x="1030" y="1538" text-anchor="middle" fill="#dfe6e9" font-size="9">Private Report: governor's own behavior (DM only)</text>
-  <text x="1030" y="1553" text-anchor="middle" fill="#a29bfe" font-size="8">CONSTRAINT: DESCRIBE only, never PRESCRIBE</text>
+  <!-- Threshold table -->
+  <rect x="70" y="885" width="600" height="85" rx="8" fill="white" stroke="#636e72" filter="url(#shadow)"/>
+  <text x="90" y="905" fill="#333" font-size="11" font-weight="bold">Vote Thresholds</text>
+  <rect x="80" y="912" width="580" height="18" rx="2" fill="#2d3436"/>
+  <text x="95" y="925" fill="white" font-size="9" font-weight="bold">Tier</text>
+  <text x="180" y="925" fill="white" font-size="9" font-weight="bold">What Changes</text>
+  <text x="450" y="925" fill="white" font-size="9" font-weight="bold">Cost</text>
+  <text x="550" y="925" fill="white" font-size="9" font-weight="bold">Threshold</text>
+  <text x="95" y="943" fill="#333" font-size="9">1-2</text>
+  <text x="180" y="943" fill="#636e72" font-size="9">Game mechanics, agent behavior</text>
+  <text x="450" y="943" fill="#636e72" font-size="9">1 token</text>
+  <text x="550" y="943" fill="#636e72" font-size="9">50%</text>
+  <text x="95" y="957" fill="#333" font-size="9">3-4</text>
+  <text x="180" y="957" fill="#636e72" font-size="9">League structure, meta-governance</text>
+  <text x="450" y="957" fill="#636e72" font-size="9">1 token</text>
+  <text x="550" y="957" fill="#636e72" font-size="9">60%</text>
+  <text x="95" y="971" fill="#333" font-size="9">5+</text>
+  <text x="180" y="971" fill="#636e72" font-size="9">Uninterpretable or novel (wild)</text>
+  <text x="450" y="971" fill="#636e72" font-size="9">2 tokens</text>
+  <text x="550" y="971" fill="#636e72" font-size="9">67%</text>
 
-  <!-- Commentary -->
-  <rect x="1270" y="1450" width="350" height="110" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="1445" y="1472" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Game Commentary</text>
-  <text x="1445" y="1490" text-anchor="middle" fill="#dfe6e9" font-size="10">ai/commentary.py</text>
-  <text x="1445" y="1508" text-anchor="middle" fill="#dfe6e9" font-size="9">Sports journalist style play-by-play</text>
-  <text x="1445" y="1523" text-anchor="middle" fill="#dfe6e9" font-size="9">Takes: GameResult + teams + ruleset</text>
-  <text x="1445" y="1538" text-anchor="middle" fill="#dfe6e9" font-size="9">Optional: playoff_context for drama</text>
-  <text x="1445" y="1553" text-anchor="middle" fill="#a29bfe" font-size="8">2-3 paragraphs of vivid color commentary</text>
-
-  <!-- Strategy Interpreter -->
-  <rect x="1670" y="1450" width="350" height="110" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
-  <text x="1845" y="1472" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Strategy Interpreter</text>
-  <text x="1845" y="1490" text-anchor="middle" fill="#dfe6e9" font-size="10">ai/interpreter.py:interpret_strategy()</text>
-  <text x="1845" y="1508" text-anchor="middle" fill="#dfe6e9" font-size="9">Natural language --> TeamStrategy params</text>
-  <text x="1845" y="1523" text-anchor="middle" fill="#dfe6e9" font-size="9">shot_biases, defensive_intensity, pace</text>
-  <text x="1845" y="1538" text-anchor="middle" fill="#dfe6e9" font-size="9">substitution_threshold_modifier</text>
-  <text x="1845" y="1553" text-anchor="middle" fill="#a29bfe" font-size="8">Applied in simulate_game() move selection</text>
+  <!-- Ties note -->
+  <rect x="700" y="885" width="300" height="45" rx="6" fill="#ffeaa7" stroke="#fdcb6e"/>
+  <text x="850" y="905" text-anchor="middle" fill="#2d3436" font-size="10" font-weight="bold">Ties fail.</text>
+  <text x="850" y="921" text-anchor="middle" fill="#636e72" font-size="10">Threshold is strictly greater-than.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 8: API + WEB DASHBOARD -->
+  <!-- TOKENS -->
   <!-- ============================================================ -->
-  <rect x="50" y="1585" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1605" fill="white" font-size="14" font-weight="bold">8. API ROUTES + WEB DASHBOARD</text>
-  <text x="2320" y="1605" fill="#b2bec3" font-size="11" text-anchor="end">api/ routes + templates/ (HTMX + SSE + Jinja2)</text>
+  <rect x="50" y="995" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="1015" fill="white" font-size="13" font-weight="bold">TOKENS</text>
 
-  <!-- API routes grid -->
-  <rect x="80" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="210" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">GET /api/games/{id}</text>
-  <text x="210" y="1665" text-anchor="middle" fill="#636e72" font-size="9">GET /api/games/{id}/boxscore</text>
-  <text x="210" y="1680" text-anchor="middle" fill="#636e72" font-size="9">Game results, scores, box scores</text>
-  <text x="210" y="1700" text-anchor="middle" fill="#636e72" font-size="8">Quarter scores, possession count, seed</text>
+  <rect x="70" y="1040" width="250" height="80" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="195" y="1063" text-anchor="middle" fill="white" font-size="12" font-weight="bold">PROPOSE</text>
+  <text x="195" y="1081" text-anchor="middle" fill="#dfe6e9" font-size="10">Submit a rule change</text>
+  <text x="195" y="1098" text-anchor="middle" fill="#fab1a0" font-size="10">Regenerates: +2 per tally</text>
 
-  <rect x="370" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="500" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">GET /api/standings/</text>
-  <text x="500" y="1665" text-anchor="middle" fill="#636e72" font-size="9">W-L records, point differential</text>
-  <text x="500" y="1680" text-anchor="middle" fill="#636e72" font-size="9">Sorted by wins desc</text>
-  <text x="500" y="1700" text-anchor="middle" fill="#636e72" font-size="8">Computed from all game_results</text>
+  <rect x="360" y="1040" width="250" height="80" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="485" y="1063" text-anchor="middle" fill="white" font-size="12" font-weight="bold">AMEND</text>
+  <text x="485" y="1081" text-anchor="middle" fill="#dfe6e9" font-size="10">Modify someone else's proposal</text>
+  <text x="485" y="1098" text-anchor="middle" fill="#fab1a0" font-size="10">Regenerates: +2 per tally</text>
 
-  <rect x="660" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="790" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">POST /api/governance/proposals</text>
-  <text x="790" y="1665" text-anchor="middle" fill="#636e72" font-size="9">POST .../confirm | GET proposals</text>
-  <text x="790" y="1680" text-anchor="middle" fill="#636e72" font-size="9">POST /api/governance/votes</text>
-  <text x="790" y="1700" text-anchor="middle" fill="#636e72" font-size="8">GET /api/rules/current + /history</text>
+  <rect x="650" y="1040" width="250" height="80" rx="8" fill="#d63031" filter="url(#shadow)"/>
+  <text x="775" y="1063" text-anchor="middle" fill="white" font-size="12" font-weight="bold">BOOST</text>
+  <text x="775" y="1081" text-anchor="middle" fill="#dfe6e9" font-size="10">Double your vote weight once</text>
+  <text x="775" y="1098" text-anchor="middle" fill="#fab1a0" font-size="10">Granted on join. Does not regenerate at tally.</text>
 
-  <rect x="950" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="1080" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">GET /api/reports/latest</text>
-  <text x="1080" y="1665" text-anchor="middle" fill="#636e72" font-size="9">Simulation + governance reports</text>
-  <text x="1080" y="1680" text-anchor="middle" fill="#636e72" font-size="9">GET /api/reports/{id}</text>
-  <text x="1080" y="1700" text-anchor="middle" fill="#636e72" font-size="8">Private reports: Discord DM only</text>
-
-  <rect x="1240" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="1370" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">GET /api/events/stream</text>
-  <text x="1370" y="1665" text-anchor="middle" fill="#636e72" font-size="9">Server-Sent Events (SSE)</text>
-  <text x="1370" y="1680" text-anchor="middle" fill="#636e72" font-size="9">Live game updates to web dashboard</text>
-  <text x="1370" y="1700" text-anchor="middle" fill="#636e72" font-size="8">Heartbeat every 15s</text>
-
-  <rect x="1530" y="1630" width="260" height="80" rx="6" fill="white" stroke="#636e72" stroke-dasharray="4,2" filter="url(#shadow)"/>
-  <text x="1660" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">GET/POST /api/pace</text>
-  <text x="1660" y="1665" text-anchor="middle" fill="#636e72" font-size="9">GET /api/teams/ + /{id}</text>
-  <text x="1660" y="1680" text-anchor="middle" fill="#636e72" font-size="9">GET /api/seasons/active</text>
-  <text x="1660" y="1700" text-anchor="middle" fill="#636e72" font-size="8">POST /api/seasons/ (admin)</text>
-
-  <!-- Web pages -->
-  <rect x="1820" y="1630" width="230" height="80" rx="6" fill="#dfe6e9" stroke="#b2bec3" filter="url(#shadow)"/>
-  <text x="1935" y="1650" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Web Pages (Jinja2)</text>
-  <text x="1935" y="1665" text-anchor="middle" fill="#636e72" font-size="9">/arena /standings /governance</text>
-  <text x="1935" y="1680" text-anchor="middle" fill="#636e72" font-size="9">/reports /rules /teams/{id}</text>
-  <text x="1935" y="1700" text-anchor="middle" fill="#636e72" font-size="8">/admin/evals (auth-gated)</text>
+  <rect x="940" y="1040" width="310" height="80" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1095" y="1063" text-anchor="middle" fill="#0984e3" font-size="12" font-weight="bold">/trade @USER TOKENS</text>
+  <text x="1095" y="1081" text-anchor="middle" fill="#636e72" font-size="10">Tokens are tradeable between players.</text>
+  <text x="1095" y="1098" text-anchor="middle" fill="#636e72" font-size="10">The AI may notice patterns.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 9: SEASON END / PLAYOFFS -->
+  <!-- THE REPORTER (AI) -->
   <!-- ============================================================ -->
-  <rect x="50" y="1740" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1760" fill="white" font-size="14" font-weight="bold">9. SEASON COMPLETION + PLAYOFFS</text>
-  <text x="2320" y="1760" fill="#b2bec3" font-size="11" text-anchor="end">game_loop.py _check_season_complete() + generate_playoff_bracket()</text>
+  <rect x="50" y="1145" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="1165" fill="white" font-size="13" font-weight="bold">THE REPORTER (AI)</text>
+  <text x="1320" y="1165" fill="#b2bec3" font-size="10" text-anchor="end">Describe, never prescribe.</text>
 
-  <!-- Season end flow -->
-  <rect x="80" y="1790" width="200" height="50" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="180" y="1810" text-anchor="middle" fill="white" font-size="10" font-weight="bold">All Rounds Played?</text>
-  <text x="180" y="1828" text-anchor="middle" fill="#dfe6e9" font-size="9">_check_season_complete()</text>
+  <rect x="70" y="1190" width="370" height="75" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
+  <text x="255" y="1213" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Simulation Report (public)</text>
+  <text x="255" y="1231" text-anchor="middle" fill="#dfe6e9" font-size="10">What happened in the games.</text>
+  <text x="255" y="1248" text-anchor="middle" fill="#dfe6e9" font-size="10">Statistical patterns. Effects of rule changes.</text>
 
-  <line x1="280" y1="1815" x2="330" y2="1815" stroke="#0984e3" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <rect x="470" y="1190" width="370" height="75" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
+  <text x="655" y="1213" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Governance Report (public)</text>
+  <text x="655" y="1231" text-anchor="middle" fill="#dfe6e9" font-size="10">Voting trends. Coalition formation.</text>
+  <text x="655" y="1248" text-anchor="middle" fill="#dfe6e9" font-size="10">Who is proposing what and why it matters.</text>
 
-  <rect x="330" y="1790" width="220" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="440" y="1810" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Generate Playoff Bracket</text>
-  <text x="440" y="1828" text-anchor="middle" fill="#dfe6e9" font-size="9">Top 4 teams by W-L record</text>
+  <rect x="870" y="1190" width="380" height="75" rx="8" fill="#6c5ce7" filter="url(#shadow)"/>
+  <text x="1060" y="1213" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Private Report (DM to you)</text>
+  <text x="1060" y="1231" text-anchor="middle" fill="#dfe6e9" font-size="10">Your governance behavior reflected back.</text>
+  <text x="1060" y="1248" text-anchor="middle" fill="#dfe6e9" font-size="10">Patterns you might not see. Never prescribes.</text>
 
-  <line x1="550" y1="1815" x2="600" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="600" y="1785" width="180" height="60" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
-  <text x="690" y="1805" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Semifinals</text>
-  <text x="690" y="1820" text-anchor="middle" fill="#636e72" font-size="9">#1 vs #4</text>
-  <text x="690" y="1835" text-anchor="middle" fill="#636e72" font-size="9">#2 vs #3</text>
-
-  <line x1="780" y1="1815" x2="830" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="830" y="1790" width="180" height="50" rx="8" fill="white" stroke="#0984e3" stroke-width="2" filter="url(#shadow)"/>
-  <text x="920" y="1810" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">Finals</text>
-  <text x="920" y="1828" text-anchor="middle" fill="#636e72" font-size="9">Semi winners face off</text>
-
-  <line x1="1010" y1="1815" x2="1060" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1060" y="1785" width="200" height="60" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1160" y="1805" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">CHAMPION!</text>
-  <text x="1160" y="1823" text-anchor="middle" fill="#636e72" font-size="9">Finals winner crowned</text>
-  <text x="1160" y="1838" text-anchor="middle" fill="#636e72" font-size="8">Commentary: playoff_context="finals"</text>
-
-  <line x1="1260" y1="1815" x2="1310" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1310" y="1790" width="200" height="50" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="1410" y="1810" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Archive Season</text>
-  <text x="1410" y="1828" text-anchor="middle" fill="#dfe6e9" font-size="9">archive_season() snapshot</text>
-
-  <line x1="1510" y1="1815" x2="1560" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <rect x="1560" y="1785" width="220" height="60" rx="8" fill="#00b894" filter="url(#shadow)"/>
-  <text x="1670" y="1805" text-anchor="middle" fill="white" font-size="10" font-weight="bold">SeasonArchiveRow</text>
-  <text x="1670" y="1823" text-anchor="middle" fill="#dfe6e9" font-size="9">Final standings, ruleset, champion</text>
-  <text x="1670" y="1838" text-anchor="middle" fill="#dfe6e9" font-size="8">total_games, proposals, rule_changes</text>
-
-  <line x1="1780" y1="1815" x2="1830" y2="1815" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- New season arrow looping back -->
-  <rect x="1830" y="1790" width="200" height="50" rx="8" fill="#0984e3" filter="url(#shadow)"/>
-  <text x="1930" y="1810" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Admin: /new-season</text>
-  <text x="1930" y="1828" text-anchor="middle" fill="#dfe6e9" font-size="9">Optional: carry_forward_rules</text>
-
-  <!-- Loop-back arrow -->
-  <path d="M 2030 1815 Q 2100 1815 2100 1750 Q 2100 175 2050 175 L 1475 175 Q 1420 175 1420 200 L 1420 215" fill="none" stroke="#0984e3" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrow-blue)"/>
-  <text x="2150" y="1000" fill="#0984e3" font-size="10" font-weight="bold" transform="rotate(90, 2150, 1000)">NEW SEASON CYCLE</text>
+  <!-- Commentary note -->
+  <rect x="70" y="1278" width="500" height="30" rx="6" fill="white" stroke="#6c5ce7" stroke-width="1.5"/>
+  <text x="90" y="1297" fill="#6c5ce7" font-size="10">The AI also writes game commentary in a sports-journalist voice.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 10: COMPLETE ROUND TIMELINE -->
+  <!-- THE ADMIN -->
   <!-- ============================================================ -->
-  <rect x="50" y="1870" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="1890" fill="white" font-size="14" font-weight="bold">10. COMPLETE ROUND TIMELINE (What Happens Each Tick)</text>
+  <rect x="50" y="1325" width="1300" height="30" rx="4" fill="#2d3436"/>
+  <text x="70" y="1345" fill="white" font-size="13" font-weight="bold">THE ADMIN</text>
+  <text x="1320" y="1345" fill="#b2bec3" font-size="10" text-anchor="end">Safety valve, not gatekeeper.</text>
 
-  <!-- Timeline -->
-  <line x1="100" y1="1930" x2="2300" y2="1930" stroke="#b2bec3" stroke-width="3"/>
-
-  <!-- T0: Cron fires -->
-  <circle cx="130" cy="1930" r="12" fill="#0984e3"/>
-  <text x="130" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T0</text>
-  <text x="130" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Cron fires</text>
-  <text x="130" y="1972" text-anchor="middle" fill="#636e72" font-size="8">tick_round()</text>
-
-  <!-- T1: Load season -->
-  <circle cx="290" cy="1930" r="12" fill="#00b894"/>
-  <text x="290" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T1</text>
-  <text x="290" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Load season</text>
-  <text x="290" y="1972" text-anchor="middle" fill="#636e72" font-size="8">+ ruleset + schedule</text>
-
-  <!-- T2: Simulate -->
-  <circle cx="450" cy="1930" r="12" fill="#74b9ff"/>
-  <text x="450" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T2</text>
-  <text x="450" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Simulate games</text>
-  <text x="450" y="1972" text-anchor="middle" fill="#636e72" font-size="8">Pure functions</text>
-
-  <!-- T3: Store -->
-  <circle cx="610" cy="1930" r="12" fill="#00b894"/>
-  <text x="610" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T3</text>
-  <text x="610" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Store results</text>
-  <text x="610" y="1972" text-anchor="middle" fill="#636e72" font-size="8">DB: game_results</text>
-
-  <!-- T4: Commentary -->
-  <circle cx="770" cy="1930" r="12" fill="#6c5ce7"/>
-  <text x="770" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T4</text>
-  <text x="770" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">AI commentary</text>
-  <text x="770" y="1972" text-anchor="middle" fill="#636e72" font-size="8">Claude Sonnet</text>
-
-  <!-- T5: Gov tally (conditional) -->
-  <circle cx="960" cy="1930" r="14" fill="#d63031" stroke="#ffeaa7" stroke-width="2"/>
-  <text x="960" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T5</text>
-  <text x="960" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Gov tally?</text>
-  <text x="960" y="1972" text-anchor="middle" fill="#d63031" font-size="8">if round%3==0</text>
-  <text x="960" y="1984" text-anchor="middle" fill="#636e72" font-size="8">+ regen tokens</text>
-
-  <!-- T6: Reports -->
-  <circle cx="1140" cy="1930" r="12" fill="#6c5ce7"/>
-  <text x="1140" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T6</text>
-  <text x="1140" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">AI reports</text>
-  <text x="1140" y="1972" text-anchor="middle" fill="#636e72" font-size="8">sim + gov + private</text>
-
-  <!-- T7: Evals -->
-  <circle cx="1300" cy="1930" r="12" fill="white" stroke="#636e72" stroke-width="2"/>
-  <text x="1300" y="1935" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">T7</text>
-  <text x="1300" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Evals</text>
-  <text x="1300" y="1972" text-anchor="middle" fill="#636e72" font-size="8">prescriptive + GQI</text>
-
-  <!-- T8: Present -->
-  <circle cx="1460" cy="1930" r="12" fill="#fdcb6e"/>
-  <text x="1460" y="1935" text-anchor="middle" fill="#2d3436" font-size="9" font-weight="bold">T8</text>
-  <text x="1460" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Present round</text>
-  <text x="1460" y="1972" text-anchor="middle" fill="#636e72" font-size="8">instant | replay</text>
-
-  <!-- T9: Publish -->
-  <circle cx="1620" cy="1930" r="12" fill="#fdcb6e"/>
-  <text x="1620" y="1935" text-anchor="middle" fill="#2d3436" font-size="9" font-weight="bold">T9</text>
-  <text x="1620" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">EventBus</text>
-  <text x="1620" y="1972" text-anchor="middle" fill="#636e72" font-size="8">Discord + SSE</text>
-
-  <!-- T10: Season check -->
-  <circle cx="1780" cy="1930" r="12" fill="#0984e3"/>
-  <text x="1780" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T10</text>
-  <text x="1780" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Season done?</text>
-  <text x="1780" y="1972" text-anchor="middle" fill="#636e72" font-size="8">playoffs/archive</text>
-
-  <!-- T11: Next round -->
-  <circle cx="1940" cy="1930" r="12" fill="#0984e3"/>
-  <text x="1940" y="1935" text-anchor="middle" fill="white" font-size="9" font-weight="bold">T11</text>
-  <text x="1940" y="1960" text-anchor="middle" fill="#333" font-size="9" font-weight="bold">Wait for cron</text>
-  <text x="1940" y="1972" text-anchor="middle" fill="#636e72" font-size="8">1-15 min</text>
-
-  <!-- Loop arrow -->
-  <path d="M 1960 1930 Q 2020 1930 2020 1910 Q 2020 1900 1960 1900 L 130 1900 Q 110 1900 110 1910 L 110 1918" fill="none" stroke="#0984e3" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrow-blue)"/>
+  <rect x="70" y="1370" width="1180" height="80" rx="8" fill="white" stroke="#636e72" filter="url(#shadow)"/>
+  <text x="90" y="1393" fill="#333" font-size="11">Starts and ends seasons.</text>
+  <text x="90" y="1413" fill="#333" font-size="11">Receives DM notifications when wild proposals are submitted. Can <tspan font-weight="bold">veto</tspan> before tally (refunds tokens) or <tspan font-weight="bold">clear</tspan> to confirm review.</text>
+  <text x="90" y="1433" fill="#636e72" font-size="11">If the admin does nothing, voting proceeds normally. The democratic process does not require admin permission.</text>
 
   <!-- ============================================================ -->
-  <!-- SECTION 11: EVENT SOURCING MODEL -->
+  <!-- FOOTER -->
   <!-- ============================================================ -->
-  <rect x="50" y="2010" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="2030" fill="white" font-size="14" font-weight="bold">11. EVENT SOURCING MODEL (Append-Only Governance Events)</text>
-  <text x="2320" y="2030" fill="#b2bec3" font-size="11" text-anchor="end">db/repository.py append_event() -- immutable event store</text>
-
-  <!-- Event types table -->
-  <rect x="80" y="2055" width="350" height="220" rx="8" fill="white" stroke="#00b894" stroke-width="2" filter="url(#shadow)"/>
-  <text x="255" y="2075" text-anchor="middle" fill="#00b894" font-size="12" font-weight="bold">Governance Events</text>
-  <rect x="90" y="2085" width="330" height="20" rx="2" fill="#00b894"/>
-  <text x="105" y="2098" fill="white" font-size="9" font-weight="bold">Event Type</text>
-  <text x="300" y="2098" fill="white" font-size="9" font-weight="bold">Trigger</text>
-  <text x="105" y="2118" fill="#333" font-size="9">proposal.submitted</text>
-  <text x="300" y="2118" fill="#636e72" font-size="9">/propose confirm</text>
-  <text x="105" y="2133" fill="#333" font-size="9">proposal.confirmed</text>
-  <text x="300" y="2133" fill="#636e72" font-size="9">auto or admin</text>
-  <text x="105" y="2148" fill="#333" font-size="9">proposal.pending_review</text>
-  <text x="300" y="2148" fill="#636e72" font-size="9">tier5 / low conf</text>
-  <text x="105" y="2163" fill="#333" font-size="9">proposal.passed</text>
-  <text x="300" y="2163" fill="#636e72" font-size="9">tally (passed)</text>
-  <text x="105" y="2178" fill="#333" font-size="9">proposal.failed</text>
-  <text x="300" y="2178" fill="#636e72" font-size="9">tally (failed)</text>
-  <text x="105" y="2193" fill="#333" font-size="9">proposal.rejected</text>
-  <text x="300" y="2193" fill="#636e72" font-size="9">admin veto</text>
-  <text x="105" y="2208" fill="#333" font-size="9">vote.cast</text>
-  <text x="300" y="2208" fill="#636e72" font-size="9">/vote</text>
-  <text x="105" y="2223" fill="#333" font-size="9">rule.enacted</text>
-  <text x="300" y="2223" fill="#636e72" font-size="9">passed proposal</text>
-  <text x="105" y="2238" fill="#333" font-size="9">window.closed</text>
-  <text x="300" y="2238" fill="#636e72" font-size="9">gov window end</text>
-  <text x="105" y="2258" fill="#333" font-size="9">strategy.interpreted</text>
-  <text x="300" y="2258" fill="#636e72" font-size="9">/strategy</text>
-
-  <!-- Token events -->
-  <rect x="470" y="2055" width="300" height="140" rx="8" fill="white" stroke="#d63031" stroke-width="2" filter="url(#shadow)"/>
-  <text x="620" y="2075" text-anchor="middle" fill="#d63031" font-size="12" font-weight="bold">Token Events</text>
-  <rect x="480" y="2085" width="280" height="20" rx="2" fill="#d63031"/>
-  <text x="495" y="2098" fill="white" font-size="9" font-weight="bold">Event Type</text>
-  <text x="660" y="2098" fill="white" font-size="9" font-weight="bold">Trigger</text>
-  <text x="495" y="2118" fill="#333" font-size="9">token.regenerated</text>
-  <text x="660" y="2118" fill="#636e72" font-size="9">join / gov interval</text>
-  <text x="495" y="2133" fill="#333" font-size="9">token.spent</text>
-  <text x="660" y="2133" fill="#636e72" font-size="9">propose / boost</text>
-  <text x="495" y="2148" fill="#333" font-size="9">trade.offered</text>
-  <text x="660" y="2148" fill="#636e72" font-size="9">/trade</text>
-  <text x="495" y="2163" fill="#333" font-size="9">trade.accepted</text>
-  <text x="660" y="2163" fill="#636e72" font-size="9">target accepts</text>
-  <text x="495" y="2178" fill="#333" font-size="9">hooper_trade.proposed</text>
-  <text x="660" y="2178" fill="#636e72" font-size="9">/trade-hooper</text>
-
-  <!-- Mutable state (non-event-sourced) -->
-  <rect x="810" y="2055" width="350" height="140" rx="8" fill="white" stroke="#636e72" stroke-width="2" filter="url(#shadow)"/>
-  <text x="985" y="2075" text-anchor="middle" fill="#636e72" font-size="12" font-weight="bold">Mutable State (Direct Storage)</text>
-  <rect x="820" y="2085" width="330" height="20" rx="2" fill="#636e72"/>
-  <text x="835" y="2098" fill="white" font-size="9" font-weight="bold">Table</text>
-  <text x="1020" y="2098" fill="white" font-size="9" font-weight="bold">Written By</text>
-  <text x="835" y="2118" fill="#333" font-size="9">game_results</text>
-  <text x="1020" y="2118" fill="#636e72" font-size="9">simulate_game()</text>
-  <text x="835" y="2133" fill="#333" font-size="9">box_scores</text>
-  <text x="1020" y="2133" fill="#636e72" font-size="9">simulate_game()</text>
-  <text x="835" y="2148" fill="#333" font-size="9">seasons (current_ruleset)</text>
-  <text x="1020" y="2148" fill="#636e72" font-size="9">apply_rule_change()</text>
-  <text x="835" y="2163" fill="#333" font-size="9">hoopers (backstory)</text>
-  <text x="1020" y="2163" fill="#636e72" font-size="9">/bio</text>
-  <text x="835" y="2178" fill="#333" font-size="9">hoopers (team_id)</text>
-  <text x="1020" y="2178" fill="#636e72" font-size="9">execute_hooper_trade()</text>
-
-  <!-- Key insight -->
-  <rect x="1200" y="2055" width="500" height="140" rx="8" fill="#ffeaa7" stroke="#fdcb6e" stroke-width="2" filter="url(#shadow)"/>
-  <text x="1450" y="2075" text-anchor="middle" fill="#2d3436" font-size="12" font-weight="bold">Key Design Insight</text>
-  <text x="1450" y="2100" text-anchor="middle" fill="#636e72" font-size="10">Governance state is NEVER stored as mutable rows.</text>
-  <text x="1450" y="2118" text-anchor="middle" fill="#636e72" font-size="10">Token balances, proposal status, vote counts --</text>
-  <text x="1450" y="2136" text-anchor="middle" fill="#636e72" font-size="10">all derived by replaying append-only events.</text>
-  <text x="1450" y="2158" text-anchor="middle" fill="#333" font-size="10" font-weight="bold">get_token_balance() = SUM(regenerated) - SUM(spent)</text>
-  <text x="1450" y="2178" text-anchor="middle" fill="#636e72" font-size="10">Full auditability. No lost state. Clean separation.</text>
-
-  <!-- ============================================================ -->
-  <!-- SECTION 12: DISCORD CHANNEL MAP -->
-  <!-- ============================================================ -->
-  <rect x="50" y="2310" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="2330" fill="white" font-size="14" font-weight="bold">12. DISCORD CHANNEL MAP + EVENT ROUTING</text>
-  <text x="2320" y="2330" fill="#b2bec3" font-size="11" text-anchor="end">bot.py _dispatch_event() + channel_ids mapping</text>
-
-  <!-- Channel boxes -->
-  <rect x="80" y="2355" width="250" height="85" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="205" y="2375" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">#play-by-play</text>
-  <text x="205" y="2393" text-anchor="middle" fill="#636e72" font-size="9">Game result embeds</text>
-  <text x="205" y="2406" text-anchor="middle" fill="#636e72" font-size="9">AI commentary excerpts</text>
-  <text x="205" y="2419" text-anchor="middle" fill="#636e72" font-size="9">Round summary embeds</text>
-  <text x="205" y="2432" text-anchor="middle" fill="#636e72" font-size="9">Public report excerpts</text>
-
-  <rect x="370" y="2355" width="250" height="85" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="495" y="2375" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">#big-plays</text>
-  <text x="495" y="2393" text-anchor="middle" fill="#636e72" font-size="9">Blowouts (margin > 15)</text>
-  <text x="495" y="2406" text-anchor="middle" fill="#636e72" font-size="9">Buzzer-beaters (margin &lt;= 2)</text>
-  <text x="495" y="2419" text-anchor="middle" fill="#636e72" font-size="9">Playoff games</text>
-  <text x="495" y="2432" text-anchor="middle" fill="#636e72" font-size="9">Championship results</text>
-
-  <rect x="660" y="2355" width="250" height="85" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="785" y="2375" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">#governance</text>
-  <text x="785" y="2393" text-anchor="middle" fill="#636e72" font-size="9">Vote tally embeds</text>
-  <text x="785" y="2406" text-anchor="middle" fill="#636e72" font-size="9">Rule change announcements</text>
-  <text x="785" y="2419" text-anchor="middle" fill="#636e72" font-size="9">Governance window notifications</text>
-  <text x="785" y="2432" text-anchor="middle" fill="#636e72" font-size="9">Hooper trade results</text>
-
-  <rect x="950" y="2355" width="250" height="85" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1075" y="2375" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">#team-{name}</text>
-  <text x="1075" y="2393" text-anchor="middle" fill="#636e72" font-size="9">Team-specific game results</text>
-  <text x="1075" y="2406" text-anchor="middle" fill="#636e72" font-size="9">Strategy confirmations</text>
-  <text x="1075" y="2419" text-anchor="middle" fill="#636e72" font-size="9">Trade proposals to team</text>
-  <text x="1075" y="2432" text-anchor="middle" fill="#636e72" font-size="9">Per-team channel per season</text>
-
-  <rect x="1240" y="2355" width="250" height="85" rx="8" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1365" y="2375" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Direct Messages</text>
-  <text x="1365" y="2393" text-anchor="middle" fill="#dfe6e9" font-size="9">Private AI reports</text>
-  <text x="1365" y="2406" text-anchor="middle" fill="#dfe6e9" font-size="9">Governor-only reflections</text>
-  <text x="1365" y="2419" text-anchor="middle" fill="#dfe6e9" font-size="9">Voting patterns + behavior</text>
-  <text x="1365" y="2432" text-anchor="middle" fill="#dfe6e9" font-size="9">Privacy boundary enforced</text>
-
-  <rect x="1530" y="2355" width="250" height="85" rx="8" fill="#fdcb6e" filter="url(#shadow)"/>
-  <text x="1655" y="2375" text-anchor="middle" fill="#2d3436" font-size="11" font-weight="bold">#how-to-play</text>
-  <text x="1655" y="2393" text-anchor="middle" fill="#636e72" font-size="9">Welcome message (auto-posted)</text>
-  <text x="1655" y="2406" text-anchor="middle" fill="#636e72" font-size="9">Command reference</text>
-  <text x="1655" y="2419" text-anchor="middle" fill="#636e72" font-size="9">Governance explainer</text>
-  <text x="1655" y="2432" text-anchor="middle" fill="#636e72" font-size="9">Posted on bot startup</text>
-
-  <!-- ============================================================ -->
-  <!-- SECTION 13: ALL SLASH COMMANDS -->
-  <!-- ============================================================ -->
-  <rect x="50" y="2470" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="2490" fill="white" font-size="14" font-weight="bold">13. COMPLETE SLASH COMMAND REFERENCE</text>
-
-  <!-- Commands grid -->
-  <rect x="80" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="120" y="2535" fill="white" font-size="11" font-weight="bold">/join TEAM</text>
-  <text x="120" y="2550" fill="#dfe6e9" font-size="9">Enroll on team + get tokens</text>
-
-  <rect x="380" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="420" y="2535" fill="white" font-size="11" font-weight="bold">/propose TEXT</text>
-  <text x="420" y="2550" fill="#dfe6e9" font-size="9">Submit rule change proposal</text>
-
-  <rect x="680" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="720" y="2535" fill="white" font-size="11" font-weight="bold">/vote YES|NO [--boost]</text>
-  <text x="720" y="2550" fill="#dfe6e9" font-size="9">Vote on active proposal</text>
-
-  <rect x="980" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1020" y="2535" fill="white" font-size="11" font-weight="bold">/tokens</text>
-  <text x="1020" y="2550" fill="#dfe6e9" font-size="9">Check token balance</text>
-
-  <rect x="1280" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1320" y="2535" fill="white" font-size="11" font-weight="bold">/trade TARGET TOKENS</text>
-  <text x="1320" y="2550" fill="#dfe6e9" font-size="9">Trade tokens with governor</text>
-
-  <rect x="1580" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1620" y="2535" fill="white" font-size="11" font-weight="bold">/trade-hooper OFFER WANT</text>
-  <text x="1620" y="2550" fill="#dfe6e9" font-size="9">Propose agent trade</text>
-
-  <rect x="1880" y="2515" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1920" y="2535" fill="white" font-size="11" font-weight="bold">/strategy TEXT</text>
-  <text x="1920" y="2550" fill="#dfe6e9" font-size="9">Set team AI strategy</text>
-
-  <!-- Row 2 -->
-  <rect x="80" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="120" y="2595" fill="white" font-size="11" font-weight="bold">/bio HOOPER TEXT</text>
-  <text x="120" y="2610" fill="#dfe6e9" font-size="9">Write hooper backstory</text>
-
-  <rect x="380" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="420" y="2595" fill="white" font-size="11" font-weight="bold">/standings</text>
-  <text x="420" y="2610" fill="#dfe6e9" font-size="9">View W-L standings</text>
-
-  <rect x="680" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="720" y="2595" fill="white" font-size="11" font-weight="bold">/schedule</text>
-  <text x="720" y="2610" fill="#dfe6e9" font-size="9">View upcoming matchups</text>
-
-  <rect x="980" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1020" y="2595" fill="white" font-size="11" font-weight="bold">/reports</text>
-  <text x="1020" y="2610" fill="#dfe6e9" font-size="9">View latest AI reports</text>
-
-  <rect x="1280" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1320" y="2595" fill="white" font-size="11" font-weight="bold">/profile</text>
-  <text x="1320" y="2610" fill="#dfe6e9" font-size="9">Governor record + stats</text>
-
-  <rect x="1580" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1620" y="2595" fill="white" font-size="11" font-weight="bold">/rules</text>
-  <text x="1620" y="2610" fill="#dfe6e9" font-size="9">Current ruleset + changes</text>
-
-  <rect x="1880" y="2575" width="280" height="45" rx="6" fill="#e17055" filter="url(#shadow)"/>
-  <text x="1920" y="2595" fill="white" font-size="11" font-weight="bold">/new-season (admin)</text>
-  <text x="1920" y="2610" fill="#dfe6e9" font-size="9">Archive + start new season</text>
-
-  <!-- ============================================================ -->
-  <!-- SECTION 14: THE BIG PICTURE -->
-  <!-- ============================================================ -->
-  <rect x="50" y="2650" width="2300" height="30" rx="4" fill="#2d3436"/>
-  <text x="70" y="2670" fill="white" font-size="14" font-weight="bold">14. THE BIG PICTURE: GOVERN --> SIMULATE --> OBSERVE --> REFLECT</text>
-
-  <!-- Four pillars -->
-  <rect x="80" y="2700" width="520" height="120" rx="12" fill="white" stroke="#e17055" stroke-width="3" filter="url(#shadow)"/>
-  <text x="340" y="2725" text-anchor="middle" fill="#e17055" font-size="16" font-weight="bold">GOVERN</text>
-  <text x="340" y="2748" text-anchor="middle" fill="#333" font-size="11">Governors propose rules in natural language</text>
-  <text x="340" y="2766" text-anchor="middle" fill="#333" font-size="11">AI interprets into typed parameters</text>
-  <text x="340" y="2784" text-anchor="middle" fill="#333" font-size="11">Community votes, rules enacted by majority</text>
-  <text x="340" y="2802" text-anchor="middle" fill="#636e72" font-size="10">Token economy prevents spam, encourages strategy</text>
-
-  <text x="620" y="2770" fill="#555" font-size="24" font-weight="bold">--></text>
-
-  <rect x="660" y="2700" width="500" height="120" rx="12" fill="white" stroke="#0984e3" stroke-width="3" filter="url(#shadow)"/>
-  <text x="910" y="2725" text-anchor="middle" fill="#0984e3" font-size="16" font-weight="bold">SIMULATE</text>
-  <text x="910" y="2748" text-anchor="middle" fill="#333" font-size="11">Pure function: teams + rules + seed --> result</text>
-  <text x="910" y="2766" text-anchor="middle" fill="#333" font-size="11">Enacted rules change gameplay immediately</text>
-  <text x="910" y="2784" text-anchor="middle" fill="#333" font-size="11">Team strategies shape AI hooper behavior</text>
-  <text x="910" y="2802" text-anchor="middle" fill="#636e72" font-size="10">Deterministic, testable, portable</text>
-
-  <text x="1180" y="2770" fill="#555" font-size="24" font-weight="bold">--></text>
-
-  <rect x="1220" y="2700" width="520" height="120" rx="12" fill="white" stroke="#fdcb6e" stroke-width="3" filter="url(#shadow)"/>
-  <text x="1480" y="2725" text-anchor="middle" fill="#e17055" font-size="16" font-weight="bold">OBSERVE</text>
-  <text x="1480" y="2748" text-anchor="middle" fill="#333" font-size="11">Live results streamed to Discord + web</text>
-  <text x="1480" y="2766" text-anchor="middle" fill="#333" font-size="11">AI commentary narrates each game</text>
-  <text x="1480" y="2784" text-anchor="middle" fill="#333" font-size="11">Standings, box scores, rule history visible</text>
-  <text x="1480" y="2802" text-anchor="middle" fill="#636e72" font-size="10">Every output reflects dramatic context</text>
-
-  <text x="1760" y="2770" fill="#555" font-size="24" font-weight="bold">--></text>
-
-  <rect x="1800" y="2700" width="520" height="120" rx="12" fill="white" stroke="#6c5ce7" stroke-width="3" filter="url(#shadow)"/>
-  <text x="2060" y="2725" text-anchor="middle" fill="#6c5ce7" font-size="16" font-weight="bold">REFLECT</text>
-  <text x="2060" y="2748" text-anchor="middle" fill="#333" font-size="11">AI reports surface patterns humans can't see</text>
-  <text x="2060" y="2766" text-anchor="middle" fill="#333" font-size="11">Private reports: your own governance behavior</text>
-  <text x="2060" y="2784" text-anchor="middle" fill="#333" font-size="11">DESCRIBE only, never PRESCRIBE</text>
-  <text x="2060" y="2802" text-anchor="middle" fill="#636e72" font-size="10">Reflections inform next governance cycle</text>
-
-  <!-- Loop-back arrow -->
-  <path d="M 2060 2820 Q 2060 2860 1200 2860 Q 340 2860 340 2820" fill="none" stroke="#555" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrow)"/>
-  <text x="1200" y="2878" text-anchor="middle" fill="#555" font-size="12" font-weight="bold" font-style="italic">Reflections inform governance decisions -- the loop continues</text>
-
-  <!-- Footer -->
-  <rect x="0" y="2910" width="2400" height="50" fill="#2d3436"/>
-  <text x="1200" y="2932" text-anchor="middle" fill="#dfe6e9" font-size="12">Pinwheel Fates -- Built on the principles of Resonant Computing</text>
-  <text x="1200" y="2950" text-anchor="middle" fill="#b2bec3" font-size="10">Private . Dedicated . Plural . Adaptable . Prosocial</text>
+  <rect x="0" y="1465" width="1400" height="35" fill="#2d3436"/>
+  <text x="700" y="1482" text-anchor="middle" fill="#dfe6e9" font-size="11">Pinwheel Fates -- Built on the principles of Resonant Computing</text>
+  <text x="700" y="1496" text-anchor="middle" fill="#b2bec3" font-size="9">Private . Dedicated . Plural . Adaptable . Prosocial</text>
 </svg>

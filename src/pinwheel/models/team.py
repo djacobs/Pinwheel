@@ -1,6 +1,6 @@
 """Team, Hooper, and related models.
 
-See docs/GLOSSARY.md: Team, Hooper, Archetype, Venue, Move.
+See docs/product/GLOSSARY.md: Team, Hooper, Archetype, Venue, Move.
 """
 
 from __future__ import annotations

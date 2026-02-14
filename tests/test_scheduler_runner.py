@@ -100,10 +100,15 @@ class TestTickRound:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == 2  # 4 teams -> 2 games per round
+            assert len(games) == 6  # 4 teams -> C(4,2) = 6 games per round
 
     async def test_advances_consecutive_rounds(self, engine: AsyncEngine):
-        """Successive tick_round calls should increment the round number."""
+        """Successive tick_round calls should increment the round number.
+
+        With 4 teams and num_rounds=1 (default), round 1 has 6 games and
+        completes the regular season.  tick_round then generates playoffs.
+        The second tick plays the semifinal round (2 games).
+        """
         season_id = await _setup_season(engine)
         event_bus = EventBus()
 
@@ -114,8 +119,8 @@ class TestTickRound:
             repo = Repository(session)
             r1_games = await repo.get_games_for_round(season_id, 1)
             r2_games = await repo.get_games_for_round(season_id, 2)
-            assert len(r1_games) == 2
-            assert len(r2_games) == 2
+            assert len(r1_games) == 6  # 4 teams -> C(4,2) = 6 games per round
+            assert len(r2_games) == 2  # Semifinal round: 2 games
 
     async def test_skips_when_no_season(self, engine: AsyncEngine):
         """tick_round should do nothing when no season exists."""
@@ -346,13 +351,11 @@ class TestGovernanceNotificationTiming:
                 weight=1.0,
             )
 
-        # Advance 3 rounds — governance tallies on round 3
+        # Advance 1 round — governance tallies on round 1 (interval=1)
         received: list[dict] = []
 
         async with event_bus.subscribe(None) as sub:
-            await tick_round(engine, event_bus, governance_interval=3)  # round 1
-            await tick_round(engine, event_bus, governance_interval=3)  # round 2
-            await tick_round(engine, event_bus, governance_interval=3)  # round 3
+            await tick_round(engine, event_bus, governance_interval=1)  # round 1
 
             while True:
                 event = await sub.get(timeout=0.1)
@@ -370,7 +373,7 @@ class TestGovernanceNotificationTiming:
         round_finished_indices = [
             i for i, e in enumerate(received) if e["type"] == "presentation.round_finished"
         ]
-        # The governance event should come after the round 3 presentation.round_finished
+        # The governance event should come after the round 1 presentation.round_finished
         assert any(rf_idx < gov_idx for rf_idx in round_finished_indices)
 
     async def test_governance_interval_passed_through(self, engine: AsyncEngine):

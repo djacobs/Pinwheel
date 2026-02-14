@@ -272,12 +272,12 @@ class PinwheelBot(commands.Bot):
         )
         @app_commands.describe(
             name="Name for the new season",
-            carry_rules="Carry forward rules from last season (default: fresh start)",
+            carry_rules="Carry forward rules from last season (default: yes)",
         )
         async def new_season_command(
             interaction: discord.Interaction,
             name: str,
-            carry_rules: bool = False,
+            carry_rules: bool = True,
         ) -> None:
             await self._handle_new_season(interaction, name, carry_rules)
 
@@ -2415,7 +2415,7 @@ class PinwheelBot(commands.Bot):
         self,
         interaction: discord.Interaction,
         name: str,
-        carry_rules: bool = False,
+        carry_rules: bool = True,
     ) -> None:
         """Handle the /new-season slash command (admin only)."""
         # Check admin permissions

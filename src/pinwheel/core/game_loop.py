@@ -468,7 +468,7 @@ async def step_round(
     round_number: int,
     event_bus: EventBus | None = None,
     api_key: str = "",
-    governance_interval: int = 3,
+    governance_interval: int = 1,
     suppress_spoiler_events: bool = False,
 ) -> RoundResult:
     """Execute one complete round of the game loop.
@@ -692,7 +692,7 @@ async def step_round(
         for team in teams_cache.values():
             governors = await repo.get_governors_for_team(team.id, season_id)
             for gov in governors:
-                await regenerate_tokens(repo, gov.id, team.id, season_id)
+                await regenerate_tokens(repo, gov.id, team.id, season_id, boost_amount=0)
                 regen_count += 1
         if regen_count > 0:
             logger.info(

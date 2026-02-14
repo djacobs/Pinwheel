@@ -1,7 +1,7 @@
 """RuleSet — the complete set of governable parameters.
 
 The central model. Consumed by simulation, governance, AI, and the API.
-See docs/GLOSSARY.md: Rule / RuleSet.
+See docs/product/GLOSSARY.md: Rule / RuleSet.
 """
 
 from __future__ import annotations

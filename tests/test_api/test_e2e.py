@@ -17,18 +17,19 @@ from pinwheel.models.rules import DEFAULT_RULESET
 
 
 class TestRoundRobin:
-    def test_8_teams_produces_7_rounds(self):
+    def test_8_teams_one_round(self):
+        """8 teams, 1 round = 1 complete round-robin = 28 games all in round 1."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
         rounds = {m.round_number for m in matchups}
-        assert len(rounds) == 7
+        assert rounds == {1}
 
-    def test_4_games_per_round(self):
+    def test_8_teams_28_games_per_round(self):
+        """8 teams, 1 round = C(8,2) = 28 games in round 1."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
-        for round_num in range(1, 8):
-            games = [m for m in matchups if m.round_number == round_num]
-            assert len(games) == 4
+        games_in_r1 = [m for m in matchups if m.round_number == 1]
+        assert len(games_in_r1) == 28
 
     def test_every_team_plays_every_other(self):
         team_ids = [f"t-{i}" for i in range(8)]
@@ -46,17 +47,25 @@ class TestRoundRobin:
         # 8 choose 2 = 28 games
         assert len(matchups) == 28
 
-    def test_two_cycles(self):
+    def test_two_rounds(self):
+        """4 teams, 2 rounds = 2 complete round-robins = 12 games in rounds 1 and 2."""
         team_ids = [f"t-{i}" for i in range(4)]
-        matchups = generate_round_robin(team_ids, num_cycles=2)
-        # 4 teams: 3 rounds/cycle * 2 cycles = 6 rounds, 2 games/round = 12 games
+        matchups = generate_round_robin(team_ids, num_rounds=2)
+        # 4 teams: C(4,2) = 6 games/round * 2 rounds = 12 games
         assert len(matchups) == 12
+        rounds = {m.round_number for m in matchups}
+        assert rounds == {1, 2}
+        # 6 games per round
+        for rn in (1, 2):
+            games = [m for m in matchups if m.round_number == rn]
+            assert len(games) == 6
 
     def test_odd_teams(self):
         team_ids = [f"t-{i}" for i in range(5)]
         matchups = generate_round_robin(team_ids)
-        # 5 teams with bye: 5 rounds, 2 games/round = 10 games
+        # 5 teams with bye: C(5,2) = 10 games, all in round 1
         assert len(matchups) == 10
+        assert all(m.round_number == 1 for m in matchups)
 
 
 class TestComputeStandings:

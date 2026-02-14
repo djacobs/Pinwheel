@@ -10,28 +10,51 @@
 | Dockerfile | Multi-stage Docker build for Fly.io deployment. | **Not yet created** |
 | pyproject.toml | Python project configuration, dependencies, dev extras. | **Not yet created** |
 
-## Design Documents
+## Product Documents (`product/`)
 
-These define *what* Pinwheel Fates is and how it works. They are the specifications from which code is built.
+Player-facing and product-level docs that define *what* Pinwheel Fates is.
 
 | Document | Purpose | Key Contents |
 |----------|---------|-------------|
-| [GLOSSARY.md](GLOSSARY.md) | Canonical naming authority — the definitive term list for code, docs, API, and Discord | ~25 terms with definitions, acceptable aliases, and forbidden alternatives. Use Term column for code, Aliases for player-facing text. |
-| [INTERFACE_CONTRACTS.md](INTERFACE_CONTRACTS.md) | Single source for everything shared across backend, frontend, presenter, and Discord | ID formats, 22 SSE event types, 18 governance event store types, API response envelope, ~30 API endpoints, Pydantic model index, ~22 behavioral tracking events |
-| [DEMO_MODE.md](DEMO_MODE.md) | All environment-specific behavior in one place | 3 environments, timing table, 4 pace modes, dev season config, seed data strategy, feature flags by env, hackathon demo script, environment variables |
-| [VISION.md](VISION.md) | Philosophy, goals, resonant computing alignment, hackathon track justification | 5 goals, 5 resonant computing principles, the David Lynch diving bell metaphor, "the game where AI doesn't play — it helps you see" |
-| [PRODUCT_OVERVIEW.md](PRODUCT_OVERVIEW.md) | User journey walkthrough, PM analysis, gap register, metrics coverage matrix | 7 user journey phases (Discovery → Spectator), 10 identified gaps with decision deadlines and fallbacks, open questions decision table, success criteria for each goal |
-| [RUN_OF_PLAY.md](RUN_OF_PLAY.md) | The gameplay loop from a player's perspective — what happens each day | Governance pipeline (7 steps), token economy, 4-tier rule space, AI interpretation pipeline, amendment mechanic, three-layer feed topology, conflict resolution, "What Makes This Fun" |
+| [VISION.md](product/VISION.md) | Philosophy, goals, resonant computing alignment, hackathon track justification | 5 goals, 5 resonant computing principles, the David Lynch diving bell metaphor, "the game where AI doesn't play — it helps you see" |
+| [PRODUCT_OVERVIEW.md](product/PRODUCT_OVERVIEW.md) | User journey walkthrough, PM analysis, gap register, metrics coverage matrix | 7 user journey phases (Discovery → Spectator), 10 identified gaps with decision deadlines and fallbacks, open questions decision table, success criteria for each goal |
+| [RUN_OF_PLAY.md](product/RUN_OF_PLAY.md) | The gameplay loop from a player's perspective — what happens each day | Governance pipeline (7 steps), token economy, 4-tier rule space, AI interpretation pipeline, amendment mechanic, three-layer feed topology, conflict resolution, "What Makes This Fun" |
+| [PLAYER.md](product/PLAYER.md) | Governor and spectator experience, Discord integration | Two-surface architecture (web + Discord), Discord server structure, all bot commands, vote normalization, governor lifecycle, bot personality, report delivery, web↔Discord integration |
+| [VIEWER.md](product/VIEWER.md) | Web dashboard, Arena, AI commentary, API spec | The Arena (2x2 live grid), Single Game view, AI Commentary Engine (omniscient narrator, batch generation, system prompt), Discord bot search, ~30 REST API endpoints, SSE filtering, presentation pacing, dramatic pacing |
+| [GLOSSARY.md](product/GLOSSARY.md) | Canonical naming authority — the definitive term list for code, docs, API, and Discord | ~25 terms with definitions, acceptable aliases, and forbidden alternatives. Use Term column for code, Aliases for player-facing text. |
+| [GAME_MOMENTS.md](product/GAME_MOMENTS.md) | Dramatic context checklist for player-facing outputs | Situations, rivalries, milestones that all output systems should reference |
+| [NEW_GOVERNOR_GUIDE.md](product/NEW_GOVERNOR_GUIDE.md) | Onboarding guide for new players | Step-by-step guide for joining and governing |
+| [ACCEPTANCE_CRITERIA.md](product/ACCEPTANCE_CRITERIA.md) | Testable acceptance criteria for every feature | Per-feature criteria organized by hackathon day, automation feasibility, coverage of all user journey phases |
+| [PLAN.md](product/PLAN.md) | 5-day hackathon plan with daily goals, risk register, success criteria | Check off items as completed |
+| [COLOPHON.md](product/COLOPHON.md) | Credits and acknowledgments | Tools, inspirations, contributors |
+
+## Technical Documents
+
+Architecture and engineering docs that define *how* the system works.
+
+| Document | Purpose | Key Contents |
+|----------|---------|-------------|
 | [SIMULATION.md](SIMULATION.md) | The basketball simulation engine specification | 9 attributes, 9 archetypes (360-point budget), possession model, defensive model (4 schemes), scoring resolution, Moves system, Elam Ending, venue/home court, rule expressiveness (3-layer: Parameters, Game Effects, League Effects), safety boundaries, 21 decisions log |
 | [GAME_LOOP.md](GAME_LOOP.md) | Game loop, scheduler, season structure | Three clocks model (game, governance, report), state machine, game presenter architecture, SSE event taxonomy (~25 types), seed generation, season structure (21 rounds + playoffs + offseason), dev/staging vs. production mode |
-| [PLAYER.md](PLAYER.md) | Governor and spectator experience, Discord integration | Two-surface architecture (web + Discord), Discord server structure, all bot commands (/propose, /amend, /vote, /boost, /trade, /tokens, /strategy, /rules, /standings, /team, /join), vote normalization, governor lifecycle, bot personality, report delivery, web↔Discord integration |
-| [VIEWER.md](VIEWER.md) | Web dashboard, Arena, AI commentary, API spec | The Arena (2x2 live grid), Single Game view, AI Commentary Engine (omniscient narrator, batch generation, system prompt), Discord bot search, ~30 REST API endpoints, SSE filtering, presentation pacing, dramatic pacing |
+| [INTERFACE_CONTRACTS.md](INTERFACE_CONTRACTS.md) | Single source for everything shared across backend, frontend, presenter, and Discord | ID formats, 22 SSE event types, 18 governance event store types, API response envelope, ~30 API endpoints, Pydantic model index, ~22 behavioral tracking events |
 | [SECURITY.md](SECURITY.md) | Prompt injection defense plan | 5-layer defense (input sanitization → sandboxed interpretation → output validation → human-in-the-loop → monitoring), 6 attack vector analyses, privilege model per AI context, implementation checklist |
 | [INSTRUMENTATION.md](INSTRUMENTATION.md) | Profiling and measurement strategy | Three targets: gameplay joy (player behavior events, derived metrics, alarms), UX performance (latency targets, profiling, admin dashboard), token costs (per-call accounting, cost model, 6 optimization strategies) |
+| [DEMO_MODE.md](DEMO_MODE.md) | All environment-specific behavior in one place | 3 environments, timing table, 4 pace modes, dev season config, seed data strategy, feature flags by env, hackathon demo script, environment variables |
 | [OPS.md](OPS.md) | Operations, deployment, monitoring | Fly.io architecture, machine sizing, Postgres setup, environment variables, deploy/rollback workflow, Dockerfile strategy, health endpoint, cost estimates, SSE scaling path, Discord bot deployment, backup/recovery |
-| [ACCEPTANCE_CRITERIA.md](ACCEPTANCE_CRITERIA.md) | Testable acceptance criteria for every feature | Per-feature criteria organized by hackathon day, automation feasibility (Playwright vs. manual vs. unit test), coverage of all user journey phases |
+| [LIFECYCLE.svg](LIFECYCLE.svg) | Comprehensive system lifecycle diagram | Season creation, player join flow, game loop, governance flow, token economy, AI integration, API routes |
 
-## Implementation Plans
+## Dev Log (`dev_log/`)
+
+| Document | Purpose | Update Frequency |
+|----------|---------|-----------------|
+| [DEV_LOG.md](dev_log/DEV_LOG.md) | Running log of all decisions, reasoning, and outcomes — the project's memory | After each major task or decision |
+| [UX_NOTES.md](dev_log/UX_NOTES.md) | Visual and interaction change record | After each UI change |
+| [DEV_LOG_2026-02-10.md](dev_log/DEV_LOG_2026-02-10.md) | Sessions 1-5 (archived) | Archived |
+| [DEV_LOG_2026-02-11.md](dev_log/DEV_LOG_2026-02-11.md) | Sessions 6-16 (archived) | Archived |
+| [DEV_LOG_2026-02-12.md](dev_log/DEV_LOG_2026-02-12.md) | Sessions 17-33 (archived) | Archived |
+| [DEV_LOG_2026-02-13.md](dev_log/DEV_LOG_2026-02-13.md) | Sessions 34-47 (archived) | Archived |
+
+## Implementation Plans (`plans/`)
 
 These define *how* we build each component. Created via the `/workflows:plan` cycle.
 
@@ -47,24 +70,17 @@ These define *how* we build each component. Created via the `/workflows:plan` cy
 | [Page Designs](plans/2026-02-11-page-designs.md) | Page-level UX wireframes | Day 4 | ASCII wireframes for 6 page types (Game Preview, Live Game, Game Summary, Team, Agent, Season), global nav, component reuse |
 | [Day 1 Implementation](plans/2026-02-11-day1-implementation-plan.md) | Concrete Day 1 build plan | Day 1 | 7 phases, ~40-60 tests target, file inventory, time estimates (scaffolding 30min → models 1hr → simulation 3-4hr → seeding 1.5hr → DB 1hr → scheduler+API 1hr → observe 30min) |
 
-## Operational Documents
-
-| Document | Purpose | Update Frequency |
-|----------|---------|-----------------|
-| [PLAN.md](PLAN.md) | 5-day hackathon plan with daily goals, risk register, success criteria | Check off items as completed |
-| [DEV_LOG.md](DEV_LOG.md) | Running log of all decisions, reasoning, and outcomes — the project's memory | After each major task or decision |
-
 ## Document Dependency Graph
 
 Understanding which docs feed into others helps when updating decisions:
 
 ```
-GLOSSARY.md (canonical naming — everything references this)
+product/GLOSSARY.md (canonical naming — everything references this)
 
-VISION.md (philosophy, goals)
-  └──► PRODUCT_OVERVIEW.md (user journey, measurable success criteria, decision table)
-        └──► ACCEPTANCE_CRITERIA.md (testable feature criteria)
-              └──► PLAN.md (daily build plan)
+product/VISION.md (philosophy, goals)
+  └──► product/PRODUCT_OVERVIEW.md (user journey, measurable success criteria, decision table)
+        └──► product/ACCEPTANCE_CRITERIA.md (testable feature criteria)
+              └──► product/PLAN.md (daily build plan)
 
 CLAUDE.md (architecture, code standards)
   ├──► SIMULATION.md (engine spec)
@@ -73,9 +89,9 @@ CLAUDE.md (architecture, code standards)
   ├──► GAME_LOOP.md (scheduler, season)
   │     └──► plans/season-lifecycle (state machine)
   │     └──► plans/presenter (pacing, commentary)
-  ├──► PLAYER.md (governance UX, Discord)
+  ├──► product/PLAYER.md (governance UX, Discord)
   │     └──► plans/discord-bot (implementation)
-  ├──► VIEWER.md (dashboard, API, Arena)
+  ├──► product/VIEWER.md (dashboard, API, Arena)
   │     └──► plans/frontend (HTMX patterns)
   │     └──► plans/page-designs (wireframes + data contracts)
   ├──► SECURITY.md (prompt injection defense)
@@ -84,25 +100,22 @@ CLAUDE.md (architecture, code standards)
         └──► fly.toml (deployment config)
 
 INTERFACE_CONTRACTS.md (SSE events, API endpoints, models, event store)
-  └──► consolidates from VIEWER.md, GAME_LOOP.md, INSTRUMENTATION.md, database-schema-plan
+  └──► consolidates from product/VIEWER.md, GAME_LOOP.md, INSTRUMENTATION.md, database-schema-plan
 
 DEMO_MODE.md (environments, pacing, demo script)
   └──► consolidates from OPS.md, GAME_LOOP.md, season-lifecycle-plan, day1-implementation-plan
 
-RUN_OF_PLAY.md (gameplay loop)
-  └──► references SIMULATION.md, PLAYER.md, VIEWER.md, GAME_LOOP.md
-
-plans/day1-implementation (concrete build plan, critical path, DoD)
-  └──► references plans/database-schema, SIMULATION.md, plans/league-configuration
+product/RUN_OF_PLAY.md (gameplay loop)
+  └──► references SIMULATION.md, product/PLAYER.md, product/VIEWER.md, GAME_LOOP.md
 ```
 
 ## Reading Order
 
 For a new contributor, the recommended reading order is:
 
-1. **VISION.md** — Why this exists (5 min)
-2. **RUN_OF_PLAY.md** — What the game is (10 min)
-3. **PRODUCT_OVERVIEW.md** — Who the users are and what they need (15 min)
+1. **product/VISION.md** — Why this exists (5 min)
+2. **product/RUN_OF_PLAY.md** — What the game is (10 min)
+3. **product/PRODUCT_OVERVIEW.md** — Who the users are and what they need (15 min)
 4. **CLAUDE.md** — How we build (10 min)
-5. **PLAN.md** — What we're building this week (5 min)
-6. Then dive into whatever you're working on: SIMULATION.md for engine work, PLAYER.md for Discord, VIEWER.md for frontend, etc.
+5. **product/PLAN.md** — What we're building this week (5 min)
+6. Then dive into whatever you're working on: SIMULATION.md for engine work, product/PLAYER.md for Discord, product/VIEWER.md for frontend, etc.

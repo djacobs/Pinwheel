@@ -479,7 +479,7 @@ async def start_new_season(
     repo: Repository,
     league_id: str,
     season_name: str,
-    carry_forward_rules: bool = False,
+    carry_forward_rules: bool = True,
     previous_season_id: str | None = None,
 ) -> SeasonRow:
     """Start a new season in the league.
@@ -547,7 +547,7 @@ async def start_new_season(
         ruleset = RuleSet(**ruleset_data)
         matchups = generate_round_robin(
             team_ids,
-            num_cycles=ruleset.round_robins_per_season,
+            num_rounds=ruleset.round_robins_per_season,
         )
         for m in matchups:
             await repo.create_schedule_entry(

@@ -1,6 +1,6 @@
 """Report models — AI-generated reports.
 
-See docs/GLOSSARY.md: Report.
+See docs/product/GLOSSARY.md: Report.
 """
 
 from __future__ import annotations
