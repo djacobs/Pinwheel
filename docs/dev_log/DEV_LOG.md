@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **857 tests**, zero lint errors (Session 55)
+- **880 tests**, zero lint errors (Session 57)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 55 (SQLite write lock contention fix)
+- **Latest commit:** Session 57 (admin visibility, enrollment fix, test alignment)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -419,3 +419,43 @@ Post-round session (~1s): mark games presented
 **857 tests, zero lint errors.**
 
 **What could have gone better:** The `_get_active_season_id()` bug affected every page on the site for the entire life of the project — it was a Day 1 "hackathon shortcut" that never got replaced. Should have been caught when `get_active_season()` was implemented in Session 50.
+
+---
+
+## Session 57 — Admin Visibility + Enrollment Fix + Test Alignment
+
+**What was asked:** Multiple requests across a long session: (1) Investigate why `/roster` shows reset player assignments. (2) Fix lost team enrollments during season transitions. (3) Build comprehensive ADMIN_GUIDE.md. (4) Build `/admin/season` page with runtime config and pace controls. (5) Fix roster to not be season-scoped. (6) Show proposal details (including pending/failed) on roster. (7) Fix 18 pre-existing test failures from circle method scheduler mismatch.
+
+**What was built:**
+
+### Enrollment fix — `start_new_season()` fallback (`season.py`)
+- Root cause: `start_new_season` step 4 only carried enrollments from `completed`/`archived` seasons via `get_latest_completed_season()`. If admin ran `/new-season` before properly completing the previous season, enrollments silently dropped.
+- Fix: falls back to most recent season (any status) when no completed season exists. Also pass `previous_season_id` explicitly in the `/new-season` Discord handler.
+- Created `scripts/fix_enrollments.py` for production data repair (dry-run by default, idempotent).
+
+### Comprehensive ADMIN_GUIDE.md (`docs/product/ADMIN_GUIDE.md`)
+- Expanded from ~59 lines to 200+ lines with: season management, veto flow, pace control, admin web pages, env vars, Fly.io deployment, database backup, Discord bot setup, things to know.
+
+### `/admin/season` page (new route + template)
+- Current season card: status, round, teams, governors, games played, start date.
+- Runtime Configuration table: pace (colored), auto-advance, presentation mode, governance interval, gov window, evals, environment, quarter duration, game gap.
+- Season History table: all seasons with status badges, team/game counts, dates.
+- Quick Actions: HTMX-powered pace control buttons (FAST/NORMAL/SLOW/MANUAL) + manual round advance.
+
+### Admin roster redesign
+- Changed from season-scoped (`get_players_for_season`) to showing ALL players via `get_all_players()`.
+- Added Joined column, Pending proposals column.
+- Inline proposal details: status badge (PASSED/PENDING/FAILED/VETOED/CONFIRMED), round number, truncated text.
+
+### Test alignment — circle method (18 tests fixed)
+- The scheduler uses the circle method: 4 teams → 3 matchdays (2 games each), not 1 round with 6 games.
+- Tests across 6 files incorrectly assumed all C(4,2)=6 games land in round 1.
+- Fixed assertions in `test_e2e.py`, `test_commentary.py`, `test_game_loop.py`, `test_scheduler_runner.py`, `test_memorial.py`, `test_season_archive.py`.
+
+**Files modified (14):** `src/pinwheel/core/season.py`, `src/pinwheel/discord/bot.py`, `docs/product/ADMIN_GUIDE.md`, `src/pinwheel/api/admin_season.py` (new), `templates/pages/admin_season.html` (new), `src/pinwheel/api/admin_roster.py`, `templates/pages/admin_roster.html`, `templates/base.html`, `src/pinwheel/main.py`, `tests/test_pages.py`, `tests/test_discord.py`, `tests/test_e2e.py`, `tests/test_commentary.py`, `tests/test_game_loop.py`, `tests/test_scheduler_runner.py`, `tests/test_memorial.py`, `tests/test_season_archive.py`
+
+**New files (3):** `scripts/fix_enrollments.py`, `src/pinwheel/api/admin_season.py`, `templates/pages/admin_season.html`
+
+**880 tests, zero lint errors.**
+
+**What could have gone better:** The 18 test failures from the circle method mismatch were pre-existing — introduced when the scheduler was restructured in Session 53 but the tests weren't updated. Should have been caught in that session's test run (the previous session reported 857 tests passing, suggesting these tests were somehow skipped or the failures were masked).

@@ -597,3 +597,15 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 84. [DONE] /join team parameter made required
 **Problem:** Discord `/join` command showed the team name as optional ("leave blank to see all teams"). Players were confused because team selection is required per RUN_OF_PLAY.
 **Fix:** Changed `team: str = ""` to `team: str` in bot.py, making Discord enforce the parameter. Updated describe text.
+
+### 85. [DONE] Admin roster — show all players, not season-scoped
+**Problem:** `/admin/roster` said "All enrolled governors for Season X" — enrollment is not a season-level concept. Players who joined once should always appear.
+**Fix:** Changed from `get_players_for_season()` to `get_all_players()`. Added "Joined" column showing `created_at` date. Removed season framing from subtitle. Empty state says "No Governors Yet" instead of "No Governors Enrolled."
+
+### 86. [DONE] Admin roster — inline proposal details with status badges
+**Problem:** Governors who submitted proposals that failed or are pending had no visibility in the roster. Only passed proposals were implicitly counted.
+**Fix:** Added Pending column (governance purple). Below each governor's row, if they have proposals, show inline details: status badge (PASSED/PENDING/FAILED/VETOED/CONFIRMED with color coding), round number, and truncated proposal text.
+
+### 87. [DONE] /admin/season page — runtime config + season history
+**Problem:** No admin visibility into current season configuration (pace, auto-advance, governance interval, etc.) or season history.
+**Fix:** New `/admin/season` page with: current season card (status, round, teams, governors, games, start date), runtime configuration table (pace with color coding, all settings from env vars), season history table with status badges, and HTMX-powered quick action buttons for pace control.

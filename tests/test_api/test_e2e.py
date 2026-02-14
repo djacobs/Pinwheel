@@ -17,19 +17,19 @@ from pinwheel.models.rules import DEFAULT_RULESET
 
 
 class TestRoundRobin:
-    def test_8_teams_one_round(self):
-        """8 teams, 1 round = 1 complete round-robin = 28 games all in round 1."""
+    def test_8_teams_one_cycle(self):
+        """8 teams, 1 cycle = 7 rounds, 4 games each = 28 total."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
         rounds = {m.round_number for m in matchups}
-        assert rounds == {1}
+        # Circle method: N-1 rounds for N teams
+        assert rounds == set(range(1, 8))
 
-    def test_8_teams_28_games_per_round(self):
-        """8 teams, 1 round = C(8,2) = 28 games in round 1."""
+    def test_8_teams_28_games_total(self):
+        """8 teams, 1 cycle = C(8,2) = 28 total games."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
-        games_in_r1 = [m for m in matchups if m.round_number == 1]
-        assert len(games_in_r1) == 28
+        assert len(matchups) == 28
 
     def test_every_team_plays_every_other(self):
         team_ids = [f"t-{i}" for i in range(8)]
@@ -47,25 +47,24 @@ class TestRoundRobin:
         # 8 choose 2 = 28 games
         assert len(matchups) == 28
 
-    def test_two_rounds(self):
-        """4 teams, 2 rounds = 2 complete round-robins = 12 games in rounds 1 and 2."""
+    def test_two_cycles(self):
+        """4 teams, 2 cycles = 6 rounds, 2 games each = 12 total games."""
         team_ids = [f"t-{i}" for i in range(4)]
         matchups = generate_round_robin(team_ids, num_rounds=2)
-        # 4 teams: C(4,2) = 6 games/round * 2 rounds = 12 games
+        # 4 teams: C(4,2) = 6 games/cycle * 2 cycles = 12 games
         assert len(matchups) == 12
         rounds = {m.round_number for m in matchups}
-        assert rounds == {1, 2}
-        # 6 games per round
-        for rn in (1, 2):
-            games = [m for m in matchups if m.round_number == rn]
-            assert len(games) == 6
+        # 4 teams → 3 rounds/cycle × 2 cycles = 6 rounds
+        assert rounds == set(range(1, 7))
 
     def test_odd_teams(self):
         team_ids = [f"t-{i}" for i in range(5)]
         matchups = generate_round_robin(team_ids)
-        # 5 teams with bye: C(5,2) = 10 games, all in round 1
+        # 5 teams with bye: C(5,2) = 10 games across 5 rounds
         assert len(matchups) == 10
-        assert all(m.round_number == 1 for m in matchups)
+        # 5 teams padded to 6 → 5 rounds
+        rounds = {m.round_number for m in matchups}
+        assert rounds == set(range(1, 6))
 
 
 class TestComputeStandings:

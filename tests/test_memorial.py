@@ -50,8 +50,11 @@ def _hooper_attrs():
     }
 
 
-async def _seed_season_with_games(repo: Repository, rounds: int = 1) -> tuple[str, list[str]]:
-    """Create a league with 4 teams, schedule, and run N rounds."""
+async def _seed_season_with_games(repo: Repository, rounds: int = 3) -> tuple[str, list[str]]:
+    """Create a league with 4 teams, schedule, and run N rounds.
+
+    Default rounds=3 plays a complete round-robin (all C(4,2)=6 games).
+    """
     league = await repo.create_league("Test League")
     season = await repo.create_season(
         league.id,

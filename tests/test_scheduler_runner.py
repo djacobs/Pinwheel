@@ -100,14 +100,13 @@ class TestTickRound:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == 6  # 4 teams -> C(4,2) = 6 games per round
+            assert len(games) == 2  # 4 teams -> 2 games per round
 
     async def test_advances_consecutive_rounds(self, engine: AsyncEngine):
         """Successive tick_round calls should increment the round number.
 
-        With 4 teams and num_rounds=1 (default), round 1 has 6 games and
-        completes the regular season.  tick_round then generates playoffs.
-        The second tick plays the semifinal round (2 games).
+        With 4 teams and num_rounds=1 (default), each round has 2 games.
+        The first two ticks play rounds 1 and 2.
         """
         season_id = await _setup_season(engine)
         event_bus = EventBus()
@@ -119,8 +118,8 @@ class TestTickRound:
             repo = Repository(session)
             r1_games = await repo.get_games_for_round(season_id, 1)
             r2_games = await repo.get_games_for_round(season_id, 2)
-            assert len(r1_games) == 6  # 4 teams -> C(4,2) = 6 games per round
-            assert len(r2_games) == 2  # Semifinal round: 2 games
+            assert len(r1_games) == 2  # Round 1: 2 games
+            assert len(r2_games) == 2  # Round 2: 2 games
 
     async def test_skips_when_no_season(self, engine: AsyncEngine):
         """tick_round should do nothing when no season exists."""
@@ -473,7 +472,7 @@ class TestMultisessionLockRelease:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == 6
+            assert len(games) == 2
             reports = await repo.get_reports_for_round(season_id, 1)
             assert len(reports) >= 2
 

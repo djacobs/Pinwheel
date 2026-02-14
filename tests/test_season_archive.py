@@ -46,7 +46,7 @@ def _hooper_attrs():
 
 
 async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
-    """Create a league with 4 teams, schedule, and run 1 round."""
+    """Create a league with 4 teams, schedule, and run all 3 rounds (complete round-robin)."""
     league = await repo.create_league("Test League")
     season = await repo.create_season(
         league.id,
@@ -82,8 +82,10 @@ async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
             away_team_id=m.away_team_id,
         )
 
-    # Run 1 round
+    # Run all 3 rounds (complete round-robin with 4 teams)
     await step_round(repo, season.id, round_number=1)
+    await step_round(repo, season.id, round_number=2)
+    await step_round(repo, season.id, round_number=3)
 
     return season.id, team_ids
 
@@ -114,7 +116,7 @@ class TestArchiveCreation:
 
         archive = await archive_season(repo, season_id)
 
-        # 4 teams, round 1 has C(4,2) = 6 games
+        # 4 teams, complete round-robin (3 rounds) = C(4,2) = 6 total games
         assert archive.total_games == 6
 
     async def test_archive_has_champion(self, repo: Repository):

@@ -64,7 +64,7 @@ async def _setup_season_with_teams(
     Args:
         repo: Repository instance.
         num_rounds: Number of complete round-robins to schedule (default 1).
-            With 4 teams, each round has C(4,2)=6 games.
+            With 4 teams, each round-robin cycle has C(4,2)=6 games across 3 rounds (2 games/round).
     """
     league = await repo.create_league("Test League")
     season = await repo.create_season(
@@ -111,7 +111,7 @@ class TestStepRound:
         result = await step_round(repo, season_id, round_number=1)
 
         assert result.round_number == 1
-        assert len(result.games) == 6  # 4 teams → C(4,2) = 6 games per round
+        assert len(result.games) == 2  # 4 teams → 2 games in round 1 (circle method)
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
             assert game["winner_team_id"] in team_ids
@@ -121,7 +121,7 @@ class TestStepRound:
         await step_round(repo, season_id, round_number=1)
 
         games = await repo.get_games_for_round(season_id, 1)
-        assert len(games) == 6
+        assert len(games) == 2
         for g in games:
             assert g.home_score >= 0
             assert g.away_score >= 0
@@ -217,21 +217,21 @@ class TestStepRound:
 
 class TestMultipleRounds:
     async def test_two_consecutive_rounds(self, repo: Repository):
-        season_id, _ = await _setup_season_with_teams(repo, num_rounds=2)
+        season_id, _ = await _setup_season_with_teams(repo, num_rounds=1)
 
         r1 = await step_round(repo, season_id, round_number=1)
         r2 = await step_round(repo, season_id, round_number=2)
 
         assert r1.round_number == 1
         assert r2.round_number == 2
-        assert len(r1.games) == 6  # 4 teams → C(4,2) = 6 games per round
-        assert len(r2.games) == 6
+        assert len(r1.games) == 2  # 4 teams → 2 games in round 1 (circle method)
+        assert len(r2.games) == 2  # 4 teams → 2 games in round 2 (circle method)
 
         # Different rounds should have different games
         r1_games = await repo.get_games_for_round(season_id, 1)
         r2_games = await repo.get_games_for_round(season_id, 2)
-        assert len(r1_games) == 6
-        assert len(r2_games) == 6
+        assert len(r1_games) == 2
+        assert len(r2_games) == 2
 
     async def test_reports_stored_per_round(self, repo: Repository):
         season_id, _ = await _setup_season_with_teams(repo, num_rounds=2)
@@ -468,10 +468,10 @@ class TestSeasonEndDetection:
     async def test_season_detected_complete_when_all_rounds_played(self, repo: Repository):
         """Season is detected as complete when all scheduled rounds have been played."""
         season_id, team_ids = await _setup_season_with_teams(repo)
-        # 4 teams, 1 round => 1 complete round-robin = 6 games in round 1
+        # 4 teams, 1 round-robin cycle => 3 rounds (2 games each = 6 total)
         matchups = generate_round_robin(team_ids)
         total_rounds = max(m.round_number for m in matchups)
-        assert total_rounds == 1
+        assert total_rounds == 3
 
         # Play all rounds
         for rnd in range(1, total_rounds + 1):
@@ -506,7 +506,7 @@ class TestSeasonEndDetection:
 
         matchups = generate_round_robin(team_ids, num_rounds=3)
         total_rounds = max(m.round_number for m in matchups)
-        assert total_rounds == 3
+        assert total_rounds == 9
 
         # Play all rounds
         for rnd in range(1, total_rounds + 1):
@@ -573,14 +573,14 @@ class TestComputeStandings:
         standings = await compute_standings_from_repo(repo, season_id)
 
         assert len(standings) == 4
-        # Total wins should equal total losses (6 games = 6 winners + 6 losers)
+        # Total wins should equal total losses (2 games = 2 winners + 2 losers)
         total_wins = sum(s["wins"] for s in standings)
         total_losses = sum(s["losses"] for s in standings)
-        assert total_wins == 6
-        assert total_losses == 6
-        # Each team should have played 3 games (C(4,2)/4 * 2 = 3 games each)
+        assert total_wins == 2
+        assert total_losses == 2
+        # Each team should have played 1 game (circle method: all 4 teams play in round 1)
         for s in standings:
-            assert s["wins"] + s["losses"] == 3
+            assert s["wins"] + s["losses"] == 1
 
     async def test_standings_sorted_by_wins(self, repo: Repository):
         """Standings are sorted by wins descending."""
@@ -1056,9 +1056,9 @@ class TestPhaseSimulateAndGovern:
         assert isinstance(sim, _SimPhaseResult)
         assert sim.season_id == season_id
         assert sim.round_number == 1
-        assert len(sim.game_results) == 6
-        assert len(sim.game_row_ids) == 6
-        assert len(sim.game_summaries) == 6
+        assert len(sim.game_results) == 2
+        assert len(sim.game_row_ids) == 2
+        assert len(sim.game_summaries) == 2
         assert len(sim.teams_cache) == 4
         # Summaries should NOT have commentary (that's added in AI phase)
         for gs in sim.game_summaries:
@@ -1117,7 +1117,7 @@ class TestPhaseSimulateAndGovern:
         await _phase_simulate_and_govern(repo, season_id, round_number=1)
 
         games = await repo.get_games_for_round(season_id, 1)
-        assert len(games) == 6
+        assert len(games) == 2
 
 
 class TestPhaseAI:
@@ -1133,7 +1133,7 @@ class TestPhaseAI:
 
         assert isinstance(ai, _AIPhaseResult)
         # Mock commentary for each game
-        assert len(ai.commentaries) == 6
+        assert len(ai.commentaries) == 2
         assert ai.highlight_reel != ""
         assert ai.sim_report is not None
         assert ai.sim_report.report_type == "simulation"
@@ -1186,7 +1186,7 @@ class TestPhasePersistAndFinalize:
         result = await _phase_persist_and_finalize(repo, sim, ai)
 
         assert result.round_number == 1
-        assert len(result.games) == 6
+        assert len(result.games) == 2
         assert len(result.reports) >= 2  # sim + gov
 
         # Reports stored in DB
@@ -1223,7 +1223,7 @@ class TestStepRoundMultisession:
         )
 
         assert result.round_number == 1
-        assert len(result.games) == 6
+        assert len(result.games) == 2
         assert len(result.reports) >= 2
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
@@ -1239,7 +1239,7 @@ class TestStepRoundMultisession:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == 6
+            assert len(games) == 2
 
     async def test_stores_reports_in_db(self, engine: AsyncEngine):
         async with get_session(engine) as session:
@@ -1297,7 +1297,7 @@ class TestStepRoundBackwardCompat:
         result = await step_round(repo, season_id, round_number=1)
 
         assert result.round_number == 1
-        assert len(result.games) == 6
+        assert len(result.games) == 2
         assert len(result.reports) >= 2
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
