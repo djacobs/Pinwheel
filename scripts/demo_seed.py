@@ -76,6 +76,21 @@ TEAMS = [
                     "fate": 25,
                 },
             ),
+            (
+                "Fern Wilder",
+                "iron_horse",
+                {
+                    "scoring": 30,
+                    "passing": 30,
+                    "defense": 40,
+                    "speed": 35,
+                    "stamina": 70,
+                    "iq": 35,
+                    "ego": 20,
+                    "chaotic_alignment": 15,
+                    "fate": 30,
+                },
+            ),
         ],
     },
     {
@@ -127,6 +142,21 @@ TEAMS = [
                     "ego": 30,
                     "chaotic_alignment": 20,
                     "fate": 30,
+                },
+            ),
+            (
+                "Reed Calloway",
+                "lockdown",
+                {
+                    "scoring": 20,
+                    "passing": 25,
+                    "defense": 60,
+                    "speed": 40,
+                    "stamina": 65,
+                    "iq": 40,
+                    "ego": 15,
+                    "chaotic_alignment": 10,
+                    "fate": 35,
                 },
             ),
         ],
@@ -182,6 +212,21 @@ TEAMS = [
                     "fate": 10,
                 },
             ),
+            (
+                "Lark Holloway",
+                "savant",
+                {
+                    "scoring": 30,
+                    "passing": 40,
+                    "defense": 25,
+                    "speed": 30,
+                    "stamina": 60,
+                    "iq": 65,
+                    "ego": 15,
+                    "chaotic_alignment": 20,
+                    "fate": 40,
+                },
+            ),
         ],
     },
     {
@@ -233,6 +278,21 @@ TEAMS = [
                     "ego": 30,
                     "chaotic_alignment": 20,
                     "fate": 35,
+                },
+            ),
+            (
+                "Cinder Holt",
+                "slasher",
+                {
+                    "scoring": 40,
+                    "passing": 25,
+                    "defense": 25,
+                    "speed": 60,
+                    "stamina": 65,
+                    "iq": 30,
+                    "ego": 35,
+                    "chaotic_alignment": 25,
+                    "fate": 20,
                 },
             ),
         ],
@@ -431,6 +491,53 @@ async def propose(text: str):
     await engine.dispose()
 
 
+
+async def add_bench(db_url: str | None = None):
+    """Add 4th (bench) hooper to teams that only have 3."""
+    url = db_url or DEMO_DB
+    engine = create_engine(url)
+    async with get_session(engine) as session:
+        repo = Repository(session)
+        season = await repo.get_active_season()
+        if not season:
+            print("No season found.")
+            return
+
+        teams = await repo.get_teams_for_season(season.id)
+        added = 0
+        for team_row in teams:
+            if len(team_row.hoopers) >= 4:
+                print(f"  {team_row.name}: already has {len(team_row.hoopers)} hoopers, skipping")
+                continue
+
+            # Find matching TEAMS entry
+            team_data = None
+            for t in TEAMS:
+                if t["name"] == team_row.name:
+                    team_data = t
+                    break
+            if not team_data or len(team_data["hoopers"]) < 4:
+                print(f"  {team_row.name}: no bench player defined, skipping")
+                continue
+
+            # The 4th hooper is the bench player
+            name, archetype, attrs = team_data["hoopers"][3]
+            await repo.create_hooper(
+                team_id=team_row.id,
+                season_id=season.id,
+                name=name,
+                archetype=archetype,
+                attributes=attrs,
+            )
+            print(f"  {team_row.name}: added {name} ({archetype})")
+            added += 1
+
+        await session.commit()
+        print(f"\nAdded {added} bench players.")
+
+    await engine.dispose()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -449,6 +556,9 @@ def main():
             print("Usage: demo_seed.py propose 'your proposal text'")
             return
         asyncio.run(propose(" ".join(sys.argv[2:])))
+    elif cmd == "add-bench":
+        db = sys.argv[2] if len(sys.argv) > 2 else None
+        asyncio.run(add_bench(db))
     else:
         print(f"Unknown command: {cmd}")
         print(__doc__)

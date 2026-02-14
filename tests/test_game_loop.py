@@ -67,7 +67,7 @@ async def _setup_season_with_teams(repo: Repository) -> tuple[str, list[str]]:
             venue={"name": f"Arena {i + 1}", "capacity": 5000},
         )
         team_ids.append(team.id)
-        for j in range(3):
+        for j in range(4):
             await repo.create_hooper(
                 team_id=team.id,
                 season_id=season.id,
