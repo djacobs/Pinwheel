@@ -90,7 +90,9 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         proposals_submitted = 0
         proposals_passed = 0
         proposals_failed = 0
+        proposals_pending = 0
         votes_cast = 0
+        proposal_list: list[dict] = []
 
         if season_id:
             from pinwheel.core.tokens import get_token_balance
@@ -104,6 +106,8 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
             proposals_passed = activity.get("proposals_passed", 0)
             proposals_failed = activity.get("proposals_failed", 0)
             votes_cast = activity.get("votes_cast", 0)
+            proposal_list = activity.get("proposal_list", [])
+            proposals_pending = proposals_submitted - proposals_passed - proposals_failed
 
         governors.append(
             {
@@ -118,7 +122,9 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
                 "proposals_submitted": proposals_submitted,
                 "proposals_passed": proposals_passed,
                 "proposals_failed": proposals_failed,
+                "proposals_pending": proposals_pending,
                 "votes_cast": votes_cast,
+                "proposals": proposal_list,
             }
         )
 

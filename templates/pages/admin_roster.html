@@ -29,6 +29,7 @@
           <th>BOOST</th>
           <th>Proposals</th>
           <th>Passed</th>
+          <th>Pending</th>
           <th>Failed</th>
           <th>Votes</th>
         </tr>
@@ -43,15 +44,35 @@
             <span class="team-dot-sm" style="background: {{ g.team_color }};"></span>
             {{ g.team_name }}
           </td>
-          <td style="text-align:left;" class="mono" style="font-size: 0.85rem;">{{ g.joined.strftime('%b %d') if g.joined else '—' }}</td>
+          <td style="text-align:left; font-size: 0.85rem;" class="mono">{{ g.joined.strftime('%b %d') if g.joined else '—' }}</td>
           <td class="mono">{{ g.propose }}</td>
           <td class="mono">{{ g.amend }}</td>
           <td class="mono">{{ g.boost }}</td>
           <td class="mono">{{ g.proposals_submitted }}</td>
           <td class="mono" style="color: var(--accent-score);">{{ g.proposals_passed }}</td>
+          <td class="mono" style="color: var(--accent-gov);">{{ g.proposals_pending }}</td>
           <td class="mono" style="color: var(--accent-game);">{{ g.proposals_failed }}</td>
           <td class="mono">{{ g.votes_cast }}</td>
         </tr>
+        {% if g.proposals %}
+        <tr>
+          <td colspan="11" style="padding: 0.25rem 1rem 0.75rem 2rem; border-top: none;">
+            {% for p in g.proposals %}
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem; line-height: 1.4;">
+              <span class="mono" style="font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;
+                {% if p.status == 'passed' %}background: rgba(46,204,113,0.2); color: var(--accent-score);
+                {% elif p.status == 'failed' %}background: rgba(231,76,60,0.2); color: var(--accent-game);
+                {% elif p.status in ['confirmed', 'pending'] %}background: rgba(155,89,182,0.2); color: var(--accent-gov);
+                {% elif p.status in ['vetoed', 'rejected'] %}background: rgba(231,76,60,0.15); color: var(--accent-game);
+                {% else %}background: rgba(255,255,255,0.1); color: var(--text-secondary);
+                {% endif %}">{{ p.status|upper }}</span>
+              <span style="color: var(--text-secondary);">R{{ p.round_number }}</span>
+              {{ p.raw_text|truncate(80) }}
+            </div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
