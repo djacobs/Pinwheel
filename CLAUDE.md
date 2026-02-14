@@ -286,6 +286,14 @@ The rule space is a defined set of parameters with types, ranges, and validation
 - [x] **OAuth cookies `secure` flag** — `secure=True` when `pinwheel_env == "production"`.
 - [x] **OAuth callback error handling** — Both `_exchange_code` and `_fetch_user` wrapped in try/except with graceful redirect to `/`.
 
+### Game Richness
+
+Every player-facing output (commentary, reports, embeds, Discord messages, web pages) should reflect the full dramatic context of the current moment. When touching any output system, audit: *does this system know about playoffs, standings, streaks, rule changes, rivalries, and milestones?*
+
+A playoff game that reads like a regular-season game is a bug. An AI report that doesn't mention a team's 5-game win streak is a missed opportunity. A Discord embed for the championship finals that looks identical to Round 1 is broken.
+
+The simulation has the data — make sure the outputs use it. When adding or modifying any feature that produces player-visible text, check it against `docs/GAME_MOMENTS.md` for dramatic context that should be included.
+
 ## Resolved Design Questions
 
 - [x] **Event sourcing + repository pattern:** The repository pattern wraps an event store. Governance events are the source of truth (append-only, immutable). The repository provides read projections derived from the event log — current token balances, current ruleset, standings, etc. `db/repository.py` reads from and appends to the event store; it never mutates past events. Game results are stored directly (not event-sourced) since they're already immutable outputs of a pure function.

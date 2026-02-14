@@ -56,6 +56,7 @@ class PinwheelBot(commands.Bot):
     ) -> None:
         intents = Intents.default()
         intents.message_content = True
+        intents.members = True  # Required for role-enrollment self-heal on startup
 
         super().__init__(
             command_prefix="!",
@@ -382,6 +383,9 @@ class PinwheelBot(commands.Bot):
             except Exception:
                 logger.exception("discord_setup_team_channels_failed")
 
+        # --- Self-heal: re-enroll members with team roles missing from DB ---
+        await self._sync_role_enrollments(guild)
+
         # --- Post welcome message if #how-to-play is empty ---
         await self._post_welcome_message(guild)
 
@@ -547,6 +551,74 @@ class PinwheelBot(commands.Bot):
 
         self.channel_ids[team_key] = team_ch.id
         await self._persist_bot_state(f"channel_{team_key}", str(team_ch.id))
+
+    async def _sync_role_enrollments(self, guild: discord.Guild) -> None:
+        """Re-enroll guild members who have a team role but no DB enrollment.
+
+        Heals state after a database reseed: Discord roles persist but
+        PlayerRow entries are wiped. Runs on every startup; idempotent.
+
+        Requires the ``members`` privileged intent (enable in the Discord
+        Developer Portal → Bot → Privileged Gateway Intents).
+        """
+        if not self.engine:
+            return
+
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    return
+
+                teams = await repo.get_teams_for_season(season.id)
+                team_by_role_name: dict[str, object] = {t.name: t for t in teams}
+                healed = 0
+
+                for member in guild.members:
+                    if member.bot:
+                        continue
+                    for role in member.roles:
+                        if role.name not in team_by_role_name:
+                            continue
+                        team = team_by_role_name[role.name]
+                        discord_id = str(member.id)
+                        enrollment = await repo.get_player_enrollment(
+                            discord_id, season.id
+                        )
+                        if enrollment is None:
+                            player = await repo.get_or_create_player(
+                                discord_id=discord_id,
+                                username=member.display_name,
+                                avatar_url=(
+                                    str(member.display_avatar.url)
+                                    if member.display_avatar
+                                    else ""
+                                ),
+                            )
+                            await repo.enroll_player(
+                                player.id, team.id, season.id  # type: ignore[union-attr]
+                            )
+                            healed += 1
+                            logger.info(
+                                "sync_role_healed user=%s team=%s",
+                                member.display_name,
+                                team.name,  # type: ignore[union-attr]
+                            )
+                        break  # one team role per member
+
+                if healed:
+                    await session.commit()
+                    logger.info(
+                        "sync_role_enrollments_complete healed=%d", healed
+                    )
+                else:
+                    logger.info("sync_role_enrollments_complete all_ok=true")
+        except Exception:
+            logger.exception("sync_role_enrollments_failed")
 
     async def _post_welcome_message(self, guild: discord.Guild) -> None:
         """Post the welcome message to #how-to-play if the channel is empty."""

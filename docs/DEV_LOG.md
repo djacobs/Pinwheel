@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **644 tests**, zero lint errors (Session 46)
+- **659 tests**, zero lint errors (Session 47)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -533,3 +533,23 @@ Full strategy pipeline from `/strategy` command to simulation impact:
 **Files modified (11):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `src/pinwheel/core/simulation.py`, `src/pinwheel/core/possession.py`, `src/pinwheel/core/state.py`, `src/pinwheel/models/team.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/discord/views.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/main.py`, `tests/test_simulation.py`, `tests/test_game_loop.py`
 
 **644 tests (10 new), zero lint errors.**
+
+---
+
+## Session 47 — Self-Heal Missing Player Enrollments
+
+**What was asked:** Fix broken users — players who `/join`-ed before a database reseed still have Discord team roles but their PlayerRow entries were wiped. Kelley specifically had the Rose City Thorns role but wasn't in the database. The bot rejected their commands saying "You need to /join a team first."
+
+**What was built:**
+
+### Bot startup self-heal for role-enrollment mismatches
+- **Root cause:** Database reseeds wipe `PlayerRow` entries but Discord roles persist, creating a mismatch where players can see team channels but the bot rejects their commands.
+- **Fix:** Added `_sync_role_enrollments()` method to `PinwheelBot` that runs on every startup (called from `_setup_server()` after team channels/roles are set up). Iterates all guild members, and for any non-bot member with a team role but no DB enrollment, creates a `PlayerRow` and enrolls them. Idempotent — already-enrolled members are skipped.
+- Enabled `intents.members = True` (privileged intent) to allow the bot to see guild member lists. User enabled "Server Members Intent" in the Discord Developer Portal.
+- Also added `docs/GAME_MOMENTS.md` (dramatic context checklist) and `### Game Richness` section to `CLAUDE.md` from earlier plan work.
+
+**Files modified (4):** `src/pinwheel/discord/bot.py`, `tests/test_discord.py`, `CLAUDE.md`, `docs/GAME_MOMENTS.md`
+
+**659 tests (15 new), zero lint errors.**
+
+**What could have gone better:** Started implementing the full Narrative Physics plan before the user redirected to the immediate broken-users fix. Should have confirmed scope before starting work on a large plan.

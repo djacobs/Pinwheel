@@ -2456,3 +2456,203 @@ class TestSetupIdempotencyWithDB:
             assert persisted == str(team_ch_id)
 
         await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# _sync_role_enrollments — self-heal missing DB enrollments from Discord roles
+# ---------------------------------------------------------------------------
+
+
+class TestSyncRoleEnrollments:
+    """Tests for the startup self-heal that re-enrolls players with team roles."""
+
+    async def test_heals_member_with_role_but_no_db_entry(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """A guild member with a team role but no DB enrollment gets re-enrolled."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # Seed a team (but NO players)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(
+                season.id,
+                "Rose City Thorns",
+                color="#e94560",
+            )
+            await session.commit()
+            team_id = team.id
+            season_id = season.id
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
+        )
+
+        # Build a guild with one member who has the team role
+        guild = MagicMock(spec=discord.Guild)
+        team_role = MagicMock(spec=discord.Role)
+        team_role.name = "Rose City Thorns"
+
+        everyone_role = MagicMock(spec=discord.Role)
+        everyone_role.name = "@everyone"
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.id = 111222333
+        member.display_name = "Kelley"
+        member.display_avatar = MagicMock()
+        member.display_avatar.url = "https://cdn.example.com/avatar.png"
+        member.roles = [everyone_role, team_role]
+
+        guild.members = [member]
+
+        await bot._sync_role_enrollments(guild)
+
+        # Verify the player was created and enrolled
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            enrollment = await repo.get_player_enrollment("111222333", season_id)
+            assert enrollment is not None
+            enrolled_team_id, enrolled_team_name = enrollment
+            assert enrolled_team_id == team_id
+            assert enrolled_team_name == "Rose City Thorns"
+
+        await engine.dispose()
+
+    async def test_idempotent_does_not_duplicate(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Running sync twice doesn't create duplicate enrollments."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(
+                season.id, "Burnside Breakers", color="#53d8fb",
+            )
+            # Pre-enroll a player (they already exist in DB)
+            player = await repo.get_or_create_player(
+                discord_id="444555666",
+                username="ExistingPlayer",
+            )
+            await repo.enroll_player(player.id, team.id, season.id)
+            await session.commit()
+            season_id = season.id
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        team_role = MagicMock(spec=discord.Role)
+        team_role.name = "Burnside Breakers"
+
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.id = 444555666
+        member.display_name = "ExistingPlayer"
+        member.display_avatar = MagicMock()
+        member.display_avatar.url = "https://cdn.example.com/avatar2.png"
+        member.roles = [team_role]
+
+        guild.members = [member]
+
+        # Run twice
+        await bot._sync_role_enrollments(guild)
+        await bot._sync_role_enrollments(guild)
+
+        # Still exactly one enrollment
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            enrollment = await repo.get_player_enrollment("444555666", season_id)
+            assert enrollment is not None
+
+        await engine.dispose()
+
+    async def test_skips_bots(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Bot members with team roles are ignored."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            await repo.create_team(
+                season.id, "Rose City Thorns", color="#e94560",
+            )
+            await session.commit()
+            season_id = season.id
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
+        )
+
+        guild = MagicMock(spec=discord.Guild)
+        team_role = MagicMock(spec=discord.Role)
+        team_role.name = "Rose City Thorns"
+
+        bot_member = MagicMock(spec=discord.Member)
+        bot_member.bot = True
+        bot_member.id = 999888777
+        bot_member.roles = [team_role]
+
+        guild.members = [bot_member]
+
+        await bot._sync_role_enrollments(guild)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            enrollment = await repo.get_player_enrollment("999888777", season_id)
+            assert enrollment is None
+
+        await engine.dispose()
+
+    async def test_no_engine_is_noop(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Without an engine, sync is a no-op."""
+        bot = PinwheelBot(
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+        )
+        guild = MagicMock(spec=discord.Guild)
+        # Should not raise
+        await bot._sync_role_enrollments(guild)
