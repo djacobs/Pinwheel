@@ -75,9 +75,11 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
     all_players = await repo.get_all_players()
     governors: list[dict] = []
 
-    # Get active season for token balances and activity
+    # Token balances are scoped to the active season (current state).
+    # Proposals and votes aggregate across ALL seasons (lifetime record).
     active_season = await repo.get_active_season()
-    season_id = active_season.id if active_season else None
+    active_season_id = active_season.id if active_season else None
+    all_seasons = await repo.get_all_seasons()
 
     for player in all_players:
         team = await repo.get_team(player.team_id) if player.team_id else None
@@ -87,6 +89,16 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         propose = 0
         amend = 0
         boost = 0
+
+        if active_season_id:
+            from pinwheel.core.tokens import get_token_balance
+
+            balance = await get_token_balance(repo, player.id, active_season_id)
+            propose = balance.propose
+            amend = balance.amend
+            boost = balance.boost
+
+        # Aggregate activity across all seasons
         proposals_submitted = 0
         proposals_passed = 0
         proposals_failed = 0
@@ -94,20 +106,17 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         votes_cast = 0
         proposal_list: list[dict] = []
 
-        if season_id:
-            from pinwheel.core.tokens import get_token_balance
+        for season in all_seasons:
+            activity = await repo.get_governor_activity(player.id, season.id)
+            proposals_submitted += activity.get("proposals_submitted", 0)
+            proposals_passed += activity.get("proposals_passed", 0)
+            proposals_failed += activity.get("proposals_failed", 0)
+            votes_cast += activity.get("votes_cast", 0)
+            for p in activity.get("proposal_list", []):
+                p["season_name"] = season.name
+                proposal_list.append(p)
 
-            balance = await get_token_balance(repo, player.id, season_id)
-            propose = balance.propose
-            amend = balance.amend
-            boost = balance.boost
-            activity = await repo.get_governor_activity(player.id, season_id)
-            proposals_submitted = activity.get("proposals_submitted", 0)
-            proposals_passed = activity.get("proposals_passed", 0)
-            proposals_failed = activity.get("proposals_failed", 0)
-            votes_cast = activity.get("votes_cast", 0)
-            proposal_list = activity.get("proposal_list", [])
-            proposals_pending = proposals_submitted - proposals_passed - proposals_failed
+        proposals_pending = proposals_submitted - proposals_passed - proposals_failed
 
         governors.append(
             {
