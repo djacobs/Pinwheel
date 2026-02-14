@@ -4,12 +4,13 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **627 tests**, zero lint errors (Session 42)
+- **627 tests**, zero lint errors (Session 43)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
+- **Day 10:** Production bugfixes — presentation mode, player enrollment, Discord invite URL
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 42 (rename mirror→report/reporter across entire codebase)
+- **Latest commit:** Session 43 (fix presentation mode default, player enrollment migration, Discord invite URL)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -372,3 +373,29 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **627 tests, zero lint errors.**
 
 **What could have gone better:** The rename spanned two context sessions due to the sheer number of files. Starting with a comprehensive grep inventory up front (which we did) was the right call — it prevented missed references. The decision to use bulk sed for docs instead of individual Edit calls saved significant time.
+
+---
+
+## Session 43 — Production Bugfixes (Presentation Mode + Player Enrollment + Invite URL)
+
+**What was asked:** Three production issues: (1) Games in play-by-play finish in 1 minute instead of streaming over real time. (2) Players in the Discord server get an error when using `/join` to enroll on a team. (3) Web visitors have no way to find the Discord server.
+
+**What was built:**
+
+### Fix 1: Presentation mode default changed to "replay"
+- **Root cause:** `config.py` defaulted `pinwheel_presentation_mode` to `"instant"`. The production validator at line 134 forces `"replay"` when `PINWHEEL_ENV=production`, but the local `.env` had `PINWHEEL_ENV=development`, so games finished instantly.
+- **Fix:** Changed the default from `"instant"` to `"replay"` so games stream over real time in all environments. The `"instant"` option is still available via explicit env var.
+
+### Fix 2: Missing player table columns (the /join bug)
+- **Root cause:** `team_id` and `enrolled_season_id` were added to the `PlayerRow` model in commit `c7ab30a` but the `players` table was originally created in commit `4428707` without them. `Base.metadata.create_all()` doesn't alter existing tables, and `main.py`'s inline migration only handled `game_results.presented` and `teams.color_secondary` — not the `players` table. When `/join` called `enroll_player()` to set `player.team_id`, the column didn't exist in the production DB.
+- **Fix:** Added `_add_column_if_missing()` calls for `players.team_id` and `players.enrolled_season_id` in `main.py`'s lifespan startup.
+
+### Fix 3: Discord invite URL configured
+- **Root cause:** `DISCORD_INVITE_URL` was not set in `.env` or `fly.toml`. The "Join the Discord" buttons on `/play` and `/` are wrapped in `{% if discord_invite_url %}`, so they were hidden.
+- **Fix:** Added `DISCORD_INVITE_URL=https://discord.gg/sm6dZNTq` to both `.env` and `fly.toml`.
+
+**Files modified (4):** `src/pinwheel/config.py`, `src/pinwheel/main.py`, `.env`, `fly.toml`
+
+**627 tests, zero lint errors.**
+
+**What could have gone better:** The player table migration was a predictable consequence of adding columns to a model without a corresponding `_add_column_if_missing` call. Every time a column is added to an ORM model, a migration entry should be added in the same commit. A pre-commit check or convention (grep for new `mapped_column` additions and verify matching migration) would catch this.

@@ -17,6 +17,7 @@ kill_timeout = "5s"
   PINWHEEL_LOG_LEVEL = "INFO"
   PINWHEEL_PRESENTATION_PACE = "normal"
   PINWHEEL_AUTO_ADVANCE = "true"
+  DISCORD_INVITE_URL = "https://discord.gg/sm6dZNTq"
   PORT = "8080"
 
 [http_service]

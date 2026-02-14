@@ -25,6 +25,16 @@ See also: `docs/VISION.md` for the full philosophical grounding.
 - **Linting/Formatting:** ruff
 - **Scheduling:** APScheduler (AsyncIOScheduler) for automatic round advancement
 
+## LIVE DATA — Handle With Care
+
+**Production has real players.** Testers have joined teams via Discord. Any operation that drops, resets, or migrates the production database forces them to re-enroll. This is painful and erodes trust.
+
+- **Never drop or recreate the production database** without explicit user approval. No `create_all()` on prod, no `rm pinwheel.db`, no table renames without a migration path.
+- **Schema changes require migration scripts**, not drop-and-recreate. Write `ALTER TABLE` SQL or use a migration tool. Test the migration against a copy of prod data first.
+- **Deploy is not reseed.** Deploying new code should not require reseeding. If a code change would break existing data, stop and flag it.
+- **Back up before destructive operations.** `flyctl ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"` takes 2 seconds and saves hours of apologies.
+- **Test locally with prod-shaped data** before deploying schema or data-layer changes. Use `demo_seed.py` to create a representative dataset and verify the migration preserves it.
+
 ## Architecture Principles
 
 ### Performance
