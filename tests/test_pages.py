@@ -548,3 +548,89 @@ class TestGovernorPages:
         assert "Governors" in r.text
         assert "LinkedGovernor" in r.text
         assert f"/governors/{player_id}" in r.text
+
+
+@pytest.fixture
+async def admin_client():
+    """Create a test app without OAuth for admin page testing."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        pinwheel_env="development",
+        discord_client_id="",
+        discord_client_secret="",
+    )
+    app = create_app(settings)
+
+    engine = create_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.engine = engine
+
+    from pinwheel.core.event_bus import EventBus
+    from pinwheel.core.presenter import PresentationState
+
+    app.state.event_bus = EventBus()
+    app.state.presentation_state = PresentationState()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client, engine
+
+    await engine.dispose()
+
+
+class TestAdminRoster:
+    """Tests for the /admin/roster page."""
+
+    async def test_admin_roster_empty(self, admin_client):
+        """Admin roster page renders with no data."""
+        client, _ = admin_client
+        r = await client.get("/admin/roster")
+        assert r.status_code == 200
+        assert "Governor Roster" in r.text
+        assert "No Governors Enrolled" in r.text
+
+    async def test_admin_roster_with_governors(self, admin_client):
+        """Admin roster shows enrolled governors after seeding."""
+        client, engine = admin_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Enroll a governor
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            player = await repo.get_or_create_player(
+                discord_id="111222333",
+                username="RosterGovernor",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+            await session.commit()
+
+        r = await client.get("/admin/roster")
+        assert r.status_code == 200
+        assert "RosterGovernor" in r.text
+        assert "Team 1" in r.text
+        assert "Governor Roster" in r.text
+
+    async def test_admin_roster_shows_multiple_governors(self, admin_client):
+        """Admin roster shows all enrolled governors."""
+        client, engine = admin_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            for i, (disc_id, name) in enumerate(
+                [("111", "Gov1"), ("222", "Gov2"), ("333", "Gov3")]
+            ):
+                player = await repo.get_or_create_player(
+                    discord_id=disc_id,
+                    username=name,
+                )
+                await repo.enroll_player(player.id, team_ids[i % len(team_ids)], season_id)
+            await session.commit()
+
+        r = await client.get("/admin/roster")
+        assert r.status_code == 200
+        assert "Gov1" in r.text
+        assert "Gov2" in r.text
+        assert "Gov3" in r.text
+        assert "3 Governor" in r.text

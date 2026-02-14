@@ -24,6 +24,7 @@ from pinwheel.discord.embeds import (
     build_governor_profile_embed,
     build_interpretation_embed,
     build_report_embed,
+    build_roster_embed,
     build_round_summary_embed,
     build_schedule_embed,
     build_standings_embed,
@@ -279,6 +280,15 @@ class PinwheelBot(commands.Bot):
             carry_rules: bool = False,
         ) -> None:
             await self._handle_new_season(interaction, name, carry_rules)
+
+        @self.tree.command(
+            name="roster",
+            description="View all enrolled governors for this season",
+        )
+        async def roster_command(
+            interaction: discord.Interaction,
+        ) -> None:
+            await self._handle_roster(interaction)
 
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
@@ -602,6 +612,12 @@ class PinwheelBot(commands.Bot):
                             await repo.enroll_player(
                                 player.id, team.id, season.id  # type: ignore[union-attr]
                             )
+                            # Grant tokens for healed governor
+                            from pinwheel.core.tokens import regenerate_tokens
+
+                            await regenerate_tokens(
+                                repo, player.id, team.id, season.id  # type: ignore[union-attr]
+                            )
                             healed += 1
                             logger.info(
                                 "sync_role_healed user=%s team=%s",
@@ -910,6 +926,12 @@ class PinwheelBot(commands.Bot):
                             ),
                         )
                         await repo.enroll_player(player.id, target_team.id, season.id)
+
+                        # Grant initial governance tokens so the governor can propose immediately
+                        from pinwheel.core.tokens import regenerate_tokens
+
+                        await regenerate_tokens(repo, player.id, target_team.id, season.id)
+
                         await session.commit()
 
                     # DB session closed — safe to do Discord ops and build embeds
@@ -1142,6 +1164,63 @@ class PinwheelBot(commands.Bot):
                             ):
                                 await ch.send(embed=te)
 
+        elif event_type == "season.championship_started":
+            champion_name = str(data.get("champion_team_name", "???"))
+            awards = data.get("awards", [])
+
+            embed = discord.Embed(
+                title="Championship Ceremony",
+                description=(
+                    f"**{champion_name}** are your champions!\n\n"
+                    "The championship ceremony has begun."
+                ),
+                color=0xFFD700,  # Gold
+            )
+
+            # Add awards as fields
+            if isinstance(awards, list):
+                for award in awards[:6]:  # Cap at 6 to avoid embed limit
+                    if isinstance(award, dict):
+                        name = str(award.get("award", ""))
+                        recipient = str(award.get("recipient_name", ""))
+                        val = award.get("stat_value", "")
+                        label = str(award.get("stat_label", ""))
+                        embed.add_field(
+                            name=name,
+                            value=f"{recipient} ({val} {label})",
+                            inline=True,
+                        )
+
+            embed.set_footer(text="Pinwheel Fates -- Season Awards")
+
+            channel = self._get_channel_for("main")
+            if channel:
+                await channel.send(embed=embed)
+
+            # Post to all team channels
+            for key, chan_id in self.channel_ids.items():
+                if key.startswith("team_"):
+                    ch = self.get_channel(chan_id)
+                    if isinstance(ch, discord.TextChannel):
+                        with contextlib.suppress(
+                            discord.Forbidden,
+                            discord.HTTPException,
+                        ):
+                            await ch.send(embed=embed)
+
+        elif event_type == "season.phase_changed":
+            to_phase = str(data.get("to_phase", ""))
+            if to_phase == "complete":
+                embed = discord.Embed(
+                    title="Season Complete",
+                    description="The season has concluded. Thanks for playing!",
+                    color=0x95A5A6,
+                )
+                embed.set_footer(text="Pinwheel Fates")
+                channel = self._get_channel_for("main")
+                if channel:
+                    await channel.send(embed=embed)
+
     # --- Slash command handlers ---
 
     async def _handle_standings(self, interaction: discord.Interaction) -> None:
@@ -1191,6 +1270,58 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_standings_query_failed")
             return []
+
+    async def _handle_roster(self, interaction: discord.Interaction) -> None:
+        """Handle the /roster slash command -- show all enrolled governors."""
+        await interaction.response.defer()
+
+        if not self.engine:
+            await interaction.followup.send("Database not available.")
+            return
+
+        try:
+            from pinwheel.core.tokens import get_token_balance
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    await interaction.followup.send("No active season.")
+                    return
+
+                players = await repo.get_players_for_season(season.id)
+                governor_data: list[dict[str, object]] = []
+
+                for player in players:
+                    team = await repo.get_team(player.team_id) if player.team_id else None
+                    team_name = team.name if team else "Unassigned"
+
+                    balance = await get_token_balance(repo, player.id, season.id)
+
+                    activity = await repo.get_governor_activity(player.id, season.id)
+
+                    governor_data.append(
+                        {
+                            "username": player.username,
+                            "team_name": team_name,
+                            "propose": balance.propose,
+                            "amend": balance.amend,
+                            "boost": balance.boost,
+                            "proposals_submitted": activity.get("proposals_submitted", 0),
+                            "votes_cast": activity.get("votes_cast", 0),
+                        }
+                    )
+
+                embed = build_roster_embed(
+                    governor_data,
+                    season_name=season.name or "this season",
+                )
+                await interaction.followup.send(embed=embed)
+        except Exception:
+            logger.exception("discord_roster_failed")
+            await interaction.followup.send("Something went wrong loading the roster.")
 
     async def _handle_propose(self, interaction: discord.Interaction, text: str) -> None:
         """Handle the /propose slash command with AI interpretation."""
@@ -1246,7 +1377,9 @@ class PinwheelBot(commands.Bot):
                     "propose",
                 ):
                     await interaction.followup.send(
-                        "You don't have any PROPOSE tokens left.",
+                        "You don't have any PROPOSE tokens left. "
+                        "Use `/tokens` to check your balance. "
+                        "Tokens regenerate at the next governance interval.",
                         ephemeral=True,
                     )
                     return

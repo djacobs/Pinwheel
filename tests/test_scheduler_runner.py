@@ -394,3 +394,63 @@ class TestGovernanceNotificationTiming:
         # No proposals → no governance event, but round should still complete
         event_types = [e["type"] for e in received]
         assert "round.completed" in event_types
+
+    async def test_tick_round_tallies_governance_on_completed_season(
+        self,
+        engine: AsyncEngine,
+    ):
+        """tick_round still tallies governance when season is completed."""
+        from pinwheel.ai.interpreter import interpret_proposal_mock
+        from pinwheel.core.governance import cast_vote, confirm_proposal, submit_proposal
+        from pinwheel.core.tokens import regenerate_tokens
+        from pinwheel.models.rules import RuleSet
+
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+
+        # Run one round so there's game data
+        await tick_round(engine, event_bus)
+
+        # Submit a proposal and cast a vote
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            teams = await repo.get_teams_for_season(season_id)
+            team_id = teams[0].id
+            gov_id = "gov-completed-test"
+            await regenerate_tokens(repo, gov_id, team_id, season_id)
+            interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+            proposal = await submit_proposal(
+                repo=repo,
+                governor_id=gov_id,
+                team_id=team_id,
+                season_id=season_id,
+                window_id="",
+                raw_text="Make three pointers worth 5",
+                interpretation=interpretation,
+                ruleset=RuleSet(),
+            )
+            await confirm_proposal(repo, proposal)
+            await cast_vote(
+                repo=repo,
+                proposal=proposal,
+                governor_id=gov_id,
+                team_id=team_id,
+                vote_choice="yes",
+                weight=1.0,
+            )
+            # Mark season completed
+            await repo.update_season_status(season_id, "completed")
+
+        # tick_round should tally governance even though season is completed
+        received: list[dict] = []
+        async with event_bus.subscribe(None) as sub:
+            await tick_round(engine, event_bus)
+
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "governance.window_closed" in event_types

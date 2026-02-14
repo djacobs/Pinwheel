@@ -757,7 +757,7 @@ class TestPlayoffProgression:
         assert season.status == "playoffs"
 
     async def test_finals_complete_season(self, repo: Repository):
-        """Play through finals → verify season completed."""
+        """Play through finals → verify season enters championship phase."""
         season_id, team_ids = await _setup_season_with_teams(repo)
         await repo.update_season_status(season_id, "active")
 
@@ -775,10 +775,14 @@ class TestPlayoffProgression:
 
         assert finals_result.playoffs_complete is True
 
-        # Season should be "completed"
+        # Season should now be in "championship" (not directly "completed")
         season = await repo.get_season(season_id)
-        assert season.status == "completed"
-        assert season.completed_at is not None
+        assert season.status == "championship"
+        # Championship config should be stored
+        assert season.config is not None
+        assert "champion_team_id" in season.config
+        assert "awards" in season.config
+        assert "championship_ends_at" in season.config
 
     async def test_two_team_bracket_completes(self, repo: Repository):
         """2-team playoff bracket → after finals, season is completed (no semi step)."""
@@ -885,7 +889,10 @@ class TestPlayoffProgression:
 
         assert finals_result.playoffs_complete is True
         season_row = await repo.get_season(s3.id)
-        assert season_row.status == "completed"
+        # After playoffs complete, season enters championship (not directly completed)
+        assert season_row.status == "championship"
+        assert season_row.config is not None
+        assert "champion_team_id" in season_row.config
 
     async def test_semifinals_complete_event_published(self, repo: Repository):
         """Verify season.semifinals_complete event with finals_matchup."""
@@ -964,8 +971,8 @@ class TestPlayoffProgression:
         assert result.finals_matchup is None
         assert result.season_complete is False
 
-    async def test_season_not_active_after_completion(self, repo: Repository):
-        """After full lifecycle, get_active_season() returns None (confirms Issue A fix)."""
+    async def test_season_enters_championship_after_finals(self, repo: Repository):
+        """After full playoff lifecycle, season is in championship phase."""
         season_id, team_ids = await _setup_season_with_teams(repo)
         await repo.update_season_status(season_id, "active")
 
@@ -980,10 +987,14 @@ class TestPlayoffProgression:
         finals_round = semi_round + 1
         await step_round(repo, season_id, round_number=finals_round)
 
-        # Season should be completed — get_active_season should not return it
-        # (unless there's a fallback, which there is — it falls back to most recent)
+        # Season should be in championship phase (still "active" for get_active_season)
         season = await repo.get_season(season_id)
-        assert season.status == "completed"
+        assert season.status == "championship"
+
+        # get_active_season should still return it (championship is an active phase)
+        active = await repo.get_active_season()
+        assert active is not None
+        assert active.id == season_id
 
     async def test_check_all_playoffs_complete(self, repo: Repository):
         """Unit test: _check_all_playoffs_complete returns False/True correctly."""

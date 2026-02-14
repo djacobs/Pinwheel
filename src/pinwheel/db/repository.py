@@ -65,15 +65,23 @@ class Repository:
         return await self.session.get(SeasonRow, season_id)
 
     async def get_active_season(self) -> SeasonRow | None:
-        """Get the current active season (most recent non-completed/archived).
+        """Get the current active season (most recent non-terminal).
 
         Returns the season with the most recent ``created_at`` whose status
-        is *not* ``completed`` or ``archived``.  Falls back to the most
-        recently created season of any status if no active one exists.
+        is *not* a terminal state (``completed``, ``complete``, ``archived``,
+        or ``setup``).  Falls back to the most recently created season of
+        any status if no active one exists.
+
+        Includes all lifecycle phases: active, playoffs, championship,
+        offseason, tiebreaker_check, tiebreakers, regular_season_complete.
         """
         stmt = (
             select(SeasonRow)
-            .where(SeasonRow.status.not_in(["completed", "archived"]))
+            .where(
+                SeasonRow.status.not_in(
+                    ["completed", "complete", "archived", "setup"]
+                )
+            )
             .order_by(SeasonRow.created_at.desc())
             .limit(1)
         )
@@ -879,11 +887,19 @@ class Repository:
         return list(result.scalars().all())
 
     async def update_season_status(self, season_id: str, status: str) -> None:
-        """Update season status (setup, active, regular_season_complete, playoffs, completed)."""
+        """Update season status.
+
+        Accepts any lifecycle phase value (setup, active, playoffs,
+        championship, offseason, complete) as well as legacy values
+        (completed, archived, regular_season_complete).
+
+        Automatically sets ``completed_at`` when transitioning to a
+        terminal state.
+        """
         season = await self.get_season(season_id)
         if season:
             season.status = status
-            if status == "completed":
+            if status in ("completed", "complete"):
                 from datetime import UTC, datetime
 
                 season.completed_at = datetime.now(UTC)

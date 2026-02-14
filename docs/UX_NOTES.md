@@ -561,3 +561,15 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 75. [DONE] Discord role restoration on re-join
 **Problem:** Players who lost their team Discord role (e.g., after a server rejoin) had no way to get it back. Running `/join` for their existing team said "You're already on **TeamName**!" but didn't fix the missing role.
 **Fix:** `/join` now checks if the player's team role is missing and re-assigns it, responding with "You're already on **TeamName**! (Role confirmed.)"
+
+### 76. [DONE] Zero-token guidance in Discord
+**Problem:** Governors who ran out of tokens (or joined before the fix) saw a bare "PROPOSE: 0 / AMEND: 0 / BOOST: 0" embed from `/tokens` with no guidance on what to do. The `/propose` rejection message was equally terse: "You don't have any PROPOSE tokens left."
+**Fix:** The `/tokens` embed now appends an italicized hint when all balances are zero: "You have no tokens. Tokens regenerate at the next governance interval." The `/propose` rejection now includes: "Use `/tokens` to check your balance. Tokens regenerate at the next governance interval."
+
+### 77. [DONE] Governor roster — Discord `/roster` command + admin web page
+**Problem:** Admins had no way to see who was enrolled, their token balances, or governance activity. Governors couldn't see each other. The game was invisible from an admin/community perspective.
+**Fix:** Added `/roster` Discord command showing all enrolled governors with team, token balances (P/A/B format), proposals submitted, and votes cast. Added `/admin/roster` web page (auth-gated) with a full table view including team color dots, linked governor profiles, and proposal pass/fail counts. Empty state handled with "No governors enrolled yet" message.
+
+### 78. [DONE] Championship ceremony Discord notification
+**Problem:** When playoffs completed, the season silently flipped to "completed" with no fanfare. No champion announcement, no awards, no narrative closure.
+**Fix:** Season lifecycle now transitions to a CHAMPIONSHIP phase after playoffs. A gold-colored Discord embed is posted announcing the champion team and listing up to 6 awards (MVP, Defensive Player, Most Efficient, Most Active Governor, Coalition Builder, Rule Architect). A separate "Season Complete" embed posts when the championship window expires and the season fully closes.

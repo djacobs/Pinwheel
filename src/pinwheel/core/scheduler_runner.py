@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.game_loop import step_round
+from pinwheel.core.game_loop import step_round, tally_pending_governance
 from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
 from pinwheel.db.models import GameResultRow
@@ -348,10 +348,90 @@ async def tick_round(
         async with get_session(engine) as session:
             repo = Repository(session)
 
-            # Find active season — skip completed/archived (game sim is done)
+            # Find active season
             season = await repo.get_active_season()
-            if season is None or season.status in ("completed", "archived"):
+            if season is None:
                 logger.info("tick_round_skip: no active season")
+                return
+
+            # Championship phase: check if window expired, then transition
+            if season.status == "championship":
+                config = season.config or {}
+                ends_at_str = config.get("championship_ends_at")
+                if ends_at_str:
+                    ends_at = datetime.fromisoformat(ends_at_str)
+                    if datetime.now(UTC) >= ends_at:
+                        from pinwheel.core.season import SeasonPhase, transition_season
+
+                        await transition_season(
+                            repo, season.id, SeasonPhase.COMPLETE, event_bus=event_bus,
+                        )
+                        logger.info(
+                            "championship_window_expired season=%s -> complete",
+                            season.id,
+                        )
+                    else:
+                        logger.info(
+                            "tick_round_skip: championship window still open "
+                            "season=%s ends_at=%s",
+                            season.id,
+                            ends_at_str,
+                        )
+                else:
+                    # No ends_at configured — transition immediately
+                    from pinwheel.core.season import SeasonPhase, transition_season
+
+                    await transition_season(
+                        repo, season.id, SeasonPhase.COMPLETE, event_bus=event_bus,
+                    )
+                    logger.info(
+                        "championship_no_deadline season=%s -> complete",
+                        season.id,
+                    )
+                return
+
+            # Completed/archived: game sim is done, but governance still runs
+            if season.status in ("completed", "complete", "archived"):
+                from pinwheel.models.rules import RuleSet
+
+                ruleset = RuleSet(**(season.current_ruleset or {}))
+                # Query max round_number from game results
+                max_round_result = await session.execute(
+                    select(func.coalesce(func.max(GameResultRow.round_number), 0)).where(
+                        GameResultRow.season_id == season.id
+                    )
+                )
+                last_round: int = max_round_result.scalar_one()
+                new_ruleset, tallies, gov_data = await tally_pending_governance(
+                    repo, season.id, last_round, ruleset, event_bus,
+                )
+                if tallies:
+                    # Build governance summary for Discord notification
+                    proposals_data = gov_data.get("proposals", [])
+                    proposal_tallies = []
+                    for tally in tallies:
+                        tally_data = tally.model_dump(mode="json")
+                        for p_data in proposals_data:
+                            if p_data.get("id") == tally.proposal_id:
+                                tally_data["proposal_text"] = p_data.get("raw_text", "")
+                                break
+                        proposal_tallies.append(tally_data)
+
+                    governance_summary = {
+                        "round": last_round,
+                        "proposals_count": len(tallies),
+                        "rules_changed": len([t for t in tallies if t.passed]),
+                        "tallies": proposal_tallies,
+                    }
+                    await event_bus.publish(
+                        "governance.window_closed",
+                        governance_summary,
+                    )
+                    logger.info(
+                        "governance_only_tick season=%s tallies=%d",
+                        season.id,
+                        len(tallies),
+                    )
                 return
 
             season_id = season.id
@@ -362,7 +442,7 @@ async def tick_round(
                     GameResultRow.season_id == season_id
                 )
             )
-            last_round: int = max_round_result.scalar_one()
+            last_round = max_round_result.scalar_one()
             next_round = last_round + 1
 
             logger.info(

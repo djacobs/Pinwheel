@@ -352,6 +352,109 @@ async def _run_evals(
     logger.info("evals_complete season=%s round=%d", season_id, round_number)
 
 
+async def tally_pending_governance(
+    repo: Repository,
+    season_id: str,
+    round_number: int,
+    ruleset: RuleSet,
+    event_bus: EventBus | None = None,
+) -> tuple[RuleSet, list[VoteTally], dict]:
+    """Tally all pending proposals and enact passing rule changes.
+
+    Standalone function — can run with or without game simulation.
+    Returns (updated_ruleset, tallies, governance_data).
+    """
+    governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
+
+    # Gather confirmed proposals that haven't been resolved yet
+    confirmed_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.confirmed"],
+    )
+    resolved_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.passed", "proposal.failed"],
+    )
+    resolved_ids = {e.aggregate_id for e in resolved_events}
+
+    # Deduplicate: use proposal_id from payload, falling back to aggregate_id
+    pending_proposal_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for ce in confirmed_events:
+        pid = ce.payload.get("proposal_id", ce.aggregate_id)
+        if pid not in resolved_ids and pid not in seen_ids:
+            pending_proposal_ids.append(pid)
+            seen_ids.add(pid)
+
+    tallies: list[VoteTally] = []
+    proposals: list[Proposal] = []
+
+    if pending_proposal_ids:
+        # Reconstruct proposals from submitted events
+        submitted_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        for se in submitted_events:
+            p_data = se.payload
+            pid = p_data.get("id", se.aggregate_id)
+            if pid in seen_ids:
+                # Mark as confirmed since we found it via confirmed events
+                p_data_copy = dict(p_data)
+                if p_data_copy.get("status") == "submitted":
+                    p_data_copy["status"] = "confirmed"
+                proposals.append(Proposal(**p_data_copy))
+
+        # Gather votes for pending proposals
+        vote_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["vote.cast"],
+        )
+        votes_by_proposal: dict[str, list[Vote]] = {}
+        for ve in vote_events:
+            v_data = ve.payload
+            pid = v_data.get("proposal_id", "")
+            if pid in seen_ids:
+                votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
+
+        new_ruleset, round_tallies = await tally_governance(
+            repo=repo,
+            season_id=season_id,
+            proposals=proposals,
+            votes_by_proposal=votes_by_proposal,
+            current_ruleset=ruleset,
+            round_number=round_number,
+        )
+        tallies = round_tallies
+
+        if new_ruleset != ruleset:
+            await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
+            ruleset = new_ruleset
+
+        governance_data["proposals"] = [p.model_dump(mode="json") for p in proposals]
+        governance_data["votes"] = [
+            v.model_dump(mode="json") for vs in votes_by_proposal.values() for v in vs
+        ]
+        governance_data["rules_changed"] = [
+            t.model_dump(mode="json") for t in tallies if t.passed
+        ]
+
+        # Enrich rules_changed with actual parameter change details
+        rule_enacted_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["rule.enacted"],
+        )
+        for rc_event in rule_enacted_events:
+            if rc_event.payload.get("round_enacted") == round_number:
+                for rc in governance_data["rules_changed"]:
+                    if rc.get("proposal_id") == rc_event.payload.get("source_proposal_id"):
+                        rc["parameter"] = rc_event.payload.get("parameter")
+                        rc["old_value"] = rc_event.payload.get("old_value")
+                        rc["new_value"] = rc_event.payload.get("new_value")
+
+    return ruleset, tallies, governance_data
+
+
 async def step_round(
     repo: Repository,
     season_id: str,
@@ -551,104 +654,28 @@ async def step_round(
     governance_summary: dict | None = None
 
     if governance_interval > 0 and round_number % governance_interval == 0:
-        # Gather confirmed proposals that haven't been resolved yet
-        confirmed_events = await repo.get_events_by_type(
+        ruleset, tallies, governance_data = await tally_pending_governance(
+            repo=repo,
             season_id=season_id,
-            event_types=["proposal.confirmed"],
+            round_number=round_number,
+            ruleset=ruleset,
+            event_bus=event_bus,
         )
-        resolved_events = await repo.get_events_by_type(
-            season_id=season_id,
-            event_types=["proposal.passed", "proposal.failed"],
-        )
-        resolved_ids = {e.aggregate_id for e in resolved_events}
-
-        # Deduplicate: use proposal_id from payload, falling back to aggregate_id
-        pending_proposal_ids: list[str] = []
-        seen_ids: set[str] = set()
-        for ce in confirmed_events:
-            pid = ce.payload.get("proposal_id", ce.aggregate_id)
-            if pid not in resolved_ids and pid not in seen_ids:
-                pending_proposal_ids.append(pid)
-                seen_ids.add(pid)
-
-        if pending_proposal_ids:
-            # Reconstruct proposals from submitted events
-            submitted_events = await repo.get_events_by_type(
-                season_id=season_id,
-                event_types=["proposal.submitted"],
-            )
-            proposals: list[Proposal] = []
-            for se in submitted_events:
-                p_data = se.payload
-                pid = p_data.get("id", se.aggregate_id)
-                if pid in seen_ids:
-                    # Mark as confirmed since we found it via confirmed events
-                    p_data_copy = dict(p_data)
-                    if p_data_copy.get("status") == "submitted":
-                        p_data_copy["status"] = "confirmed"
-                    proposals.append(Proposal(**p_data_copy))
-
-            # Gather votes for pending proposals
-            vote_events = await repo.get_events_by_type(
-                season_id=season_id,
-                event_types=["vote.cast"],
-            )
-            votes_by_proposal: dict[str, list[Vote]] = {}
-            for ve in vote_events:
-                v_data = ve.payload
-                pid = v_data.get("proposal_id", "")
-                if pid in seen_ids:
-                    votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
-
-            new_ruleset, round_tallies = await tally_governance(
-                repo=repo,
-                season_id=season_id,
-                proposals=proposals,
-                votes_by_proposal=votes_by_proposal,
-                current_ruleset=ruleset,
-                round_number=round_number,
-            )
-            tallies = round_tallies
-
-            if new_ruleset != ruleset:
-                await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
-                ruleset = new_ruleset
-
-            governance_data["proposals"] = [p.model_dump(mode="json") for p in proposals]
-            governance_data["votes"] = [
-                v.model_dump(mode="json") for vs in votes_by_proposal.values() for v in vs
-            ]
-            governance_data["rules_changed"] = [
-                t.model_dump(mode="json") for t in tallies if t.passed
-            ]
-
-            # Enrich rules_changed with actual parameter change details
-            rule_enacted_events = await repo.get_events_by_type(
-                season_id=season_id,
-                event_types=["rule.enacted"],
-            )
-            for rc_event in rule_enacted_events:
-                if rc_event.payload.get("round_enacted") == round_number:
-                    for rc in governance_data["rules_changed"]:
-                        if rc.get("proposal_id") == rc_event.payload.get("source_proposal_id"):
-                            rc["parameter"] = rc_event.payload.get("parameter")
-                            rc["old_value"] = rc_event.payload.get("old_value")
-                            rc["new_value"] = rc_event.payload.get("new_value")
 
         # Build per-proposal tally data for Discord notifications
+        proposals_data = governance_data.get("proposals", [])
         proposal_tallies = []
         for tally in tallies:
             tally_data = tally.model_dump(mode="json")
-            # Find the proposal text for this tally
-            for p in proposals:
-                if p.id == tally.proposal_id:
-                    tally_data["proposal_text"] = p.raw_text
+            for p_data in proposals_data:
+                if p_data.get("id") == tally.proposal_id:
+                    tally_data["proposal_text"] = p_data.get("raw_text", "")
                     break
             proposal_tallies.append(tally_data)
 
         governance_summary = {
             "round": round_number,
-            "proposals_count": len(pending_proposal_ids),
+            "proposals_count": len(tallies),
             "rules_changed": len([t for t in tallies if t.passed]),
             "tallies": proposal_tallies,
         }
@@ -790,7 +817,14 @@ async def step_round(
 
     # Re-read season to get current status
     season = await repo.get_season(season_id)
-    if season and season.status not in ("regular_season_complete", "playoffs", "completed"):
+    if season and season.status not in (
+        "regular_season_complete",
+        "playoffs",
+        "completed",
+        "complete",
+        "championship",
+        "offseason",
+    ):
         try:
             season_complete = await _check_season_complete(repo, season_id)
         except Exception:
@@ -894,7 +928,6 @@ async def step_round(
                 )
 
             if playoffs_complete:
-                await repo.update_season_status(season_id, "completed")
                 # Determine champion from the finals game
                 if not playoff_schedule:
                     playoff_schedule = await repo.get_full_schedule(
@@ -912,6 +945,32 @@ async def step_round(
                     season_id,
                     champion_team_id,
                 )
+
+                # Enter championship phase (awards, ceremony window)
+                # instead of jumping directly to "completed"
+                if champion_team_id:
+                    from pinwheel.core.season import enter_championship
+
+                    try:
+                        await enter_championship(
+                            repo,
+                            season_id,
+                            champion_team_id,
+                            event_bus=event_bus,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "enter_championship_failed season=%s",
+                            season_id,
+                        )
+                        # Fallback: mark completed directly
+                        await repo.update_season_status(
+                            season_id, "completed"
+                        )
+                else:
+                    # No champion determined — skip championship, mark done
+                    await repo.update_season_status(season_id, "completed")
+
                 if event_bus:
                     await event_bus.publish(
                         "season.playoffs_complete",

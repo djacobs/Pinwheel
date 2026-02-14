@@ -19,14 +19,33 @@ from pinwheel.discord.embeds import (
     build_game_result_embed,
     build_proposal_embed,
     build_report_embed,
+    build_roster_embed,
     build_round_summary_embed,
     build_schedule_embed,
     build_standings_embed,
+    build_token_balance_embed,
     build_vote_tally_embed,
     build_welcome_embed,
 )
 from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
 from pinwheel.models.report import Report
+
+
+def make_interaction(**overrides) -> AsyncMock:
+    """Build a fully-configured Discord interaction mock."""
+    interaction = AsyncMock(spec=discord.Interaction)
+    interaction.response = AsyncMock()
+    interaction.followup = AsyncMock()
+    interaction.user = MagicMock(spec=discord.Member)
+    interaction.user.id = overrides.get("user_id", 12345)
+    interaction.user.display_name = overrides.get("display_name", "TestGovernor")
+    interaction.user.send = AsyncMock()
+    interaction.channel = AsyncMock()
+    if "display_avatar_url" in overrides:
+        interaction.user.display_avatar = MagicMock()
+        interaction.user.display_avatar.url = overrides["display_avatar_url"]
+    return interaction
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -133,6 +152,7 @@ class TestPinwheelBotInit:
         assert "trade" in command_names
         assert "strategy" in command_names
         assert "bio" in command_names
+        assert "roster" in command_names
 
     def test_bot_has_channel_ids_dict(
         self, settings_discord_enabled: Settings, event_bus: EventBus
@@ -153,9 +173,7 @@ class TestSlashCommands:
         return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
 
     async def test_handle_standings(self, bot: PinwheelBot) -> None:
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
+        interaction = make_interaction()
         await bot._handle_standings(interaction)
         interaction.response.defer.assert_called_once()
         interaction.followup.send.assert_called_once()
@@ -163,39 +181,39 @@ class TestSlashCommands:
         embed = call_kwargs.kwargs.get("embed") or call_kwargs.args[0]
         assert isinstance(embed, discord.Embed)
 
+    async def test_handle_roster_no_engine(self, bot: PinwheelBot) -> None:
+        """Without an engine, roster defers and returns 'Database not available'."""
+        interaction = make_interaction()
+        await bot._handle_roster(interaction)
+        interaction.response.defer.assert_called_once()
+        interaction.followup.send.assert_called_once()
+        call_args = interaction.followup.send.call_args
+        msg = call_args.args[0] if call_args.args else call_args.kwargs.get("content", "")
+        assert "Database not available" in str(msg)
+
     async def test_handle_propose_with_text_no_engine(self, bot: PinwheelBot) -> None:
         """Without an engine, propose returns an ephemeral error (before defer)."""
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.display_name = "TestGovernor"
+        interaction = make_interaction()
         await bot._handle_propose(interaction, "Make three-pointers worth 5 points")
         interaction.response.send_message.assert_called_once()
         call_kwargs = interaction.response.send_message.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
 
     async def test_handle_propose_empty_text(self, bot: PinwheelBot) -> None:
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
+        interaction = make_interaction()
         await bot._handle_propose(interaction, "   ")
         interaction.response.send_message.assert_called_once()
         call_kwargs = interaction.response.send_message.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
 
     async def test_handle_schedule(self, bot: PinwheelBot) -> None:
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
+        interaction = make_interaction()
         await bot._handle_schedule(interaction)
         interaction.response.defer.assert_called_once()
         interaction.followup.send.assert_called_once()
 
     async def test_handle_reports(self, bot: PinwheelBot) -> None:
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
+        interaction = make_interaction()
         await bot._handle_reports(interaction)
         interaction.response.defer.assert_called_once()
         interaction.followup.send.assert_called_once()
@@ -378,6 +396,58 @@ class TestBuildStandingsEmbed:
         assert "Thorns" in desc
         assert "5W-2L" in desc
         assert "Breakers" in desc
+
+
+class TestBuildRosterEmbed:
+    def test_empty_roster(self) -> None:
+        embed = build_roster_embed([])
+        assert "No governors enrolled" in (embed.description or "")
+
+    def test_with_governors(self) -> None:
+        governors = [
+            {
+                "username": "Alice",
+                "team_name": "Thorns",
+                "propose": 2,
+                "amend": 1,
+                "boost": 3,
+                "proposals_submitted": 5,
+                "votes_cast": 10,
+            },
+            {
+                "username": "Bob",
+                "team_name": "Breakers",
+                "propose": 0,
+                "amend": 2,
+                "boost": 0,
+                "proposals_submitted": 1,
+                "votes_cast": 3,
+            },
+        ]
+        embed = build_roster_embed(governors, season_name="Season 1")
+        desc = embed.description or ""
+        assert "Alice" in desc
+        assert "Thorns" in desc
+        assert "Bob" in desc
+        assert "Season 1" in embed.title
+
+    def test_roster_has_token_info(self) -> None:
+        governors = [
+            {
+                "username": "Alice",
+                "team_name": "Thorns",
+                "propose": 2,
+                "amend": 1,
+                "boost": 3,
+                "proposals_submitted": 5,
+                "votes_cast": 10,
+            },
+        ]
+        embed = build_roster_embed(governors)
+        desc = embed.description or ""
+        assert "P:2" in desc
+        assert "A:1" in desc
+        assert "B:3" in desc
 
 
 class TestBuildProposalEmbed:
@@ -603,6 +673,24 @@ class TestBuildRoundSummaryEmbed:
         assert "4" in (embed.description or "")
 
 
+class TestBuildTokenBalanceEmbed:
+    def test_nonzero_balance(self) -> None:
+        from pinwheel.models.tokens import TokenBalance
+
+        balance = TokenBalance(governor_id="g1", season_id="s1", propose=2, amend=2, boost=2)
+        embed = build_token_balance_embed(balance, governor_name="TestGov")
+        assert "PROPOSE" in (embed.description or "")
+        assert "no tokens" not in (embed.description or "")
+
+    def test_zero_balance_shows_message(self) -> None:
+        from pinwheel.models.tokens import TokenBalance
+
+        balance = TokenBalance(governor_id="g1", season_id="s1", propose=0, amend=0, boost=0)
+        embed = build_token_balance_embed(balance, governor_name="TestGov")
+        assert "no tokens" in (embed.description or "")
+        assert "governance interval" in (embed.description or "")
+
+
 # ---------------------------------------------------------------------------
 # /join command
 # ---------------------------------------------------------------------------
@@ -615,12 +703,7 @@ class TestJoinCommand:
 
     async def test_join_no_engine(self, bot: PinwheelBot) -> None:
         """Without an engine, join returns an ephemeral error."""
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 111222333
-        interaction.user.display_name = "TestPlayer"
+        interaction = make_interaction(user_id=111222333, display_name="TestPlayer")
         await bot._handle_join(interaction, "Rose City Thorns")
         interaction.response.send_message.assert_called_once()
         call_kwargs = interaction.response.send_message.call_args
@@ -667,14 +750,11 @@ class TestJoinCommand:
 
         bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus, engine=engine)
 
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock(spec=discord.Member)
-        interaction.user.id = 111222333
-        interaction.user.display_name = "TestPlayer"
-        interaction.user.display_avatar = MagicMock()
-        interaction.user.display_avatar.url = "https://example.com/avatar.png"
+        interaction = make_interaction(
+            user_id=111222333,
+            display_name="TestPlayer",
+            display_avatar_url="https://example.com/avatar.png",
+        )
         interaction.guild = MagicMock(spec=discord.Guild)
         interaction.guild.roles = []
 
@@ -693,6 +773,70 @@ class TestJoinCommand:
             assert enrollment is not None
             assert enrollment[0] == team_id
             assert enrollment[1] == "Rose City Thorns"
+
+        await engine.dispose()
+
+    async def test_join_grants_tokens(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        """Joining a team grants initial governance tokens so the governor can propose."""
+        from pinwheel.core.tokens import get_token_balance
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(season.id, "Rose City Thorns", color="#e94560")
+            await repo.create_hooper(
+                team.id,
+                season.id,
+                "Briar Ashwood",
+                "sharpshooter",
+                {
+                    "scoring": 65,
+                    "passing": 35,
+                    "defense": 30,
+                    "speed": 45,
+                    "stamina": 40,
+                    "iq": 55,
+                    "ego": 40,
+                    "chaotic_alignment": 20,
+                    "fate": 30,
+                },
+            )
+            await session.commit()
+            season_id = season.id
+
+        bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus, engine=engine)
+
+        interaction = make_interaction(
+            user_id=999888777,
+            display_name="NewGovernor",
+            display_avatar_url="https://example.com/avatar.png",
+        )
+        interaction.guild = MagicMock(spec=discord.Guild)
+        interaction.guild.roles = []
+
+        await bot._handle_join(interaction, "Rose City Thorns")
+        interaction.followup.send.assert_called_once()
+
+        # Verify tokens were granted
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            enrollment = await repo.get_player_enrollment("999888777", season_id)
+            assert enrollment is not None
+            player = await repo.get_or_create_player("999888777", "NewGovernor")
+            balance = await get_token_balance(repo, player.id, season_id)
+            assert balance.propose == 2
+            assert balance.amend == 2
+            assert balance.boost == 2
 
         await engine.dispose()
 
@@ -721,14 +865,11 @@ class TestJoinCommand:
 
         bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus, engine=engine)
 
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 111222333
-        interaction.user.display_name = "TestPlayer"
-        interaction.user.display_avatar = MagicMock()
-        interaction.user.display_avatar.url = "https://example.com/avatar.png"
+        interaction = make_interaction(
+            user_id=111222333,
+            display_name="TestPlayer",
+            display_avatar_url="https://example.com/avatar.png",
+        )
         interaction.guild = None
 
         await bot._handle_join(interaction, "Burnside Breakers")
@@ -760,14 +901,11 @@ class TestJoinCommand:
 
         bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus, engine=engine)
 
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 111222333
-        interaction.user.display_name = "TestPlayer"
-        interaction.user.display_avatar = MagicMock()
-        interaction.user.display_avatar.url = "https://example.com/avatar.png"
+        interaction = make_interaction(
+            user_id=111222333,
+            display_name="TestPlayer",
+            display_avatar_url="https://example.com/avatar.png",
+        )
 
         await bot._handle_join(interaction, "Nonexistent Team")
         interaction.followup.send.assert_called_once()
@@ -1071,18 +1209,14 @@ async def _make_enrolled_bot_and_interaction(
         engine=engine,
     )
 
-    interaction = AsyncMock(spec=discord.Interaction)
-    interaction.response = AsyncMock()
+    interaction = make_interaction(
+        user_id=discord_id,
+        display_name=display_name,
+        display_avatar_url="https://example.com/a.png",
+    )
     interaction.response.is_done = MagicMock(return_value=False)
-    interaction.followup = AsyncMock()
-    interaction.user = MagicMock(spec=discord.Member)
-    interaction.user.id = discord_id
-    interaction.user.display_name = display_name
-    interaction.user.display_avatar = MagicMock()
-    interaction.user.display_avatar.url = "https://example.com/a.png"
     interaction.guild = MagicMock(spec=discord.Guild)
     interaction.guild.roles = []
-    interaction.channel = AsyncMock(spec=discord.TextChannel)
 
     return bot, interaction, gov_data, engine
 
@@ -1118,12 +1252,7 @@ class TestProposeGovernance:
             event_bus=event_bus,
             engine=engine,
         )
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 999888777
-        interaction.user.display_name = "Stranger"
+        interaction = make_interaction(user_id=999888777, display_name="Stranger")
 
         await bot._handle_propose(interaction, "Make it rain")
         interaction.response.defer.assert_called_once()
@@ -1231,11 +1360,7 @@ class TestVoteCommand:
             event_bus=event_bus,
             engine=engine,
         )
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 999888777
+        interaction = make_interaction(user_id=999888777)
 
         await bot._handle_vote(interaction, "yes")
         interaction.response.defer.assert_called_once()
@@ -1404,11 +1529,7 @@ class TestTokensCommand:
             event_bus=event_bus,
             engine=engine,
         )
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 999888777
+        interaction = make_interaction(user_id=999888777)
 
         await bot._handle_tokens(interaction)
         interaction.response.defer.assert_called_once()
@@ -1765,11 +1886,7 @@ class TestStrategyCommand:
             event_bus=event_bus,
             engine=engine,
         )
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 999888777
+        interaction = make_interaction(user_id=999888777)
 
         await bot._handle_strategy(interaction, "Focus on defense")
         interaction.response.defer.assert_called_once()
@@ -1849,11 +1966,7 @@ class TestBioCommand:
             event_bus=event_bus,
             engine=engine,
         )
-        interaction = AsyncMock(spec=discord.Interaction)
-        interaction.response = AsyncMock()
-        interaction.followup = AsyncMock()
-        interaction.user = MagicMock()
-        interaction.user.id = 999888777
+        interaction = make_interaction(user_id=999888777)
 
         await bot._handle_bio(interaction, "SomeHooper", "A backstory")
         interaction.response.defer.assert_called_once()

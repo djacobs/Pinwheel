@@ -331,9 +331,14 @@ def build_token_balance_embed(
         title="Floor Tokens",
         color=COLOR_GOVERNANCE,
     )
-    embed.description = (
-        f"**PROPOSE:** {balance.propose}\n**AMEND:** {balance.amend}\n**BOOST:** {balance.boost}"
+    lines = (
+        f"**PROPOSE:** {balance.propose}\n"
+        f"**AMEND:** {balance.amend}\n"
+        f"**BOOST:** {balance.boost}"
     )
+    if balance.propose == 0 and balance.amend == 0 and balance.boost == 0:
+        lines += "\n\n_You have no tokens. Tokens regenerate at the next governance interval._"
+    embed.description = lines
     if governor_name:
         embed.set_author(name=governor_name)
     embed.set_footer(text="Pinwheel Fates")
@@ -448,6 +453,51 @@ def build_welcome_embed(
         color=discord.Color(int(team_color.lstrip("#"), 16)),
     )
     embed.set_footer(text="Pinwheel Fates -- Lead wisely.")
+    return embed
+
+
+def build_roster_embed(
+    governors: list[dict[str, object]],
+    season_name: str = "this season",
+) -> discord.Embed:
+    """Build an embed showing all enrolled governors for the season.
+
+    Args:
+        governors: List of dicts with keys: username, team_name, propose,
+            amend, boost, proposals_submitted, votes_cast.
+        season_name: Display name of the current season.
+    """
+    embed = discord.Embed(
+        title=f"Governor Roster -- {season_name}",
+        color=COLOR_GOVERNANCE,
+    )
+
+    if not governors:
+        embed.description = "No governors enrolled yet."
+        embed.set_footer(text="Pinwheel Fates")
+        return embed
+
+    lines: list[str] = []
+    for g in governors:
+        username = g.get("username", "???")
+        team = g.get("team_name", "???")
+        propose = g.get("propose", 0)
+        amend = g.get("amend", 0)
+        boost = g.get("boost", 0)
+        proposals = g.get("proposals_submitted", 0)
+        votes = g.get("votes_cast", 0)
+        lines.append(
+            f"**{username}** ({team})\n"
+            f"  Tokens: P:{propose} A:{amend} B:{boost} | "
+            f"Proposals: {proposals} | Votes: {votes}"
+        )
+
+    # Discord embed description limit is 4096 chars
+    description = "\n".join(lines)
+    if len(description) > 4096:
+        description = description[:4090] + "\n..."
+    embed.description = description
+    embed.set_footer(text="Pinwheel Fates")
     return embed
 
 

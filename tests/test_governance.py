@@ -978,3 +978,167 @@ class TestAdminReview:
         )
         proposal = await confirm_proposal(repo, proposal)
         assert proposal.status == "confirmed"
+
+
+# --- Governance Lifecycle Across Season Completion ---
+
+
+class TestGovernanceLifecycleAcrossSeasonCompletion:
+    """Governance must work regardless of season status."""
+
+    async def test_tally_pending_on_completed_season(
+        self, repo: Repository, season_id: str, seeded_governor
+    ):
+        """Proposals submitted on a completed season get tallied."""
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        gov_id, team_id = seeded_governor
+        gov2_id = "gov-lifecycle-002"
+        await regenerate_tokens(repo, gov2_id, team_id, season_id)
+
+        # Mark season as completed
+        await repo.update_season_status(season_id, "completed")
+
+        # Submit and confirm a proposal
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        assert proposal.status == "confirmed"
+
+        # Cast votes
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
+        )
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov2_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        # Call tally_pending_governance
+        ruleset = RuleSet()
+        new_ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=ruleset,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        assert new_ruleset.three_point_value == 5
+
+    async def test_governance_with_null_ruleset(
+        self, repo: Repository, season_id: str, seeded_governor
+    ):
+        """Governance works even when current_ruleset starts as default."""
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        gov_id, team_id = seeded_governor
+
+        # tally_pending_governance with default RuleSet and no proposals
+        ruleset = RuleSet()
+        new_ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=ruleset,
+        )
+
+        assert new_ruleset == ruleset
+        assert tallies == []
+        assert gov_data == {"proposals": [], "votes": [], "rules_changed": []}
+
+    async def test_no_pending_proposals_is_noop(
+        self, repo: Repository, season_id: str
+    ):
+        """tally_pending_governance returns empty when nothing to tally."""
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        ruleset = RuleSet()
+        new_ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=ruleset,
+        )
+
+        assert new_ruleset == ruleset
+        assert tallies == []
+        assert gov_data["proposals"] == []
+        assert gov_data["votes"] == []
+        assert gov_data["rules_changed"] == []
+
+
+# --- Mid-Season Governor Token Grant Tests ---
+
+
+class TestMidSeasonGovernorTokens:
+    """Verify that a governor who joins mid-season can propose immediately."""
+
+    async def test_mid_season_governor_has_tokens_after_regen(
+        self, repo: Repository, season_id: str
+    ):
+        """Simulates the /join fix: enroll + regenerate_tokens gives a governor tokens."""
+        team = await repo.create_team(season_id=season_id, name="Mid-Season Team")
+        governor_id = "mid-season-gov"
+
+        # Before regen: governor has zero tokens
+        assert await has_token(repo, governor_id, season_id, "propose") is False
+
+        # Simulate the /join flow: enroll then regenerate
+        await regenerate_tokens(repo, governor_id, team.id, season_id)
+
+        # After regen: governor has tokens
+        assert await has_token(repo, governor_id, season_id, "propose") is True
+        assert await has_token(repo, governor_id, season_id, "amend") is True
+        assert await has_token(repo, governor_id, season_id, "boost") is True
+
+        balance = await get_token_balance(repo, governor_id, season_id)
+        assert balance.propose == 2
+        assert balance.amend == 2
+        assert balance.boost == 2
+
+    async def test_mid_season_governor_can_propose(
+        self, repo: Repository, season_id: str
+    ):
+        """End-to-end: mid-season governor gets tokens and submits a proposal."""
+        team = await repo.create_team(season_id=season_id, name="Late Joiners")
+        governor_id = "late-gov"
+
+        # Simulate /join granting tokens
+        await regenerate_tokens(repo, governor_id, team.id, season_id)
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=governor_id,
+            team_id=team.id,
+            season_id=season_id,
+            window_id="w-mid",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        assert proposal.status == "submitted"
+
+        # Token was spent
+        balance = await get_token_balance(repo, governor_id, season_id)
+        assert balance.propose == 1  # Started at 2, spent 1
