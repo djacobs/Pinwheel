@@ -366,3 +366,56 @@ Post-round session (~1s): mark games presented
 **857 tests (17 new), zero lint errors.**
 
 **What could have gone better:** Nothing significant — the phase extraction was clean, all 53 existing tests passed on first run after refactoring.
+
+---
+
+## Session 56 — Home Page Season Fix + Play Page Overhaul + /join Required
+
+**What was asked:** Three issues: (1) Home page shows "Season 1" even though multiple seasons have been played and a new season "THREE" was started. (2) No schedule of upcoming games visible on the home page. (3) `/join` command in Discord says team name is optional — it should be required. Also: audit the `/play` page against RUN_OF_PLAY to ensure new players know how to join, what part of the season they're in, and what's happening next.
+
+**What was built:**
+
+### Fix `_get_active_season_id()` — root cause of both home page bugs
+- The function used `select(SeasonRow).limit(1)` which always returned the first season ever created (Season 1), not the current active season.
+- Replaced with `repo.get_active_season()` which filters by non-terminal status (excludes completed/archived/setup).
+- Added `_get_active_season()` helper that returns `(season_id, season_name)` tuple for pages that need the name.
+- This fixes ALL pages site-wide, not just the home page — standings, arena, governance, rules, reports, team profiles, and hooper profiles all called `_get_active_season_id()`.
+
+### Dynamic season name on home page
+- Passed `season_name` from the DB to the template context.
+- Replaced hardcoded `"Season 1"` with `{{ season_name }}` in the hero pulse bar.
+
+### Missing upcoming schedule fix
+- Same root cause: when `_get_active_season_id()` returned Season 1 (completed), there was no "next round" to schedule. Now it returns the active season which has upcoming rounds.
+
+### `/play` page overhaul — aligned with RUN_OF_PLAY
+- **Season context**: Shows current season name, phase description ("Regular season in progress — Round N complete"), teams, and games played.
+- **How to Join section**: Step-by-step with team names listed, token grants explained (2 PROPOSE, 2 AMEND, 2 BOOST).
+- **Season Structure section**: Visual flow diagram — Regular Season → Playoffs → New Season — explaining round-robin, best-of-3 semis, best-of-5 finals.
+- **Governance Tokens section**: Three-card layout explaining PROPOSE, AMEND, BOOST with costs and regeneration rules.
+- **Voting section**: Vote weight (1.0 per team split among governors), boosting mechanic, ties fail.
+- **Proposal Tiers section**: T1-T5+ with thresholds (50%/50%/60%/60%/67%).
+- **Private reports**: Added to "Reflect" role card and FAQ — DM you get with your own governance patterns.
+- **Between seasons FAQ**: New FAQ entry explaining what carries over (teams, hoopers, enrollments, rules) and what resets (tokens).
+- **Discord commands**: Added 7 missing commands — `/bio`, `/trade-hooper`, `/standings`, `/schedule`, `/reports`, `/profile`, `/proposals`.
+- **Wild Card flow**: Added "You confirm" step to the proposal flow diagram.
+- **Join CTA**: Shows available team names at bottom.
+
+### CSS for new play page components
+- `.play-join-steps` / `.join-step` — numbered step cards for join flow
+- `.play-season-flow` / `.season-flow-step` — horizontal flow diagram with arrows
+- `.play-tokens-grid` / `.play-token-card` — three-column token economy cards
+- `.play-vote-rules` / `.play-vote-rule` — bordered rule explanation cards
+- `.play-tiers` / `.play-tier-row` — tier listing with colored tier numbers
+- Responsive breakpoints for mobile
+
+### `/join` team parameter made required
+- Changed `team: str = ""` to `team: str` in Discord bot command definition.
+- Updated `@app_commands.describe` to remove "leave blank to see all teams" hint.
+- Updated CLAUDE.md Discord Commands table.
+
+**Files modified (6):** `src/pinwheel/api/pages.py`, `templates/pages/home.html`, `templates/pages/play.html`, `static/css/pinwheel.css`, `src/pinwheel/discord/bot.py`, `CLAUDE.md`
+
+**857 tests, zero lint errors.**
+
+**What could have gone better:** The `_get_active_season_id()` bug affected every page on the site for the entire life of the project — it was a Day 1 "hackathon shortcut" that never got replaced. Should have been caught when `get_active_season()` was implemented in Session 50.

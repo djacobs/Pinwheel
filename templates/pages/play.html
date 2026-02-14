@@ -17,13 +17,19 @@
   {% endif %}
 </div>
 
-{# ===== LEAGUE STATUS ===== #}
-{% if current_round > 0 %}
+{# ===== SEASON STATUS ===== #}
+{% if season_name %}
 <div class="play-status">
+  <div class="play-status-item" style="flex:2;">
+    <span class="play-status-value" style="font-size:1.4rem;">{{ season_name }}</span>
+    <span class="play-status-label">{{ season_phase_desc }}</span>
+  </div>
+  {% if current_round > 0 %}
   <div class="play-status-item">
     <span class="play-status-value">{{ current_round }}</span>
     <span class="play-status-label">Rounds Played</span>
   </div>
+  {% endif %}
   <div class="play-status-item">
     <span class="play-status-value">{{ total_teams }}</span>
     <span class="play-status-label">Teams</span>
@@ -34,6 +40,69 @@
   </div>
 </div>
 {% endif %}
+
+{# ===== HOW TO JOIN ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">How to Join</span>
+  </div>
+  <div class="play-join-steps">
+    <div class="join-step">
+      <div class="join-step-num" style="color:var(--accent-highlight);">1</div>
+      <div class="join-step-content">
+        <strong>Join the Discord</strong> and type <code>/join TEAM</code> to enroll on a team.
+        {% if team_names %}
+        Current teams: <strong>{{ team_names | join('</strong>, <strong>') }}</strong>.
+        {% endif %}
+        You're locked to that team for the season.
+      </div>
+    </div>
+    <div class="join-step">
+      <div class="join-step-num" style="color:var(--accent-governance);">2</div>
+      <div class="join-step-content">
+        <strong>You receive 6 governance tokens:</strong> 2 PROPOSE, 2 AMEND, 2 BOOST.
+        These let you submit rule changes, modify proposals, and double your vote weight.
+      </div>
+    </div>
+    <div class="join-step">
+      <div class="join-step-num" style="color:var(--accent-score);">3</div>
+      <div class="join-step-content">
+        <strong>Start governing.</strong> Propose rule changes, vote, trade tokens, and set team strategy.
+        The Floor opens between rounds.
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== SEASON STRUCTURE ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Season Structure</span>
+  </div>
+  <p class="play-intro">
+    A season is a round-robin schedule. {{ total_teams }} teams play each other.
+    After each round, proposals are tallied and winning proposals take effect immediately.
+  </p>
+  <div class="play-season-flow">
+    <div class="season-flow-step">
+      <div class="season-flow-icon" style="color:var(--accent-highlight);">&#9654;</div>
+      <h4>Regular Season</h4>
+      <p>Round-robin — every team plays every other team. Games run automatically {{ pace_desc }}.</p>
+    </div>
+    <div class="season-flow-arrow">&rarr;</div>
+    <div class="season-flow-step">
+      <div class="season-flow-icon" style="color:var(--accent-score);">&#9733;</div>
+      <h4>Playoffs</h4>
+      <p>Top teams enter playoffs. Semifinals (best of 3), then finals (best of 5).</p>
+    </div>
+    <div class="season-flow-arrow">&rarr;</div>
+    <div class="season-flow-step">
+      <div class="season-flow-icon" style="color:var(--accent-governance);">&#9878;</div>
+      <h4>New Season</h4>
+      <p>The champion is crowned. Rules carry forward. Teams keep their hoopers. A new season begins.</p>
+    </div>
+  </div>
+</div>
 
 {# ===== THE RHYTHM ===== #}
 <div class="home-section">
@@ -66,7 +135,7 @@
           <em>"Make three-pointers worth 4 points"</em> or
           <em>"Reduce the shot clock to 15 seconds."</em>
           The AI interprets your words into specific parameter changes.
-          Your team votes. Majority wins.
+          You confirm the interpretation, then your team votes. Majority wins.
         </p>
       </div>
     </div>
@@ -75,10 +144,10 @@
       <div class="rhythm-content">
         <h3 class="rhythm-title">The Reporter</h3>
         <p class="rhythm-desc">
-          After each round, the AI files a public report &mdash; an analysis of
-          what happened. Power shifts. Emerging patterns. Dynamics you can't see
-          from inside the game. The reporter doesn't tell you what to do.
-          It shows you what's happening so you can decide for yourself.
+          After each round, the AI files three reports.
+          <strong>Simulation Report</strong> (public): what happened in the games, statistical patterns, effects of rule changes.
+          <strong>Governance Report</strong> (public): voting trends, coalitions, who is proposing what.
+          <strong>Private Report</strong> (DM to you): your own governance behavior reflected back. Patterns you might not see. Never prescribes &mdash; only describes.
         </p>
       </div>
     </div>
@@ -93,6 +162,93 @@
           players decide it should be.
         </p>
       </div>
+    </div>
+  </div>
+</div>
+
+{# ===== TOKEN ECONOMY ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Governance Tokens</span>
+  </div>
+  <p class="play-intro">
+    You receive tokens when you join. Spend them to propose, amend, and boost. Tokens are tradeable between players via <code>/trade</code>.
+  </p>
+  <div class="play-tokens-grid">
+    <div class="play-token-card">
+      <div class="play-token-name" style="color:var(--accent-governance);">PROPOSE</div>
+      <div class="play-token-count">2 on join</div>
+      <p class="play-token-desc">Submit a rule change to the Floor. Costs 1 per proposal (2 for wild proposals). Regenerates 2 per tally cycle.</p>
+    </div>
+    <div class="play-token-card">
+      <div class="play-token-name" style="color:var(--accent-report);">AMEND</div>
+      <div class="play-token-count">2 on join</div>
+      <p class="play-token-desc">Modify someone else's proposal before it goes to vote. Regenerates 2 per tally cycle.</p>
+    </div>
+    <div class="play-token-card">
+      <div class="play-token-name" style="color:var(--accent-highlight);">BOOST</div>
+      <div class="play-token-count">2 on join</div>
+      <p class="play-token-desc">Double your vote weight on a single vote. Scarce &mdash; does not regenerate at tally. Only restored between seasons.</p>
+    </div>
+  </div>
+</div>
+
+{# ===== VOTING ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Voting</span>
+  </div>
+  <div class="play-voting-details">
+    <p class="play-intro">
+      Type <code>/vote YES</code> or <code>/vote NO</code> on an active proposal.
+    </p>
+    <div class="play-vote-rules">
+      <div class="play-vote-rule">
+        <strong>Weight:</strong> Each team's total vote weight is 1.0, split equally among its governors. If your team has 3 governors, your weight is 0.33.
+      </div>
+      <div class="play-vote-rule">
+        <strong>Boosting:</strong> Add <code>boost: True</code> to your vote to double your weight. This spends one BOOST token.
+      </div>
+      <div class="play-vote-rule">
+        <strong>Ties fail.</strong> Votes are tallied after each round. Passed proposals change rules immediately.
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== PROPOSAL TIERS ===== #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text">Proposal Tiers</span>
+  </div>
+  <p class="play-intro">
+    Proposals are classified by what they change. Higher tiers need more support to pass.
+  </p>
+  <div class="play-tiers">
+    <div class="play-tier-row">
+      <span class="play-tier-num" style="color:var(--accent-highlight);">T1</span>
+      <span class="play-tier-label">Game Mechanics</span>
+      <span class="play-tier-detail">Shot clock, scoring, fouls &mdash; 50% to pass</span>
+    </div>
+    <div class="play-tier-row">
+      <span class="play-tier-num" style="color:var(--accent-governance);">T2</span>
+      <span class="play-tier-label">Agent Behavior</span>
+      <span class="play-tier-detail">Shot limits, home court &mdash; 50% to pass</span>
+    </div>
+    <div class="play-tier-row">
+      <span class="play-tier-num" style="color:var(--accent-score);">T3</span>
+      <span class="play-tier-label">League Structure</span>
+      <span class="play-tier-detail">Teams, playoffs, schedule &mdash; 60% to pass</span>
+    </div>
+    <div class="play-tier-row">
+      <span class="play-tier-num" style="color:var(--accent-report);">T4</span>
+      <span class="play-tier-label">Meta-Governance</span>
+      <span class="play-tier-detail">Vote thresholds, token regen &mdash; 60% to pass</span>
+    </div>
+    <div class="play-tier-row">
+      <span class="play-tier-num" style="color:var(--accent-elam);">T5+</span>
+      <span class="play-tier-label">Wild</span>
+      <span class="play-tier-detail">Novel or uninterpretable &mdash; costs 2 PROPOSE, 67% to pass</span>
     </div>
   </div>
 </div>
@@ -138,6 +294,8 @@
       <span class="wildcard-flow-step">You propose</span>
       <span class="wildcard-flow-arrow">&rarr;</span>
       <span class="wildcard-flow-step">AI interprets</span>
+      <span class="wildcard-flow-arrow">&rarr;</span>
+      <span class="wildcard-flow-step">You confirm</span>
       <span class="wildcard-flow-arrow">&rarr;</span>
       <span class="wildcard-flow-step">Your team votes</span>
       <span class="wildcard-flow-arrow">&rarr;</span>
@@ -214,8 +372,9 @@
       <h4 class="play-role-title">Reflect</h4>
       <p class="play-role-desc">
         Read the reports. The AI surfaces what the data shows &mdash;
-        not opinions, not instructions, just patterns. What you do with
-        that information is up to you.
+        not opinions, not instructions, just patterns. You also get a
+        <strong>private report</strong> via DM with your own governance
+        patterns reflected back.
       </p>
     </div>
   </div>
@@ -232,7 +391,7 @@
   <div class="play-commands">
     <div class="play-cmd">
       <code class="play-cmd-name">/join</code>
-      <span class="play-cmd-desc">Get assigned to a team and become a governor</span>
+      <span class="play-cmd-desc">Enroll on a team and become a governor</span>
     </div>
     <div class="play-cmd">
       <code class="play-cmd-name">/propose</code>
@@ -240,19 +399,47 @@
     </div>
     <div class="play-cmd">
       <code class="play-cmd-name">/vote</code>
-      <span class="play-cmd-desc">Vote yes or no on an active proposal</span>
+      <span class="play-cmd-desc">Vote yes or no on an active proposal (add boost: True to double your weight)</span>
     </div>
     <div class="play-cmd">
       <code class="play-cmd-name">/strategy</code>
       <span class="play-cmd-desc">Set your team's game plan and offensive focus</span>
     </div>
     <div class="play-cmd">
+      <code class="play-cmd-name">/bio</code>
+      <span class="play-cmd-desc">Write a backstory for one of your hoopers</span>
+    </div>
+    <div class="play-cmd">
       <code class="play-cmd-name">/tokens</code>
-      <span class="play-cmd-desc">Check your Floor token balance</span>
+      <span class="play-cmd-desc">Check your PROPOSE, AMEND, and BOOST token balances</span>
     </div>
     <div class="play-cmd">
       <code class="play-cmd-name">/trade</code>
-      <span class="play-cmd-desc">Trade tokens with another player</span>
+      <span class="play-cmd-desc">Trade tokens with another governor</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/trade-hooper</code>
+      <span class="play-cmd-desc">Propose trading hoopers between teams</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/standings</code>
+      <span class="play-cmd-desc">View current league standings</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/schedule</code>
+      <span class="play-cmd-desc">View upcoming game matchups</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/reports</code>
+      <span class="play-cmd-desc">View the latest AI reports</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/profile</code>
+      <span class="play-cmd-desc">View your governance record and activity</span>
+    </div>
+    <div class="play-cmd">
+      <code class="play-cmd-name">/proposals</code>
+      <span class="play-cmd-desc">View all proposals and their status</span>
     </div>
   </div>
 </div>
@@ -296,9 +483,19 @@
       <p class="play-faq-a">
         Three things. First, it interprets your plain-English proposals into
         specific parameter changes. Second, it writes reports &mdash; public
-        analysis of what's happening in the league. Third, it provides
+        analysis of what's happening in the league, plus a private DM report
+        reflecting your own governance behavior. Third, it provides
         game commentary. It never makes decisions for you. It never votes.
         It never proposes rules. It's a reporter, not a player.
+      </p>
+    </div>
+    <div class="play-faq-item">
+      <h4 class="play-faq-q">What happens between seasons?</h4>
+      <p class="play-faq-a">
+        When a champion is crowned, the season archives. Teams, hoopers, and
+        governor enrollments carry over. Rules carry forward unless you write
+        otherwise. Everyone gets fresh tokens. A new season begins &mdash;
+        no need to re-enroll.
       </p>
     </div>
     <div class="play-faq-item">
@@ -317,8 +514,9 @@
     Join the Discord
   </a>
   <p class="play-cta-sub">
-    Use <code>/join</code> once you're in. You'll be assigned to a team
-    and the next time the Floor opens is your first chance to shape the game.
+    Use <code>/join TEAM</code> once you're in.
+    {% if team_names %}Pick from: <strong>{{ team_names | join('</strong>, <strong>') }}</strong>.{% endif %}
+    You'll be assigned to that team and the next time the Floor opens is your first chance to shape the game.
   </p>
   {% else %}
   <p class="play-cta-sub">

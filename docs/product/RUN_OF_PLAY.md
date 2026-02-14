@@ -12,6 +12,7 @@ Manage a basketball team, change the game to change the world.
 2. You are locked to that team for the season.
 3. You receive 6 governance tokens: 2 PROPOSE, 2 AMEND, 2 BOOST.
 4. You can now propose rule changes, vote, trade tokens, and set team strategy.
+5. Players may change teams inbetween seasons if they desire. 
 
 ## Seasons
 

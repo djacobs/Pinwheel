@@ -585,3 +585,15 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 81. [DONE] Remove "The AI Sees" branding + simplify reports tagline
 **Problem:** Home page report section was titled "The AI Sees" — too prominent an AI attribution for what should feel like a neutral reporting layer. Reports page tagline included "AI-generated reports on gameplay and the Floor" which similarly over-emphasized the AI origin.
 **Fix:** Home page section renamed to "Reports". Reports page tagline simplified to "The reporter describes — it never prescribes." — the voice is the reporter's, not the AI's.
+
+### 82. [DONE] Home page shows wrong season + missing upcoming schedule
+**Problem:** Home page always showed "Season 1" even after multiple seasons. The `_get_active_season_id()` helper used `select(SeasonRow).limit(1)` — returning the first season ever created, not the active one. This also meant the upcoming schedule was empty (completed seasons have no next round).
+**Fix:** Replaced with `repo.get_active_season()` which filters by non-terminal status. Added `_get_active_season()` helper returning `(id, name)`. Template now uses `{{ season_name }}` instead of hardcoded "Season 1". Fixes all pages site-wide.
+
+### 83. [DONE] /play page overhaul — aligned with RUN_OF_PLAY
+**Problem:** The "How to Play" page was missing critical onboarding info: no season context, no token economy, no voting details, no proposal tiers, no private reports, missing 7 Discord commands. New players couldn't understand how to join, what phase the season is in, or what happens next.
+**Fix:** Added 6 new sections: "How to Join" (numbered steps with team names + token grants), "Season Structure" (visual flow: Regular Season → Playoffs → New Season), "Governance Tokens" (3-card layout for PROPOSE/AMEND/BOOST), "Voting" (weight/boost/ties), "Proposal Tiers" (T1-T5+ with thresholds), "Between Seasons" FAQ. Added 7 missing Discord commands. Added "You confirm" step to wild card flow. Shows current season name and phase.
+
+### 84. [DONE] /join team parameter made required
+**Problem:** Discord `/join` command showed the team name as optional ("leave blank to see all teams"). Players were confused because team selection is required per RUN_OF_PLAY.
+**Fix:** Changed `team: str = ""` to `team: str` in bot.py, making Discord enforce the parameter. Updated describe text.

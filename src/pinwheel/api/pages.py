@@ -40,15 +40,17 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
-    """Get the first available season. Hackathon shortcut."""
-    from sqlalchemy import select
-
-    from pinwheel.db.models import SeasonRow
-
-    stmt = select(SeasonRow).limit(1)
-    result = await repo.session.execute(stmt)
-    row = result.scalar_one_or_none()
+    """Get the active season ID (most recent non-terminal)."""
+    row = await repo.get_active_season()
     return row.id if row else None
+
+
+async def _get_active_season(repo: RepoDep) -> tuple[str | None, str | None]:
+    """Get (season_id, season_name) for the active season."""
+    row = await repo.get_active_season()
+    if row:
+        return row.id, row.name
+    return None, None
 
 
 async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
@@ -81,7 +83,7 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Home page — living dashboard for the league."""
-    season_id = await _get_active_season_id(repo)
+    season_id, season_name = await _get_active_season(repo)
     latest_report = None
     standings = []
     latest_round_games: list[dict] = []
@@ -191,6 +193,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
 
     ctx = {
         "active_page": "home",
+        "season_name": season_name or "Season",
         "latest_report": latest_report,
         "standings": standings,
         "latest_round_games": latest_round_games,
@@ -210,13 +213,16 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
 async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """How to Play — onboarding page for new players."""
     settings = request.app.state.settings
-    season_id = await _get_active_season_id(repo)
+    season_id, season_name = await _get_active_season(repo)
 
     # Current league state for context
     current_round = 0
     total_teams = 0
     total_hoopers = 0
     total_games = 0
+    season_status = ""
+    season_phase_desc = ""
+    team_names: list[str] = []
 
     if season_id:
         standings = await _get_standings(repo, season_id)
@@ -228,11 +234,31 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 current_round = rn
             else:
                 break
-        # Count agents
+        # Count agents + collect team names
         for s in standings:
             team = await repo.get_team(s["team_id"])
             if team:
                 total_hoopers += len(team.hoopers)
+                team_names.append(team.name)
+
+        # Season phase context (season loaded below for ruleset too)
+        season_row = await repo.get_season(season_id)
+        if season_row:
+            season_status = season_row.status or "active"
+
+        # Human-readable phase description
+        phase_map = {
+            "active": f"Regular season in progress — Round {current_round} complete.",
+            "setup": "Season is being set up. Games haven't started yet.",
+            "regular_season_complete": "Regular season is over. Playoffs are next.",
+            "tiebreaker_check": "Checking for tiebreakers before playoffs.",
+            "tiebreakers": "Tiebreaker games are being played.",
+            "playoffs": "Playoffs are underway.",
+            "championship": "Championship series is being played.",
+            "offseason": "The season has ended. A new season will begin soon.",
+            "completed": "The season is complete.",
+        }
+        season_phase_desc = phase_map.get(season_status, f"Season is {season_status}.")
 
     # Pace description
     pace = settings.pinwheel_presentation_pace
@@ -249,9 +275,10 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     ruleset = DEFAULT_RULESET
     community_changes = 0
     if season_id:
-        season = await repo.get_season(season_id)
-        if season and season.current_ruleset:
-            ruleset = RuleSet(**season.current_ruleset)
+        if not season_row:
+            season_row = await repo.get_season(season_id)
+        if season_row and season_row.current_ruleset:
+            ruleset = RuleSet(**season_row.current_ruleset)
         for field_name in RuleSet.model_fields:
             if getattr(ruleset, field_name) != getattr(DEFAULT_RULESET, field_name):
                 community_changes += 1
@@ -301,6 +328,10 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "pages/play.html",
         {
             "active_page": "play",
+            "season_name": season_name or "Season",
+            "season_status": season_status,
+            "season_phase_desc": season_phase_desc,
+            "team_names": team_names,
             "current_round": current_round,
             "total_teams": total_teams,
             "total_hoopers": total_hoopers,

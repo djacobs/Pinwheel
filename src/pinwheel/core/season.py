@@ -988,8 +988,24 @@ async def start_new_season(
 
     # 4. Carry over teams if there is a source season
     if source_season_id is None:
-        # Try to find any previous season to carry teams from
-        prev = await repo.get_latest_completed_season(league_id)
+        # Fall back to the most recent season in this league (any status).
+        # Using only "completed" seasons missed enrollments when the previous
+        # season hadn't been marked completed before /new-season was called.
+        from sqlalchemy import select as sa_select
+
+        from pinwheel.db.models import SeasonRow
+
+        stmt = (
+            sa_select(SeasonRow)
+            .where(
+                SeasonRow.league_id == league_id,
+                SeasonRow.id != new_season.id,
+            )
+            .order_by(SeasonRow.created_at.desc())
+            .limit(1)
+        )
+        result = await repo.session.execute(stmt)
+        prev = result.scalar_one_or_none()
         if prev is not None:
             source_season_id = prev.id
 

@@ -285,7 +285,7 @@ The simulation has the data — make sure the outputs use it. When adding or mod
 
 | Command | What It Does | Params |
 |---------|-------------|--------|
-| `/join [team]` | Enroll on a team as a governor | `team` (autocomplete, optional — lists teams if blank) |
+| `/join TEAM` | Enroll on a team as a governor | `team` (autocomplete, required) |
 | `/propose TEXT` | Submit a rule change to the Floor | `text` (natural language) |
 | `/vote YES\|NO [boost] [proposal]` | Vote on a proposal | `choice`, `boost` (bool), `proposal` (autocomplete) |
 | `/tokens` | Check your Floor token balance | — |

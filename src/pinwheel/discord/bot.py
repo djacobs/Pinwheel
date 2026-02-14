@@ -96,10 +96,10 @@ class PinwheelBot(commands.Bot):
             await self._handle_reports(interaction)
 
         @self.tree.command(name="join", description="Join a team as a governor for this season")
-        @app_commands.describe(team="The team name to join (leave blank to see all teams)")
+        @app_commands.describe(team="The team name to join")
         async def join_command(
             interaction: discord.Interaction,
-            team: str = "",
+            team: str,
         ) -> None:
             await self._handle_join(interaction, team)
 
@@ -2554,6 +2554,7 @@ class PinwheelBot(commands.Bot):
                     league_id=league_id,
                     season_name=name,
                     carry_forward_rules=carry_rules,
+                    previous_season_id=latest_season.id,
                 )
 
                 teams = await repo.get_teams_for_season(new_season.id)
