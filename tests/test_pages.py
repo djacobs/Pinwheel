@@ -588,7 +588,7 @@ class TestAdminRoster:
         r = await client.get("/admin/roster")
         assert r.status_code == 200
         assert "Governor Roster" in r.text
-        assert "No Governors Enrolled" in r.text
+        assert "No Governors Yet" in r.text
 
     async def test_admin_roster_with_governors(self, admin_client):
         """Admin roster shows enrolled governors after seeding."""
@@ -634,3 +634,62 @@ class TestAdminRoster:
         assert "Gov2" in r.text
         assert "Gov3" in r.text
         assert "3 Governor" in r.text
+
+
+class TestAdminSeason:
+    """Tests for the /admin/season page."""
+
+    async def test_admin_season_empty(self, admin_client):
+        """Admin season page renders with no data."""
+        client, _ = admin_client
+        r = await client.get("/admin/season")
+        assert r.status_code == 200
+        assert "Season Admin" in r.text
+        assert "No Active Season" in r.text
+
+    async def test_admin_season_with_data(self, admin_client):
+        """Admin season page shows current season info after seeding."""
+        client, engine = admin_client
+        await _seed_season(engine)
+
+        r = await client.get("/admin/season")
+        assert r.status_code == 200
+        assert "Season Admin" in r.text
+        assert "Season 1" in r.text
+        assert "Runtime Configuration" in r.text
+        assert "SLOW" in r.text or "slow" in r.text.lower()
+
+    async def test_admin_season_shows_runtime_config(self, admin_client):
+        """Admin season page shows pace, auto-advance, and other settings."""
+        client, engine = admin_client
+        await _seed_season(engine)
+
+        r = await client.get("/admin/season")
+        assert r.status_code == 200
+        assert "Pace" in r.text
+        assert "Auto-Advance" in r.text
+        assert "Governance Interval" in r.text
+        assert "Evals" in r.text
+
+    async def test_admin_season_shows_history(self, admin_client):
+        """Admin season page shows season history table."""
+        client, engine = admin_client
+        await _seed_season(engine)
+
+        r = await client.get("/admin/season")
+        assert r.status_code == 200
+        assert "Season History" in r.text
+        assert "CURRENT" in r.text
+
+    async def test_admin_season_shows_quick_actions(self, admin_client):
+        """Admin season page shows pace control buttons."""
+        client, engine = admin_client
+        await _seed_season(engine)
+
+        r = await client.get("/admin/season")
+        assert r.status_code == 200
+        assert "Quick Actions" in r.text
+        assert "FAST" in r.text
+        assert "NORMAL" in r.text
+        assert "SLOW" in r.text
+        assert "MANUAL" in r.text

@@ -2115,12 +2115,264 @@ class TestWelcomeEmbedExtended:
         # The full 150-char string should NOT appear
         assert long_bio not in desc
 
-    def test_welcome_embed_includes_bio_command(self) -> None:
-        """Welcome embed quick start lists /bio command."""
+    def test_welcome_embed_includes_key_commands(self) -> None:
+        """Welcome embed quick start lists key governance commands."""
         hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
         embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
         desc = embed.description or ""
-        assert "/bio" in desc
+        assert "/propose" in desc
+        assert "/vote" in desc
+        assert "/strategy" in desc
+        assert "/tokens" in desc
+        assert "/standings" in desc
+
+    def test_welcome_embed_includes_starter_tokens(self) -> None:
+        """Welcome embed tells new players about their starter tokens."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "2 PROPOSE" in desc
+        assert "2 AMEND" in desc
+        assert "2 BOOST" in desc
+
+    def test_welcome_embed_includes_play_link(self) -> None:
+        """Welcome embed directs players to /play for full rules."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "/play" in desc
+
+    def test_welcome_embed_with_season_context(self) -> None:
+        """Welcome embed includes season info when context is provided."""
+        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
+        ctx = {
+            "season_name": "Season THREE",
+            "season_phase": "active",
+            "current_round": 2,
+            "total_rounds": 9,
+        }
+        embed = build_welcome_embed(
+            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
+        )
+        desc = embed.description or ""
+        assert "Season THREE" in desc
+        assert "Regular season" in desc
+        assert "Round 2 of 9" in desc
+
+    def test_welcome_embed_season_context_playoffs(self) -> None:
+        """Welcome embed shows playoff phase correctly."""
+        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
+        ctx = {
+            "season_name": "Season TWO",
+            "season_phase": "playoffs",
+            "current_round": 7,
+            "total_rounds": 6,
+        }
+        embed = build_welcome_embed(
+            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
+        )
+        desc = embed.description or ""
+        assert "Playoffs" in desc
+
+    def test_welcome_embed_season_context_no_games(self) -> None:
+        """Welcome embed handles season with zero games played gracefully."""
+        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
+        ctx = {
+            "season_name": "Season ONE",
+            "season_phase": "active",
+            "current_round": 0,
+            "total_rounds": 9,
+        }
+        embed = build_welcome_embed(
+            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
+        )
+        desc = embed.description or ""
+        assert "Season ONE" in desc
+        # Should show phase but not "Round 0"
+        assert "Regular season" in desc
+        assert "Round 0" not in desc
+
+    def test_welcome_embed_without_season_context(self) -> None:
+        """Welcome embed works without season context (backward compat)."""
+        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Rose City Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        # Should still have team name, hoopers, commands
+        assert "Rose City Thorns" in desc
+        assert "Briar" in desc
+        assert "/propose" in desc
+        # Should NOT have season-specific info
+        assert "Regular season" not in desc
+
+    def test_welcome_embed_uses_team_color(self) -> None:
+        """Welcome embed uses the team's color."""
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        embed = build_welcome_embed("Thorns", "#E94560", hoopers)
+        assert embed.color == discord.Color(0xE94560)
+
+    def test_welcome_embed_shows_hooper_archetypes(self) -> None:
+        """Welcome embed lists hooper names and archetypes."""
+        hoopers = [
+            {"name": "Briar Ashwood", "archetype": "Sharpshooter"},
+            {"name": "Kai Rivers", "archetype": "Playmaker"},
+            {"name": "Zephyr Cole", "archetype": "Enforcer"},
+        ]
+        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
+        desc = embed.description or ""
+        assert "Briar Ashwood" in desc
+        assert "Sharpshooter" in desc
+        assert "Kai Rivers" in desc
+        assert "Playmaker" in desc
+        assert "Zephyr Cole" in desc
+        assert "Enforcer" in desc
+
+    def test_welcome_embed_season_context_all_phases(self) -> None:
+        """Each season phase produces an appropriate label."""
+        from pinwheel.discord.embeds import _PHASE_LABELS
+
+        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+        for phase_value, expected_label in _PHASE_LABELS.items():
+            ctx = {
+                "season_name": "Test",
+                "season_phase": phase_value,
+                "current_round": 1,
+                "total_rounds": 9,
+            }
+            embed = build_welcome_embed(
+                "Thorns", "#E74C3C", hoopers, season_context=ctx,
+            )
+            desc = embed.description or ""
+            assert expected_label in desc, (
+                f"Phase '{phase_value}' should produce label '{expected_label}'"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Welcome embed -- _gather_season_context integration
+# ---------------------------------------------------------------------------
+
+
+class TestGatherSeasonContext:
+    """Test the _gather_season_context helper used by _handle_join."""
+
+    async def test_gather_season_context_with_games(self) -> None:
+        """Context includes current round and total rounds from DB."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.bot import _gather_season_context
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test")
+            season = await repo.create_season(league.id, "Season TWO")
+            season.status = "active"
+            await session.flush()
+            team_a = await repo.create_team(season.id, "Thorns", color="#e94560")
+            team_b = await repo.create_team(season.id, "Breakers", color="#53d8fb")
+
+            # Create schedule (3 rounds)
+            for rn in range(1, 4):
+                await repo.create_schedule_entry(
+                    season.id, rn, 0, team_a.id, team_b.id, phase="regular",
+                )
+
+            # Create game results for 2 rounds
+            for rn in range(1, 3):
+                await repo.store_game_result(
+                    season_id=season.id,
+                    round_number=rn,
+                    matchup_index=0,
+                    home_team_id=team_a.id,
+                    away_team_id=team_b.id,
+                    home_score=50,
+                    away_score=45,
+                    winner_team_id=team_a.id,
+                    seed=42,
+                    total_possessions=80,
+                )
+
+            await session.commit()
+
+            # Re-fetch season to pick up updated status
+            season = await repo.get_active_season()
+            assert season is not None
+            ctx = await _gather_season_context(repo, season)
+
+        assert ctx["season_name"] == "Season TWO"
+        assert ctx["season_phase"] == "active"
+        assert ctx["current_round"] == 2
+        assert ctx["total_rounds"] == 3
+
+        await engine.dispose()
+
+    async def test_gather_season_context_no_games(self) -> None:
+        """Context handles season with no games yet."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.bot import _gather_season_context
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test")
+            season = await repo.create_season(league.id, "Season ONE")
+            await repo.update_season_status(season.id, "active")
+            team_a = await repo.create_team(season.id, "Thorns", color="#e94560")
+            team_b = await repo.create_team(season.id, "Breakers", color="#53d8fb")
+
+            # Create schedule but no game results
+            for rn in range(1, 10):
+                await repo.create_schedule_entry(
+                    season.id, rn, 0, team_a.id, team_b.id, phase="regular",
+                )
+            await session.commit()
+
+            # Re-fetch season to pick up updated status
+            season = await repo.get_active_season()
+            assert season is not None
+            ctx = await _gather_season_context(repo, season)
+
+        assert ctx["season_name"] == "Season ONE"
+        assert ctx["current_round"] == 0
+        assert ctx["total_rounds"] == 9
+
+        await engine.dispose()
+
+    async def test_gather_season_context_playoff_phase(self) -> None:
+        """Context correctly reports the season phase."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.bot import _gather_season_context
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test")
+            season = await repo.create_season(league.id, "Season TWO")
+            await repo.update_season_status(season.id, "playoffs")
+            await session.commit()
+
+            # Refresh to pick up updated status
+            season = await repo.get_active_season()
+            assert season is not None
+            ctx = await _gather_season_context(repo, season)
+
+        assert ctx["season_phase"] == "playoffs"
+
+        await engine.dispose()
 
 
 # ---------------------------------------------------------------------------

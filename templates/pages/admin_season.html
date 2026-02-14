@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Season Admin — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Season Admin</h1>
+
+{% if current_season %}
+{# ── Current Season ── #}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>{{ current_season.name }}</h3>
+  </div>
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem;">
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Status</div>
+        <div class="mono" style="font-size: 1.1rem; font-weight: 700;">
+          {% if current_season.status == 'active' %}
+            <span style="color: var(--accent-score);">ACTIVE</span>
+          {% elif current_season.status in ['playoffs', 'championship'] %}
+            <span style="color: var(--accent-game);">{{ current_season.status|upper }}</span>
+          {% elif current_season.status in ['completed', 'archived'] %}
+            <span style="color: var(--text-secondary);">{{ current_season.status|upper }}</span>
+          {% else %}
+            <span style="color: var(--accent-gov);">{{ current_season.status|upper }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Round</div>
+        <div class="mono" style="font-size: 1.1rem; font-weight: 700;">{{ current_season.current_round }}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Teams</div>
+        <div class="mono" style="font-size: 1.1rem; font-weight: 700;">{{ current_season.team_count }}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Governors</div>
+        <div class="mono" style="font-size: 1.1rem; font-weight: 700;">{{ current_season.governor_count }}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Games Played</div>
+        <div class="mono" style="font-size: 1.1rem; font-weight: 700;">{{ current_season.games_played }}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Started</div>
+        <div class="mono" style="font-size: 0.85rem;">{{ current_season.created_at.strftime('%b %d, %Y') if current_season.created_at else '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Runtime Configuration ── #}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Runtime Configuration</h3>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="box-score-table">
+      <thead>
+        <tr>
+          <th style="text-align: left;">Setting</th>
+          <th style="text-align: left;">Value</th>
+          <th style="text-align: left;">Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="text-align: left;">Pace</td>
+          <td style="text-align: left;">
+            <span class="mono" style="font-weight: 700;
+              {% if runtime_config.pace == 'fast' %}color: var(--accent-game);
+              {% elif runtime_config.pace == 'slow' %}color: var(--accent-score);
+              {% elif runtime_config.pace == 'manual' %}color: var(--accent-gov);
+              {% endif %}">
+              {{ runtime_config.pace|upper }}
+            </span>
+          </td>
+          <td style="text-align: left;" class="text-muted">Cron: {{ runtime_config.pace_cron }}</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Auto-Advance</td>
+          <td style="text-align: left;">
+            {% if runtime_config.auto_advance %}
+              <span class="mono" style="color: var(--accent-score); font-weight: 700;">ON</span>
+            {% else %}
+              <span class="mono" style="color: var(--accent-game); font-weight: 700;">OFF</span>
+            {% endif %}
+          </td>
+          <td style="text-align: left;" class="text-muted">Scheduler auto-advances rounds</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Presentation Mode</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.presentation_mode|upper }}</span></td>
+          <td style="text-align: left;" class="text-muted">
+            {% if runtime_config.presentation_mode == 'replay' %}Live quarter-by-quarter arena
+            {% else %}Results appear immediately{% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Governance Interval</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">Every {{ runtime_config.governance_interval }} round{{ 's' if runtime_config.governance_interval != 1 else '' }}</span></td>
+          <td style="text-align: left;" class="text-muted">How often governance tallies run</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Gov Window</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.gov_window }}s</span></td>
+          <td style="text-align: left;" class="text-muted">{{ (runtime_config.gov_window / 60)|int }} min vote deliberation window</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Evals</td>
+          <td style="text-align: left;">
+            {% if runtime_config.evals_enabled %}
+              <span class="mono" style="color: var(--accent-score); font-weight: 700;">ON</span>
+            {% else %}
+              <span class="mono" style="color: var(--text-secondary); font-weight: 700;">OFF</span>
+            {% endif %}
+          </td>
+          <td style="text-align: left;" class="text-muted">AI eval suite runs after each round</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Environment</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.env|upper }}</span></td>
+          <td style="text-align: left;" class="text-muted">&nbsp;</td>
+        </tr>
+        {% if runtime_config.presentation_mode == 'replay' %}
+        <tr>
+          <td style="text-align: left;">Quarter Duration</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.quarter_replay_seconds }}s</span></td>
+          <td style="text-align: left;" class="text-muted">{{ (runtime_config.quarter_replay_seconds / 60)|int }} min per quarter in replay</td>
+        </tr>
+        <tr>
+          <td style="text-align: left;">Game Gap</td>
+          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.game_interval_seconds }}s</span></td>
+          <td style="text-align: left;" class="text-muted">{{ (runtime_config.game_interval_seconds / 60)|int }} min between games in replay</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="empty-state">
+  <h3>No Active Season</h3>
+  <p>Start a new season using <code>/new-season</code> in Discord, or seed the league first.</p>
+</div>
+{% endif %}
+
+{# ── Season History ── #}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Season History</h3>
+  </div>
+  {% if past_seasons %}
+  <div class="card-body" style="padding: 0;">
+    <table class="box-score-table">
+      <thead>
+        <tr>
+          <th style="text-align: left;">Season</th>
+          <th>Status</th>
+          <th>Teams</th>
+          <th>Games</th>
+          <th style="text-align: left;">Started</th>
+          <th style="text-align: left;">Completed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in past_seasons %}
+        <tr{% if s.is_active %} style="background: rgba(255,255,255,0.03);"{% endif %}>
+          <td style="text-align: left; font-weight: 600;">
+            {{ s.name }}
+            {% if s.is_active %}<span style="color: var(--accent-score); font-size: 0.75rem; margin-left: 0.5rem;">CURRENT</span>{% endif %}
+          </td>
+          <td>
+            <span class="mono" style="font-size: 0.8rem;
+              {% if s.status == 'active' %}color: var(--accent-score);
+              {% elif s.status in ['completed', 'archived'] %}color: var(--text-secondary);
+              {% elif s.status in ['playoffs', 'championship'] %}color: var(--accent-game);
+              {% else %}color: var(--accent-gov);
+              {% endif %}">
+              {{ s.status|upper }}
+            </span>
+          </td>
+          <td class="mono">{{ s.team_count }}</td>
+          <td class="mono">{{ s.games_played }}</td>
+          <td style="text-align: left;" class="mono" style="font-size: 0.85rem;">{{ s.created_at.strftime('%b %d') if s.created_at else '—' }}</td>
+          <td style="text-align: left;" class="mono" style="font-size: 0.85rem;">{{ s.completed_at.strftime('%b %d') if s.completed_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body">
+    <p class="text-muted">No seasons have been created yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Pace Control ── #}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Quick Actions</h3>
+  </div>
+  <div class="card-body">
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+      <span class="text-muted" style="font-size: 0.85rem;">Change pace:</span>
+      {% for pace_name in ['fast', 'normal', 'slow', 'manual'] %}
+      <button
+        hx-post="/api/pace"
+        hx-vals='{"pace": "{{ pace_name }}"}'
+        hx-headers='{"Content-Type": "application/json"}'
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) location.reload()"
+        class="btn btn-sm{% if runtime_config.pace == pace_name %} btn-active{% endif %}"
+        style="padding: 0.3rem 0.8rem; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;
+          {% if runtime_config.pace == pace_name %}background: var(--accent-score); color: var(--bg-primary); font-weight: 700;{% endif %}">
+        {{ pace_name|upper }}
+      </button>
+      {% endfor %}
+    </div>
+    {% if runtime_config.pace == 'manual' or not runtime_config.auto_advance %}
+    <div style="margin-top: 1rem;">
+      <button
+        hx-post="/api/pace/advance?quarter_seconds=300&game_gap_seconds=0"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) location.reload()"
+        class="btn btn-sm"
+        style="padding: 0.4rem 1rem; font-size: 0.85rem; background: var(--accent-gov); color: var(--bg-primary); font-weight: 700;">
+        Advance One Round
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

@@ -29,6 +29,7 @@
       <a href="/reports" class="nav-link {% if active_page == 'reports' %}active{% endif %}">Reports</a>
       {% if pinwheel_env in ['development', 'staging'] %}
       <a href="/admin/evals" class="nav-link {% if active_page == 'evals' %}active{% endif %}">Evals</a>
+      <a href="/admin/season" class="nav-link {% if active_page == 'season' %}active{% endif %}">Season</a>
       {% endif %}
       <span class="nav-spacer"></span>
       {% if current_user %}

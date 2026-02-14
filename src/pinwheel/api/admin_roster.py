@@ -71,42 +71,56 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         if not _is_admin(current_user, settings):
             return HTMLResponse("Unauthorized -- admin access required.", status_code=403)
 
-    season_id = await _get_active_season_id(repo)
+    # Show ALL players, regardless of season enrollment
+    all_players = await repo.get_all_players()
     governors: list[dict] = []
-    season_name = "this season"
 
-    if season_id:
-        from pinwheel.core.tokens import get_token_balance
+    # Get active season for token balances and activity
+    active_season = await repo.get_active_season()
+    season_id = active_season.id if active_season else None
 
-        season = await repo.get_season(season_id)
-        if season:
-            season_name = season.name or "this season"
+    for player in all_players:
+        team = await repo.get_team(player.team_id) if player.team_id else None
+        team_name = team.name if team else "Unassigned"
+        team_color = team.color if team else "#888"
 
-        players = await repo.get_players_for_season(season_id)
+        propose = 0
+        amend = 0
+        boost = 0
+        proposals_submitted = 0
+        proposals_passed = 0
+        proposals_failed = 0
+        votes_cast = 0
 
-        for player in players:
-            team = await repo.get_team(player.team_id) if player.team_id else None
-            team_name = team.name if team else "Unassigned"
-            team_color = team.color if team else "#888"
+        if season_id:
+            from pinwheel.core.tokens import get_token_balance
 
             balance = await get_token_balance(repo, player.id, season_id)
+            propose = balance.propose
+            amend = balance.amend
+            boost = balance.boost
             activity = await repo.get_governor_activity(player.id, season_id)
+            proposals_submitted = activity.get("proposals_submitted", 0)
+            proposals_passed = activity.get("proposals_passed", 0)
+            proposals_failed = activity.get("proposals_failed", 0)
+            votes_cast = activity.get("votes_cast", 0)
 
-            governors.append(
-                {
-                    "id": player.id,
-                    "username": player.username,
-                    "team_name": team_name,
-                    "team_color": team_color,
-                    "propose": balance.propose,
-                    "amend": balance.amend,
-                    "boost": balance.boost,
-                    "proposals_submitted": activity.get("proposals_submitted", 0),
-                    "proposals_passed": activity.get("proposals_passed", 0),
-                    "proposals_failed": activity.get("proposals_failed", 0),
-                    "votes_cast": activity.get("votes_cast", 0),
-                }
-            )
+        governors.append(
+            {
+                "id": player.id,
+                "username": player.username,
+                "team_name": team_name,
+                "team_color": team_color,
+                "joined": player.created_at,
+                "propose": propose,
+                "amend": amend,
+                "boost": boost,
+                "proposals_submitted": proposals_submitted,
+                "proposals_passed": proposals_passed,
+                "proposals_failed": proposals_failed,
+                "votes_cast": votes_cast,
+            }
+        )
 
     return templates.TemplateResponse(
         request,
@@ -114,7 +128,6 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         {
             "active_page": "roster",
             "governors": governors,
-            "season_name": season_name,
             **_auth_context(request, current_user),
         },
     )
