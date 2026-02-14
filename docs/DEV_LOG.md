@@ -11,7 +11,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 10:** Production bugfixes — presentation mode, player enrollment, Discord invite URL
 - **Day 11:** Discord defer/timeout fixes, get_active_season migration, playoff progression pipeline
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 44 (Discord interaction defer + playoff progression pipeline)
+- **Latest commit:** Session 45 (bench players added to all teams + production backfill)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -185,8 +185,39 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ### P1: Season lifecycle
 
 - [x] **Season end detection** — Auto-detects completion, computes standings, generates playoff bracket. (Session 40)
+- [x] **Playoff progression pipeline** — Semi→finals creation, completion detection, status transitions. Single-game playoffs work end-to-end. (Session 44)
 - [x] **Season archiving** — `SeasonArchiveRow` table, `archive_season()`, web pages for archive list + detail. (Session 40)
 - [x] **New season flow** — `start_new_season()` with team/hooper/governor carry-over, `/new-season` admin command, `POST /api/seasons`. (Session 40)
+- [x] **Discord interaction timeouts** — All slash commands defer before DB/AI calls. (Session 44)
+
+### P1: Bench players (4th hooper per team)
+
+- [x] **Add 4th hooper to demo_seed.py** — Fern Wilder (iron_horse), Reed Calloway (lockdown), Lark Holloway (savant), Cinder Holt (slasher). Plus `add-bench` migration command. (Session 45)
+- [x] **Add 4th hooper to test fixtures** — `range(3)` → `range(4)` in `_setup_season_with_teams()`. All 635 tests pass. (Session 45)
+- [x] **Deploy + backfill production DB** — Ran `demo_seed.py add-bench` on Fly. All 4 teams now have 4 hoopers in production. (Session 45)
+- [ ] **Verify substitution fires in game** — After adding bench players, run a few test games and confirm play-by-play includes substitution events.
+
+### P1: Best-of-N playoff series
+
+The current implementation uses single-game playoffs. `RuleSet` defines `playoff_semis_best_of: 5` and `playoff_finals_best_of: 7` but these are completely unused. Full implementation:
+
+- [ ] **Playoff series model** — Track series state: `higher_seed_wins`, `lower_seed_wins`, `best_of`, `status`. Could be a new DB table or tracked via schedule entries + game results.
+- [ ] **`generate_playoff_bracket()` creates Game 1 only** — Instead of scheduling all games upfront, schedule one game per series. After each game, check if series is over; if not, schedule the next game.
+- [ ] **Home court alternation** — Best-of-5: Games 1,2,5 at higher seed. Best-of-7: Games 1,2,5,7 at higher seed. Use `determine_home_court(series, game_number)`.
+- [ ] **Series completion detection** — After each playoff game in `step_round()`, check if either team has `wins >= (best_of // 2) + 1`. If series complete, advance bracket (create next series or mark season complete).
+- [ ] **Governance between playoff games** — Open a governance window between each playoff game (the rules can still change during playoffs).
+- [ ] **Series report generation** — When a series ends, generate an AI narrative summarizing the series arc.
+- [ ] **Discord series notifications** — Announce series wins, elimination, and advancement.
+- [ ] **Web playoff bracket page** — Visual bracket showing series scores and advancement.
+
+### P2: Post-season phases (stretch)
+
+From the original lifecycle plan — not needed for hackathon but designed:
+
+- [ ] **Tiebreaker detection** — After regular season, detect ties at the #4/#5 boundary. Schedule tiebreaker games (single game for 2-way tie, mini round-robin for 3+ way).
+- [ ] **Championship phase** — After finals: season report, awards (MVP, best defender, most chaotic), stats compilation.
+- [ ] **Offseason phase** — Extended governance window, carry-forward vote (do rules persist to next season?), roster changes.
+- [ ] **Season archive auto-trigger** — Automatically call `archive_season()` when status hits "completed", instead of requiring manual invocation.
 
 ### P2: Doc updates (from Session 38 audit)
 
@@ -426,3 +457,32 @@ Three bugs prevented playoffs from completing:
 **635 tests (8 new), zero lint errors.**
 
 **What could have gone better:** The plan specified checking `_check_all_playoffs_complete()` before semi→finals creation, but this was wrong — it returns True prematurely when finals haven't been scheduled yet (the scheduled set only contains semis, all of which are played). The order had to be reversed during implementation. Plans for stateful progression logic should include explicit state transition diagrams to catch these ordering issues.
+
+---
+
+## Session 45 — Add Bench Players to All Teams + Production Backfill
+
+**What was asked:** Add the 4th bench hooper to each team (designed last session), update test fixtures, deploy, and backfill the production database.
+
+**What was built:**
+
+### Bench players designed and added to demo_seed.py
+- **Rose City Thorns:** Fern Wilder (iron_horse) — stamina 70, defense 40, scoring 30
+- **Burnside Breakers:** Reed Calloway (lockdown) — stamina 65, defense 60, scoring 20
+- **St. Johns Herons:** Lark Holloway (savant) — stamina 60, iq 65, passing 40
+- **Hawthorne Hammers:** Cinder Holt (slasher) — stamina 65, speed 60, scoring 40
+
+### `add-bench` migration command
+- New `demo_seed.py add-bench [db_url]` command finds teams with <4 hoopers and adds the 4th from the TEAMS data. Idempotent — skips teams that already have 4+.
+
+### Test fixture updated
+- `_setup_season_with_teams()` in `test_game_loop.py`: `range(3)` → `range(4)` hoopers per team. All 635 tests pass.
+
+### Production backfill
+- Deployed to Fly.io, then ran `demo_seed.py add-bench` via `flyctl ssh console`. All 4 bench players confirmed in production DB.
+
+**Files modified (2):** `scripts/demo_seed.py`, `tests/test_game_loop.py`
+
+**635 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward feature. The background agent approach worked well for parallelizing the demo_seed and test fixture changes.
