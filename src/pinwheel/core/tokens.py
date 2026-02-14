@@ -291,7 +291,16 @@ async def execute_hooper_trade(
     trade: HooperTrade,
     season_id: str,
 ) -> None:
-    """Execute an approved hooper trade — swap hoopers between teams."""
+    """Execute an approved hooper trade — swap hoopers between teams.
+
+    The swap is written to the database immediately. This is safe even if a
+    simulation round is in progress because each round runs inside its own
+    database session/transaction. SQLite snapshot isolation (WAL mode) and
+    SQLAlchemy's identity map guarantee that the in-progress simulation sees
+    a consistent roster snapshot taken at the start of the session. The new
+    team assignments become visible to the *next* round's session, which is
+    exactly the desired "take effect at the next break between games" behavior.
+    """
     for hooper_id in trade.offered_hooper_ids:
         await repo.swap_hooper_team(hooper_id, trade.to_team_id)
     for hooper_id in trade.requested_hooper_ids:

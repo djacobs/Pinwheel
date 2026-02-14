@@ -953,6 +953,9 @@ class PinwheelBot(commands.Bot):
 
                         await regenerate_tokens(repo, player.id, target_team.id, season.id)
 
+                        # Gather season context while the DB session is still open
+                        season_context = await _gather_season_context(repo, season)
+
                         await session.commit()
 
                     # DB session closed — safe to do Discord ops and build embeds
@@ -990,6 +993,7 @@ class PinwheelBot(commands.Bot):
                         target_team.color or "#000000",
                         hoopers,
                         motto=target_team.motto or "",
+                        season_context=season_context,
                     )
                     await interaction.followup.send(embed=embed)
 
@@ -2650,6 +2654,49 @@ class PinwheelBot(commands.Bot):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._event_listener_task
         await super().close()
+
+
+async def _gather_season_context(
+    repo: object,
+    season: object,
+) -> dict[str, object]:
+    """Gather season context for the welcome embed while the DB session is open.
+
+    Returns a dict with season_name, season_phase, current_round, and
+    total_rounds.  All values are plain Python types (not ORM objects) so
+    they remain usable after the session closes.
+
+    Args:
+        repo: A Repository instance (typed as object to avoid import at module level).
+        season: A SeasonRow instance.
+    """
+    from pinwheel.core.season import normalize_phase
+
+    season_name = getattr(season, "name", "") or ""
+    season_status = getattr(season, "status", "active") or "active"
+    season_id = getattr(season, "id", "")
+    phase = normalize_phase(season_status)
+
+    # Determine the current round (max round with played games) and total rounds
+    current_round = 0
+    total_rounds = 0
+    try:
+        games = await repo.get_all_games(season_id)  # type: ignore[union-attr]
+        if games:
+            current_round = max(g.round_number for g in games)
+
+        schedule = await repo.get_full_schedule(season_id, phase="regular")  # type: ignore[union-attr]
+        if schedule:
+            total_rounds = max(s.round_number for s in schedule)
+    except Exception:
+        logger.debug("welcome_season_context_round_lookup_failed", exc_info=True)
+
+    return {
+        "season_name": season_name,
+        "season_phase": phase.value if hasattr(phase, "value") else str(phase),
+        "current_round": current_round,
+        "total_rounds": total_rounds,
+    }
 
 
 def is_discord_enabled(settings: Settings) -> bool:

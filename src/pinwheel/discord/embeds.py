@@ -422,6 +422,7 @@ def build_welcome_embed(
     team_color: str,
     hoopers: list[dict[str, str]],
     motto: str = "",
+    season_context: dict[str, object] | None = None,
 ) -> discord.Embed:
     """Build a welcome DM embed for a newly enrolled governor.
 
@@ -431,6 +432,9 @@ def build_welcome_embed(
         hoopers: List of dicts with 'name' and 'archetype' keys.
             Each dict may also have a 'backstory' key.
         motto: Optional team motto.
+        season_context: Optional dict with season info to enrich the welcome.
+            Keys: season_name (str), season_phase (str), current_round (int),
+            total_rounds (int).
     """
     roster_lines: list[str] = []
     for h in hoopers:
@@ -446,22 +450,86 @@ def build_welcome_embed(
     if motto:
         team_header += f'\n*"{motto}"*'
 
+    # Build the season status line when context is available
+    season_line = ""
+    if season_context:
+        season_line = _format_season_line(season_context)
+
+    # Build the description sections
+    sections: list[str] = [team_header]
+
+    if season_line:
+        sections.append(season_line)
+
+    sections.append(f"**Your hoopers:**\n{roster}")
+
+    sections.append(
+        "**Your starter tokens:**\n"
+        "You received **2 PROPOSE**, **2 AMEND**, and **2 BOOST** tokens.\n"
+        "PROPOSE tokens let you submit rule changes. "
+        "AMEND tokens let you modify proposals on the Floor. "
+        "BOOST tokens amplify your vote on proposals that matter to you."
+    )
+
+    sections.append(
+        "**Commands you'll use:**\n"
+        "`/propose` -- Submit a rule change to the Floor\n"
+        "`/vote` -- Vote on active proposals\n"
+        "`/strategy` -- Set your team's strategic direction\n"
+        "`/tokens` -- Check your Floor token balance\n"
+        "`/standings` -- See the league standings"
+    )
+
+    sections.append(
+        "Read the full rules at **/play** on the web."
+    )
+
     embed = discord.Embed(
         title=f"Welcome to {team_name}!",
-        description=(
-            f"{team_header}\n\n"
-            f"**Your roster:**\n{roster}\n\n"
-            "**Quick start:**\n"
-            "`/propose` -- Submit a rule change\n"
-            "`/vote` -- Vote on active proposals\n"
-            "`/strategy` -- Set your team's strategy\n"
-            "`/bio` -- Write a backstory for a hooper\n"
-            "`/tokens` -- Check your Floor tokens"
-        ),
+        description="\n\n".join(sections),
         color=discord.Color(int(team_color.lstrip("#"), 16)),
     )
     embed.set_footer(text="Pinwheel Fates -- Lead wisely.")
     return embed
+
+
+# Phase display labels for the welcome embed.
+_PHASE_LABELS: dict[str, str] = {
+    "setup": "Preseason",
+    "active": "Regular season",
+    "tiebreaker_check": "Tiebreaker seeding",
+    "tiebreakers": "Tiebreakers",
+    "playoffs": "Playoffs",
+    "championship": "Championship",
+    "offseason": "Offseason",
+    "complete": "Season complete",
+}
+
+
+def _format_season_line(ctx: dict[str, object]) -> str:
+    """Format a one-line season status string from season context.
+
+    Example output: "Season THREE -- Regular season, Round 2 of 9"
+    """
+    season_name = str(ctx.get("season_name", ""))
+    phase_raw = str(ctx.get("season_phase", "active"))
+    current_round = int(ctx.get("current_round", 0))  # type: ignore[arg-type]
+    total_rounds = int(ctx.get("total_rounds", 0))  # type: ignore[arg-type]
+
+    phase_label = _PHASE_LABELS.get(phase_raw, phase_raw.replace("_", " ").capitalize())
+
+    parts: list[str] = []
+    if season_name:
+        parts.append(f"**{season_name}**")
+
+    if current_round > 0 and total_rounds > 0:
+        parts.append(f"{phase_label}, Round {current_round} of {total_rounds}")
+    elif current_round > 0:
+        parts.append(f"{phase_label}, Round {current_round}")
+    else:
+        parts.append(phase_label)
+
+    return " -- ".join(parts)
 
 
 def build_roster_embed(

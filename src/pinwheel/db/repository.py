@@ -199,6 +199,12 @@ class Repository:
     async def get_agent(self, agent_id: str) -> HooperRow | None:
         return await self.get_hooper(agent_id)
 
+    async def get_hoopers_for_team(self, team_id: str) -> list[HooperRow]:
+        """Return all hoopers currently assigned to a team."""
+        stmt = select(HooperRow).where(HooperRow.team_id == team_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     # --- Game Results ---
 
     async def store_game_result(

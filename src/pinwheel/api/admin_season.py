@@ -9,12 +9,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
 
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PACE_CRON_MAP, PROJECT_ROOT
-from pinwheel.db.models import GameResultRow, SeasonRow, TeamRow
+from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.db.models import GameResultRow, TeamRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -85,9 +86,6 @@ async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUs
             )
         )
         current_round = round_result.scalar() or 0
-
-        # Effective cron
-        effective_cron = settings.effective_game_cron()
 
         current_season_data = {
             "id": active_season.id,
