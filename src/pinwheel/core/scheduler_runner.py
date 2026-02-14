@@ -348,9 +348,9 @@ async def tick_round(
         async with get_session(engine) as session:
             repo = Repository(session)
 
-            # Find active season
+            # Find active season — skip completed/archived (game sim is done)
             season = await repo.get_active_season()
-            if season is None:
+            if season is None or season.status in ("completed", "archived"):
                 logger.info("tick_round_skip: no active season")
                 return
 

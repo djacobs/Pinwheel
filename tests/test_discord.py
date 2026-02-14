@@ -2656,3 +2656,56 @@ class TestSyncRoleEnrollments:
         guild = MagicMock(spec=discord.Guild)
         # Should not raise
         await bot._sync_role_enrollments(guild)
+
+
+class TestGetGovernorCompletedSeason:
+    """Governance is always open — get_governor must work with completed seasons."""
+
+    @pytest.mark.asyncio
+    async def test_governor_found_with_completed_season(self) -> None:
+        """get_governor returns GovernorInfo even when the season is completed."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.helpers import get_governor
+
+        engine = create_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.create_season("League 1", "Season 1")
+            team = await repo.create_team("Testers", season.id)
+            player = await repo.get_or_create_player(
+                discord_id="12345",
+                username="TestGov",
+            )
+            await repo.enroll_player(player.id, team.id, season.id)
+            # Mark season as completed
+            await repo.update_season_status(season.id, "completed")
+            await session.commit()
+
+        # get_governor should still find the governor via the fallback
+        gov = await get_governor(engine, "12345")
+        assert gov.player_id == player.id
+        assert gov.team_id == team.id
+        assert gov.season_id == season.id
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_governor_not_found_no_season(self) -> None:
+        """get_governor raises GovernorNotFound when no seasons exist at all."""
+        from pinwheel.db.engine import create_engine
+        from pinwheel.db.models import Base
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        engine = create_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        with pytest.raises(GovernorNotFound, match="No active season"):
+            await get_governor(engine, "99999")
+
+        await engine.dispose()
