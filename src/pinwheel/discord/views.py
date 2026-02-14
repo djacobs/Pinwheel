@@ -100,9 +100,8 @@ class ProposalConfirmView(discord.ui.View):
                 season = await repo.get_season(
                     self.governor_info.season_id,
                 )
-                ruleset = RuleSet(
-                    **(season.current_ruleset if season else {}),
-                )
+                ruleset_data = (season.current_ruleset if season else None) or {}
+                ruleset = RuleSet(**ruleset_data)
 
                 proposal = await submit_proposal(
                     repo=repo,
@@ -270,9 +269,8 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 season = await repo.get_season(
                     self.parent_view.governor_info.season_id,
                 )
-                ruleset = RuleSet(
-                    **(season.current_ruleset if season else {}),
-                )
+                ruleset_data = (season.current_ruleset if season else None) or {}
+                ruleset = RuleSet(**ruleset_data)
 
             api_key = self.parent_view.settings.anthropic_api_key
             if api_key:

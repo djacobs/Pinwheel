@@ -67,7 +67,7 @@ async def evaluate_rules(
 
     # Gather context
     season = await repo.get_season(season_id)
-    ruleset = season.current_ruleset if season else {}
+    ruleset = (season.current_ruleset if season else None) or {}
 
     # Recent game stats
     all_games = await repo.get_all_game_results_for_season(season_id)

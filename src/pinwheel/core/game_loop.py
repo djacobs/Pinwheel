@@ -280,7 +280,7 @@ async def _run_evals(
         for h in t.hoopers:
             hooper_data.append({"name": h.name})
     season = await repo.get_season(season_id)
-    ruleset_dict = season.current_ruleset if season else {}
+    ruleset_dict = (season.current_ruleset if season else None) or {}
     context = GroundingContext(
         team_names=[d["name"] for d in team_data],
         agent_names=[d["name"] for d in hooper_data],
