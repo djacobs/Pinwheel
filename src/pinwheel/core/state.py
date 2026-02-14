@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pinwheel.models.team import Hooper, PlayerAttributes
+from pinwheel.models.team import Hooper, PlayerAttributes, TeamStrategy
 
 
 @dataclass
@@ -87,6 +87,8 @@ class GameState:
     elam_activated: bool = False
     elam_target_score: int | None = None
     game_over: bool = False
+    home_strategy: TeamStrategy | None = None
+    away_strategy: TeamStrategy | None = None
 
     @property
     def home_active(self) -> list[HooperState]:
@@ -124,6 +126,16 @@ class GameState:
     @property
     def defense(self) -> list[HooperState]:
         return self.away_active if self.home_has_ball else self.home_active
+
+    @property
+    def offense_strategy(self) -> TeamStrategy | None:
+        """Strategy for the team currently on offense."""
+        return self.home_strategy if self.home_has_ball else self.away_strategy
+
+    @property
+    def defense_strategy(self) -> TeamStrategy | None:
+        """Strategy for the team currently on defense."""
+        return self.away_strategy if self.home_has_ball else self.home_strategy
 
     @property
     def score_diff(self) -> int:

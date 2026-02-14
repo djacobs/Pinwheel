@@ -140,7 +140,7 @@ class TestStepRound:
         received = []
 
         async with bus.subscribe(None) as sub:
-            await step_round(repo, season_id, round_number=1, event_bus=bus)
+            result = await step_round(repo, season_id, round_number=1, event_bus=bus)
             # Drain all events
             while True:
                 event = await sub.get(timeout=0.1)
@@ -150,8 +150,42 @@ class TestStepRound:
 
         event_types = [e["type"] for e in received]
         assert "game.completed" in event_types
-        assert "report.generated" in event_types
         assert "round.completed" in event_types
+
+        # report.generated events are now deferred (returned in RoundResult)
+        assert len(result.report_events) >= 2  # sim + gov at minimum
+        report_types = [e["report_type"] for e in result.report_events]
+        assert "simulation" in report_types
+        assert "governance" in report_types
+
+    async def test_suppress_spoiler_events(self, repo: Repository):
+        """When suppress_spoiler_events=True, game.completed and round.completed
+        are not published to the bus, but report events are still collected."""
+        season_id, _ = await _setup_season_with_teams(repo)
+        bus = EventBus()
+        received = []
+
+        async with bus.subscribe(None) as sub:
+            result = await step_round(
+                repo,
+                season_id,
+                round_number=1,
+                event_bus=bus,
+                suppress_spoiler_events=True,
+            )
+            # Drain all events
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "game.completed" not in event_types
+        assert "round.completed" not in event_types
+
+        # Report events still collected in result
+        assert len(result.report_events) >= 2
 
     async def test_empty_round(self, repo: Repository):
         """Round with no scheduled games should not crash."""

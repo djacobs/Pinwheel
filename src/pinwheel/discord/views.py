@@ -476,6 +476,7 @@ class StrategyConfirmView(discord.ui.View):
         team_name: str,
         governor_info: GovernorInfo,
         engine: AsyncEngine,
+        api_key: str = "",
     ) -> None:
         super().__init__(timeout=300)
         self.original_user_id = original_user_id
@@ -483,6 +484,7 @@ class StrategyConfirmView(discord.ui.View):
         self.team_name = team_name
         self.governor_info = governor_info
         self.engine = engine
+        self.api_key = api_key
 
     @discord.ui.button(
         label="Confirm",
@@ -505,6 +507,14 @@ class StrategyConfirmView(discord.ui.View):
         from pinwheel.db.repository import Repository
 
         try:
+            # Interpret strategy into structured parameters
+            from pinwheel.ai.interpreter import interpret_strategy, interpret_strategy_mock
+
+            if self.api_key:
+                interpreted = await interpret_strategy(self.raw_text, self.api_key)
+            else:
+                interpreted = interpret_strategy_mock(self.raw_text)
+
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 await repo.append_event(
@@ -519,6 +529,19 @@ class StrategyConfirmView(discord.ui.View):
                         "team_id": self.governor_info.team_id,
                     },
                 )
+                # Store interpreted strategy for simulation to read
+                await repo.append_event(
+                    event_type="strategy.interpreted",
+                    aggregate_id=self.governor_info.team_id,
+                    aggregate_type="team_strategy",
+                    season_id=self.governor_info.season_id,
+                    governor_id=self.governor_info.player_id,
+                    team_id=self.governor_info.team_id,
+                    payload={
+                        "team_id": self.governor_info.team_id,
+                        "strategy": interpreted.model_dump(),
+                    },
+                )
                 await session.commit()
 
             for item in self.children:
@@ -531,6 +554,17 @@ class StrategyConfirmView(discord.ui.View):
             )
             embed.title = f"Strategy Active -- {self.team_name}"
             embed.color = 0x2ECC71
+            # Add interpreted parameters to the embed
+            params_desc = (
+                f"Confidence: {interpreted.confidence:.0%}\n"
+                f"3pt bias: {interpreted.three_point_bias:+.1f} | "
+                f"Mid: {interpreted.mid_range_bias:+.1f} | "
+                f"Rim: {interpreted.at_rim_bias:+.1f}\n"
+                f"Defense: {interpreted.defensive_intensity:+.2f} | "
+                f"Pace: {interpreted.pace_modifier:.2f}x | "
+                f"Sub: {interpreted.substitution_threshold_modifier:+.2f}"
+            )
+            embed.add_field(name="Interpreted Parameters", value=params_desc, inline=False)
             await interaction.response.edit_message(
                 embed=embed,
                 view=self,

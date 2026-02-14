@@ -597,3 +597,174 @@ class TestBatchStatistics:
         assert 45 < avg_possessions < 200, f"avg possessions {avg_possessions} out of range"
         # With equal teams, home/away should be roughly balanced
         assert 25 < home_wins < 75, f"home wins {home_wins}/100 too skewed"
+
+
+# --- Strategy ---
+
+
+class TestTeamStrategy:
+    def test_strategy_model_defaults(self):
+        from pinwheel.models.team import TeamStrategy
+
+        s = TeamStrategy()
+        assert s.three_point_bias == 0.0
+        assert s.pace_modifier == 1.0
+        assert s.defensive_intensity == 0.0
+        assert s.confidence == 0.0
+
+    def test_strategy_model_validation(self):
+        from pydantic import ValidationError
+
+        from pinwheel.models.team import TeamStrategy
+
+        # Valid extreme values
+        s = TeamStrategy(three_point_bias=20.0, pace_modifier=0.7)
+        assert s.three_point_bias == 20.0
+
+        # Out of range should fail
+        try:
+            TeamStrategy(three_point_bias=25.0)
+            assert False, "Should have raised"  # noqa: B011
+        except ValidationError:
+            pass
+
+    def test_mock_interpreter_three_point(self):
+        from pinwheel.ai.interpreter import interpret_strategy_mock
+
+        result = interpret_strategy_mock("Shoot more threes, bomb away!")
+        assert result.three_point_bias > 5.0
+        assert result.confidence > 0.5
+
+    def test_mock_interpreter_defense(self):
+        from pinwheel.ai.interpreter import interpret_strategy_mock
+
+        result = interpret_strategy_mock("Lock down on defense, clamp them")
+        assert result.defensive_intensity > 0.1
+        assert result.confidence > 0.5
+
+    def test_mock_interpreter_pace(self):
+        from pinwheel.ai.interpreter import interpret_strategy_mock
+
+        result = interpret_strategy_mock("Push the tempo, run and gun")
+        assert result.pace_modifier < 0.9
+        assert result.confidence > 0.5
+
+    def test_mock_interpreter_balanced(self):
+        from pinwheel.ai.interpreter import interpret_strategy_mock
+
+        result = interpret_strategy_mock("Just play normal basketball")
+        assert abs(result.three_point_bias) < 1.0
+        assert abs(result.at_rim_bias) < 1.0
+
+    def test_strategy_affects_shot_selection(self):
+        """With a heavy three-point bias, more threes should be selected."""
+        from pinwheel.core.possession import select_action
+        from pinwheel.models.team import TeamStrategy
+
+        handler = HooperState(hooper=_make_hooper())
+        state = GameState(
+            home_agents=[handler],
+            away_agents=[HooperState(hooper=_make_hooper("d-1", "t-2"))],
+        )
+
+        rng = random.Random(42)
+        n = 500
+
+        # Without strategy
+        state.home_strategy = None
+        no_strat_threes = sum(
+            1
+            for _ in range(n)
+            if select_action(handler, state, DEFAULT_RULESET, rng) == "three_point"
+        )
+
+        # With heavy three-point bias
+        rng = random.Random(42)
+        state.home_strategy = TeamStrategy(three_point_bias=20.0)
+        strat_threes = sum(
+            1
+            for _ in range(n)
+            if select_action(handler, state, DEFAULT_RULESET, rng) == "three_point"
+        )
+
+        assert strat_threes > no_strat_threes, (
+            f"Three-point strategy should increase threes: {strat_threes} vs {no_strat_threes}"
+        )
+
+    def test_strategy_affects_simulation(self):
+        """Same seed, different strategies should produce different results."""
+        from pinwheel.models.team import TeamStrategy
+
+        home = _make_team("home")
+        away = _make_team("away")
+
+        # No strategy
+        r1 = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+
+        # Home team: bomb away
+        three_strat = TeamStrategy(three_point_bias=20.0, pace_modifier=0.8)
+        r2 = simulate_game(
+            home, away, DEFAULT_RULESET, seed=42,
+            home_strategy=three_strat,
+        )
+
+        # Results should differ (different shot selection → different RNG path)
+        differs = (
+            r1.home_score != r2.home_score
+            or r1.away_score != r2.away_score
+            or r1.total_possessions != r2.total_possessions
+        )
+        assert differs, "Strategy should change game outcome"
+
+
+# --- Substitution in Full Games ---
+
+
+class TestSubstitutionFullGame:
+    def test_substitution_fires_in_full_game(self):
+        """A full game with 4 hoopers should produce at least one substitution."""
+        home = _make_team("home", n_starters=3, n_bench=1)
+        away = _make_team("away", n_starters=3, n_bench=1)
+
+        # Use a lower threshold to make substitutions more likely
+        rules = RuleSet(substitution_stamina_threshold=0.5)
+
+        # Try multiple seeds — at least one should produce a substitution
+        found_sub = False
+        for seed in range(20):
+            result = simulate_game(home, away, rules, seed=seed)
+            subs = [
+                p for p in result.possession_log if p.action == "substitution"
+            ]
+            if subs:
+                found_sub = True
+                break
+
+        assert found_sub, "Expected at least one substitution across 20 games"
+
+    def test_substitution_details_in_log(self):
+        """Substitution log entries should have meaningful result strings."""
+        home = _make_team("home", n_starters=3, n_bench=1)
+        away = _make_team("away", n_starters=3, n_bench=1)
+
+        rules = RuleSet(substitution_stamina_threshold=0.6)
+
+        for seed in range(30):
+            result = simulate_game(home, away, rules, seed=seed)
+            subs = [
+                p for p in result.possession_log if p.action == "substitution"
+            ]
+            if subs:
+                # Verify the substitution log entry format
+                sub = subs[0]
+                assert ":" in sub.result, (
+                    f"Sub result should have format 'reason:out:in', got {sub.result}"
+                )
+                parts = sub.result.split(":")
+                assert parts[0] in ("fatigue", "foul_out"), (
+                    f"Sub reason should be fatigue or foul_out, got {parts[0]}"
+                )
+                return
+
+        # Warn but don't fail — substitution depends on game dynamics
+        raise AssertionError("No substitution found in 30 games at threshold 0.6")

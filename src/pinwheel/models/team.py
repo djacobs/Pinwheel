@@ -61,6 +61,19 @@ class Hooper(BaseModel):
     is_starter: bool = True
 
 
+class TeamStrategy(BaseModel):
+    """Interpreted strategy parameters derived from natural language."""
+
+    three_point_bias: float = Field(default=0.0, ge=-20.0, le=20.0)
+    mid_range_bias: float = Field(default=0.0, ge=-20.0, le=20.0)
+    at_rim_bias: float = Field(default=0.0, ge=-20.0, le=20.0)
+    defensive_intensity: float = Field(default=0.0, ge=-0.5, le=0.5)
+    pace_modifier: float = Field(default=1.0, ge=0.7, le=1.3)
+    substitution_threshold_modifier: float = Field(default=0.0, ge=-0.15, le=0.15)
+    raw_text: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 # Backward-compatible alias
 Agent = Hooper
 

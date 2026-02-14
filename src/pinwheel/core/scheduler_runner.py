@@ -100,6 +100,7 @@ async def _present_and_clear(
     game_summaries: list[dict] | None = None,
     skip_quarters: int = 0,
     governance_summary: dict | None = None,
+    report_events: list[dict] | None = None,
 ) -> None:
     """Wrapper: run present_round, then clear the persisted state flag."""
     try:
@@ -116,6 +117,10 @@ async def _present_and_clear(
             skip_quarters=skip_quarters,
         )
     finally:
+        # Publish deferred report events after presentation finishes
+        for rev in report_events or []:
+            await event_bus.publish("report.generated", rev)
+
         # Publish governance notification after presentation finishes
         if governance_summary:
             await event_bus.publish(
@@ -373,6 +378,7 @@ async def tick_round(
                 event_bus=event_bus,
                 api_key=api_key,
                 governance_interval=governance_interval,
+                suppress_spoiler_events=(presentation_mode == "replay"),
             )
 
             # If instant mode (dev only), mark all games presented immediately
@@ -396,6 +402,10 @@ async def tick_round(
                         "games_presented": len(round_result.game_results),
                     },
                 )
+
+                # Publish deferred report events now (no delay in instant mode)
+                for rev in round_result.report_events:
+                    await event_bus.publish("report.generated", rev)
 
                 # Publish governance notification alongside presentation events
                 if round_result.governance_summary:
@@ -455,6 +465,7 @@ async def tick_round(
                     on_game_finished=mark_presented,
                     game_summaries=round_result.games,
                     governance_summary=round_result.governance_summary,
+                    report_events=round_result.report_events,
                 )
             )
             logger.info(

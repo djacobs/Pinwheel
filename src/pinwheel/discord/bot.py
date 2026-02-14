@@ -842,14 +842,22 @@ class PinwheelBot(commands.Bot):
 
                     # DB session closed — safe to do Discord ops and build embeds
 
-                    # Assign Discord role if in a guild
+                    # Assign Discord role if in a guild (non-fatal if role ops fail)
                     if interaction.guild:
                         role = discord.utils.get(
                             interaction.guild.roles,
                             name=target_team.name,
                         )
                         if role and isinstance(interaction.user, discord.Member):
-                            await interaction.user.add_roles(role)
+                            try:
+                                await interaction.user.add_roles(role)
+                            except (discord.Forbidden, discord.HTTPException) as role_err:
+                                logger.warning(
+                                    "join_role_assign_failed user=%s role=%s err=%s",
+                                    interaction.user.display_name,
+                                    target_team.name,
+                                    role_err,
+                                )
 
                     # Build confirmation embed (shown in channel)
                     from pinwheel.discord.embeds import build_welcome_embed
@@ -864,7 +872,7 @@ class PinwheelBot(commands.Bot):
                     ]
                     embed = build_welcome_embed(
                         target_team.name,
-                        target_team.color,
+                        target_team.color or "#000000",
                         hoopers,
                         motto=target_team.motto or "",
                     )
@@ -894,7 +902,11 @@ class PinwheelBot(commands.Bot):
                 raise last_error
 
         except Exception:
-            logger.exception("discord_join_failed")
+            logger.exception(
+                "discord_join_failed user=%s team=%s",
+                interaction.user.display_name if interaction.user else "unknown",
+                team_name,
+            )
             await interaction.followup.send(
                 "Something went wrong joining the team.",
                 ephemeral=True,
@@ -2015,6 +2027,7 @@ class PinwheelBot(commands.Bot):
             team_name=gov.team_name,
             governor_info=gov,
             engine=self.engine,
+            api_key=self.settings.anthropic_api_key if self.settings else "",
         )
         embed = build_strategy_embed(text, gov.team_name)
         embed.set_footer(

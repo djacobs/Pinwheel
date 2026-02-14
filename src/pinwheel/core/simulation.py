@@ -16,7 +16,7 @@ from pinwheel.core.possession import resolve_possession
 from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
 from pinwheel.models.rules import RuleSet
-from pinwheel.models.team import Team
+from pinwheel.models.team import Team, TeamStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,12 @@ def _check_substitution(
             if not active:
                 continue
             worst = min(active, key=lambda a: a.current_stamina)
-            if worst.current_stamina < rules.substitution_stamina_threshold:
+            # Apply strategy modifier to substitution threshold
+            threshold = rules.substitution_stamina_threshold
+            strategy = game_state.home_strategy if is_home else game_state.away_strategy
+            if strategy:
+                threshold += strategy.substitution_threshold_modifier
+            if worst.current_stamina < threshold:
                 best_bench = max(bench, key=lambda b: b.current_stamina)
                 if best_bench.current_stamina > worst.current_stamina:
                     game_state.substitute(worst, best_bench)
@@ -262,6 +267,8 @@ def simulate_game(
     seed: int,
     game_id: str = "",
     effects: list[GameEffect] | None = None,
+    home_strategy: TeamStrategy | None = None,
+    away_strategy: TeamStrategy | None = None,
 ) -> GameResult:
     """Simulate a complete 3v3 basketball game.
 
@@ -279,6 +286,8 @@ def simulate_game(
     game_state = GameState(
         home_agents=_build_hooper_states(home),
         away_agents=_build_hooper_states(away),
+        home_strategy=home_strategy,
+        away_strategy=away_strategy,
     )
 
     quarter_scores: list[QuarterScore] = []

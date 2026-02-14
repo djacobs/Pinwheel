@@ -4,14 +4,15 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **635 tests**, zero lint errors (Session 44)
+- **644 tests**, zero lint errors (Session 46)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
 - **Day 10:** Production bugfixes — presentation mode, player enrollment, Discord invite URL
 - **Day 11:** Discord defer/timeout fixes, get_active_season migration, playoff progression pipeline
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 45 (bench players added to all teams + production backfill)
+- **Day 12:** P0 fixes — /join, score spoilers, strategy system, trade verification, substitution verification
+- **Latest commit:** Session 46 (P0 fixes + strategy system)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -486,3 +487,49 @@ Three bugs prevented playoffs from completing:
 **635 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — straightforward feature. The background agent approach worked well for parallelizing the demo_seed and test fixture changes.
+
+---
+
+## Session 46 — P0 Fixes + Strategy System
+
+**What was asked:** Fix four P0 issues before the next round fires (semifinals): /join broken, score spoiler notifications in replay mode, strategy command is cosmetic-only, verify trades work. Also verify substitutions fire and update the dev log.
+
+**What was built:**
+
+### P0: Fix /join command ("Something went wrong joining the team")
+- **Root cause:** `interaction.user.add_roles(role)` was not wrapped in error handling. If the bot lacks `manage_roles` permission or the team role is above the bot's role in the Discord hierarchy, `discord.Forbidden` propagated to the catch-all, masking a successful DB enrollment.
+- **Fix:** Wrapped `add_roles()` in `try/except (discord.Forbidden, discord.HTTPException)` with warning log. Also added defensive `team_color or "#000000"` fallback in `build_welcome_embed` call. Added `is_active` column migration for hoopers table in `main.py` (defense-in-depth for production DBs created before Session 45). Improved error logging to include user and team name context.
+- **Files:** `discord/bot.py`, `main.py`
+
+### P0: Fix score spoiler notifications (replay mode)
+- **Root cause:** `report.generated` events fired during simulation in `step_round()`, and the Discord bot immediately posted report excerpts containing scores to Discord — before the presentation even started.
+- **Fix — deferred report events:** Replaced all three `event_bus.publish("report.generated", ...)` calls in `game_loop.py` with collection into `deferred_report_events` list. Added `report_events: list[dict]` field to `RoundResult`. In `scheduler_runner.py`, instant mode publishes report events immediately; replay mode defers them to `_present_and_clear()` which publishes in the `finally` block after presentation finishes. Also added `suppress_spoiler_events` param to `step_round()` — when True (replay mode), `game.completed` and `round.completed` events are suppressed from the bus.
+- **Files:** `core/game_loop.py`, `core/scheduler_runner.py`
+- **Tests:** Updated `test_publishes_events_to_bus` to check `result.report_events` instead of bus. New `test_suppress_spoiler_events` verifies suppression.
+
+### P0: Player strategy affects gameplay
+Full strategy pipeline from `/strategy` command to simulation impact:
+- **`TeamStrategy` model** (`models/team.py`): six parameters — `three_point_bias`, `mid_range_bias`, `at_rim_bias`, `defensive_intensity`, `pace_modifier`, `substitution_threshold_modifier` — plus `raw_text` and `confidence`.
+- **AI strategy interpreter** (`ai/interpreter.py`): `interpret_strategy()` (Claude-powered) and `interpret_strategy_mock()` (keyword matching). System prompt maps basketball concepts to parameter space.
+- **Strategy interpretation on confirm** (`discord/views.py`): When `/strategy` is confirmed, text is interpreted into structured params, stored as `strategy.interpreted` event with full parameter payload. Embed shows interpreted parameters.
+- **Strategy loaded in simulation** (`core/game_loop.py`): Before games, queries latest `strategy.interpreted` event per team. Passes `home_strategy`/`away_strategy` to `simulate_game()`.
+- **Applied in simulation:**
+  - `possession.py` `select_action()`: biases add to shot selection weights (floored at 1.0)
+  - `possession.py` `resolve_possession()`: pace modifier scales possession duration
+  - `possession.py` `resolve_possession()`: defensive intensity adds to contest modifier
+  - `simulation.py` `_check_substitution()`: threshold modifier adjusts fatigue sub trigger
+  - `state.py` `GameState`: new `home_strategy`/`away_strategy` fields + `offense_strategy`/`defense_strategy` properties
+- **Files:** `models/team.py`, `ai/interpreter.py`, `core/state.py`, `core/possession.py`, `core/defense.py` (indirect), `core/simulation.py`, `core/game_loop.py`, `discord/views.py`, `discord/bot.py`
+- **Tests (8 new):** TeamStrategy model validation, mock interpreter keyword mapping (three-point, defense, pace, balanced), `select_action` with bias, `simulate_game` with vs without strategy (same seed, different results)
+
+### P0: Verify governor trades work
+- Ran all 6 tests in `test_tokens.py` (hooper trade voting: both approve, one rejects, both reject, incomplete votes, from-team rejects, tie rejects) — all pass.
+- Ran all 94 tests in `test_discord.py` — all pass.
+- Trade flow confirmed: offer → accept/reject → balance update.
+
+### P1: Verify substitution fires in game
+- **New tests (2):** `test_substitution_fires_in_full_game` (runs 20 games with threshold 0.5, asserts at least one substitution), `test_substitution_details_in_log` (verifies log format: `reason:out_name:in_name` where reason is `fatigue` or `foul_out`). Both pass.
+
+**Files modified (11):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `src/pinwheel/core/simulation.py`, `src/pinwheel/core/possession.py`, `src/pinwheel/core/state.py`, `src/pinwheel/models/team.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/discord/views.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/main.py`, `tests/test_simulation.py`, `tests/test_game_loop.py`
+
+**644 tests (10 new), zero lint errors.**

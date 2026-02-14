@@ -72,6 +72,13 @@ def select_action(
         "three_point": 20.0 + scoring * 0.3,
     }
 
+    # Apply team strategy biases
+    strategy = game_state.offense_strategy
+    if strategy:
+        weights["at_rim"] += strategy.at_rim_bias
+        weights["mid_range"] += strategy.mid_range_bias
+        weights["three_point"] += strategy.three_point_bias
+
     # Elam: trailing team takes more threes
     if game_state.elam_activated and game_state.elam_target_score:
         my_score = game_state.home_score if game_state.home_has_ball else game_state.away_score
@@ -80,7 +87,7 @@ def select_action(
             weights["three_point"] += 15.0
 
     types = list(weights.keys())
-    w = [weights[t] for t in types]
+    w = [max(1.0, weights[t]) for t in types]  # floor at 1.0 to avoid negative weights
     chosen: ShotType = rng.choices(types, weights=w, k=1)[0]
     return chosen
 
@@ -181,10 +188,14 @@ def drain_stamina(
         agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
 
-def compute_possession_duration(rules: RuleSet, rng: random.Random) -> float:
+def compute_possession_duration(
+    rules: RuleSet,
+    rng: random.Random,
+    pace_modifier: float = 1.0,
+) -> float:
     """Compute clock time consumed by one possession (seconds)."""
     play_time = rules.shot_clock_seconds * rng.uniform(0.4, 1.0)
-    return play_time + DEAD_TIME_SECONDS
+    return (play_time * pace_modifier) + DEAD_TIME_SECONDS
 
 
 def resolve_possession(
@@ -195,7 +206,8 @@ def resolve_possession(
 ) -> PossessionResult:
     """Resolve one complete possession."""
     # Consume clock time first (consistent RNG position)
-    time_used = compute_possession_duration(rules, rng)
+    pace = game_state.offense_strategy.pace_modifier if game_state.offense_strategy else 1.0
+    time_used = compute_possession_duration(rules, rng, pace_modifier=pace)
 
     offense = game_state.offense
     defense = game_state.defense
@@ -207,6 +219,11 @@ def resolve_possession(
     scheme = select_scheme(offense, defense, game_state, rules, rng)
     matchups = assign_matchups(offense, defense, scheme, rng)
     scheme_mod = SCHEME_CONTEST_MODIFIER[scheme]
+
+    # Apply defensive strategy intensity
+    def_strategy = game_state.defense_strategy
+    if def_strategy:
+        scheme_mod += def_strategy.defensive_intensity
 
     # 2. Select ball handler
     handler = select_ball_handler(offense, rng)

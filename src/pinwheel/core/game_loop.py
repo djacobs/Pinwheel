@@ -359,6 +359,7 @@ async def step_round(
     event_bus: EventBus | None = None,
     api_key: str = "",
     governance_interval: int = 3,
+    suppress_spoiler_events: bool = False,
 ) -> RoundResult:
     """Execute one complete round of the game loop.
 
@@ -388,6 +389,23 @@ async def step_round(
                 if row:
                     teams_cache[tid] = _row_to_team(row)
 
+    # 3b. Load team strategies from latest strategy.interpreted events
+    from pinwheel.models.team import TeamStrategy
+
+    strategies: dict[str, TeamStrategy] = {}
+    for tid in teams_cache:
+        strat_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["strategy.interpreted"],
+        )
+        for evt in reversed(strat_events):
+            if evt.payload.get("team_id") == tid:
+                try:
+                    strategies[tid] = TeamStrategy(**evt.payload.get("strategy", {}))
+                except Exception:
+                    logger.warning("invalid_strategy_payload team=%s", tid)
+                break
+
     # 4. Simulate games
     game_summaries = []
     game_results: list[GameResult] = []
@@ -405,7 +423,15 @@ async def step_round(
 
         seed = int(uuid.uuid4().int % (2**31))
         game_id = f"g-{round_number}-{entry.matchup_index}"
-        result = simulate_game(home, away, ruleset, seed, game_id=game_id)
+        result = simulate_game(
+            home,
+            away,
+            ruleset,
+            seed,
+            game_id=game_id,
+            home_strategy=strategies.get(home.id),
+            away_strategy=strategies.get(away.id),
+        )
 
         # Store result
         game_row = await repo.store_game_result(
@@ -483,7 +509,7 @@ async def step_round(
 
         game_summaries.append(summary)
 
-        if event_bus:
+        if event_bus and not suppress_spoiler_events:
             await event_bus.publish("game.completed", summary)
 
     # Generate highlight reel for the round (non-blocking)
@@ -633,6 +659,7 @@ async def step_round(
 
     # 6. Generate reports
     reports: list[Report] = []
+    deferred_report_events: list[dict] = []
     round_data = {"round_number": round_number, "games": game_summaries}
 
     if api_key:
@@ -648,15 +675,13 @@ async def step_round(
     )
     reports.append(sim_report)
 
-    if event_bus:
-        await event_bus.publish(
-            "report.generated",
-            {
-                "report_type": "simulation",
-                "round": round_number,
-                "excerpt": sim_report.content[:200],
-            },
-        )
+    deferred_report_events.append(
+        {
+            "report_type": "simulation",
+            "round": round_number,
+            "excerpt": sim_report.content[:200],
+        },
+    )
 
     # Governance report (even if no activity — silence is a pattern)
     if api_key:
@@ -674,15 +699,13 @@ async def step_round(
     )
     reports.append(gov_report)
 
-    if event_bus:
-        await event_bus.publish(
-            "report.generated",
-            {
-                "report_type": "governance",
-                "round": round_number,
-                "excerpt": gov_report.content[:200],
-            },
-        )
+    deferred_report_events.append(
+        {
+            "report_type": "governance",
+            "round": round_number,
+            "excerpt": gov_report.content[:200],
+        },
+    )
 
     # Private reports for active governors
     active_governor_events = await repo.get_events_by_type(
@@ -727,17 +750,15 @@ async def step_round(
         )
         reports.append(priv_report)
 
-        if event_bus:
-            await event_bus.publish(
-                "report.generated",
-                {
-                    "report_type": "private",
-                    "round": round_number,
-                    "governor_id": gov_id,
-                    "report_id": report_row.id,
-                    "excerpt": priv_report.content[:200],
-                },
-            )
+        deferred_report_events.append(
+            {
+                "report_type": "private",
+                "round": round_number,
+                "governor_id": gov_id,
+                "report_id": report_row.id,
+                "excerpt": priv_report.content[:200],
+            },
+        )
 
     # 7. Run evals (non-blocking — failures here never break the game loop)
     try:
@@ -915,7 +936,7 @@ async def step_round(
     if finals_matchup:
         round_completed_data["finals_matchup"] = finals_matchup
 
-    if event_bus:
+    if event_bus and not suppress_spoiler_events:
         await event_bus.publish("round.completed", round_completed_data)
 
     return RoundResult(
@@ -932,6 +953,7 @@ async def step_round(
         playoff_bracket=playoff_bracket,
         playoffs_complete=playoffs_complete,
         finals_matchup=finals_matchup,
+        report_events=deferred_report_events,
     )
 
 
@@ -953,6 +975,7 @@ class RoundResult:
         playoff_bracket: list[dict] | None = None,
         playoffs_complete: bool = False,
         finals_matchup: dict | None = None,
+        report_events: list[dict] | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
@@ -967,3 +990,4 @@ class RoundResult:
         self.playoff_bracket = playoff_bracket
         self.playoffs_complete = playoffs_complete
         self.finals_matchup = finals_matchup
+        self.report_events = report_events or []
