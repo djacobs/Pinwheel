@@ -1216,9 +1216,9 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -1462,9 +1462,9 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -1649,9 +1649,9 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -1703,9 +1703,9 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -1771,9 +1771,9 @@ class PinwheelBot(commands.Bot):
                 self.engine,
                 str(interaction.user.id),
             )
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -1914,9 +1914,9 @@ class PinwheelBot(commands.Bot):
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You must `/join` a team before trading hoopers.",
+                str(exc) or "You must `/join` a team before trading hoopers.",
                 ephemeral=True,
             )
             return
@@ -2084,9 +2084,9 @@ class PinwheelBot(commands.Bot):
                 self.engine,
                 str(interaction.user.id),
             )
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
@@ -2150,9 +2150,9 @@ class PinwheelBot(commands.Bot):
                 self.engine,
                 str(interaction.user.id),
             )
-        except GovernorNotFound:
+        except GovernorNotFound as exc:
             await interaction.followup.send(
-                "You need to `/join` a team first.",
+                str(exc) or "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
