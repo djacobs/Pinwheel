@@ -93,6 +93,55 @@ async def _check_season_complete(repo: Repository, season_id: str) -> bool:
     return scheduled_rounds.issubset(played_rounds)
 
 
+async def _determine_semifinal_winners(
+    repo: Repository, season_id: str, semi_round_number: int
+) -> list[str]:
+    """Return winner team IDs from the semifinal round, ordered by matchup_index."""
+    games = await repo.get_games_for_round(season_id, semi_round_number)
+    games_sorted = sorted(games, key=lambda g: g.matchup_index)
+    return [g.winner_team_id for g in games_sorted]
+
+
+async def _create_finals_entry(
+    repo: Repository,
+    season_id: str,
+    semi_round_number: int,
+    winner_team_ids: list[str],
+) -> dict | None:
+    """Persist a finals schedule entry from semifinal winners. Returns the matchup dict."""
+    if len(winner_team_ids) < 2:
+        return None
+    finals_round = semi_round_number + 1
+    home_team_id = winner_team_ids[0]  # winner of higher-seed semi (#1v#4)
+    away_team_id = winner_team_ids[1]  # winner of lower-seed semi (#2v#3)
+    await repo.create_schedule_entry(
+        season_id=season_id,
+        round_number=finals_round,
+        matchup_index=0,
+        home_team_id=home_team_id,
+        away_team_id=away_team_id,
+        phase="playoff",
+    )
+    return {
+        "playoff_round": "finals",
+        "matchup_index": 0,
+        "round_number": finals_round,
+        "home_team_id": home_team_id,
+        "away_team_id": away_team_id,
+    }
+
+
+async def _check_all_playoffs_complete(repo: Repository, season_id: str) -> bool:
+    """Check if every scheduled playoff game has been played."""
+    playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+    if not playoff_schedule:
+        return False
+    games = await repo.get_all_games(season_id)
+    played = {(g.round_number, g.matchup_index) for g in games}
+    scheduled = {(s.round_number, s.matchup_index) for s in playoff_schedule}
+    return scheduled.issubset(played)
+
+
 async def compute_standings_from_repo(repo: Repository, season_id: str) -> list[dict]:
     """Compute W-L standings from game results stored in the database.
 
@@ -700,10 +749,12 @@ async def step_round(
     except Exception:
         logger.exception("eval_step_failed season=%s round=%d", season_id, round_number)
 
-    # 8. Check if the regular season is complete
+    # 8. Check if the regular season is complete + playoff progression
     season_complete = False
     final_standings: list[dict] | None = None
     playoff_bracket: list[dict] | None = None
+    playoffs_complete = False
+    finals_matchup: dict | None = None
 
     # Re-read season to get current status
     season = await repo.get_season(season_id)
@@ -753,6 +804,91 @@ async def step_round(
                     },
                 )
 
+    elif season and season.status in ("regular_season_complete", "playoffs"):
+        # Playoff progression: check semi→finals advancement first, then completion.
+        # Must check semis before completion because _check_all_playoffs_complete
+        # would return True prematurely if finals haven't been scheduled yet.
+        playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+        created_finals = False
+
+        if playoff_schedule:
+            playoff_rounds = sorted({s.round_number for s in playoff_schedule})
+
+            # Check if semis are done and finals need to be created
+            if len(playoff_rounds) == 1:
+                semi_round_num = playoff_rounds[0]
+                semi_entries = [
+                    s for s in playoff_schedule if s.round_number == semi_round_num
+                ]
+                # 2 matchups in a single round = semis needing finals
+                if len(semi_entries) == 2:
+                    semi_games = await repo.get_games_for_round(
+                        season_id, semi_round_num
+                    )
+                    if len(semi_games) == 2:
+                        # Both semis played — create finals
+                        winners = await _determine_semifinal_winners(
+                            repo, season_id, semi_round_num
+                        )
+                        finals_matchup = await _create_finals_entry(
+                            repo, season_id, semi_round_num, winners
+                        )
+                        created_finals = True
+                        await repo.update_season_status(season_id, "playoffs")
+                        logger.info(
+                            "semifinals_complete season=%s finals=%s",
+                            season_id,
+                            finals_matchup,
+                        )
+                        if event_bus:
+                            await event_bus.publish(
+                                "season.semifinals_complete",
+                                {
+                                    "season_id": season_id,
+                                    "semifinal_winners": winners,
+                                    "finals_matchup": finals_matchup,
+                                },
+                            )
+
+        # Check if all playoffs are complete (skip if we just created finals)
+        if not created_finals:
+            try:
+                playoffs_complete = await _check_all_playoffs_complete(repo, season_id)
+            except Exception:
+                logger.exception(
+                    "playoffs_complete_check_failed season=%s round=%d",
+                    season_id,
+                    round_number,
+                )
+
+            if playoffs_complete:
+                await repo.update_season_status(season_id, "completed")
+                # Determine champion from the finals game
+                if not playoff_schedule:
+                    playoff_schedule = await repo.get_full_schedule(
+                        season_id, phase="playoff"
+                    )
+                finals_round_num = max(s.round_number for s in playoff_schedule)
+                finals_games = await repo.get_games_for_round(
+                    season_id, finals_round_num
+                )
+                champion_team_id = (
+                    finals_games[0].winner_team_id if finals_games else None
+                )
+                logger.info(
+                    "season_playoffs_complete season=%s champion=%s",
+                    season_id,
+                    champion_team_id,
+                )
+                if event_bus:
+                    await event_bus.publish(
+                        "season.playoffs_complete",
+                        {
+                            "season_id": season_id,
+                            "champion_team_id": champion_team_id,
+                        },
+                    )
+
     # 9. Publish round complete
     elapsed = time.monotonic() - start
     logger.info(
@@ -774,6 +910,10 @@ async def step_round(
         round_completed_data["highlight_reel"] = highlight_reel
     if season_complete:
         round_completed_data["season_complete"] = True
+    if playoffs_complete:
+        round_completed_data["playoffs_complete"] = True
+    if finals_matchup:
+        round_completed_data["finals_matchup"] = finals_matchup
 
     if event_bus:
         await event_bus.publish("round.completed", round_completed_data)
@@ -790,6 +930,8 @@ async def step_round(
         season_complete=season_complete,
         final_standings=final_standings,
         playoff_bracket=playoff_bracket,
+        playoffs_complete=playoffs_complete,
+        finals_matchup=finals_matchup,
     )
 
 
@@ -809,6 +951,8 @@ class RoundResult:
         season_complete: bool = False,
         final_standings: list[dict] | None = None,
         playoff_bracket: list[dict] | None = None,
+        playoffs_complete: bool = False,
+        finals_matchup: dict | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
@@ -821,3 +965,5 @@ class RoundResult:
         self.season_complete = season_complete
         self.final_standings = final_standings
         self.playoff_bracket = playoff_bracket
+        self.playoffs_complete = playoffs_complete
+        self.finals_matchup = finals_matchup
