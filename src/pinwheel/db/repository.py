@@ -64,6 +64,28 @@ class Repository:
     async def get_season(self, season_id: str) -> SeasonRow | None:
         return await self.session.get(SeasonRow, season_id)
 
+    async def get_active_season(self) -> SeasonRow | None:
+        """Get the current active season (most recent non-completed/archived).
+
+        Returns the season with the most recent ``created_at`` whose status
+        is *not* ``completed`` or ``archived``.  Falls back to the most
+        recently created season of any status if no active one exists.
+        """
+        stmt = (
+            select(SeasonRow)
+            .where(SeasonRow.status.not_in(["completed", "archived"]))
+            .order_by(SeasonRow.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return row
+        # Fallback: return the most recent season of any status
+        stmt = select(SeasonRow).order_by(SeasonRow.created_at.desc()).limit(1)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_latest_completed_season(self, league_id: str) -> SeasonRow | None:
         """Get the most recently completed season in a league."""
         stmt = (

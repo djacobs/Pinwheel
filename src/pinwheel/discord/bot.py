@@ -69,6 +69,7 @@ class PinwheelBot(commands.Bot):
             int(settings.discord_channel_id) if settings.discord_channel_id else 0
         )
         self.channel_ids: dict[str, int] = {}
+        self._team_names_cache: list[str] = []
         self._event_listener_task: asyncio.Task[None] | None = None
         self._setup_commands()
 
@@ -362,18 +363,16 @@ class PinwheelBot(commands.Bot):
         # --- Get or create team channels + roles ---
         if self.engine:
             try:
-                from sqlalchemy import select
 
                 from pinwheel.db.engine import get_session
-                from pinwheel.db.models import SeasonRow
                 from pinwheel.db.repository import Repository
 
                 async with get_session(self.engine) as session:
                     repo = Repository(session)
-                    result = await session.execute(select(SeasonRow).limit(1))
-                    season = result.scalar_one_or_none()
+                    season = await repo.get_active_season()
                     if season:
                         teams = await repo.get_teams_for_season(season.id)
+                        self._team_names_cache = [t.name for t in teams]
                         for team in teams:
                             await self._setup_team_channel_and_role(
                                 guild,
@@ -570,16 +569,13 @@ class PinwheelBot(commands.Bot):
         team_lines = ""
         if self.engine:
             try:
-                from sqlalchemy import select
 
                 from pinwheel.db.engine import get_session
-                from pinwheel.db.models import SeasonRow
                 from pinwheel.db.repository import Repository
 
                 async with get_session(self.engine) as session:
                     repo = Repository(session)
-                    result = await session.execute(select(SeasonRow).limit(1))
-                    season = result.scalar_one_or_none()
+                    season = await repo.get_active_season()
                     if season:
                         teams = await repo.get_teams_for_season(season.id)
                         lines = []
@@ -618,23 +614,35 @@ class PinwheelBot(commands.Bot):
         logger.info("discord_welcome_message_posted")
 
     async def _autocomplete_teams(self, current: str) -> list[app_commands.Choice[str]]:
-        """Return team name choices matching the current input."""
+        """Return team name choices matching the current input.
+
+        Uses an in-memory cache populated at startup to avoid hitting the DB
+        on every keystroke (autocomplete has a <3s timeout).
+        """
+        # Fast path: use cached team names (populated in _setup_server)
+        if self._team_names_cache:
+            lowered = current.lower()
+            return [
+                app_commands.Choice(name=name, value=name)
+                for name in self._team_names_cache
+                if lowered in name.lower()
+            ][:25]
+
+        # Fallback: query DB if cache not yet populated
         if not self.engine:
             return []
         try:
-            from sqlalchemy import select
 
             from pinwheel.db.engine import get_session
-            from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
             async with get_session(self.engine) as session:
                 repo = Repository(session)
-                result = await session.execute(select(SeasonRow).limit(1))
-                season = result.scalar_one_or_none()
+                season = await repo.get_active_season()
                 if not season:
                     return []
                 teams = await repo.get_teams_for_season(season.id)
+                self._team_names_cache = [t.name for t in teams]
                 lowered = current.lower()
                 return [
                     app_commands.Choice(name=t.name, value=t.name)
@@ -721,11 +729,9 @@ class PinwheelBot(commands.Bot):
         await interaction.response.defer()
 
         try:
-            from sqlalchemy import select
             from sqlalchemy.exc import OperationalError
 
             from pinwheel.db.engine import get_session
-            from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
             # Retry up to 3 times on transient SQLite "database is locked" errors.
@@ -738,8 +744,7 @@ class PinwheelBot(commands.Bot):
                 try:
                     async with get_session(self.engine) as session:
                         repo = Repository(session)
-                        result = await session.execute(select(SeasonRow).limit(1))
-                        season = result.scalar_one_or_none()
+                        season = await repo.get_active_season()
                         if not season:
                             await interaction.followup.send(
                                 "No active season.",
@@ -776,10 +781,26 @@ class PinwheelBot(commands.Bot):
                         discord_id = str(interaction.user.id)
                         enrollment = await repo.get_player_enrollment(discord_id, season.id)
                         if enrollment is not None:
-                            _existing_team_id, existing_team_name = enrollment
+                            existing_team_id, existing_team_name = enrollment
                             if existing_team_name.lower() == team_name.lower():
+                                # Re-assign Discord role in case it was lost
+                                if interaction.guild and isinstance(
+                                    interaction.user, discord.Member
+                                ):
+                                    role = discord.utils.get(
+                                        interaction.guild.roles,
+                                        name=existing_team_name,
+                                    )
+                                    if role and role not in interaction.user.roles:
+                                        await interaction.user.add_roles(role)
+                                        logger.info(
+                                            "join_role_restored user=%s role=%s",
+                                            interaction.user.display_name,
+                                            existing_team_name,
+                                        )
                                 await interaction.followup.send(
-                                    f"You're already on **{existing_team_name}**!",
+                                    f"You're already on **{existing_team_name}**! "
+                                    "(Role confirmed.)",
                                     ephemeral=True,
                                 )
                             else:
@@ -1041,26 +1062,24 @@ class PinwheelBot(commands.Bot):
 
     async def _handle_standings(self, interaction: discord.Interaction) -> None:
         """Handle the /standings slash command."""
+        await interaction.response.defer()
         standings = await self._query_standings()
         embed = build_standings_embed(standings)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     async def _query_standings(self) -> list[dict[str, object]]:
         """Query current standings from the database."""
         if not self.engine:
             return []
         try:
-            from sqlalchemy import select
 
             from pinwheel.core.scheduler import compute_standings
             from pinwheel.db.engine import get_session
-            from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
             async with get_session(self.engine) as session:
                 repo = Repository(session)
-                result = await session.execute(select(SeasonRow).limit(1))
-                season = result.scalar_one_or_none()
+                season = await repo.get_active_season()
                 if not season:
                     return []
 
@@ -1106,19 +1125,19 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB + AI calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
             return
-
-        # Defer — AI interpretation may take a few seconds
-        await interaction.response.defer(ephemeral=True)
 
         try:
             from pinwheel.ai.interpreter import (
@@ -1228,25 +1247,23 @@ class PinwheelBot(commands.Bot):
 
     async def _handle_schedule(self, interaction: discord.Interaction) -> None:
         """Handle the /schedule slash command."""
+        await interaction.response.defer()
         schedule, round_number = await self._query_schedule()
         embed = build_schedule_embed(schedule, round_number=round_number)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     async def _query_schedule(self) -> tuple[list[dict[str, object]], int]:
         """Query the next unplayed round's schedule."""
         if not self.engine:
             return [], 0
         try:
-            from sqlalchemy import select
 
             from pinwheel.db.engine import get_session
-            from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
             async with get_session(self.engine) as session:
                 repo = Repository(session)
-                result = await session.execute(select(SeasonRow).limit(1))
-                season = result.scalar_one_or_none()
+                season = await repo.get_active_season()
                 if not season:
                     return [], 0
 
@@ -1280,6 +1297,7 @@ class PinwheelBot(commands.Bot):
 
     async def _handle_reports(self, interaction: discord.Interaction) -> None:
         """Handle the /reports slash command."""
+        await interaction.response.defer()
         reports = await self._query_latest_reports()
         if not reports:
             embed = discord.Embed(
@@ -1290,7 +1308,7 @@ class PinwheelBot(commands.Bot):
                 color=0x9B59B6,
             )
             embed.set_footer(text="Pinwheel Fates")
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
             return
 
         # Send the most recent public report
@@ -1304,23 +1322,20 @@ class PinwheelBot(commands.Bot):
             content=m["content"],
         )
         embed = build_report_embed(report)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     async def _query_latest_reports(self) -> list[dict]:
         """Query the most recent public reports."""
         if not self.engine:
             return []
         try:
-            from sqlalchemy import select
 
             from pinwheel.db.engine import get_session
-            from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
             async with get_session(self.engine) as session:
                 repo = Repository(session)
-                result = await session.execute(select(SeasonRow).limit(1))
-                season = result.scalar_one_or_none()
+                season = await repo.get_active_season()
                 if not season:
                     return []
 
@@ -1356,12 +1371,15 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -1396,7 +1414,7 @@ class PinwheelBot(commands.Bot):
                     if c.payload.get("proposal_id", c.aggregate_id) not in resolved_ids
                 ]
                 if not pending:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "No proposals are currently open for voting.",
                         ephemeral=True,
                     )
@@ -1428,7 +1446,7 @@ class PinwheelBot(commands.Bot):
                             if proposal_id:
                                 break
                     if not proposal_id:
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             "Could not find a matching open proposal.",
                             ephemeral=True,
                         )
@@ -1452,7 +1470,7 @@ class PinwheelBot(commands.Bot):
                         break
 
                 if not proposal_data:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "Could not find the proposal.",
                         ephemeral=True,
                     )
@@ -1468,7 +1486,7 @@ class PinwheelBot(commands.Bot):
                 )
                 for v in my_votes:
                     if v.payload.get("proposal_id") == proposal_id:
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             "You've already voted on this proposal.",
                             ephemeral=True,
                         )
@@ -1481,7 +1499,7 @@ class PinwheelBot(commands.Bot):
                     gov.season_id,
                     "boost",
                 ):
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "You don't have any BOOST tokens.",
                         ephemeral=True,
                     )
@@ -1517,17 +1535,16 @@ class PinwheelBot(commands.Bot):
                 color=0x3498DB,
             )
             embed.set_footer(text="Pinwheel Fates")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=embed,
                 ephemeral=True,
             )
         except Exception:
             logger.exception("discord_vote_failed")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Something went wrong recording your vote.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "Something went wrong recording your vote.",
+                ephemeral=True,
+            )
 
     async def _handle_tokens(
         self,
@@ -1541,12 +1558,15 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -1569,13 +1589,13 @@ class PinwheelBot(commands.Bot):
                 balance,
                 governor_name=interaction.user.display_name,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=embed,
                 ephemeral=True,
             )
         except Exception:
             logger.exception("discord_tokens_failed")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Something went wrong checking your tokens.",
                 ephemeral=True,
             )
@@ -1592,12 +1612,15 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -1619,13 +1642,13 @@ class PinwheelBot(commands.Bot):
                 team_name=gov.team_name,
                 activity=activity,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=embed,
                 ephemeral=True,
             )
         except Exception:
             logger.exception("discord_profile_failed")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Something went wrong loading your profile.",
                 ephemeral=True,
             )
@@ -1654,6 +1677,9 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
@@ -1662,7 +1688,7 @@ class PinwheelBot(commands.Bot):
                 str(interaction.user.id),
             )
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -1674,7 +1700,7 @@ class PinwheelBot(commands.Bot):
                 str(target.id),
             )
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"{target.display_name} is not enrolled.",
                 ephemeral=True,
             )
@@ -1694,7 +1720,7 @@ class PinwheelBot(commands.Bot):
                 )
                 available = getattr(balance, offer_type, 0)
                 if available < offer_amount:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"You only have {available} {offer_type.upper()} tokens.",
                         ephemeral=True,
                     )
@@ -1733,17 +1759,16 @@ class PinwheelBot(commands.Bot):
             with contextlib.suppress(discord.Forbidden):
                 await target.send(embed=embed, view=view)
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Trade offer sent to **{target.display_name}**!",
                 ephemeral=True,
             )
         except Exception:
             logger.exception("discord_trade_failed")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Something went wrong with the trade.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "Something went wrong with the trade.",
+                ephemeral=True,
+            )
 
     async def _autocomplete_hoopers(
         self,
@@ -1798,12 +1823,15 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
             gov = await get_governor(self.engine, str(interaction.user.id))
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You must `/join` a team before trading hoopers.",
                 ephemeral=True,
             )
@@ -1825,7 +1853,7 @@ class PinwheelBot(commands.Bot):
                         break
                 if not offered:
                     available = ", ".join(h.name for h in my_hoopers)
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"Hooper not found on your team. Your hoopers: {available}",
                         ephemeral=True,
                     )
@@ -1846,7 +1874,7 @@ class PinwheelBot(commands.Bot):
                     if requested:
                         break
                 if not requested or not target_team:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"Hooper '{request_hooper_name}' not found on any other team.",
                         ephemeral=True,
                     )
@@ -1866,7 +1894,7 @@ class PinwheelBot(commands.Bot):
                 all_voters = from_voter_ids + to_voter_ids
 
                 if len(all_voters) < 2:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "Both teams need at least one governor to vote on a trade.",
                         ephemeral=True,
                     )
@@ -1929,7 +1957,7 @@ class PinwheelBot(commands.Bot):
                 )
                 await to_ch.send(embed=embed, view=view2)
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Hooper trade proposed: **{offered.name}** "
                 f"for **{requested.name}**. "
                 "Both teams' governors must vote in their team channels.",
@@ -1937,11 +1965,10 @@ class PinwheelBot(commands.Bot):
             )
         except Exception:
             logger.exception("discord_trade_hooper_failed")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Something went wrong with the trade.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "Something went wrong with the trade.",
+                ephemeral=True,
+            )
 
     async def _handle_strategy(
         self,
@@ -1963,6 +1990,9 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
@@ -1971,7 +2001,7 @@ class PinwheelBot(commands.Bot):
                 str(interaction.user.id),
             )
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -1990,7 +2020,7 @@ class PinwheelBot(commands.Bot):
         embed.set_footer(
             text="Pinwheel Fates -- Confirm or Cancel",
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed,
             view=view,
             ephemeral=True,
@@ -2025,6 +2055,9 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Defer immediately — DB calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
         from pinwheel.discord.helpers import GovernorNotFound, get_governor
 
         try:
@@ -2033,7 +2066,7 @@ class PinwheelBot(commands.Bot):
                 str(interaction.user.id),
             )
         except GovernorNotFound:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You need to `/join` a team first.",
                 ephemeral=True,
             )
@@ -2047,7 +2080,7 @@ class PinwheelBot(commands.Bot):
                 repo = Repository(session)
                 team = await repo.get_team(gov.team_id)
                 if not team:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "Team not found.",
                         ephemeral=True,
                     )
@@ -2061,7 +2094,7 @@ class PinwheelBot(commands.Bot):
 
                 if not target_hooper:
                     available = ", ".join(h.name for h in team.hoopers)
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f"Hooper not found on your team. Your hoopers: {available}",
                         ephemeral=True,
                     )
@@ -2073,17 +2106,16 @@ class PinwheelBot(commands.Bot):
             from pinwheel.discord.embeds import build_bio_embed
 
             embed = build_bio_embed(target_hooper.name, text)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=embed,
                 ephemeral=True,
             )
         except Exception:
             logger.exception("discord_bio_failed")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Something went wrong setting the bio.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "Something went wrong setting the bio.",
+                ephemeral=True,
+            )
 
     async def _handle_new_season(
         self,

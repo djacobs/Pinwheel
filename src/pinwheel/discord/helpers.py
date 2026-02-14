@@ -7,11 +7,9 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.db.engine import get_session
-from pinwheel.db.models import SeasonRow
 from pinwheel.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -42,10 +40,10 @@ async def db_session(
 
 
 async def get_current_season_id(engine: AsyncEngine) -> str | None:
-    """Return the first season's ID, or None."""
+    """Return the active season's ID, or None."""
     async with get_session(engine) as session:
-        result = await session.execute(select(SeasonRow).limit(1))
-        season = result.scalar_one_or_none()
+        repo = Repository(session)
+        season = await repo.get_active_season()
         return season.id if season else None
 
 
@@ -56,8 +54,7 @@ async def get_governor(engine: AsyncEngine, discord_id: str) -> GovernorInfo:
     """
     async with get_session(engine) as session:
         repo = Repository(session)
-        result = await session.execute(select(SeasonRow).limit(1))
-        season = result.scalar_one_or_none()
+        season = await repo.get_active_season()
         if not season:
             raise GovernorNotFound("No active season.")
 

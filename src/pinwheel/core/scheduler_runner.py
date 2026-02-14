@@ -21,7 +21,7 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import step_round
 from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
-from pinwheel.db.models import GameResultRow, SeasonRow
+from pinwheel.db.models import GameResultRow
 from pinwheel.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -343,9 +343,8 @@ async def tick_round(
         async with get_session(engine) as session:
             repo = Repository(session)
 
-            # Find active season (same pattern used across the codebase)
-            result = await session.execute(select(SeasonRow).limit(1))
-            season = result.scalar_one_or_none()
+            # Find active season
+            season = await repo.get_active_season()
             if season is None:
                 logger.info("tick_round_skip: no active season")
                 return

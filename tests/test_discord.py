@@ -155,16 +155,19 @@ class TestSlashCommands:
     async def test_handle_standings(self, bot: PinwheelBot) -> None:
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         await bot._handle_standings(interaction)
-        interaction.response.send_message.assert_called_once()
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        interaction.followup.send.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         embed = call_kwargs.kwargs.get("embed") or call_kwargs.args[0]
         assert isinstance(embed, discord.Embed)
 
     async def test_handle_propose_with_text_no_engine(self, bot: PinwheelBot) -> None:
-        """Without an engine, propose returns an ephemeral error."""
+        """Without an engine, propose returns an ephemeral error (before defer)."""
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.display_name = "TestGovernor"
         await bot._handle_propose(interaction, "Make three-pointers worth 5 points")
@@ -175,6 +178,7 @@ class TestSlashCommands:
     async def test_handle_propose_empty_text(self, bot: PinwheelBot) -> None:
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         await bot._handle_propose(interaction, "   ")
         interaction.response.send_message.assert_called_once()
         call_kwargs = interaction.response.send_message.call_args
@@ -183,14 +187,18 @@ class TestSlashCommands:
     async def test_handle_schedule(self, bot: PinwheelBot) -> None:
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         await bot._handle_schedule(interaction)
-        interaction.response.send_message.assert_called_once()
+        interaction.response.defer.assert_called_once()
+        interaction.followup.send.assert_called_once()
 
     async def test_handle_reports(self, bot: PinwheelBot) -> None:
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         await bot._handle_reports(interaction)
-        interaction.response.send_message.assert_called_once()
+        interaction.response.defer.assert_called_once()
+        interaction.followup.send.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +617,7 @@ class TestJoinCommand:
         """Without an engine, join returns an ephemeral error."""
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 111222333
         interaction.user.display_name = "TestPlayer"
@@ -1111,12 +1120,14 @@ class TestProposeGovernance:
         )
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 999888777
         interaction.user.display_name = "Stranger"
 
         await bot._handle_propose(interaction, "Make it rain")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "join" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1222,11 +1233,13 @@ class TestVoteCommand:
         )
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 999888777
 
         await bot._handle_vote(interaction, "yes")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "join" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1243,7 +1256,8 @@ class TestVoteCommand:
         )
 
         await bot._handle_vote(interaction, "yes")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "no proposals" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1291,7 +1305,8 @@ class TestVoteCommand:
             await session.commit()
 
         await bot._handle_vote(interaction, "yes")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
@@ -1353,7 +1368,8 @@ class TestVoteCommand:
             await session.commit()
 
         await bot._handle_vote(interaction, "no")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert "already voted" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
 
@@ -1390,11 +1406,13 @@ class TestTokensCommand:
         )
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 999888777
 
         await bot._handle_tokens(interaction)
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         await engine.dispose()
 
@@ -1409,7 +1427,8 @@ class TestTokensCommand:
         )
 
         await bot._handle_tokens(interaction)
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
         assert "Floor Tokens" in embed.title
@@ -1471,7 +1490,8 @@ class TestTradeCommand:
             "amend",
             1,
         )
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert "not enrolled" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
 
@@ -1516,7 +1536,8 @@ class TestTradeCommand:
             "amend",
             1,
         )
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert "only have" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
 
@@ -1746,11 +1767,13 @@ class TestStrategyCommand:
         )
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 999888777
 
         await bot._handle_strategy(interaction, "Focus on defense")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "join" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1769,7 +1792,8 @@ class TestStrategyCommand:
             interaction,
             "Focus on three-point shooting",
         )
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
         assert "Strategy" in embed.title
@@ -1827,11 +1851,13 @@ class TestBioCommand:
         )
         interaction = AsyncMock(spec=discord.Interaction)
         interaction.response = AsyncMock()
+        interaction.followup = AsyncMock()
         interaction.user = MagicMock()
         interaction.user.id = 999888777
 
         await bot._handle_bio(interaction, "SomeHooper", "A backstory")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "join" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1879,7 +1905,8 @@ class TestBioCommand:
             event_bus,
         )
         await bot._handle_bio(interaction, "Nonexistent Player", "A bio")
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         assert call_kwargs.kwargs.get("ephemeral") is True
         assert "not found" in str(call_kwargs.args[0]).lower()
         await engine.dispose()
@@ -1899,7 +1926,8 @@ class TestBioCommand:
             "Briar Ashwood",
             "A sharpshooter from Portland.",
         )
-        call_kwargs = interaction.response.send_message.call_args
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
         embed = call_kwargs.kwargs.get("embed")
         assert embed is not None
         assert "Briar Ashwood" in embed.title
