@@ -553,3 +553,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 73. [DONE] Season lifecycle pages — archive list and detail
 **Problem:** No way to browse completed seasons or see historical records after a season ends.
 **Fix:** Added `/seasons/archive` list page and `/seasons/archive/{season_id}` detail page. Archive detail shows final standings, champion, final ruleset, rule change history, and aggregate stats (games played, proposals filed, reports generated). `SeasonArchiveRow` table stores the snapshot. Archive pages use the same dark theme with gold accents for champion highlights.
+
+### 74. [DONE] Discord slash commands defer before DB/AI calls
+**Problem:** Slash commands (`/propose`, `/vote`, `/tokens`, `/standings`, `/schedule`, `/reports`, `/strategy`, `/bio`, `/trade`) hit Discord's 3s interaction timeout when DB queries or AI calls took too long, causing "This interaction failed" errors. Players thought the bot was broken.
+**Fix:** All commands now call `interaction.response.defer()` immediately and send results via `interaction.followup.send()`. The "thinking..." indicator appears instantly while the bot processes in the background.
+
+### 75. [DONE] Discord role restoration on re-join
+**Problem:** Players who lost their team Discord role (e.g., after a server rejoin) had no way to get it back. Running `/join` for their existing team said "You're already on **TeamName**!" but didn't fix the missing role.
+**Fix:** `/join` now checks if the player's team role is missing and re-assigns it, responding with "You're already on **TeamName**! (Role confirmed.)"

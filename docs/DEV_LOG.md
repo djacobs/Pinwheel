@@ -4,13 +4,14 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **627 tests**, zero lint errors (Session 43)
+- **635 tests**, zero lint errors (Session 44)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
 - **Day 10:** Production bugfixes — presentation mode, player enrollment, Discord invite URL
+- **Day 11:** Discord defer/timeout fixes, get_active_season migration, playoff progression pipeline
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 43 (fix presentation mode default, player enrollment migration, Discord invite URL)
+- **Latest commit:** Session 44 (Discord interaction defer + playoff progression pipeline)
 
 ## Today's Agenda (Day 8: Polish + Discord + Demo Prep)
 
@@ -399,3 +400,29 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **627 tests, zero lint errors.**
 
 **What could have gone better:** The player table migration was a predictable consequence of adding columns to a model without a corresponding `_add_column_if_missing` call. Every time a column is added to an ORM model, a migration entry should be added in the same commit. A pre-commit check or convention (grep for new `mapped_column` additions and verify matching migration) would catch this.
+
+---
+
+## Session 44 — Discord Defer Fixes + Playoff Progression Pipeline
+
+**What was asked:** (1) Implement the playoff progression pipeline plan (fix three bugs preventing playoffs from completing). (2) Commit all uncommitted changes as two separate commits. (3) Investigate why players can't use `/propose` after joining (getting "You need to /join a team first").
+
+**What was built:**
+
+### Commit 1: Discord interaction defer + get_active_season migration
+- **Root cause of player issue:** Multiple slash commands (`/propose`, `/vote`, `/tokens`, `/standings`, `/schedule`, `/reports`, `/strategy`, `/bio`, `/trade`) did not `defer()` before DB/AI calls, risking Discord's 3s interaction timeout. Additionally, season lookup used raw `select(SeasonRow).limit(1)` instead of `repo.get_active_season()`, which could return the wrong season when completed seasons exist.
+- **Fix:** All slash commands now `defer()` immediately and use `followup.send()`. Replaced all `select(SeasonRow).limit(1)` calls with `repo.get_active_season()` in `bot.py`, `helpers.py`, and `scheduler_runner.py`. Added team name autocomplete cache (`_team_names_cache`) populated at startup. Added Discord role restoration when a player re-runs `/join` for their existing team.
+
+### Commit 2: Playoff progression pipeline
+Three bugs prevented playoffs from completing:
+- **Issue A (season stuck):** Season stayed in `"regular_season_complete"` after playoffs — no transition to `"completed"`, causing `tick_round` to loop forever on empty rounds.
+- **Issue B (no finals):** 4-team finals never created — `generate_playoff_bracket()` stored semis in DB but finals were only a `"TBD"` placeholder dict, never persisted.
+- **Issue C (no detection):** `_check_season_complete()` only checked `phase="regular"` schedule, so playoff completion was invisible.
+- **Fix:** Added `_determine_semifinal_winners()`, `_create_finals_entry()`, `_check_all_playoffs_complete()` helpers. Extended `step_round()` Section 8 with playoff progression logic: checks semi→finals advancement first (prevents premature completion), then checks all-playoffs-complete. Publishes `season.semifinals_complete` and `season.playoffs_complete` events. Season lifecycle now completes: `active → regular_season_complete → playoffs → completed`.
+- **Design note:** Had to reverse the check order from the original plan — checking `_check_all_playoffs_complete()` before semi→finals creation returned True prematurely because unscheduled finals weren't in the set comparison.
+
+**Files modified (7):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/helpers.py`, `tests/test_discord.py`, `tests/test_game_loop.py`
+
+**635 tests (8 new), zero lint errors.**
+
+**What could have gone better:** The plan specified checking `_check_all_playoffs_complete()` before semi→finals creation, but this was wrong — it returns True prematurely when finals haven't been scheduled yet (the scheduled set only contains semis, all of which are played). The order had to be reversed during implementation. Plans for stateful progression logic should include explicit state transition diagrams to catch these ordering issues.
