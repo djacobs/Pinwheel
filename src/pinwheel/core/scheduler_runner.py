@@ -327,7 +327,19 @@ async def tick_round(
     If no season exists the tick is silently skipped.
     All exceptions are caught and logged so the scheduler is never interrupted.
     """
+    # Skip if a presentation is still playing — avoids piling up unseen rounds
+    if presentation_state is not None and presentation_state.is_active:
+        logger.info("tick_round_skip: presentation still active")
+        return
+
     try:
+        # Phase 1: Simulate the round inside a single session.
+        # Collect everything we need, then close the session BEFORE opening
+        # any new connections (avoids SQLite "database is locked").
+        round_result = None
+        season_id = ""
+        next_round = 0
+
         async with get_session(engine) as session:
             repo = Repository(session)
 
@@ -338,7 +350,7 @@ async def tick_round(
                 logger.info("tick_round_skip: no active season")
                 return
 
-            season_id: str = season.id
+            season_id = season.id
 
             # Determine next round: max existing round_number + 1
             max_round_result = await session.execute(
@@ -398,63 +410,65 @@ async def tick_round(
                     len(round_result.game_row_ids),
                 )
 
-            # If replay mode, start presenting results over real time
-            if (
-                presentation_mode == "replay"
-                and presentation_state is not None
-                and round_result.game_results
-                and not presentation_state.is_active
-            ):
-                presentation_state.current_round = next_round
+        # Phase 2: Session is now closed. Safe to open new connections for
+        # presentation persistence and the presenter background task.
+        if (
+            presentation_mode == "replay"
+            and presentation_state is not None
+            and round_result is not None
+            and round_result.game_results
+            and not presentation_state.is_active
+        ):
+            presentation_state.current_round = next_round
 
-                # Build name + color cache from teams_cache for human-readable events
-                name_cache = _build_name_cache(round_result.teams_cache)
-                color_cache = _build_color_cache(round_result.teams_cache)
+            # Build name + color cache from teams_cache for human-readable events
+            name_cache = _build_name_cache(round_result.teams_cache)
+            color_cache = _build_color_cache(round_result.teams_cache)
 
-                # Create callback to mark games as presented in the DB
-                game_row_ids = round_result.game_row_ids
+            # Create callback to mark games as presented in the DB
+            game_row_ids = round_result.game_row_ids
 
-                async def mark_presented(game_index: int) -> None:
-                    async with get_session(engine) as mark_session:
-                        mark_repo = Repository(mark_session)
-                        if game_index < len(game_row_ids):
-                            await mark_repo.mark_game_presented(game_row_ids[game_index])
+            async def mark_presented(game_index: int) -> None:
+                async with get_session(engine) as mark_session:
+                    mark_repo = Repository(mark_session)
+                    if game_index < len(game_row_ids):
+                        await mark_repo.mark_game_presented(game_row_ids[game_index])
 
-                # Persist start time so we can resume after deploy
-                await _persist_presentation_start(
-                    engine,
-                    season_id,
-                    next_round,
-                    round_result.game_row_ids,
-                    quarter_replay_seconds,
-                )
-
-                asyncio.create_task(
-                    _present_and_clear(
-                        engine=engine,
-                        game_results=round_result.game_results,
-                        event_bus=event_bus,
-                        state=presentation_state,
-                        game_interval_seconds=game_interval_seconds,
-                        quarter_replay_seconds=quarter_replay_seconds,
-                        name_cache=name_cache,
-                        color_cache=color_cache,
-                        on_game_finished=mark_presented,
-                        game_summaries=round_result.games,
-                        governance_summary=round_result.governance_summary,
-                    )
-                )
-                logger.info(
-                    "presentation_started season=%s round=%d games=%d",
-                    season_id,
-                    next_round,
-                    len(round_result.game_results),
-                )
-
-            logger.info(
-                "tick_round_done season=%s round=%d",
+            # Persist start time so we can resume after deploy
+            await _persist_presentation_start(
+                engine,
                 season_id,
                 next_round,
+                round_result.game_row_ids,
+                quarter_replay_seconds,
             )
+
+            asyncio.create_task(
+                _present_and_clear(
+                    engine=engine,
+                    game_results=round_result.game_results,
+                    event_bus=event_bus,
+                    state=presentation_state,
+                    game_interval_seconds=game_interval_seconds,
+                    quarter_replay_seconds=quarter_replay_seconds,
+                    name_cache=name_cache,
+                    color_cache=color_cache,
+                    on_game_finished=mark_presented,
+                    game_summaries=round_result.games,
+                    governance_summary=round_result.governance_summary,
+                )
+            )
+            logger.info(
+                "presentation_started season=%s round=%d games=%d",
+                season_id,
+                next_round,
+                len(round_result.game_results),
+            )
+
+        logger.info(
+            "tick_round_done season=%s round=%d",
+            season_id,
+            next_round,
+        )
     except Exception:
         logger.exception("tick_round_error")

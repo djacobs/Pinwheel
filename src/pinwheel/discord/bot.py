@@ -722,127 +722,155 @@ class PinwheelBot(commands.Bot):
 
         try:
             from sqlalchemy import select
+            from sqlalchemy.exc import OperationalError
 
             from pinwheel.db.engine import get_session
             from pinwheel.db.models import SeasonRow
             from pinwheel.db.repository import Repository
 
-            async with get_session(self.engine) as session:
-                repo = Repository(session)
-                result = await session.execute(select(SeasonRow).limit(1))
-                season = result.scalar_one_or_none()
-                if not season:
-                    await interaction.followup.send(
-                        "No active season.",
-                        ephemeral=True,
-                    )
-                    return
+            # Retry up to 3 times on transient SQLite "database is locked" errors.
+            # WAL mode + busy_timeout handle most contention, but this provides
+            # defense-in-depth for heavy-load moments (e.g., during tick_round).
+            max_retries = 3
+            last_error: Exception | None = None
 
-                teams = await repo.get_teams_for_season(season.id)
+            for attempt in range(max_retries):
+                try:
+                    async with get_session(self.engine) as session:
+                        repo = Repository(session)
+                        result = await session.execute(select(SeasonRow).limit(1))
+                        season = result.scalar_one_or_none()
+                        if not season:
+                            await interaction.followup.send(
+                                "No active season.",
+                                ephemeral=True,
+                            )
+                            return
 
-                # No team specified → show team list with governor counts
-                if not team_name.strip():
-                    from pinwheel.discord.embeds import build_team_list_embed
+                        teams = await repo.get_teams_for_season(season.id)
 
-                    counts = await repo.get_governor_counts_by_team(season.id)
-                    team_data = [
+                        # No team specified → show team list with governor counts
+                        if not team_name.strip():
+                            from pinwheel.discord.embeds import build_team_list_embed
+
+                            counts = await repo.get_governor_counts_by_team(season.id)
+                            team_data = [
+                                {
+                                    "name": t.name,
+                                    "color": t.color,
+                                    "governor_count": counts.get(t.id, 0),
+                                }
+                                for t in teams
+                            ]
+                            embed = build_team_list_embed(
+                                team_data,
+                                season.name or "this season",
+                            )
+                            await interaction.followup.send(
+                                embed=embed,
+                                ephemeral=True,
+                            )
+                            return
+
+                        # Check existing enrollment
+                        discord_id = str(interaction.user.id)
+                        enrollment = await repo.get_player_enrollment(discord_id, season.id)
+                        if enrollment is not None:
+                            _existing_team_id, existing_team_name = enrollment
+                            if existing_team_name.lower() == team_name.lower():
+                                await interaction.followup.send(
+                                    f"You're already on **{existing_team_name}**!",
+                                    ephemeral=True,
+                                )
+                            else:
+                                season_label = season.name or "Season 1"
+                                await interaction.followup.send(
+                                    f"You joined **{existing_team_name}** for {season_label}. "
+                                    "Team switches aren't allowed mid-season -- ride or die!",
+                                    ephemeral=True,
+                                )
+                            return
+
+                        # Find the requested team
+                        target_team = None
+                        for t in teams:
+                            if t.name.lower() == team_name.lower():
+                                target_team = t
+                                break
+
+                        if target_team is None:
+                            available = ", ".join(t.name for t in teams)
+                            await interaction.followup.send(
+                                f"Team not found. Available teams: {available}",
+                                ephemeral=True,
+                            )
+                            return
+
+                        # Create or get player, then enroll
+                        player = await repo.get_or_create_player(
+                            discord_id=discord_id,
+                            username=interaction.user.display_name,
+                            avatar_url=(
+                                str(interaction.user.display_avatar.url)
+                                if interaction.user.display_avatar
+                                else ""
+                            ),
+                        )
+                        await repo.enroll_player(player.id, target_team.id, season.id)
+                        await session.commit()
+
+                    # DB session closed — safe to do Discord ops and build embeds
+
+                    # Assign Discord role if in a guild
+                    if interaction.guild:
+                        role = discord.utils.get(
+                            interaction.guild.roles,
+                            name=target_team.name,
+                        )
+                        if role and isinstance(interaction.user, discord.Member):
+                            await interaction.user.add_roles(role)
+
+                    # Build confirmation embed (shown in channel)
+                    from pinwheel.discord.embeds import build_welcome_embed
+
+                    hoopers = [
                         {
-                            "name": t.name,
-                            "color": t.color,
-                            "governor_count": counts.get(t.id, 0),
+                            "name": h.name,
+                            "archetype": h.archetype or "Hooper",
+                            "backstory": h.backstory or "",
                         }
-                        for t in teams
+                        for h in target_team.hoopers
                     ]
-                    embed = build_team_list_embed(
-                        team_data,
-                        season.name or "this season",
+                    embed = build_welcome_embed(
+                        target_team.name,
+                        target_team.color,
+                        hoopers,
+                        motto=target_team.motto or "",
                     )
-                    await interaction.followup.send(
-                        embed=embed,
-                        ephemeral=True,
-                    )
-                    return
+                    await interaction.followup.send(embed=embed)
 
-                # Check existing enrollment
-                discord_id = str(interaction.user.id)
-                enrollment = await repo.get_player_enrollment(discord_id, season.id)
-                if enrollment is not None:
-                    _existing_team_id, existing_team_name = enrollment
-                    if existing_team_name.lower() == team_name.lower():
-                        await interaction.followup.send(
-                            f"You're already on **{existing_team_name}**!",
-                            ephemeral=True,
+                    # Send welcome DM with quick-start info
+                    import contextlib
+
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                        await interaction.user.send(embed=embed)
+
+                    return  # Success — exit retry loop
+
+                except OperationalError as exc:
+                    last_error = exc
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            "discord_join_retry attempt=%d err=%s",
+                            attempt + 1,
+                            str(exc),
                         )
-                    else:
-                        season_label = season.name or "Season 1"
-                        await interaction.followup.send(
-                            f"You joined **{existing_team_name}** for {season_label}. "
-                            "Team switches aren't allowed mid-season -- ride or die!",
-                            ephemeral=True,
-                        )
-                    return
+                        await asyncio.sleep(1)
+                    # else: fall through to final error handler
 
-                # Find the requested team
-                target_team = None
-                for t in teams:
-                    if t.name.lower() == team_name.lower():
-                        target_team = t
-                        break
-
-                if target_team is None:
-                    available = ", ".join(t.name for t in teams)
-                    await interaction.followup.send(
-                        f"Team not found. Available teams: {available}",
-                        ephemeral=True,
-                    )
-                    return
-
-                # Create or get player, then enroll
-                player = await repo.get_or_create_player(
-                    discord_id=discord_id,
-                    username=interaction.user.display_name,
-                    avatar_url=(
-                        str(interaction.user.display_avatar.url)
-                        if interaction.user.display_avatar
-                        else ""
-                    ),
-                )
-                await repo.enroll_player(player.id, target_team.id, season.id)
-                await session.commit()
-
-            # Assign Discord role if in a guild
-            if interaction.guild:
-                role = discord.utils.get(
-                    interaction.guild.roles,
-                    name=target_team.name,
-                )
-                if role and isinstance(interaction.user, discord.Member):
-                    await interaction.user.add_roles(role)
-
-            # Build confirmation embed (shown in channel)
-            from pinwheel.discord.embeds import build_welcome_embed
-
-            hoopers = [
-                {
-                    "name": h.name,
-                    "archetype": h.archetype or "Hooper",
-                    "backstory": h.backstory or "",
-                }
-                for h in target_team.hoopers
-            ]
-            embed = build_welcome_embed(
-                target_team.name,
-                target_team.color,
-                hoopers,
-                motto=target_team.motto or "",
-            )
-            await interaction.followup.send(embed=embed)
-
-            # Send welcome DM with quick-start info
-            import contextlib
-
-            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-                await interaction.user.send(embed=embed)
+            # All retries exhausted
+            if last_error is not None:
+                raise last_error
 
         except Exception:
             logger.exception("discord_join_failed")

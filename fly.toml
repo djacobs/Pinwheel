@@ -15,7 +15,7 @@ kill_timeout = "5s"
 [env]
   PINWHEEL_ENV = "production"
   PINWHEEL_LOG_LEVEL = "INFO"
-  PINWHEEL_PRESENTATION_PACE = "normal"
+  PINWHEEL_PRESENTATION_PACE = "slow"
   PINWHEEL_AUTO_ADVANCE = "true"
   DISCORD_INVITE_URL = "https://discord.gg/sm6dZNTq"
   PORT = "8080"

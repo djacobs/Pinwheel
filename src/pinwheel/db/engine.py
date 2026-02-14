@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -20,8 +21,29 @@ from sqlalchemy.ext.asyncio import (
 
 
 def create_engine(database_url: str) -> AsyncEngine:
-    """Create an async SQLAlchemy engine."""
-    return create_async_engine(database_url, echo=False)
+    """Create an async SQLAlchemy engine.
+
+    For SQLite, enables WAL journal mode and a 15-second busy timeout so
+    concurrent sessions (scheduler, Discord commands, web requests) don't
+    immediately fail with "database is locked".
+    """
+    connect_args: dict[str, object] = {}
+    if "sqlite" in database_url:
+        connect_args["timeout"] = 15
+
+    engine = create_async_engine(database_url, echo=False, connect_args=connect_args)
+
+    if "sqlite" in database_url:
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn: object, connection_record: object) -> None:
+            cursor = dbapi_conn.cursor()  # type: ignore[union-attr]
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.close()
+
+    return engine
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
