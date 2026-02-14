@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **725 tests**, zero lint errors (Session 51)
+- **725 tests**, zero lint errors (Session 52)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -14,7 +14,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 13:** Self-heal missing player enrollments, decouple governance from game simulation
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** Session 51 (governor proposal inspection + hooper trade fix)
+- **Latest commit:** Session 52 (remove "The AI Sees" branding, simplify reports tagline)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -208,3 +208,19 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 **725 tests (8 new), zero lint errors.**
 
 **What could have gone better:** The `fly ssh` command doesn't support shell pipes, so the initial DB query failed on quote escaping. Writing a standalone Python script and piping it via stdin (`cat script.py | fly ssh console -C "python -"`) worked cleanly. Also, Discord secrets are named `DISCORD_BOT_TOKEN` not `DISCORD_TOKEN` in Fly — the notification script needed a fallback lookup.
+
+---
+
+## Session 52 — Remove "The AI Sees" Branding
+
+**What was asked:** Remove "The AI Sees" section title on the home page and simplify the reports page tagline to just "The reporter describes — it never prescribes."
+
+**What was built:**
+- Renamed home page report section from "The AI Sees" to "Reports"
+- Trimmed reports page tagline from "AI-generated reports on gameplay and the Floor. The reporter describes — it never prescribes." to just "The reporter describes — it never prescribes."
+
+**Files modified (2):** `templates/pages/home.html`, `templates/pages/reports.html`
+
+**725 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward copy change.

@@ -581,3 +581,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 80. [DONE] `pending_review` and `rejected` status detection
 **Problem:** `get_governor_activity()` only checked for `confirmed`, `passed`, and `failed` statuses. Proposals in `pending_review` or `rejected` showed up as generic "pending" — misleading governors about their proposal's actual state.
 **Fix:** Activity query now detects `proposal.pending_review` and `proposal.rejected` events, correctly labeling proposals throughout the system (profile, roster, proposals command).
+
+### 81. [DONE] Remove "The AI Sees" branding + simplify reports tagline
+**Problem:** Home page report section was titled "The AI Sees" — too prominent an AI attribution for what should feel like a neutral reporting layer. Reports page tagline included "AI-generated reports on gameplay and the Floor" which similarly over-emphasized the AI origin.
+**Fix:** Home page section renamed to "Reports". Reports page tagline simplified to "The reporter describes — it never prescribes." — the voice is the reporter's, not the AI's.
