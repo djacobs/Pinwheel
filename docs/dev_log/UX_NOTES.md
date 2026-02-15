@@ -641,3 +641,19 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 93. [DONE] Proposal interpretation embed shows V2 structured effects
 **Problem:** The `/propose` interpretation embed only showed a single parameter change or "Could not map to a game parameter." Creative proposals like "the ball is lava" — which clearly map to stamina_drain_rate — showed as unmappable with 30% confidence. The V2 effects interpreter existed but wasn't wired into Discord.
 **Fix:** `build_interpretation_embed()` now accepts an optional `interpretation_v2` (ProposalInterpretation). When present, renders each effect with type-specific labels: Parameter Change (`` `stamina_drain_rate`: 1.0 -> 1.5 ``), Hook (hook point + description), Meta (operation + target), Narrative (description text). Falls back to legacy display when no V2 interpretation is available. The `/propose` and Revise modal now use `interpret_proposal_v2` / `interpret_proposal_v2_mock`, converting to `RuleInterpretation` via `.to_rule_interpretation()` for backward-compatible tier detection.
+
+---
+
+## Completed — Session 71 (Overnight Wave Execution)
+
+### 94. [DONE] /amend command with amendment confirmation embed
+**Problem:** Governors couldn't amend proposals after confirmation but before tally. No mechanism to refine proposals based on feedback from other governors.
+**Fix:** New `/amend` Discord command with proposal autocomplete, `AmendConfirmView` (Confirm/Cancel), `build_amendment_confirm_embed()`. Max 2 amendments per proposal, costs 1 AMEND token. Shows original proposal text, proposed amendment, and cost/token balance.
+
+### 95. [DONE] /effects browser and /repeal command
+**Problem:** Active effects from passed proposals were invisible to governors. No way to undo unwanted effects through democratic process.
+**Fix:** `/effects` command shows numbered list of active effects with type, duration, source proposal, and short ID. `/repeal` command with autocomplete proposes repealing a non-parameter effect (Tier 5 supermajority). `RepealConfirmView` with confirm/cancel + token refund. `build_effects_list_embed()` and `build_repeal_confirm_embed()`.
+
+### 96. [DONE] Drama-aware arena pacing CSS
+**Problem:** Arena replay played all possessions at the same speed, making dramatic moments (lead changes, game-winners, scoring runs) feel the same as routine possessions.
+**Fix:** New `core/drama.py` module classifies possessions into four drama levels (routine/elevated/high/peak). `annotate_drama()` detects lead changes, scoring runs, move activations, Elam approach, game-winning shots. `normalize_delays()` redistributes time budget so dramatic moments get proportionally more replay time. Arena CSS updated with drama-level styling.
