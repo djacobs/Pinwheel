@@ -259,11 +259,11 @@ fly secrets set PINWHEEL_PRESENTATION_PACE=slow
 
 `DATABASE_URL` defaults to `sqlite+aiosqlite:///pinwheel.db`. In production on Fly, it points to `/data/pinwheel.db` on the persistent volume.
 
-### Monitoring
+### Monitoring & Log Debugging
 
 ```bash
 # Tail live logs
-fly logs
+fly logs -a pinwheel
 
 # Health check
 curl https://pinwheel.fly.dev/health
@@ -271,16 +271,46 @@ curl https://pinwheel.fly.dev/health
 
 The `/health` endpoint returns database connectivity, scheduler status, Discord connection state, and last simulation timestamp.
 
+**Debugging Discord command failures.** All Discord command errors log the full traceback at ERROR level. The log key tells you which command failed:
+
+| Log Key | Command | What It Means |
+|---------|---------|---------------|
+| `discord_join_failed` | `/join` | Enrollment failed (DB contention, missing season, etc.) |
+| `discord_team_autocomplete_failed` | `/join` autocomplete | Team list couldn't be loaded |
+| `discord_propose_failed` | `/propose` | AI interpretation or DB write failed |
+| `discord_vote_failed` | `/vote` | Vote recording failed |
+| `discord_roster_failed` | `/roster` | Roster lookup failed |
+| `discord_proposals_failed` | `/proposals` | Proposal list lookup failed |
+
+```bash
+# Find a specific command failure with full traceback
+fly logs -a pinwheel --no-tail | grep -A 20 "discord_join_failed"
+
+# Find all Discord errors in recent logs
+fly logs -a pinwheel --no-tail | grep "discord_.*_failed"
+
+# Watch for errors in real time while a player retries
+fly logs -a pinwheel | grep -E "discord_.*_failed|ERROR"
+
+# Check scheduler (tick_round) activity
+fly logs -a pinwheel --no-tail | grep "tick_round"
+
+# Check bot connection state
+fly logs -a pinwheel --no-tail | grep "discord_bot"
+```
+
+**Important:** `auto_stop_machines` is set to `"off"` in `fly.toml`. The Discord bot requires a persistent WebSocket connection — if Fly stops the machine, the bot disconnects and players see Discord's generic "Something went wrong" error instead of our messages. Never change this to `"stop"` or `"suspend"`.
+
 ---
 
 ## Database Backup
 
 ```bash
-# Manual backup
-fly ssh console -C "pg_dump \$DATABASE_URL > /data/backup_$(date +%Y%m%d).sql"
+# Manual backup (SQLite file copy — fast and safe)
+fly ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"
 ```
 
-Fly Postgres includes automatic daily backups. For manual backups before risky operations (reseeds, migrations, schema changes), always back up first.
+Always back up before risky operations (reseeds, migrations, schema changes). The backup takes ~2 seconds.
 
 ---
 
