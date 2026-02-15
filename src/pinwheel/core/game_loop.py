@@ -1109,10 +1109,11 @@ async def _phase_simulate_and_govern(
     _pre_round_series: dict[str, tuple[int, int]] = {}  # "teamA:teamB" -> (a_wins, b_wins)
     if playoff_context:
         for entry in schedule:
-            pair_key = ":".join(sorted([entry.home_team_id, entry.away_team_id]))
+            sorted_ids = sorted([entry.home_team_id, entry.away_team_id])
+            pair_key = ":".join(sorted_ids)
             if pair_key not in _pre_round_series:
                 a_wins, b_wins, _ = await _get_playoff_series_record(
-                    repo, season_id, entry.home_team_id, entry.away_team_id
+                    repo, season_id, sorted_ids[0], sorted_ids[1]
                 )
                 _pre_round_series[pair_key] = (a_wins, b_wins)
 
