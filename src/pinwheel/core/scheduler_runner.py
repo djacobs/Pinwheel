@@ -12,7 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -21,13 +24,53 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import step_round_multisession, tally_pending_governance
 from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
-from pinwheel.db.models import GameResultRow
+from pinwheel.db.models import BotStateRow, GameResultRow
 from pinwheel.db.repository import Repository
 
 logger = logging.getLogger(__name__)
 
 
 PRESENTATION_STATE_KEY = "presentation_active"
+TICK_LOCK_KEY = "tick_round_lock"
+TICK_LOCK_TIMEOUT_SECONDS = 300  # 5 minutes — stale lock recovery
+
+_MACHINE_ID: str = os.environ.get("FLY_MACHINE_ID", "") or str(uuid4())
+
+
+async def _try_acquire_tick_lock(engine: AsyncEngine, machine_id: str) -> bool:
+    """Atomically try to claim the tick_round lock. Returns True if acquired."""
+    async with get_session(engine) as session:
+        repo = Repository(session)
+        existing = await repo.get_bot_state(TICK_LOCK_KEY)
+        if existing:
+            data = json.loads(existing)
+            age = time.time() - data.get("acquired_at", 0)
+            if age < TICK_LOCK_TIMEOUT_SECONDS:
+                return False  # Lock held by another instance, not stale
+            # Stale lock — take it over
+            logger.warning(
+                "tick_lock_stale age=%.0fs old_machine=%s",
+                age,
+                data.get("machine_id", "unknown"),
+            )
+        await repo.set_bot_state(
+            TICK_LOCK_KEY,
+            json.dumps({"machine_id": machine_id, "acquired_at": time.time()}),
+        )
+        return True
+
+
+async def _release_tick_lock(engine: AsyncEngine, machine_id: str) -> None:
+    """Release the lock only if we still own it."""
+    async with get_session(engine) as session:
+        existing_val = await Repository(session).get_bot_state(TICK_LOCK_KEY)
+        if existing_val:
+            data = json.loads(existing_val)
+            if data.get("machine_id") == machine_id:
+                row = await session.get(BotStateRow, TICK_LOCK_KEY)
+                if row:
+                    await session.delete(row)
+                    await session.flush()
 
 
 async def _persist_presentation_start(
@@ -101,6 +144,7 @@ async def _present_and_clear(
     skip_quarters: int = 0,
     governance_summary: dict | None = None,
     report_events: list[dict] | None = None,
+    deferred_season_events: list[tuple[str, dict]] | None = None,
 ) -> None:
     """Wrapper: run present_round, then clear the persisted state flag."""
     try:
@@ -127,6 +171,12 @@ async def _present_and_clear(
                 "governance.window_closed",
                 governance_summary,
             )
+
+        # Publish deferred season events after presentation finishes
+        # (championship, playoffs_complete, regular_season_complete, etc.)
+        for event_type, event_data in deferred_season_events or []:
+            await event_bus.publish(event_type, event_data)
+
         await _clear_presentation_state(engine)
         logger.info("presentation_state_cleared")
 
@@ -335,6 +385,19 @@ async def tick_round(
     # Skip if a presentation is still playing — avoids piling up unseen rounds
     if presentation_state is not None and presentation_state.is_active:
         logger.info("tick_round_skip: presentation still active")
+        return
+
+    # Distributed lock: only one Fly.io machine executes tick_round at a time
+    machine_id = _MACHINE_ID
+    lock_acquired = False
+    try:
+        lock_acquired = await _try_acquire_tick_lock(engine, machine_id)
+    except Exception:
+        logger.exception("tick_round_lock_acquire_error")
+        return
+
+    if not lock_acquired:
+        logger.info("tick_round_skip: lock held by another instance")
         return
 
     try:
@@ -587,6 +650,10 @@ async def tick_round(
                     round_result.governance_summary,
                 )
 
+            # Publish season events immediately in instant mode
+            for event_type, event_data in round_result.deferred_season_events:
+                await event_bus.publish(event_type, event_data)
+
             logger.info(
                 "instant_mode: marked %d games as presented",
                 len(round_result.game_row_ids),
@@ -638,6 +705,7 @@ async def tick_round(
                     game_summaries=round_result.games,
                     governance_summary=round_result.governance_summary,
                     report_events=round_result.report_events,
+                    deferred_season_events=round_result.deferred_season_events,
                 )
             )
             logger.info(
@@ -654,3 +722,5 @@ async def tick_round(
         )
     except Exception:
         logger.exception("tick_round_error")
+    finally:
+        await _release_tick_lock(engine, machine_id)

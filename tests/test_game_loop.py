@@ -9,11 +9,13 @@ from pinwheel.ai.interpreter import interpret_proposal_mock
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import (
     _AIPhaseResult,
-    _check_all_playoffs_complete,
     _check_season_complete,
+    _get_playoff_series_record,
     _phase_ai,
     _phase_persist_and_finalize,
     _phase_simulate_and_govern,
+    _schedule_next_series_game,
+    _series_wins_needed,
     _SimPhaseResult,
     compute_standings_from_repo,
     generate_playoff_bracket,
@@ -62,9 +64,16 @@ def _hooper_attrs() -> dict:
 # Derived constants: games_per_round = comb(NUM_TEAMS, 2), games_per_team = NUM_TEAMS - 1.
 NUM_TEAMS = 4
 
+# Ruleset with best-of-1 playoffs for backward-compat tests.
+_BO1_RULESET = {
+    "quarter_minutes": 3,
+    "playoff_semis_best_of": 1,
+    "playoff_finals_best_of": 1,
+}
+
 
 async def _setup_season_with_teams(
-    repo: Repository, num_rounds: int = 1
+    repo: Repository, num_rounds: int = 1, starting_ruleset: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Create a league, season, NUM_TEAMS teams with 4 hoopers each, and a schedule.
 
@@ -77,7 +86,7 @@ async def _setup_season_with_teams(
     season = await repo.create_season(
         league.id,
         "Season 1",
-        starting_ruleset={"quarter_minutes": 3},
+        starting_ruleset=starting_ruleset or {"quarter_minutes": 3},
     )
 
     team_ids = []
@@ -757,7 +766,9 @@ class TestPlayoffProgression:
 
     async def test_semifinals_create_finals_entry(self, repo: Repository):
         """Play regular season + semis → verify finals matchup created."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         # Play regular season (3 rounds for 4 teams)
@@ -786,7 +797,9 @@ class TestPlayoffProgression:
 
     async def test_finals_complete_season(self, repo: Repository):
         """Play through finals → verify season enters championship phase."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         # Play regular season
@@ -814,7 +827,9 @@ class TestPlayoffProgression:
 
     async def test_two_team_bracket_completes(self, repo: Repository):
         """2-team playoff bracket → after finals, season is completed (no semi step)."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         # Play regular season
@@ -826,7 +841,7 @@ class TestPlayoffProgression:
         # We need a separate setup for 2-team. Let's create a fresh season.
         league = await repo.create_league("Two Team League")
         s2 = await repo.create_season(
-            league.id, "S2", starting_ruleset={"quarter_minutes": 3}
+            league.id, "S2", starting_ruleset=_BO1_RULESET,
         )
         t_ids = []
         for i in range(4):
@@ -876,7 +891,7 @@ class TestPlayoffProgression:
         # For a true 2-team test, create a season with just 2 teams
         league3 = await repo.create_league("Duo League")
         s3 = await repo.create_season(
-            league3.id, "S3", starting_ruleset={"quarter_minutes": 3}
+            league3.id, "S3", starting_ruleset=_BO1_RULESET,
         )
         duo_ids = []
         for i in range(2):
@@ -924,7 +939,9 @@ class TestPlayoffProgression:
 
     async def test_semifinals_complete_event_published(self, repo: Repository):
         """Verify season.semifinals_complete event with finals_matchup."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         _, total_rounds = await self._play_regular_season(repo, season_id, team_ids)
@@ -955,7 +972,9 @@ class TestPlayoffProgression:
 
     async def test_playoffs_complete_event_published(self, repo: Repository):
         """Verify season.playoffs_complete event with champion_team_id."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         _, total_rounds = await self._play_regular_season(repo, season_id, team_ids)
@@ -990,7 +1009,9 @@ class TestPlayoffProgression:
 
     async def test_no_finals_before_semis_done(self, repo: Repository):
         """Playing 1 regular round should not trigger playoff progression."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         result = await step_round(repo, season_id, round_number=1)
@@ -1001,7 +1022,9 @@ class TestPlayoffProgression:
 
     async def test_season_enters_championship_after_finals(self, repo: Repository):
         """After full playoff lifecycle, season is in championship phase."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
         await repo.update_season_status(season_id, "active")
 
         # Play regular season
@@ -1024,33 +1047,6 @@ class TestPlayoffProgression:
         assert active is not None
         assert active.id == season_id
 
-    async def test_check_all_playoffs_complete(self, repo: Repository):
-        """Unit test: _check_all_playoffs_complete returns False/True correctly."""
-        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=3)
-        await repo.update_season_status(season_id, "active")
-
-        # Before any playoffs
-        assert await _check_all_playoffs_complete(repo, season_id) is False
-
-        # Play regular season
-        _, total_rounds = await self._play_regular_season(repo, season_id, team_ids)
-
-        # After bracket generated but before playoff games
-        assert await _check_all_playoffs_complete(repo, season_id) is False
-
-        # Play semis
-        semi_round = total_rounds + 1
-        await step_round(repo, season_id, round_number=semi_round)
-
-        # After semis but before finals
-        assert await _check_all_playoffs_complete(repo, season_id) is False
-
-        # Play finals
-        finals_round = semi_round + 1
-        await step_round(repo, season_id, round_number=finals_round)
-
-        # After all playoff games
-        assert await _check_all_playoffs_complete(repo, season_id) is True
 
 
 class TestPhaseSimulateAndGovern:
@@ -1349,3 +1345,230 @@ class TestStepRoundBackwardCompat:
 
         assert len(result.tallies) == 1
         assert result.tallies[0].passed is True
+
+
+class TestPlayoffSeries:
+    """Tests for best-of-N playoff series logic (P0 fix)."""
+
+    async def test_series_wins_needed(self):
+        """_series_wins_needed returns correct win threshold."""
+        assert _series_wins_needed(1) == 1
+        assert _series_wins_needed(3) == 2
+        assert _series_wins_needed(5) == 3
+        assert _series_wins_needed(7) == 4
+
+    async def test_get_playoff_series_record(self, repo: Repository):
+        """_get_playoff_series_record counts wins in playoff rounds only."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        # Play regular season
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        # Get playoff bracket
+        playoff_sched = await repo.get_full_schedule(season_id, phase="playoff")
+        assert len(playoff_sched) >= 2
+        se = playoff_sched[0]
+
+        # Before playoff games: 0-0
+        a_wins, b_wins, games = await _get_playoff_series_record(
+            repo, season_id, se.home_team_id, se.away_team_id,
+        )
+        assert a_wins == 0 and b_wins == 0 and games == 0
+
+        # Play semi round
+        semi_round = total_rounds + 1
+        await step_round(repo, season_id, round_number=semi_round)
+
+        # After 1 game: 1-0 or 0-1
+        a_wins, b_wins, games = await _get_playoff_series_record(
+            repo, season_id, se.home_team_id, se.away_team_id,
+        )
+        assert games == 1
+        assert a_wins + b_wins == 1
+
+    async def test_semi_series_best_of_3_schedules_multiple_games(self, repo: Repository):
+        """Best-of-3 semis schedule Game 2 after Game 1 (series not clinched at 1-0)."""
+        ruleset_dict = {
+            "quarter_minutes": 3,
+            "playoff_semis_best_of": 3,
+            "playoff_finals_best_of": 1,
+        }
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=ruleset_dict,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        # Play regular season
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        # After regular season: 2 playoff entries (Game 1 for each semi)
+        playoff_sched = await repo.get_full_schedule(season_id, phase="playoff")
+        assert len(playoff_sched) == 2
+
+        # Play semi Game 1
+        semi_round_1 = total_rounds + 1
+        r1 = await step_round(repo, season_id, round_number=semi_round_1)
+        # Series is 1-0 — not clinched with bo3, so no finals yet
+        assert r1.finals_matchup is None
+
+        # Game 2 must have been scheduled for both series
+        playoff_sched = await repo.get_full_schedule(season_id, phase="playoff")
+        assert len(playoff_sched) >= 4  # 2 original + 2 new
+
+        # Play semi Game 2
+        semi_round_2 = semi_round_1 + 1
+        r2 = await step_round(repo, season_id, round_number=semi_round_2)
+
+        # After Game 2: series could be 2-0 (clinched) or 1-1 (need Game 3).
+        # Play additional rounds until finals are created.
+        current_round = semi_round_2
+        while r2.finals_matchup is None:
+            current_round += 1
+            sched = await repo.get_schedule_for_round(season_id, current_round)
+            if not sched:
+                break
+            r2 = await step_round(repo, season_id, round_number=current_round)
+
+        # Finals must have been created (both semis decided)
+        assert r2.finals_matchup is not None
+        assert r2.finals_matchup["playoff_round"] == "finals"
+
+    async def test_schedule_next_series_game_alternates_home_court(self, repo: Repository):
+        """Home court alternates: higher seed home on games 1, 3, 5; away on 2, 4."""
+        league = await repo.create_league("HC Test")
+        season = await repo.create_season(league.id, "HC Season")
+
+        # Even games_played (0, 2, 4) → higher seed at home
+        await _schedule_next_series_game(
+            repo, season.id, "team-a", "team-b", 0, 10, 0,
+        )
+        sched = await repo.get_schedule_for_round(season.id, 10)
+        assert sched[0].home_team_id == "team-a"
+        assert sched[0].away_team_id == "team-b"
+
+        # Odd games_played (1, 3) → lower seed at home
+        await _schedule_next_series_game(
+            repo, season.id, "team-a", "team-b", 1, 11, 0,
+        )
+        sched = await repo.get_schedule_for_round(season.id, 11)
+        assert sched[0].home_team_id == "team-b"
+        assert sched[0].away_team_id == "team-a"
+
+
+class TestDeferredSeasonEvents:
+    """Tests for the deferred events mechanism (P0 #1 fix)."""
+
+    async def test_season_events_deferred_when_suppressed(self, repo: Repository):
+        """When suppress_spoiler_events=True, season events go to deferred list."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        # Play regular season
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        bus = EventBus()
+        received = []
+
+        # Play semis with suppression
+        semi_round = total_rounds + 1
+        async with bus.subscribe(None) as sub:
+            result = await step_round(
+                repo, season_id, round_number=semi_round,
+                event_bus=bus, suppress_spoiler_events=True,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        # Spoiler events should NOT appear on the bus
+        assert "season.semifinals_complete" not in event_types
+        assert "game.completed" not in event_types
+        assert "round.completed" not in event_types
+
+        # But they should be in the deferred list
+        assert len(result.deferred_season_events) > 0
+        deferred_types = [t for t, _ in result.deferred_season_events]
+        assert "season.semifinals_complete" in deferred_types
+
+    async def test_season_events_published_when_not_suppressed(self, repo: Repository):
+        """Without suppression, season events publish immediately."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        bus = EventBus()
+        received = []
+
+        semi_round = total_rounds + 1
+        async with bus.subscribe(None) as sub:
+            result = await step_round(
+                repo, season_id, round_number=semi_round,
+                event_bus=bus, suppress_spoiler_events=False,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "season.semifinals_complete" in event_types
+        # Deferred list should be empty
+        assert len(result.deferred_season_events) == 0
+
+    async def test_regular_season_complete_deferred(self, repo: Repository):
+        """season.regular_season_complete deferred when suppress_spoiler_events=True."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+
+        bus = EventBus()
+        received = []
+
+        # Play all regular season rounds with suppression on the last one
+        for rnd in range(1, total_rounds):
+            await step_round(repo, season_id, round_number=rnd)
+
+        async with bus.subscribe(None) as sub:
+            result = await step_round(
+                repo, season_id, round_number=total_rounds,
+                event_bus=bus, suppress_spoiler_events=True,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        event_types = [e["type"] for e in received]
+        assert "season.regular_season_complete" not in event_types
+
+        deferred_types = [t for t, _ in result.deferred_season_events]
+        assert "season.regular_season_complete" in deferred_types

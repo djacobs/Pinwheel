@@ -94,53 +94,361 @@ async def _check_season_complete(repo: Repository, season_id: str) -> bool:
     return scheduled_rounds.issubset(played_rounds)
 
 
-async def _determine_semifinal_winners(
-    repo: Repository, season_id: str, semi_round_number: int
-) -> list[str]:
-    """Return winner team IDs from the semifinal round, ordered by matchup_index."""
-    games = await repo.get_games_for_round(season_id, semi_round_number)
-    games_sorted = sorted(games, key=lambda g: g.matchup_index)
-    return [g.winner_team_id for g in games_sorted]
+def _series_wins_needed(best_of: int) -> int:
+    """Number of wins needed to clinch a best-of-N series."""
+    return (best_of + 1) // 2
 
 
-async def _create_finals_entry(
+async def _get_playoff_series_record(
     repo: Repository,
     season_id: str,
-    semi_round_number: int,
-    winner_team_ids: list[str],
-) -> dict | None:
-    """Persist a finals schedule entry from semifinal winners. Returns the matchup dict."""
-    if len(winner_team_ids) < 2:
-        return None
-    finals_round = semi_round_number + 1
-    home_team_id = winner_team_ids[0]  # winner of higher-seed semi (#1v#4)
-    away_team_id = winner_team_ids[1]  # winner of lower-seed semi (#2v#3)
+    team_a_id: str,
+    team_b_id: str,
+) -> tuple[int, int, int]:
+    """Get win counts for a playoff series between two teams.
+
+    Returns (team_a_wins, team_b_wins, games_played).
+    Only counts games in rounds that have a playoff schedule entry.
+    """
+    playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+    playoff_rounds = {s.round_number for s in playoff_schedule}
+    all_games = await repo.get_all_games(season_id)
+
+    pair = frozenset({team_a_id, team_b_id})
+    a_wins = 0
+    b_wins = 0
+    games = 0
+    for g in all_games:
+        if g.round_number not in playoff_rounds:
+            continue
+        if frozenset({g.home_team_id, g.away_team_id}) == pair:
+            games += 1
+            if g.winner_team_id == team_a_id:
+                a_wins += 1
+            elif g.winner_team_id == team_b_id:
+                b_wins += 1
+    return a_wins, b_wins, games
+
+
+async def _schedule_next_series_game(
+    repo: Repository,
+    season_id: str,
+    higher_seed_id: str,
+    lower_seed_id: str,
+    games_played: int,
+    round_number: int,
+    matchup_index: int,
+) -> None:
+    """Schedule the next game in a playoff series with alternating home court.
+
+    Higher seed has home court in odd-numbered games (1, 3, 5, ...).
+    """
+    if games_played % 2 == 0:
+        home_team_id = higher_seed_id
+        away_team_id = lower_seed_id
+    else:
+        home_team_id = lower_seed_id
+        away_team_id = higher_seed_id
+
     await repo.create_schedule_entry(
         season_id=season_id,
-        round_number=finals_round,
-        matchup_index=0,
+        round_number=round_number,
+        matchup_index=matchup_index,
         home_team_id=home_team_id,
         away_team_id=away_team_id,
         phase="playoff",
     )
-    return {
-        "playoff_round": "finals",
-        "matchup_index": 0,
-        "round_number": finals_round,
-        "home_team_id": home_team_id,
-        "away_team_id": away_team_id,
-    }
 
 
-async def _check_all_playoffs_complete(repo: Repository, season_id: str) -> bool:
-    """Check if every scheduled playoff game has been played."""
+async def _advance_playoff_series(
+    repo: Repository,
+    season_id: str,
+    ruleset: RuleSet,
+    sim_round_number: int,
+    event_bus: EventBus | None = None,
+    suppress_spoiler_events: bool = False,
+) -> tuple[bool, dict | None, list[tuple[str, dict]]]:
+    """Advance playoff series after a round of games.
+
+    Checks each active series (semis and finals) for completion, schedules
+    next games as needed, creates finals when semis are decided, and enters
+    championship when finals are decided.
+
+    Returns (playoffs_complete, finals_matchup_info, deferred_events).
+    """
+    deferred_events: list[tuple[str, dict]] = []
+    playoffs_complete = False
+    finals_matchup: dict | None = None
+
     playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
     if not playoff_schedule:
-        return False
-    games = await repo.get_all_games(season_id)
-    played = {(g.round_number, g.matchup_index) for g in games}
-    scheduled = {(s.round_number, s.matchup_index) for s in playoff_schedule}
-    return scheduled.issubset(played)
+        return False, None, deferred_events
+
+    # Identify initial semi matchups from the earliest playoff round
+    playoff_rounds_sorted = sorted({s.round_number for s in playoff_schedule})
+    first_playoff_round = playoff_rounds_sorted[0]
+    initial_entries = [
+        s for s in playoff_schedule if s.round_number == first_playoff_round
+    ]
+    initial_entries.sort(key=lambda s: s.matchup_index)
+
+    # Determine if we have semi series or direct finals
+    initial_pairs = [
+        frozenset({s.home_team_id, s.away_team_id}) for s in initial_entries
+    ]
+
+    # Finals entries are playoff schedule entries with a team pair NOT in the initial bracket
+    finals_entries = [
+        s
+        for s in playoff_schedule
+        if frozenset({s.home_team_id, s.away_team_id}) not in initial_pairs
+    ]
+    has_finals = len(finals_entries) > 0
+
+    # Check if this is a 2-team bracket (direct finals, no semis)
+    is_direct_finals = len(initial_entries) == 1
+
+    next_round = sim_round_number + 1
+
+    if is_direct_finals:
+        # --- 2-team bracket: only finals ---
+        fe = initial_entries[0]
+        higher_seed_id = fe.home_team_id
+        lower_seed_id = fe.away_team_id
+        best_of = ruleset.playoff_finals_best_of
+        wins_needed = _series_wins_needed(best_of)
+
+        h_wins, l_wins, games_played = await _get_playoff_series_record(
+            repo, season_id, higher_seed_id, lower_seed_id
+        )
+
+        if h_wins >= wins_needed or l_wins >= wins_needed:
+            champion_id = higher_seed_id if h_wins >= wins_needed else lower_seed_id
+            playoffs_complete = True
+
+            from pinwheel.core.season import enter_championship
+
+            try:
+                eb = None if suppress_spoiler_events else event_bus
+                champ_config = await enter_championship(
+                    repo, season_id, champion_id, event_bus=eb,
+                )
+                if suppress_spoiler_events:
+                    deferred_events.append(
+                        (
+                            "season.championship_started",
+                            {
+                                "season_id": season_id,
+                                "champion_team_id": champion_id,
+                                "champion_team_name": champ_config.get(
+                                    "champion_team_name", ""
+                                ),
+                                "awards": champ_config.get("awards", []),
+                                "championship_ends_at": champ_config.get(
+                                    "championship_ends_at", ""
+                                ),
+                            },
+                        )
+                    )
+            except Exception:
+                logger.exception(
+                    "enter_championship_failed season=%s", season_id
+                )
+                await repo.update_season_status(season_id, "completed")
+
+            event_data = {
+                "season_id": season_id,
+                "champion_team_id": champion_id,
+                "finals_record": f"{max(h_wins, l_wins)}-{min(h_wins, l_wins)}",
+            }
+            if suppress_spoiler_events:
+                deferred_events.append(("season.playoffs_complete", event_data))
+            elif event_bus:
+                await event_bus.publish("season.playoffs_complete", event_data)
+        else:
+            await _schedule_next_series_game(
+                repo,
+                season_id,
+                higher_seed_id,
+                lower_seed_id,
+                games_played,
+                next_round,
+                0,
+            )
+
+        return playoffs_complete, finals_matchup, deferred_events
+
+    # --- 4-team bracket: semis then finals ---
+
+    # Check semi series state
+    semi_winners: list[str] = []
+    semi_series_info: list[dict] = []
+    needs_more_semi_games = False
+
+    for semi_idx, se in enumerate(initial_entries):
+        higher_seed_id = se.home_team_id
+        lower_seed_id = se.away_team_id
+        best_of = ruleset.playoff_semis_best_of
+        wins_needed = _series_wins_needed(best_of)
+
+        h_wins, l_wins, games_played = await _get_playoff_series_record(
+            repo, season_id, higher_seed_id, lower_seed_id
+        )
+
+        if h_wins >= wins_needed:
+            semi_winners.append(higher_seed_id)
+            semi_series_info.append(
+                {
+                    "matchup_index": semi_idx,
+                    "winner_id": higher_seed_id,
+                    "loser_id": lower_seed_id,
+                    "winner_wins": h_wins,
+                    "loser_wins": l_wins,
+                }
+            )
+        elif l_wins >= wins_needed:
+            semi_winners.append(lower_seed_id)
+            semi_series_info.append(
+                {
+                    "matchup_index": semi_idx,
+                    "winner_id": lower_seed_id,
+                    "loser_id": higher_seed_id,
+                    "winner_wins": l_wins,
+                    "loser_wins": h_wins,
+                }
+            )
+        else:
+            # Series not decided — schedule next game
+            await _schedule_next_series_game(
+                repo,
+                season_id,
+                higher_seed_id,
+                lower_seed_id,
+                games_played,
+                next_round,
+                semi_idx,
+            )
+            needs_more_semi_games = True
+
+    # Transition to finals when both semis are decided
+    if (
+        len(semi_winners) == len(initial_entries)
+        and not has_finals
+        and not needs_more_semi_games
+    ):
+        await repo.update_season_status(season_id, "playoffs")
+
+        home_team_id = semi_winners[0]  # winner of higher-seed semi (#1v#4)
+        away_team_id = semi_winners[1]  # winner of lower-seed semi (#2v#3)
+
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=next_round,
+            matchup_index=0,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            phase="playoff",
+        )
+
+        finals_matchup = {
+            "playoff_round": "finals",
+            "matchup_index": 0,
+            "round_number": next_round,
+            "home_team_id": home_team_id,
+            "away_team_id": away_team_id,
+        }
+
+        event_data = {
+            "season_id": season_id,
+            "semifinal_winners": semi_winners,
+            "finals_matchup": finals_matchup,
+            "semi_series": semi_series_info,
+        }
+        if suppress_spoiler_events:
+            deferred_events.append(("season.semifinals_complete", event_data))
+        elif event_bus:
+            await event_bus.publish("season.semifinals_complete", event_data)
+
+        logger.info(
+            "semifinals_complete season=%s finals=%s",
+            season_id,
+            finals_matchup,
+        )
+
+    # Handle finals series
+    if has_finals:
+        fe = finals_entries[0]
+        higher_seed_id = fe.home_team_id
+        lower_seed_id = fe.away_team_id
+        best_of = ruleset.playoff_finals_best_of
+        wins_needed = _series_wins_needed(best_of)
+
+        h_wins, l_wins, games_played = await _get_playoff_series_record(
+            repo, season_id, higher_seed_id, lower_seed_id
+        )
+
+        if h_wins >= wins_needed or l_wins >= wins_needed:
+            champion_id = higher_seed_id if h_wins >= wins_needed else lower_seed_id
+            playoffs_complete = True
+
+            from pinwheel.core.season import enter_championship
+
+            try:
+                eb = None if suppress_spoiler_events else event_bus
+                champ_config = await enter_championship(
+                    repo, season_id, champion_id, event_bus=eb,
+                )
+                if suppress_spoiler_events:
+                    deferred_events.append(
+                        (
+                            "season.championship_started",
+                            {
+                                "season_id": season_id,
+                                "champion_team_id": champion_id,
+                                "champion_team_name": champ_config.get(
+                                    "champion_team_name", ""
+                                ),
+                                "awards": champ_config.get("awards", []),
+                                "championship_ends_at": champ_config.get(
+                                    "championship_ends_at", ""
+                                ),
+                            },
+                        )
+                    )
+            except Exception:
+                logger.exception(
+                    "enter_championship_failed season=%s", season_id
+                )
+                await repo.update_season_status(season_id, "completed")
+
+            event_data = {
+                "season_id": season_id,
+                "champion_team_id": champion_id,
+                "finals_record": f"{max(h_wins, l_wins)}-{min(h_wins, l_wins)}",
+            }
+            if suppress_spoiler_events:
+                deferred_events.append(("season.playoffs_complete", event_data))
+            elif event_bus:
+                await event_bus.publish("season.playoffs_complete", event_data)
+
+            logger.info(
+                "season_playoffs_complete season=%s champion=%s record=%s",
+                season_id,
+                champion_id,
+                f"{max(h_wins, l_wins)}-{min(h_wins, l_wins)}",
+            )
+        else:
+            await _schedule_next_series_game(
+                repo,
+                season_id,
+                higher_seed_id,
+                lower_seed_id,
+                games_played,
+                next_round,
+                0,
+            )
+
+    return playoffs_complete, finals_matchup, deferred_events
 
 
 async def compute_standings_from_repo(repo: Repository, season_id: str) -> list[dict]:
@@ -562,7 +870,28 @@ async def _phase_simulate_and_govern(
     # 4. Simulate games
     playoff_context: str | None = None
     if schedule and schedule[0].phase == "playoff":
-        playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
+        # Determine if these are semi or finals games by checking the bracket.
+        # The initial playoff round has the semi matchups; any games between
+        # teams NOT in the initial round are finals.
+        full_playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+        if full_playoff_schedule:
+            earliest_round = min(s.round_number for s in full_playoff_schedule)
+            initial_pairs = [
+                frozenset({s.home_team_id, s.away_team_id})
+                for s in full_playoff_schedule
+                if s.round_number == earliest_round
+            ]
+            current_pairs = [
+                frozenset({s.home_team_id, s.away_team_id}) for s in schedule
+            ]
+            if len(initial_pairs) >= 2 and all(
+                p in initial_pairs for p in current_pairs
+            ):
+                playoff_context = "semifinal"
+            else:
+                playoff_context = "finals"
+        else:
+            playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
 
     game_summaries: list[dict] = []
     game_results: list[GameResult] = []
@@ -953,6 +1282,7 @@ async def _phase_persist_and_finalize(
     playoff_bracket: list[dict] | None = None
     playoffs_complete = False
     finals_matchup: dict | None = None
+    deferred_season_events: list[tuple[str, dict]] = []
 
     season = await repo.get_season(sim.season_id)
     if season and season.status not in (
@@ -1013,16 +1343,20 @@ async def _phase_persist_and_finalize(
                         sim.season_id,
                     )
 
-            if event_bus:
+            season_event_data = {
+                "season_id": sim.season_id,
+                "final_round": sim.round_number,
+                "standings": final_standings,
+                "playoff_bracket": playoff_bracket,
+                "tiebreakers_needed": result_phase == "tiebreakers",
+            }
+            if suppress_spoiler_events:
+                deferred_season_events.append(
+                    ("season.regular_season_complete", season_event_data)
+                )
+            elif event_bus:
                 await event_bus.publish(
-                    "season.regular_season_complete",
-                    {
-                        "season_id": sim.season_id,
-                        "final_round": sim.round_number,
-                        "standings": final_standings,
-                        "playoff_bracket": playoff_bracket,
-                        "tiebreakers_needed": result_phase == "tiebreakers",
-                    },
+                    "season.regular_season_complete", season_event_data
                 )
 
     elif season and season.status == "tiebreakers":
@@ -1054,102 +1388,25 @@ async def _phase_persist_and_finalize(
                     )
 
     elif season and season.status in ("regular_season_complete", "playoffs"):
-        playoff_schedule = await repo.get_full_schedule(sim.season_id, phase="playoff")
-        created_finals = False
-
-        if playoff_schedule:
-            playoff_rounds = sorted({s.round_number for s in playoff_schedule})
-
-            if len(playoff_rounds) == 1:
-                semi_round_num = playoff_rounds[0]
-                semi_entries = [
-                    s for s in playoff_schedule if s.round_number == semi_round_num
-                ]
-                if len(semi_entries) == 2:
-                    semi_games = await repo.get_games_for_round(
-                        sim.season_id, semi_round_num
-                    )
-                    if len(semi_games) == 2:
-                        winners = await _determine_semifinal_winners(
-                            repo, sim.season_id, semi_round_num
-                        )
-                        finals_matchup = await _create_finals_entry(
-                            repo, sim.season_id, semi_round_num, winners
-                        )
-                        created_finals = True
-                        await repo.update_season_status(sim.season_id, "playoffs")
-                        logger.info(
-                            "semifinals_complete season=%s finals=%s",
-                            sim.season_id,
-                            finals_matchup,
-                        )
-                        if event_bus:
-                            await event_bus.publish(
-                                "season.semifinals_complete",
-                                {
-                                    "season_id": sim.season_id,
-                                    "semifinal_winners": winners,
-                                    "finals_matchup": finals_matchup,
-                                },
-                            )
-
-        if not created_finals:
-            try:
-                playoffs_complete = await _check_all_playoffs_complete(
-                    repo, sim.season_id
-                )
-            except Exception:
-                logger.exception(
-                    "playoffs_complete_check_failed season=%s round=%d",
+        ruleset = RuleSet(**(season.current_ruleset or {}))
+        try:
+            playoffs_complete, finals_matchup, series_events = (
+                await _advance_playoff_series(
+                    repo,
                     sim.season_id,
+                    ruleset,
                     sim.round_number,
+                    event_bus=event_bus,
+                    suppress_spoiler_events=suppress_spoiler_events,
                 )
-
-            if playoffs_complete:
-                if not playoff_schedule:
-                    playoff_schedule = await repo.get_full_schedule(
-                        sim.season_id, phase="playoff"
-                    )
-                finals_round_num = max(s.round_number for s in playoff_schedule)
-                finals_games = await repo.get_games_for_round(
-                    sim.season_id, finals_round_num
-                )
-                champion_team_id = (
-                    finals_games[0].winner_team_id if finals_games else None
-                )
-                logger.info(
-                    "season_playoffs_complete season=%s champion=%s",
-                    sim.season_id,
-                    champion_team_id,
-                )
-
-                if champion_team_id:
-                    from pinwheel.core.season import enter_championship
-
-                    try:
-                        await enter_championship(
-                            repo,
-                            sim.season_id,
-                            champion_team_id,
-                            event_bus=event_bus,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "enter_championship_failed season=%s",
-                            sim.season_id,
-                        )
-                        await repo.update_season_status(sim.season_id, "completed")
-                else:
-                    await repo.update_season_status(sim.season_id, "completed")
-
-                if event_bus:
-                    await event_bus.publish(
-                        "season.playoffs_complete",
-                        {
-                            "season_id": sim.season_id,
-                            "champion_team_id": champion_team_id,
-                        },
-                    )
+            )
+            deferred_season_events.extend(series_events)
+        except Exception:
+            logger.exception(
+                "playoff_series_advance_failed season=%s round=%d",
+                sim.season_id,
+                sim.round_number,
+            )
 
     # Publish round complete
     elapsed = (time.monotonic() - start_time) if start_time is not None else 0.0
@@ -1195,6 +1452,7 @@ async def _phase_persist_and_finalize(
         playoffs_complete=playoffs_complete,
         finals_matchup=finals_matchup,
         report_events=deferred_report_events,
+        deferred_season_events=deferred_season_events,
     )
 
 
@@ -1324,6 +1582,7 @@ class RoundResult:
         playoffs_complete: bool = False,
         finals_matchup: dict | None = None,
         report_events: list[dict] | None = None,
+        deferred_season_events: list[tuple[str, dict]] | None = None,
     ) -> None:
         self.round_number = round_number
         self.games = games
@@ -1339,6 +1598,7 @@ class RoundResult:
         self.playoffs_complete = playoffs_complete
         self.finals_matchup = finals_matchup
         self.report_events = report_events or []
+        self.deferred_season_events = deferred_season_events or []
 
 
 # ---------------------------------------------------------------------------

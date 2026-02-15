@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import discord
@@ -39,6 +41,9 @@ if TYPE_CHECKING:
     from pinwheel.core.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
+
+DISCORD_SETUP_LOCK_KEY = "discord_setup_lock"
+DISCORD_SETUP_LOCK_TIMEOUT_SECONDS = 60  # 1 minute — setup is fast
 
 
 class PinwheelBot(commands.Bot):
@@ -347,86 +352,140 @@ class PinwheelBot(commands.Bot):
                 except Exception:
                     logger.exception("discord_event_dispatch_error event=%s", event.get("type"))
 
+    async def _try_acquire_setup_lock(self) -> bool:
+        """Try to acquire the Discord setup lock via DB. Returns True if acquired."""
+        if not self.engine:
+            return True  # No DB — single-instance, proceed
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                existing = await repo.get_bot_state(DISCORD_SETUP_LOCK_KEY)
+                if existing:
+                    data = json.loads(existing)
+                    age = time.time() - data.get("acquired_at", 0)
+                    if age < DISCORD_SETUP_LOCK_TIMEOUT_SECONDS:
+                        return False  # Lock held by another instance
+                await repo.set_bot_state(
+                    DISCORD_SETUP_LOCK_KEY,
+                    json.dumps({"acquired_at": time.time()}),
+                )
+                return True
+        except Exception:
+            logger.exception("discord_setup_lock_acquire_failed")
+            return True  # On error, proceed (better than deadlocking)
+
+    async def _release_setup_lock(self) -> None:
+        """Release the Discord setup lock."""
+        if not self.engine:
+            return
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.models import BotStateRow
+
+            async with get_session(self.engine) as session:
+                row = await session.get(BotStateRow, DISCORD_SETUP_LOCK_KEY)
+                if row:
+                    await session.delete(row)
+                    await session.flush()
+        except Exception:
+            logger.exception("discord_setup_lock_release_failed")
+
     async def _setup_server(self) -> None:
         """Create channels, roles, and post welcome message on bot startup.
 
         Idempotent: loads persisted channel IDs from bot_state, validates
         they still exist in the guild, creates anything missing, and
         persists all IDs back. Safe to call on every restart.
+
+        Uses a DB-level lock to prevent multiple Fly.io machines from
+        racing to create channels concurrently.
         """
         if not self.settings.discord_guild_id:
             return
 
-        guild = self.get_guild(int(self.settings.discord_guild_id))
-        if guild is None:
-            logger.warning(
-                "discord_setup_guild_not_found guild_id=%s",
-                self.settings.discord_guild_id,
-            )
+        # Distributed lock: only one bot instance runs setup at a time
+        if not await self._try_acquire_setup_lock():
+            logger.info("discord_setup_skip: lock held by another instance")
+            # Still load persisted channel IDs so this instance can post to them
+            await self._load_persisted_channel_ids()
             return
 
-        # --- Load persisted channel IDs from DB ---
-        await self._load_persisted_channel_ids()
-
-        # --- Get or create category ---
-        category_name = "PINWHEEL FATES"
-        category = discord.utils.get(guild.categories, name=category_name)
-        if category is None:
-            try:
-                category = await guild.create_category(category_name)
-                logger.info("discord_setup_created category=%s", category_name)
-            except Exception:
-                logger.exception("discord_setup_category_failed name=%s", category_name)
+        try:
+            guild = self.get_guild(int(self.settings.discord_guild_id))
+            if guild is None:
+                logger.warning(
+                    "discord_setup_guild_not_found guild_id=%s",
+                    self.settings.discord_guild_id,
+                )
                 return
 
-        # --- Get or create shared channels ---
-        channel_defs = [
-            ("how-to-play", "Learn how to play Pinwheel Fates"),
-            ("play-by-play", "Live game updates"),
-            ("big-plays", "Highlights -- Elam endings, upsets, blowouts"),
-        ]
-        for ch_name, ch_topic in channel_defs:
-            key = ch_name.replace("-", "_")
-            channel = await self._get_or_create_shared_channel(
-                guild,
-                category,
-                ch_name,
-                ch_topic,
-                key,
-            )
-            if channel is not None:
-                self.channel_ids[key] = channel.id
-                await self._persist_bot_state(f"channel_{key}", str(channel.id))
+            # --- Load persisted channel IDs from DB ---
+            await self._load_persisted_channel_ids()
 
-        # --- Get or create team channels + roles ---
-        if self.engine:
-            try:
+            # --- Get or create category ---
+            category_name = "PINWHEEL FATES"
+            category = discord.utils.get(guild.categories, name=category_name)
+            if category is None:
+                try:
+                    category = await guild.create_category(category_name)
+                    logger.info("discord_setup_created category=%s", category_name)
+                except Exception:
+                    logger.exception("discord_setup_category_failed name=%s", category_name)
+                    return
 
-                from pinwheel.db.engine import get_session
-                from pinwheel.db.repository import Repository
+            # --- Get or create shared channels ---
+            channel_defs = [
+                ("how-to-play", "Learn how to play Pinwheel Fates"),
+                ("play-by-play", "Live game updates"),
+                ("big-plays", "Highlights -- Elam endings, upsets, blowouts"),
+            ]
+            for ch_name, ch_topic in channel_defs:
+                key = ch_name.replace("-", "_")
+                channel = await self._get_or_create_shared_channel(
+                    guild,
+                    category,
+                    ch_name,
+                    ch_topic,
+                    key,
+                )
+                if channel is not None:
+                    self.channel_ids[key] = channel.id
+                    await self._persist_bot_state(f"channel_{key}", str(channel.id))
 
-                async with get_session(self.engine) as session:
-                    repo = Repository(session)
-                    season = await repo.get_active_season()
-                    if season:
-                        teams = await repo.get_teams_for_season(season.id)
-                        self._team_names_cache = [t.name for t in teams]
-                        for team in teams:
-                            await self._setup_team_channel_and_role(
-                                guild,
-                                category,
-                                team,
-                            )
-            except Exception:
-                logger.exception("discord_setup_team_channels_failed")
+            # --- Get or create team channels + roles ---
+            if self.engine:
+                try:
 
-        # --- Self-heal: re-enroll members with team roles missing from DB ---
-        await self._sync_role_enrollments(guild)
+                    from pinwheel.db.engine import get_session
+                    from pinwheel.db.repository import Repository
 
-        # --- Post welcome message if #how-to-play is empty ---
-        await self._post_welcome_message(guild)
+                    async with get_session(self.engine) as session:
+                        repo = Repository(session)
+                        season = await repo.get_active_season()
+                        if season:
+                            teams = await repo.get_teams_for_season(season.id)
+                            self._team_names_cache = [t.name for t in teams]
+                            for team in teams:
+                                await self._setup_team_channel_and_role(
+                                    guild,
+                                    category,
+                                    team,
+                                )
+                except Exception:
+                    logger.exception("discord_setup_team_channels_failed")
 
-        logger.info("discord_setup_complete channels=%s", list(self.channel_ids.keys()))
+            # --- Self-heal: re-enroll members with team roles missing from DB ---
+            await self._sync_role_enrollments(guild)
+
+            # --- Post welcome message if #how-to-play is empty ---
+            await self._post_welcome_message(guild)
+
+            logger.info("discord_setup_complete channels=%s", list(self.channel_ids.keys()))
+        finally:
+            await self._release_setup_lock()
 
     async def _load_persisted_channel_ids(self) -> None:
         """Load channel IDs from bot_state table into self.channel_ids."""

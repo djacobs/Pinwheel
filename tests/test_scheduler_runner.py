@@ -12,8 +12,12 @@ from pinwheel.core.presenter import PresentationState
 from pinwheel.core.scheduler import generate_round_robin
 from pinwheel.core.scheduler_runner import (
     PRESENTATION_STATE_KEY,
+    TICK_LOCK_KEY,
+    TICK_LOCK_TIMEOUT_SECONDS,
     _clear_presentation_state,
     _persist_presentation_start,
+    _release_tick_lock,
+    _try_acquire_tick_lock,
     resume_presentation,
     tick_round,
 )
@@ -135,7 +139,7 @@ class TestTickRound:
     async def test_errors_do_not_propagate(
         self, engine: AsyncEngine, caplog: pytest.LogCaptureFixture
     ):
-        """If step_round raises, tick_round should log the error and not re-raise."""
+        """If the engine is broken, tick_round should log the error and not re-raise."""
         event_bus = EventBus()
 
         # Dispose the engine so any DB operation inside tick_round will fail
@@ -145,7 +149,8 @@ class TestTickRound:
             # This should NOT raise despite the broken engine
             await tick_round(engine, event_bus)
 
-        assert "tick_round_error" in caplog.text
+        # The lock acquisition fails first, logging tick_round_lock_acquire_error
+        assert "tick_round_lock_acquire_error" in caplog.text
 
     async def test_generates_reports(self, engine: AsyncEngine):
         """tick_round should produce reports as part of running a round."""
@@ -521,3 +526,136 @@ class TestMultisessionLockRelease:
             "Expected concurrent DB access to succeed during AI phase "
             "(lock should be released between sessions)"
         )
+
+
+class TestTickRoundLock:
+    """Verify the distributed tick_round lock prevents duplicate execution."""
+
+    async def test_acquire_and_release(self, engine: AsyncEngine):
+        """Lock can be acquired, then released."""
+        acquired = await _try_acquire_tick_lock(engine, "machine-A")
+        assert acquired is True
+
+        # Verify lock exists in DB
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            assert raw is not None
+            data = json.loads(raw)
+            assert data["machine_id"] == "machine-A"
+
+        # Release it
+        await _release_tick_lock(engine, "machine-A")
+
+        # Verify gone
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            assert raw is None
+
+    async def test_second_acquire_blocked(self, engine: AsyncEngine):
+        """A second machine cannot acquire while the first holds the lock."""
+        acquired_a = await _try_acquire_tick_lock(engine, "machine-A")
+        assert acquired_a is True
+
+        acquired_b = await _try_acquire_tick_lock(engine, "machine-B")
+        assert acquired_b is False
+
+        # Clean up
+        await _release_tick_lock(engine, "machine-A")
+
+    async def test_release_only_by_owner(self, engine: AsyncEngine):
+        """Release is a no-op if a different machine tries to release."""
+        await _try_acquire_tick_lock(engine, "machine-A")
+
+        # machine-B tries to release — should be a no-op
+        await _release_tick_lock(engine, "machine-B")
+
+        # Lock should still be held by machine-A
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            assert raw is not None
+            data = json.loads(raw)
+            assert data["machine_id"] == "machine-A"
+
+        # Clean up
+        await _release_tick_lock(engine, "machine-A")
+
+    async def test_stale_lock_takeover(self, engine: AsyncEngine):
+        """A stale lock (older than timeout) can be taken over."""
+        import time as _time
+
+        # Manually insert a stale lock
+        stale_time = _time.time() - TICK_LOCK_TIMEOUT_SECONDS - 10
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.set_bot_state(
+                TICK_LOCK_KEY,
+                json.dumps({"machine_id": "dead-machine", "acquired_at": stale_time}),
+            )
+
+        # New machine should be able to take over
+        acquired = await _try_acquire_tick_lock(engine, "machine-B")
+        assert acquired is True
+
+        # Verify new owner
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            data = json.loads(raw)
+            assert data["machine_id"] == "machine-B"
+
+        await _release_tick_lock(engine, "machine-B")
+
+    async def test_tick_round_skips_when_locked(self, engine: AsyncEngine):
+        """tick_round should skip entirely when another instance holds the lock."""
+        season_id = await _setup_season(engine)
+        event_bus = EventBus()
+
+        # Pre-acquire the lock as a different machine
+        await _try_acquire_tick_lock(engine, "other-machine")
+
+        # tick_round should skip — no games created
+        await tick_round(engine, event_bus)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            assert len(games) == 0
+
+        # Clean up
+        await _release_tick_lock(engine, "other-machine")
+
+    async def test_tick_round_releases_lock_after_success(self, engine: AsyncEngine):
+        """tick_round should release the lock after successful execution."""
+        await _setup_season(engine)
+        event_bus = EventBus()
+
+        await tick_round(engine, event_bus)
+
+        # Lock should be released
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            assert raw is None
+
+    async def test_tick_round_releases_lock_after_error(self, engine: AsyncEngine):
+        """tick_round should release the lock even if an error occurs."""
+        import unittest.mock
+
+        await _setup_season(engine)
+        event_bus = EventBus()
+
+        # Make step_round_multisession raise
+        with unittest.mock.patch(
+            "pinwheel.core.scheduler_runner.step_round_multisession",
+            side_effect=RuntimeError("boom"),
+        ):
+            await tick_round(engine, event_bus)
+
+        # Lock should be released despite the error
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            raw = await repo.get_bot_state(TICK_LOCK_KEY)
+            assert raw is None
