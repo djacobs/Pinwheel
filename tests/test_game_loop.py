@@ -1971,3 +1971,84 @@ class TestEffectsGameLoopIntegration:
                 total_swagger += meta.get("swagger", 0)
 
             assert total_swagger == comb(NUM_TEAMS, 2)
+
+
+class TestRowToTeam:
+    """Tests for _row_to_team deserialization."""
+
+    async def test_deserializes_moves_from_db_row(self, repo: Repository) -> None:
+        """Verify _row_to_team properly deserializes moves stored as JSON in the DB."""
+        from pinwheel.core.game_loop import _row_to_team
+        from pinwheel.models.team import Move
+
+        league = await repo.create_league("Test League")
+        season = await repo.create_season(league.id, "Season 1")
+        team = await repo.create_team(
+            season.id,
+            "Move Test Team",
+            venue={"name": "Test Arena", "capacity": 5000},
+        )
+
+        moves_data = [
+            {
+                "name": "Heat Check",
+                "trigger": "made_three",
+                "effect": "+10% 3pt",
+                "attribute_gate": {"scoring": 70},
+                "source": "archetype",
+            },
+            {
+                "name": "Ankle Breaker",
+                "trigger": "crossover",
+                "effect": "+15% drive",
+                "attribute_gate": {},
+                "source": "earned",
+            },
+        ]
+
+        await repo.create_hooper(
+            team_id=team.id,
+            season_id=season.id,
+            name="Moves Hooper",
+            archetype="sharpshooter",
+            attributes=_hooper_attrs(),
+            moves=moves_data,
+        )
+
+        # Reload the team row from DB (triggers relationship loading)
+        team_row = await repo.get_team(team.id)
+        assert team_row is not None
+
+        domain_team = _row_to_team(team_row)
+        hooper = domain_team.hoopers[0]
+
+        assert len(hooper.moves) == 2
+        assert isinstance(hooper.moves[0], Move)
+        assert hooper.moves[0].name == "Heat Check"
+        assert hooper.moves[0].trigger == "made_three"
+        assert hooper.moves[0].attribute_gate == {"scoring": 70}
+        assert hooper.moves[1].name == "Ankle Breaker"
+        assert hooper.moves[1].source == "earned"
+
+    async def test_handles_empty_moves(self, repo: Repository) -> None:
+        """Verify _row_to_team handles hoopers with no moves."""
+        from pinwheel.core.game_loop import _row_to_team
+
+        league = await repo.create_league("Test League")
+        season = await repo.create_season(league.id, "Season 1")
+        team = await repo.create_team(
+            season.id,
+            "No Moves Team",
+            venue={"name": "Arena", "capacity": 5000},
+        )
+        await repo.create_hooper(
+            team_id=team.id,
+            season_id=season.id,
+            name="Basic Hooper",
+            archetype="enforcer",
+            attributes=_hooper_attrs(),
+        )
+
+        team_row = await repo.get_team(team.id)
+        domain_team = _row_to_team(team_row)
+        assert domain_team.hoopers[0].moves == []

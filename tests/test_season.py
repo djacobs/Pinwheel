@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.season import (
     carry_over_teams,
+    compute_awards,
     regenerate_all_governor_tokens,
     start_new_season,
 )
@@ -519,3 +520,50 @@ class TestStartNewSeasonIntegration:
         assert len(resolved) == 1
         assert resolved[0].event_type == "proposal.failed"
         assert new_season.status == "active"
+
+
+class TestComputeAwardsTradeAccepted:
+    """Test that compute_awards() correctly queries trade.accepted events."""
+
+    async def test_coalition_builder_uses_trade_accepted(self, repo: Repository) -> None:
+        """Verify Coalition Builder award picks up trade.accepted events (not trade.completed)."""
+        league = await repo.create_league("Test League")
+        season = await repo.create_season(league.id, "Season 1")
+
+        # Create a governor
+        player_a = await repo.get_or_create_player("aaa111", "governor_a")
+        player_b = await repo.get_or_create_player("bbb222", "governor_b")
+
+        # Emit trade.accepted events (the event type accept_trade() actually produces)
+        await repo.append_event(
+            event_type="trade.accepted",
+            aggregate_id="trade-1",
+            aggregate_type="trade",
+            season_id=season.id,
+            governor_id=player_a.id,
+            payload={
+                "trade_id": "trade-1",
+                "from_governor_id": player_a.id,
+                "to_governor_id": player_b.id,
+            },
+        )
+        await repo.append_event(
+            event_type="trade.accepted",
+            aggregate_id="trade-2",
+            aggregate_type="trade",
+            season_id=season.id,
+            governor_id=player_b.id,
+            payload={
+                "trade_id": "trade-2",
+                "from_governor_id": player_b.id,
+                "to_governor_id": player_a.id,
+            },
+        )
+
+        awards = await compute_awards(repo, season.id)
+
+        # Find the Coalition Builder award
+        coalition_awards = [a for a in awards if a["award"] == "Coalition Builder"]
+        assert len(coalition_awards) == 1
+        # Both governors participated in 2 trades each
+        assert coalition_awards[0]["stat_value"] == 2

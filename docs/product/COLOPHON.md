@@ -96,7 +96,7 @@ The GQI (M.4) is the composite metric: four sub-metrics weighted equally. It mea
 |------|-----|
 | **Rodney** (Simon Willison) | Headless Chrome automation for screenshots. Every page gets a Rodney capture in the demo pipeline. |
 | **Showboat** (Simon Willison) | Executable markdown demo builder. Wraps `run_demo.sh` into a human-readable, runnable document. |
-| **Fly.io CLI** | Deployment, scaling, log tailing, Postgres provisioning. |
+| **Fly.io CLI** | Deployment, scaling, log tailing, volume management. |
 | **Discord Developer Portal** | Bot registration, permission scoping, gateway intent configuration. |
 | **GitHub** | Version control and CI. Single point of failure — noted and accepted. |
 | **uv** | Python package management and virtual environment. `uv sync`, `uv run pytest`, `uv run ruff`. |

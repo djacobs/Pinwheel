@@ -45,7 +45,7 @@ You start with political currency:
 -   **BOOST** (2) — Double your voting weight on a single vote. Save it for the vote that matters most.
     
 
-Tokens regenerate every tally round (every 3 rounds of games) and accumulate if unspent. They're tradeable — your PROPOSE token is someone else's leverage.
+Tokens regenerate every tally round (every round by default, configurable via `PINWHEEL_GOVERNANCE_INTERVAL`) and accumulate if unspent. They're tradeable — your PROPOSE token is someone else's leverage.
 
 **Voting is always free.** You never need tokens to vote.
 
@@ -219,7 +219,7 @@ The political game is real. Trade tokens with rivals. Coordinate votes in your t
 
 ### The Tally
 
-Every 3 rounds of games, the Floor tallies:
+Every round (by default), the Floor tallies:
 
 1.  Every open proposal gets counted — weighted yes vs. weighted no
     

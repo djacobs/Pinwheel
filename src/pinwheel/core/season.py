@@ -334,7 +334,7 @@ async def compute_awards(repo: Repository, season_id: str) -> list[dict]:
     # Coalition Builder: most token trades
     trade_events = await repo.get_events_by_type(
         season_id=season_id,
-        event_types=["trade.completed"],
+        event_types=["trade.accepted"],
     )
     trade_counts: dict[str, int] = {}
     for evt in trade_events:

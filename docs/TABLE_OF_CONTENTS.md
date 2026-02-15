@@ -40,7 +40,7 @@ Architecture and engineering docs that define *how* the system works.
 | [SECURITY.md](SECURITY.md) | Prompt injection defense plan | 5-layer defense (input sanitization → sandboxed interpretation → output validation → human-in-the-loop → monitoring), 6 attack vector analyses, privilege model per AI context, implementation checklist |
 | [INSTRUMENTATION.md](INSTRUMENTATION.md) | Profiling and measurement strategy | Three targets: gameplay joy (player behavior events, derived metrics, alarms), UX performance (latency targets, profiling, admin dashboard), token costs (per-call accounting, cost model, 6 optimization strategies) |
 | [DEMO_MODE.md](DEMO_MODE.md) | All environment-specific behavior in one place | 3 environments, timing table, 4 pace modes, dev season config, seed data strategy, feature flags by env, hackathon demo script, environment variables |
-| [OPS.md](OPS.md) | Operations, deployment, monitoring | Fly.io architecture, machine sizing, Postgres setup, environment variables, deploy/rollback workflow, Dockerfile strategy, health endpoint, cost estimates, SSE scaling path, Discord bot deployment, backup/recovery |
+| [OPS.md](OPS.md) | Operations, deployment, monitoring | Fly.io architecture, machine sizing, SQLite volume setup, environment variables, deploy/rollback workflow, Dockerfile strategy, health endpoint, cost estimates, SSE scaling path, Discord bot deployment, backup/recovery |
 | [LIFECYCLE.svg](LIFECYCLE.svg) | Comprehensive system lifecycle diagram | Season creation, player join flow, game loop, governance flow, token economy, AI integration, API routes |
 
 ## Dev Log (`dev_log/`)

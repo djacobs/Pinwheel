@@ -1332,6 +1332,46 @@ class TestProposeGovernance:
         assert "PROPOSE" in str(call_kwargs.args[0])
         await engine.dispose()
 
+    async def test_propose_exceeds_proposals_per_window(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Proposing beyond proposals_per_window limit returns an error."""
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        # Simulate submitting proposals up to the limit (default proposals_per_window=3)
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            for i in range(3):
+                await repo.append_event(
+                    event_type="proposal.submitted",
+                    aggregate_id=f"prop-{i}",
+                    aggregate_type="proposal",
+                    season_id=gov_data["season_id"],
+                    governor_id=gov_data["player_id"],
+                    payload={
+                        "id": f"prop-{i}",
+                        "raw_text": f"proposal {i}",
+                    },
+                )
+            await session.commit()
+
+        await bot._handle_propose(interaction, "One more proposal")
+        interaction.response.defer.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
+        msg = str(call_kwargs.args[0])
+        assert "maximum" in msg.lower() or "reached" in msg.lower()
+        assert "3" in msg
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        await engine.dispose()
+
 
 # ---------------------------------------------------------------------------
 # /vote

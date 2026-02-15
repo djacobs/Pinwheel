@@ -245,15 +245,51 @@ All REST responses use this shape:
 | GET | `/api/reports/latest` | `dict[str, Report]` | None |
 | GET | `/api/reports/{type}/{round}` | `Report` | None |
 
+### Mirrors (AI Reports API)
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/api/mirrors/round/{season_id}/{round_number}` | `dict` (list of public mirrors) | None |
+| GET | `/api/mirrors/private/{season_id}/{governor_id}` | `dict` (list of private mirrors) | Governor (trust-based for hackathon) |
+| GET | `/api/mirrors/latest/{season_id}` | `dict` (latest simulation + governance mirrors) | None |
+
+The mirrors API provides access to AI-generated reports. Public mirrors (simulation, governance) are returned from the round endpoint. Private mirrors are governor-scoped -- in production this would verify the requester is the governor; for the hackathon, the `governor_id` parameter is trusted. Optional `mirror_type` and `round_number` query parameters filter results.
+
+### Charts (SVG Helpers)
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| (utility) | N/A | N/A | N/A |
+
+`api/charts.py` provides pure-function SVG geometry helpers for spider charts (hooper attribute radar) and season average computation. Exports `spider_chart_data()`, `compute_grid_rings()`, `polygon_points()`, `axis_lines()`, and `compute_season_averages()`. These are consumed by Jinja2 templates, not as API endpoints.
+
+### Admin Pages
+
+| Method | Path | Response Model | Auth |
+|--------|------|---------------|------|
+| GET | `/admin/review` | HTML page | Admin (OAuth) or open (dev) |
+| GET | `/admin/workbench` | HTML page | Admin (OAuth) or open (dev) |
+| POST | `/admin/workbench/test-classifier` | HTML fragment (HTMX) | Admin (OAuth) or open (dev) |
+| GET | `/admin/evals` | HTML page | Admin (OAuth) or open (dev) |
+| GET | `/admin/roster` | HTML page | Admin (OAuth) or open (dev) |
+| GET | `/admin/season` | HTML page | Admin (OAuth) or open (dev) |
+
+- **`/admin/review`** -- Proposal review queue. Shows proposals flagged for admin review (Tier 5+, low confidence), injection-classified proposals, with pending/resolved/passed/failed status. Source: `api/admin_review.py`.
+- **`/admin/workbench`** -- Safety tooling workbench. Test the injection classifier interactively, view the 6-layer defense stack, and review classifier configuration. POST endpoint accepts JSON `{"text": "..."}` and returns an HTMX HTML fragment with classification results. Source: `api/admin_workbench.py`.
+- **`/admin/evals`** -- Evaluation dashboard. Aggregate stats from 12 eval modules: grounding, prescriptive, behavioral, rubric, golden dataset, A/B comparison, GQI trend, scenario flags, rule evaluation, injection classifications. Supports `?round=N` for per-round drill-down. Source: `api/eval_dashboard.py`.
+- **`/admin/roster`** -- Governor roster. All enrolled governors with team, token balances, proposal/vote history across all seasons. Source: `api/admin_roster.py`.
+- **`/admin/season`** -- Season dashboard. Current season attributes, runtime configuration (pace, cron, auto-advance, governance interval, evals), past seasons with game/team counts, and new season form. Source: `api/admin_season.py`.
+
+All admin pages are auth-gated in production: requires the requesting user's Discord ID to match `PINWHEEL_ADMIN_DISCORD_ID`. In dev mode without OAuth credentials, pages are open to support local testing.
+
 ### System
 
 | Method | Path | Response Model | Auth |
 |--------|------|---------------|------|
 | GET | `/health` | `HealthStatus` | None |
 | POST | `/admin/seasons/{id}/start` | `SeasonInfo` | Admin |
-| GET | `/admin/perf` | `PerfDashboard` | Admin |
 
-**Total: ~30 endpoints** (28 GET, 1 POST, 1 SSE stream).
+**Total: ~40 endpoints** (35 GET, 2 POST, 1 SSE stream, plus utility functions).
 
 Source: `docs/product/VIEWER.md`
 

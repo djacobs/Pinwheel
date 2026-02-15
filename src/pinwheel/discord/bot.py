@@ -1644,6 +1644,37 @@ class PinwheelBot(commands.Bot):
                 rs_data = (season.current_ruleset or {}) if season else {}
                 ruleset = RuleSet(**rs_data)
 
+                # Enforce proposals_per_window limit
+                submitted_events = await repo.get_events_by_type_and_governor(
+                    season_id=gov.season_id,
+                    governor_id=gov.player_id,
+                    event_types=["proposal.submitted"],
+                )
+                # Count proposals in the current governance window.
+                # A window starts after the most recent token.regenerated event.
+                regen_events = await repo.get_events_by_type_and_governor(
+                    season_id=gov.season_id,
+                    governor_id=gov.player_id,
+                    event_types=["token.regenerated"],
+                )
+                if regen_events:
+                    last_regen_seq = max(e.sequence_number for e in regen_events)
+                    window_proposals = [
+                        e for e in submitted_events
+                        if e.sequence_number > last_regen_seq
+                    ]
+                else:
+                    window_proposals = list(submitted_events)
+
+                if len(window_proposals) >= ruleset.proposals_per_window:
+                    await interaction.followup.send(
+                        f"You've reached the maximum of {ruleset.proposals_per_window} "
+                        "proposals for this governance window. "
+                        "Your limit resets after the next governance tally.",
+                        ephemeral=True,
+                    )
+                    return
+
             api_key = self.settings.anthropic_api_key
             interpretation_v2 = None
             if api_key:

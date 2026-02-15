@@ -83,14 +83,49 @@ Built into the system from Day 1, not bolted on later:
 
 ### Performance Dashboard
 
-A `/admin/perf` endpoint (not player-facing) that shows:
+**Status: Renamed to `/admin/evals`.** The evaluation dashboard (`eval_dashboard.py`) tracks AI report quality, governance health (GQI), injection classification, and scenario flags across 12 eval modules. The original perf metrics (latencies, throughput, connection pools) are not yet surfaced in a dashboard.
 
-- P50, P95, P99 latencies for all tracked operations
-- AI call volume and cost over time
-- Simulation throughput (games/minute)
-- Active WebSocket connections
-- Database connection pool utilization
-- Error rates by endpoint
+The `/admin/evals` endpoint (not player-facing) shows:
+
+- Eval aggregate stats (grounding, prescriptive, behavioral scores)
+- Governance Quality Index (GQI) trends
+- Injection classification history
+- Scenario flags and rule evaluator outputs
+- Report quality metrics by type
+
+### Evaluation Dashboard (Implemented)
+
+The eval dashboard at `/admin/evals` is the primary health check for AI report quality and governance integrity. It aggregates data from 12 eval modules into a single admin-facing page. No individual report text or private content is exposed.
+
+**Route:** `GET /admin/evals` (optional `?round=N` query parameter for round-specific drill-down)
+
+**Safety Summary (traffic light):**
+
+The dashboard opens with a computed traffic-light status (green / yellow / red) derived from all eval signals:
+- **Green ("All Clear"):** No critical flags, no injection attempts, grounding rate healthy, golden dataset passing.
+- **Yellow ("Warnings Present"):** Warning-level flags, isolated injection attempts, prescriptive language detected, grounding below 50%, or golden pass rate below 70%.
+- **Red ("Issues Detected"):** Critical flags active or 3+ injection attempts detected.
+
+The summary also shows total reports evaluated, injection attempt count, eval coverage percentage (how many of the 5 signal types have data), and the latest GQI composite score.
+
+**Eval panels:**
+
+| Panel | Source Module | What It Shows |
+|-------|-------------|---------------|
+| Grounding Rate | `evals/grounding.py` | Percentage of AI reports that reference real entities (team names, governors, rule parameters) from the simulation data. |
+| Prescriptive Flags | `evals/prescriptive.py` | Count of reports flagged for directive language ("should", "must", "needs to"). The reporter's constraint is "describe, never prescribe." |
+| Report Impact Rate | `evals/behavioral.py` | Whether governors who received private reports changed behavior in the next governance window, compared to their running baseline. Correlation, not causation. |
+| Rubric Summary | `evals/rubric.py` | Manual quality scores for public reports across four dimensions: grounded, novel, concise, observational. |
+| Golden Dataset | `evals/golden.py` | Pass rate against 20 curated eval cases with known-correct report patterns. |
+| A/B Win Rates | `evals/ab_compare.py` | Dual-prompt comparison results -- which prompt version produces better reports. |
+| GQI Trend | `evals/gqi.py` | Governance Quality Index over the last 5 rounds: proposal diversity (Shannon entropy), participation breadth (inverted Gini), consequence awareness, vote deliberation. |
+| Scenario Flags | `evals/flags.py` | Active flags for unusual game states: dominant strategies, degenerate equilibria, power concentration. Shows flag type, severity, round, and details. |
+| Rule Evaluation | `evals/rule_evaluator.py` | AI-powered admin analysis: suggested experiments, stale parameters, equilibrium health notes, flagged concerns. The rule evaluator prescribes freely -- it is the admin's advisor, not the players'. |
+| Injection Classifications | `evals/injection.py` | Recent injection classifier results: proposal preview, classification, confidence, reason, whether it was blocked. Up to 20 most recent, with counts of attempts and blocks. |
+
+**Round navigation:** When `?round=N` is specified, all eval panels filter to that specific round. Previous/next round links allow stepping through available rounds.
+
+**Auth:** In production with OAuth, redirects unauthenticated users to login. In dev mode without OAuth, the page is open for testing.
 
 ## C) Token Cost Instrumentation
 
@@ -172,7 +207,7 @@ Instrumented so we can measure impact:
 
 ### Token Cost Dashboard
 
-Extend `/admin/perf` with:
+**Status: Not yet implemented.** Extend `/admin/evals` with:
 
 - Daily/weekly token spend by call type (stacked bar chart)
 - Cost per player per day (trend line)

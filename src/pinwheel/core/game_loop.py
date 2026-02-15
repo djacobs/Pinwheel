@@ -47,7 +47,7 @@ from pinwheel.models.game import GameResult
 from pinwheel.models.governance import Proposal, Vote, VoteTally
 from pinwheel.models.report import Report
 from pinwheel.models.rules import RuleSet
-from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ def _row_to_team(team_row: object) -> Team:
     hoopers = []
     for idx, a in enumerate(team_row.hoopers):  # type: ignore[attr-defined]
         attrs = PlayerAttributes(**a.attributes)  # type: ignore[attr-defined]
+        raw_moves = a.moves if hasattr(a, "moves") and a.moves else []  # type: ignore[attr-defined]
+        moves = [Move(**m) if isinstance(m, dict) else m for m in raw_moves]
         hoopers.append(
             Hooper(
                 id=a.id,  # type: ignore[attr-defined]
@@ -64,7 +66,7 @@ def _row_to_team(team_row: object) -> Team:
                 team_id=a.team_id,  # type: ignore[attr-defined]
                 archetype=a.archetype,  # type: ignore[attr-defined]
                 attributes=attrs,
-                moves=[],
+                moves=moves,
                 is_starter=idx < 3,
             )
         )

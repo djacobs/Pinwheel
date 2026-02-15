@@ -92,7 +92,7 @@ Criteria are organized by hackathon day to align with the build plan.
 | 1.7.1 | `alembic upgrade head` applies all migrations to a fresh SQLite database without errors | `[AUTO]` pytest: run migrations, assert no errors |
 | 1.7.2 | A GameResult can be stored and retrieved, and the retrieved result matches the original | `[AUTO]` pytest: store result, retrieve by ID, assert equality |
 | 1.7.3 | Standings can be computed from stored GameResults and match manual calculation | `[AUTO]` pytest: store 10 game results, compute standings, verify against hand-calculated expected output |
-| 1.7.4 | The same database code works with both SQLite (dev) and PostgreSQL (production) | `[AUTO]` pytest: run the same test suite against both backends (requires PostgreSQL in CI) |
+| 1.7.4 | SQLite database works correctly in both development and production (Fly.io volume mount) | `[AUTO]` pytest: run test suite against SQLite backend |
 
 ### 1.8 API Layer
 

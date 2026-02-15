@@ -22,7 +22,38 @@ After each round, votes and proposals are tallied, and winning proposals are put
 
 When all regular-season games finish, the top 4 teams enter playoffs. Semifinals (best of 3), then finals (best of 5). The winner is crowned champion.
 
-The season archives. A new season begins. Rules carry over to new seasons unless written otherwise. 
+The season archives. A new season begins. Rules carry over to new seasons unless written otherwise.
+
+### Season Lifecycle Phases
+
+A season progresses through these phases:
+
+**SETUP** -- Season created, teams being assigned.
+**ACTIVE** -- Regular-season games in progress.
+**TIEBREAKER_CHECK** -- Regular season complete, checking for ties at the playoff cutoff. Tiebreaker criteria: head-to-head record, then point differential, then total points scored.
+**TIEBREAKERS** -- Unresolvable ties require tiebreaker games (round-robin among tied teams).
+**PLAYOFFS** -- Semifinal and championship series.
+**CHAMPIONSHIP** -- Champion crowned. Awards computed. A timed celebration window (default 30 minutes).
+**OFFSEASON** -- Post-championship governance window where governors can submit and vote on meta-rule proposals for the next season. Any rules enacted during the offseason carry forward.
+**COMPLETE** -- Season archived. Memorial created.
+
+### Season Memorial & Archive
+
+When a season completes, `archive_season()` creates an immutable snapshot capturing the full story of that season. The archive includes:
+
+- **Final standings** with team names, win/loss records, and point differentials.
+- **Champion** -- the winning team and their record.
+- **Rule change history** -- every rule enacted during the season, in order.
+- **Awards** -- six end-of-season awards across gameplay and governance:
+  - *MVP* (highest PPG), *Defensive Player of the Season* (highest SPG), *Most Efficient* (best FG%, min 20 FGA).
+  - *Most Active Governor* (most proposals + votes), *Coalition Builder* (most token trades), *Rule Architect* (highest proposal pass rate).
+- **Statistical leaders** -- top 3 hoopers in PPG, APG, SPG, and FG%.
+- **Key moments** -- 5-8 notable games: playoff games, nail-biters, blowouts, and Elam Ending activations.
+- **Head-to-head records** -- team-vs-team win/loss and point differentials.
+- **Rule timeline** -- chronological list of every rule change with the proposing governor.
+- **AI narrative placeholders** -- slots for season narrative, championship recap, champion profile, and governance legacy (filled by AI in a separate generation phase).
+
+The memorial data is stored as JSON on the `SeasonArchiveRow` and serves as the data backbone for end-of-season reports and the season history page.
 
 ## Proposals
 
@@ -60,7 +91,7 @@ To double your weight, add `boost: True` to your vote:
 
 This spends one BOOST token, restored between seasons.
 
-Ties fail. Votes are counted every 3 rounds. Passed proposals change rules immediately. Failed proposals do nothing.
+Ties fail. Votes are counted every round (configurable via `PINWHEEL_GOVERNANCE_INTERVAL`). Passed proposals change rules immediately. Failed proposals do nothing.
 
 ## Tokens
 
@@ -139,6 +170,20 @@ When a player confirms a "wild" proposal (Tier 5+, or one the AI flagged with lo
 If you do nothing for 24 hours, the buttons expire. Voting continues regardless -- you are a safety valve, not a gatekeeper. The system does not block on your review.
 
 The admin who receives these DMs is determined by the `PINWHEEL_ADMIN_DISCORD_ID` environment variable. If that isn't set, the server owner gets the DMs instead.
+
+#### Web Review Queue
+
+Visit `/admin/review` in the web UI. This is a companion to the Discord DM flow -- a centralized view of all proposals flagged for admin review.
+
+The queue shows:
+
+- **Pending proposals** -- Tier 5+ or AI confidence below 50%, awaiting admin action. Sorted newest first.
+- **Resolved proposals** -- Previously reviewed proposals (cleared, vetoed, or resolved through voting).
+- **Injection alerts** -- Proposals that the pre-flight injection classifier flagged as suspicious or injection attempts. Shows the classification confidence, reason, and whether the proposal was blocked.
+
+Each proposal card displays the raw text, the AI's interpretation (parameter, new value, confidence), impact analysis, and the proposing governor. Injection-flagged proposals and low-confidence interpretations are badged prominently.
+
+In production (with OAuth enabled), only the admin can access this page. In local dev without OAuth, it is open for testing.
 
 ### Admin Roster
 
