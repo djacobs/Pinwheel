@@ -405,8 +405,8 @@ async def test_compute_narrative_context_total_rounds(repo: Repository) -> None:
 
     ctx = await compute_narrative_context(repo, season_id, 1)
 
-    # With 4 teams and 3 round-robins, schedule has 3 distinct round_numbers
-    assert ctx.total_rounds == 3
+    # With 4 teams and 3 round-robins: 3 cycles × 3 ticks = 9 ticks
+    assert ctx.total_rounds == 9
 
 
 @pytest.mark.asyncio

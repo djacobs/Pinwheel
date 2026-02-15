@@ -1,10 +1,10 @@
-"""Compute and format game start times for upcoming time slots.
+"""Compute and format game start times for upcoming ticks.
 
-Uses the cron schedule to determine when each time slot tips off.
-A "round" in the database may contain more games than can play
-simultaneously (e.g. 6 matchups for 4 teams).  This module groups
-games into *slots* — sets of games where no team appears twice —
-and assigns each slot a successive cron fire time.
+Uses the cron schedule to determine when each tick tips off.
+Each round_number (tick) already contains only games that can play
+simultaneously — no team appears twice per tick.  This module also
+provides ``group_into_slots()`` for legacy callers and for grouping
+arbitrary game lists by team overlap.
 """
 
 from __future__ import annotations

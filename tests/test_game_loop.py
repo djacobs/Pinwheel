@@ -1,7 +1,5 @@
 """Tests for the game loop — the autonomous round cycle."""
 
-from math import comb
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -63,8 +61,9 @@ def _hooper_attrs() -> dict:
 
 
 # Number of teams created by _setup_season_with_teams.
-# Derived constants: games_per_round = comb(NUM_TEAMS, 2), games_per_team = NUM_TEAMS - 1.
+# Derived constants: games_per_tick = NUM_TEAMS // 2, ticks_per_cycle = NUM_TEAMS - 1.
 NUM_TEAMS = 4
+GAMES_PER_TICK = NUM_TEAMS // 2  # 2 games per tick (no team plays twice)
 
 # Ruleset with best-of-1 playoffs for backward-compat tests.
 _BO1_RULESET = {
@@ -82,7 +81,7 @@ async def _setup_season_with_teams(
     Args:
         repo: Repository instance.
         num_rounds: Number of complete round-robins to schedule (default 1).
-            With NUM_TEAMS teams, each round has comb(NUM_TEAMS, 2) games.
+            With NUM_TEAMS teams, each round has GAMES_PER_TICK games.
     """
     league = await repo.create_league("Test League")
     season = await repo.create_season(
@@ -129,7 +128,7 @@ class TestStepRound:
         result = await step_round(repo, season_id, round_number=1)
 
         assert result.round_number == 1
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
             assert game["winner_team_id"] in team_ids
@@ -139,7 +138,7 @@ class TestStepRound:
         await step_round(repo, season_id, round_number=1)
 
         games = await repo.get_games_for_round(season_id, 1)
-        assert len(games) == comb(NUM_TEAMS, 2)
+        assert len(games) == GAMES_PER_TICK
         for g in games:
             assert g.home_score >= 0
             assert g.away_score >= 0
@@ -240,7 +239,7 @@ class TestMultipleRounds:
         r1 = await step_round(repo, season_id, round_number=1)
         r2 = await step_round(repo, season_id, round_number=2)
 
-        expected_games = comb(NUM_TEAMS, 2)
+        expected_games = GAMES_PER_TICK
         assert r1.round_number == 1
         assert r2.round_number == 2
         assert len(r1.games) == expected_games
@@ -496,12 +495,12 @@ class TestSeasonEndDetection:
     """Tests for detecting when the regular season is complete."""
 
     async def test_season_detected_complete_when_all_rounds_played(self, repo: Repository):
-        """Season is detected as complete when all scheduled rounds have been played."""
+        """Season is detected as complete when all scheduled ticks have been played."""
         season_id, team_ids = await _setup_season_with_teams(repo)
-        # 4 teams, 1 round-robin cycle => 1 round (C(4,2) = 6 games)
+        # 4 teams, 1 round-robin cycle => 3 ticks (N-1 for even N)
         matchups = generate_round_robin(team_ids)
         total_rounds = max(m.round_number for m in matchups)
-        assert total_rounds == 1
+        assert total_rounds == 3
 
         # Play all rounds
         for rnd in range(1, total_rounds + 1):
@@ -536,13 +535,13 @@ class TestSeasonEndDetection:
 
         matchups = generate_round_robin(team_ids, num_rounds=3)
         total_rounds = max(m.round_number for m in matchups)
-        assert total_rounds == 3
+        assert total_rounds == 9  # 3 cycles × 3 ticks per cycle
 
-        # Play all rounds
+        # Play all ticks
         for rnd in range(1, total_rounds + 1):
             result = await step_round(repo, season_id, round_number=rnd)
 
-        # The last round should detect season completion
+        # The last tick should detect season completion
         assert result.season_complete is True
         assert result.final_standings is not None
         assert len(result.final_standings) == NUM_TEAMS
@@ -595,23 +594,22 @@ class TestSeasonEndDetection:
 class TestComputeStandings:
     """Tests for standings computation from repository data."""
 
-    async def test_standings_after_one_round(self, repo: Repository):
-        """Standings are computed correctly after a single round."""
+    async def test_standings_after_one_tick(self, repo: Repository):
+        """Standings are computed correctly after a single tick."""
         season_id, team_ids = await _setup_season_with_teams(repo)
         await step_round(repo, season_id, round_number=1)
 
         standings = await compute_standings_from_repo(repo, season_id)
 
-        expected_games = comb(NUM_TEAMS, 2)
         assert len(standings) == NUM_TEAMS
         # Total wins should equal total losses (one winner per game)
         total_wins = sum(s["wins"] for s in standings)
         total_losses = sum(s["losses"] for s in standings)
-        assert total_wins == expected_games
-        assert total_losses == expected_games
-        # Each team plays every other team once per round
+        assert total_wins == GAMES_PER_TICK
+        assert total_losses == GAMES_PER_TICK
+        # Each team plays exactly 1 game per tick (4 teams, 2 games)
         for s in standings:
-            assert s["wins"] + s["losses"] == NUM_TEAMS - 1
+            assert s["wins"] + s["losses"] == 1
 
     async def test_standings_sorted_by_wins(self, repo: Repository):
         """Standings are sorted by wins descending."""
@@ -1072,7 +1070,7 @@ class TestPhaseSimulateAndGovern:
 
         assert sim is not None
         assert isinstance(sim, _SimPhaseResult)
-        expected_games = comb(NUM_TEAMS, 2)
+        expected_games = GAMES_PER_TICK
         assert sim.season_id == season_id
         assert sim.round_number == 1
         assert len(sim.game_results) == expected_games
@@ -1145,7 +1143,7 @@ class TestPhaseSimulateAndGovern:
         await _phase_simulate_and_govern(repo, season_id, round_number=1)
 
         games = await repo.get_games_for_round(season_id, 1)
-        assert len(games) == comb(NUM_TEAMS, 2)
+        assert len(games) == GAMES_PER_TICK
 
 
 class TestPhaseAI:
@@ -1161,7 +1159,7 @@ class TestPhaseAI:
 
         assert isinstance(ai, _AIPhaseResult)
         # Mock commentary for each game
-        assert len(ai.commentaries) == comb(NUM_TEAMS, 2)
+        assert len(ai.commentaries) == GAMES_PER_TICK
         assert ai.highlight_reel != ""
         assert ai.sim_report is not None
         assert ai.sim_report.report_type == "simulation"
@@ -1214,7 +1212,7 @@ class TestPhasePersistAndFinalize:
         result = await _phase_persist_and_finalize(repo, sim, ai)
 
         assert result.round_number == 1
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
         assert len(result.reports) >= 2  # sim + gov
 
         # Reports stored in DB
@@ -1251,7 +1249,7 @@ class TestStepRoundMultisession:
         )
 
         assert result.round_number == 1
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
         assert len(result.reports) >= 2
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
@@ -1267,7 +1265,7 @@ class TestStepRoundMultisession:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == comb(NUM_TEAMS, 2)
+            assert len(games) == GAMES_PER_TICK
 
     async def test_stores_reports_in_db(self, engine: AsyncEngine):
         async with get_session(engine) as session:
@@ -1325,7 +1323,7 @@ class TestStepRoundBackwardCompat:
         result = await step_round(repo, season_id, round_number=1)
 
         assert result.round_number == 1
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
         assert len(result.reports) >= 2
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
@@ -1696,7 +1694,7 @@ class TestEffectsGameLoopIntegration:
         result = await step_round(repo, season_id, round_number=1)
 
         # Verify games were simulated
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
 
         # The swagger effect fires at round.game.post for each game,
         # incrementing the winning team's swagger. Check that at least
@@ -1708,7 +1706,7 @@ class TestEffectsGameLoopIntegration:
             total_swagger += meta.get("swagger", 0)
 
         # Each game has exactly one winner, so total swagger == number of games
-        assert total_swagger == comb(NUM_TEAMS, 2)
+        assert total_swagger == GAMES_PER_TICK
 
     async def test_meta_flushed_to_db(self, repo: Repository):
         """Meta values written by effects during the round are flushed to DB."""
@@ -1772,14 +1770,14 @@ class TestEffectsGameLoopIntegration:
         # Step round 2 — effect should load from event store again
         await step_round(repo, season_id, round_number=2)
 
-        # Total swagger should equal 2 * games_per_round
+        # Total swagger should equal 2 * games_per_tick
         teams = await repo.get_teams_for_season(season_id)
         total_swagger = 0
         for t in teams:
             meta = await repo.load_team_meta(t.id)
             total_swagger += meta.get("swagger", 0)
 
-        expected_total = 2 * comb(NUM_TEAMS, 2)
+        expected_total = 2 * GAMES_PER_TICK
         assert total_swagger == expected_total
 
     async def test_backward_compat_no_effects(self, repo: Repository):
@@ -1789,7 +1787,7 @@ class TestEffectsGameLoopIntegration:
         # No effects registered — step_round should work normally
         result = await step_round(repo, season_id, round_number=1)
 
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
         assert len(result.reports) >= 2
         for game in result.games:
             assert game["home_score"] > 0 or game["away_score"] > 0
@@ -2020,7 +2018,7 @@ class TestEffectsGameLoopIntegration:
             engine, season_id, round_number=1,
         )
 
-        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.games) == GAMES_PER_TICK
 
         # Verify meta was flushed in session 1
         async with get_session(engine) as session:
@@ -2031,7 +2029,7 @@ class TestEffectsGameLoopIntegration:
                 meta = await repo.load_team_meta(t.id)
                 total_swagger += meta.get("swagger", 0)
 
-            assert total_swagger == comb(NUM_TEAMS, 2)
+            assert total_swagger == GAMES_PER_TICK
 
     async def test_gov_hooks_fire_around_tally(self, repo: Repository):
         """gov.pre and gov.post hooks fire when tally_pending_governance runs

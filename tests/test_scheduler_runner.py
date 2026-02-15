@@ -26,7 +26,7 @@ from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
 
 _NUM_TEAMS = 4
-_EXPECTED_GAMES_PER_ROUND = _NUM_TEAMS * (_NUM_TEAMS - 1) // 2
+_EXPECTED_GAMES_PER_TICK = _NUM_TEAMS // 2
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ class TestTickRound:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == _EXPECTED_GAMES_PER_ROUND
+            assert len(games) == _EXPECTED_GAMES_PER_TICK
 
     async def test_advances_consecutive_rounds(self, engine: AsyncEngine):
         """Successive tick_round calls should advance through the season.
@@ -126,7 +126,7 @@ class TestTickRound:
             repo = Repository(session)
             r1_games = await repo.get_games_for_round(season_id, 1)
             r2_games = await repo.get_games_for_round(season_id, 2)
-            assert len(r1_games) == _EXPECTED_GAMES_PER_ROUND
+            assert len(r1_games) == _EXPECTED_GAMES_PER_TICK
             assert len(r2_games) == 2  # Semifinal round: 2 games
 
     async def test_skips_when_no_season(self, engine: AsyncEngine):
@@ -489,7 +489,7 @@ class TestMultisessionLockRelease:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == _EXPECTED_GAMES_PER_ROUND
+            assert len(games) == _EXPECTED_GAMES_PER_TICK
             reports = await repo.get_reports_for_round(season_id, 1)
             assert len(reports) >= 2
 

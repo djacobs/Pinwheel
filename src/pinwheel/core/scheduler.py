@@ -3,14 +3,15 @@
 Generates a valid schedule where every team plays every other team once per
 round.  Uses the circle method (polygon scheduling) for balanced scheduling.
 
-Terminology:
-  - **round**: a complete round-robin cycle — every team plays every other
-    team once.  With 4 teams a round has C(4,2)=6 games.  Games within a
-    round are played consecutively (ordered by ``matchup_index``), so no
-    team ever plays two games at the same time.
-  - **num_round_robins**: how many rounds make up the regular season
-    (default from ``RuleSet.round_robins_per_season``).
-    With 4 teams and 3 rounds, that's 18 games total (6 per round).
+Terminology (see also ``docs/product/RUN_OF_PLAY.md``):
+  - **tick**: one firing of the scheduler — a set of simultaneous games
+    where no team appears twice.  With 4 teams a tick has 2 games.
+    Each tick gets its own ``round_number``.
+  - **round** (round-robin cycle): every team plays every other team once.
+    With 4 teams that's C(4,2)=6 games across 3 ticks.
+  - **num_round_robins**: how many complete round-robin cycles make up the
+    regular season (default from ``RuleSet.round_robins_per_season``).
+    With 4 teams and 3 round-robins, that's 9 ticks × 2 games = 18 total.
 """
 
 from __future__ import annotations
@@ -35,20 +36,19 @@ def generate_round_robin(
 ) -> list[Matchup]:
     """Generate round-robin schedule using the circle method.
 
-    Each round (``round_number``) is a complete round-robin: every team
-    plays every other team once.  With N teams, each round has C(N,2)
-    games.  Games within a round are ordered by ``matchup_index`` and
-    played consecutively — no team ever plays two games at the same time.
+    Each ``round_number`` is a **tick** — one set of simultaneous games
+    where no team appears twice.  With N teams (even), each tick has
+    N/2 games.  A complete round-robin cycle takes (N-1) ticks.
 
-    The circle method naturally interleaves matchups: within each pair of
-    consecutive games, no team appears twice.
+    ``num_rounds`` controls how many complete round-robin cycles are
+    generated.  Home/away alternates between cycles.
 
-    ``num_rounds`` controls how many complete rounds are generated.
-    Home/away alternates between rounds.
+    With 4 teams and ``num_rounds=3``: 3 cycles × 3 ticks = 9
+    round_numbers, 2 games each, 18 total games.
 
     Args:
         team_ids: List of team IDs to schedule.
-        num_rounds: Number of complete rounds (default 1).
+        num_rounds: Number of complete round-robin cycles (default 1).
 
     Returns:
         List of Matchup objects sorted by round_number, then matchup_index.
@@ -65,15 +65,16 @@ def generate_round_robin(
         n += 1
 
     matchups: list[Matchup] = []
+    tick = 0  # global tick counter across all cycles
 
     for cycle in range(num_rounds):
-        round_num = cycle + 1
-        match_idx = 0  # continuous across all games in the round
-
         # Circle method: fix team 0, rotate the rest
         rotating = list(ids[1:])
 
         for _slot in range(n - 1):
+            tick += 1
+            match_idx = 0  # reset per tick
+
             for i in range(n // 2):
                 if i == 0:
                     home_id = ids[0]
@@ -92,7 +93,7 @@ def generate_round_robin(
 
                 matchups.append(
                     Matchup(
-                        round_number=round_num,
+                        round_number=tick,
                         matchup_index=match_idx,
                         home_team_id=home_id,
                         away_team_id=away_id,

@@ -83,7 +83,7 @@ fly secrets set PINWHEEL_GOV_WINDOW=1800
 | `PINWHEEL_PRESENTATION_PACE` | Pace mode: `fast`, `normal`, `slow`, `manual` | `fast` |
 | `PINWHEEL_PRESENTATION_MODE` | Presentation mode: `instant`, `replay` | `instant` |
 | `PINWHEEL_GAME_CRON` | Explicit cron override (optional, derived from pace) | (from pace) |
-| `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N rounds | `3` |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N ticks | `1` |
 | `PINWHEEL_GOV_WINDOW` | Governance window duration (for GQI calculations) | `900` |
 | `PINWHEEL_AUTO_ADVANCE` | APScheduler auto-advance toggle | `true` |
 | `PINWHEEL_LOG_LEVEL` | Logging level | `INFO` |

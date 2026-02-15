@@ -22,7 +22,7 @@ Set via `PINWHEEL_ENV` environment variable. Defaults to `development`.
 |-----------|-------------|---------|------------|
 | `PINWHEEL_PRESENTATION_PACE` | `fast` (1 min) | `normal` (5 min) | `slow` (15 min) |
 | `PINWHEEL_PRESENTATION_MODE` | `instant` | `replay` | `replay` |
-| `PINWHEEL_GOVERNANCE_INTERVAL` | `3` | `3` | `3` |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | `1` | `1` | `1` |
 | `PINWHEEL_AUTO_ADVANCE` | `true` | `true` | `true` |
 
 ---
@@ -61,7 +61,7 @@ A compressed season for development and demos. Full competitive arc in ~25-30 mi
 | Round-robins | 1 (7 rounds) | 3 (21 rounds) |
 | Games per round | 4 | 4 |
 | Total regular season games | 28 | 84 |
-| Governance interval | Every 3 rounds (configurable) | Every 3 rounds (governable) |
+| Governance interval | Every tick (configurable) | Every tick (governable) |
 | Playoff semis | Best-of-1 | Best-of-5 |
 | Playoff finals | Best-of-3 | Best-of-7 |
 | Offseason | Disabled | Enabled |

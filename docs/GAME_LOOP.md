@@ -38,7 +38,7 @@ An explicit cron can override via `PINWHEEL_GAME_CRON`. When the game clock fire
 
 ### 2. Governance Tallying (Interval-Based, Not Window-Based)
 
-Governance is **not** a separate clock. It's integrated into `step_round()` and triggers every Nth round, controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 3).
+Governance is **not** a separate clock. It's integrated into `step_round()` and triggers every Nth tick, controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 1).
 
 **How it works:**
 
@@ -243,7 +243,7 @@ team once. 4 games per round.  assignments.                    assignments.
   configurable)
 ```
 
-**Governance frequency:** How often governance tallies is controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 3, governable via `governance_rounds_interval`). At interval 1, there are 21 tallies per season. At interval 3, there are 7. Players can vote to make tallying more or less frequent — more frequent means more reactive, chaotic play. Less frequent means more strategic, deliberate governance.
+**Governance frequency:** How often governance tallies is controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 1, governable via `governance_rounds_interval`). At interval 1, governance tallies every tick — with 8 teams and 3 round-robins, that's 21 tallies per season. Players can vote to make tallying less frequent — less frequent means more strategic, deliberate governance.
 
 **Rhythm:** Each round = 1 simulation block. Proposals, votes, and trades happen asynchronously between rounds. When a tally round arrives, unresolved proposals are tallied and enacted. The cycle:
 
@@ -346,7 +346,7 @@ Total season duration in production mode: ~25-30 hours of active play (21 rounds
 | Parameter | Dev/Staging | Production |
 |-----------|-------------|------------|
 | `PINWHEEL_PRESENTATION_PACE` | `fast` (1 min rounds) | `slow` (15 min rounds) |
-| `PINWHEEL_GOVERNANCE_INTERVAL` | `3` (every 3 rounds) | `3` (every 3 rounds, governable) |
+| `PINWHEEL_GOVERNANCE_INTERVAL` | `1` (every tick) | `1` (every tick, governable) |
 | `PINWHEEL_PRESENTATION_MODE` | `instant` or `replay` | `replay` |
 | Teams | 4-8 | 8 |
 | Round-robins per season | 1 (7 rounds) | 3 (21 rounds) |

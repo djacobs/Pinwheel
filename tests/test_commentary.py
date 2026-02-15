@@ -34,7 +34,7 @@ from pinwheel.models.game import GameResult, HooperBoxScore, QuarterScore
 # ---------------------------------------------------------------------------
 
 _NUM_TEAMS = 4
-_EXPECTED_GAMES_PER_ROUND = _NUM_TEAMS * (_NUM_TEAMS - 1) // 2  # C(n,2)
+_EXPECTED_GAMES_PER_TICK = _NUM_TEAMS // 2  # N/2 games per tick
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -692,7 +692,7 @@ class TestCommentaryGameLoopIntegration:
 
         result = await step_round(repo, season_id, round_number=1)
 
-        assert len(result.games) == _EXPECTED_GAMES_PER_ROUND
+        assert len(result.games) == _EXPECTED_GAMES_PER_TICK
         for game in result.games:
             assert "commentary" in game
             assert len(game["commentary"]) > 20  # not empty placeholder
@@ -710,7 +710,7 @@ class TestCommentaryGameLoopIntegration:
 
         # Core game loop functionality should still work
         assert result.round_number == 1
-        assert len(result.games) == _EXPECTED_GAMES_PER_ROUND
+        assert len(result.games) == _EXPECTED_GAMES_PER_TICK
         assert len(result.reports) >= 2  # sim + gov reports
 
     async def test_event_bus_receives_commentary(self, repo: Repository) -> None:
@@ -728,7 +728,7 @@ class TestCommentaryGameLoopIntegration:
                 received.append(event)
 
         game_events = [e for e in received if e["type"] == "game.completed"]
-        assert len(game_events) == _EXPECTED_GAMES_PER_ROUND
+        assert len(game_events) == _EXPECTED_GAMES_PER_TICK
         for event in game_events:
             assert "commentary" in event["data"]
 

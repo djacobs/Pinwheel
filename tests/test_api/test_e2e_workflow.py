@@ -19,7 +19,6 @@ Verifies integration of recent Wave 1-2 changes:
 from __future__ import annotations
 
 import uuid
-from math import comb
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -384,9 +383,9 @@ class TestFullWorkflow:
             )
 
         assert isinstance(result, RoundResult)
-        # 4 teams -> C(4,2) = 6 games per round
-        assert len(result.games) == comb(4, 2)
-        assert len(result.game_results) == comb(4, 2)
+        # 4 teams -> 2 games per tick (no team plays twice)
+        assert len(result.games) == 2
+        assert len(result.game_results) == 2
         assert len(result.reports) > 0  # Mock reports generated
 
         # Verify each game has valid scores
@@ -399,7 +398,7 @@ class TestFullWorkflow:
         async with get_session(engine) as session:
             repo = Repository(session)
             games = await repo.get_games_for_round(season_id, 1)
-            assert len(games) == comb(4, 2)
+            assert len(games) == 2
 
             # Verify box scores exist
             for game in games:
@@ -767,9 +766,9 @@ class TestFullWorkflow:
         assert len(standings) == 4
         total_wins = sum(s["wins"] for s in standings)
         total_losses = sum(s["losses"] for s in standings)
-        # 6 games = 6 wins and 6 losses total
-        assert total_wins == comb(4, 2)
-        assert total_losses == comb(4, 2)
+        # 2 games per tick = 2 wins and 2 losses
+        assert total_wins == 2
+        assert total_losses == 2
 
         # Standings should be sorted by wins desc
         for i in range(len(standings) - 1):
@@ -805,19 +804,23 @@ class TestFullWorkflow:
     # --- 16. Season progression: regular season complete ---
 
     async def test_regular_season_completes(self, engine: object) -> None:
-        """Run enough rounds to complete regular season and verify playoff bracket."""
-        # Use 1 round-robin cycle (4 teams -> 6 games in round 1)
+        """Run enough ticks to complete regular season and verify playoff bracket."""
+        # 1 round-robin cycle, 4 teams -> 3 ticks × 2 games = 6 total games
         ctx = await seed_league_and_season(
             engine, num_teams=4, num_rounds=1,
         )
         season_id = ctx["season_id"]
 
-        async with get_session(engine) as session:
-            repo = Repository(session)
-            result = await step_round(
-                repo, season_id, round_number=1, governance_interval=0,
-            )
+        # Step all 3 ticks to complete the regular season
+        result = None
+        for rn in range(1, 4):
+            async with get_session(engine) as session:
+                repo = Repository(session)
+                result = await step_round(
+                    repo, season_id, round_number=rn, governance_interval=0,
+                )
 
+        assert result is not None
         assert result.season_complete is True
         assert result.final_standings is not None
         assert len(result.final_standings) == 4
@@ -829,13 +832,16 @@ class TestFullWorkflow:
         ctx = await seed_league_and_season(engine, num_teams=4, num_rounds=1)
         season_id = ctx["season_id"]
 
-        # Complete regular season
-        async with get_session(engine) as session:
-            repo = Repository(session)
-            result = await step_round(
-                repo, season_id, round_number=1, governance_interval=0,
-            )
+        # Complete regular season (3 ticks for 4 teams)
+        result = None
+        for rn in range(1, 4):
+            async with get_session(engine) as session:
+                repo = Repository(session)
+                result = await step_round(
+                    repo, season_id, round_number=rn, governance_interval=0,
+                )
 
+        assert result is not None
         assert result.playoff_bracket is not None
         assert len(result.playoff_bracket) > 0
 
@@ -856,18 +862,19 @@ class TestFullWorkflow:
         ctx = await seed_league_and_season(engine, num_teams=4, num_rounds=1)
         season_id = ctx["season_id"]
 
-        # Complete regular season (generates bracket)
-        async with get_session(engine) as session:
-            repo = Repository(session)
-            await step_round(
-                repo, season_id, round_number=1, governance_interval=0,
-            )
+        # Complete regular season (3 ticks for 4 teams, generates bracket)
+        for rn in range(1, 4):
+            async with get_session(engine) as session:
+                repo = Repository(session)
+                await step_round(
+                    repo, season_id, round_number=rn, governance_interval=0,
+                )
 
-        # Play first playoff round (semis game 1)
+        # Play first playoff round (semis game 1) — tick 4
         async with get_session(engine) as session:
             repo = Repository(session)
             playoff_result = await step_round(
-                repo, season_id, round_number=2, governance_interval=0,
+                repo, season_id, round_number=4, governance_interval=0,
             )
 
         # Should have 2 semifinal games
@@ -897,26 +904,27 @@ class TestFullWorkflow:
             new_ruleset["playoff_finals_best_of"] = 1
             await repo.update_season_ruleset(season_id, new_ruleset)
 
-        # Round 1: regular season (6 games)
-        async with get_session(engine) as session:
-            repo = Repository(session)
-            r1 = await step_round(repo, season_id, 1, governance_interval=0)
-            assert r1.season_complete is True
+        # Ticks 1-3: regular season (3 ticks × 2 games = 6 total)
+        for rn in range(1, 4):
+            async with get_session(engine) as session:
+                repo = Repository(session)
+                r = await step_round(repo, season_id, rn, governance_interval=0)
+        assert r.season_complete is True
 
-        # Round 2: semifinals (2 games, best-of-1 means they decide immediately)
+        # Tick 4: semifinals (2 games, best-of-1 means they decide immediately)
         async with get_session(engine) as session:
             repo = Repository(session)
-            r2 = await step_round(repo, season_id, 2, governance_interval=0)
-            assert len(r2.games) == 2
+            r4 = await step_round(repo, season_id, 4, governance_interval=0)
+            assert len(r4.games) == 2
 
-        # Round 3: finals (1 game, best-of-1)
+        # Tick 5: finals (1 game, best-of-1)
         async with get_session(engine) as session:
             repo = Repository(session)
-            r3 = await step_round(repo, season_id, 3, governance_interval=0)
-            assert len(r3.games) == 1
+            r5 = await step_round(repo, season_id, 5, governance_interval=0)
+            assert len(r5.games) == 1
 
         # After finals with best-of-1, playoffs should be complete
-        assert r3.playoffs_complete is True
+        assert r5.playoffs_complete is True
 
         # Verify season status is championship or completed
         async with get_session(engine) as session:
@@ -1013,8 +1021,8 @@ class TestFullWorkflow:
                 governance_interval=1,
             )
 
-        # Games should have been simulated
-        assert len(result.games) == comb(4, 2)
+        # Games should have been simulated (2 per tick for 4 teams)
+        assert len(result.games) == 2
 
         # Governance should have been tallied
         assert len(result.tallies) == 1
@@ -1264,7 +1272,7 @@ class TestFullWorkflow:
         # Should have game.completed for each game + round.completed + season events
         game_events = [e for e in received_events if e["type"] == "game.completed"]
         round_events = [e for e in received_events if e["type"] == "round.completed"]
-        assert len(game_events) == comb(4, 2)
+        assert len(game_events) == 2  # 2 games per tick for 4 teams
         assert len(round_events) == 1
 
 
@@ -1570,7 +1578,7 @@ class TestIntegrationBugs:
         )
 
         assert isinstance(result, RoundResult)
-        assert len(result.games) == comb(4, 2)
+        assert len(result.games) == 2  # 2 games per tick for 4 teams
         assert len(result.reports) >= 2
 
     async def test_hook_callback_effect_fires_with_action_code(self) -> None:

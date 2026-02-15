@@ -20,12 +20,12 @@ from pinwheel.models.rules import DEFAULT_RULESET
 
 class TestRoundRobin:
     def test_8_teams_one_cycle(self):
-        """8 teams, 1 cycle = 1 round containing all C(8,2) = 28 games."""
+        """8 teams, 1 cycle = 7 ticks × 4 games = 28 games total."""
         team_ids = [f"t-{i}" for i in range(8)]
         matchups = generate_round_robin(team_ids)
         rounds = {m.round_number for m in matchups}
-        # 1 round = 1 complete round-robin (all 28 games)
-        assert rounds == {1}
+        # 1 round-robin cycle = 7 ticks (N-1 for 8 teams)
+        assert rounds == set(range(1, 8))
 
     def test_8_teams_28_games_total(self):
         """8 teams, 1 cycle = C(8,2) = 28 total games."""
@@ -50,22 +50,26 @@ class TestRoundRobin:
         assert len(matchups) == comb(len(team_ids), 2)
 
     def test_two_cycles(self):
-        """4 teams, 2 cycles = 2 rounds, 6 games each = 12 total games."""
+        """4 teams, 2 cycles = 6 ticks × 2 games = 12 total games."""
         team_ids = [f"t-{i}" for i in range(4)]
         num_rounds = 2
         matchups = generate_round_robin(team_ids, num_rounds=num_rounds)
         games_per_cycle = comb(len(team_ids), 2)
         assert len(matchups) == games_per_cycle * num_rounds
+        # 4 teams → 3 ticks per cycle × 2 cycles = 6 ticks
+        ticks_per_cycle = len(team_ids) - 1
         rounds = {m.round_number for m in matchups}
-        assert rounds == {1, 2}
+        assert rounds == set(range(1, ticks_per_cycle * num_rounds + 1))
+        # Each tick has N/2 = 2 games
         for r in rounds:
-            assert sum(1 for m in matchups if m.round_number == r) == games_per_cycle
+            assert sum(1 for m in matchups if m.round_number == r) == len(team_ids) // 2
 
     def test_odd_teams(self):
         team_ids = [f"t-{i}" for i in range(5)]
         matchups = generate_round_robin(team_ids)
         assert len(matchups) == comb(len(team_ids), 2)
-        assert all(m.round_number == 1 for m in matchups)
+        # 5 teams → bye added → 6 teams → 5 ticks per cycle
+        assert {m.round_number for m in matchups} == set(range(1, 6))
 
 
 class TestComputeStandings:

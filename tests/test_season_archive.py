@@ -90,9 +90,12 @@ async def _seed_season_with_games(repo: Repository) -> tuple[str, list[str]]:
             away_team_id=m.away_team_id,
         )
 
-    # Run all rounds (complete round-robin)
-    num_rounds = NUM_TEAMS - 1 if NUM_TEAMS % 2 == 0 else NUM_TEAMS
-    for rn in range(1, num_rounds + 1):
+    # Run all ticks (complete round-robin) plus playoffs.
+    # 4 teams = 3 ticks for regular season, then 2 more for best-of-1 playoffs
+    # (tick 4 = semis, tick 5 = finals).
+    ticks_per_cycle = NUM_TEAMS - 1 if NUM_TEAMS % 2 == 0 else NUM_TEAMS
+    total_ticks = ticks_per_cycle + 2  # +2 for semis + finals (best-of-1)
+    for rn in range(1, total_ticks + 1):
         await step_round(repo, season.id, round_number=rn)
 
     return season.id, team_ids
