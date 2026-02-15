@@ -122,10 +122,19 @@ def _build_game_context(
     if notable:
         lines.append("\nKey plays:")
         for p in notable:
+            move_tag = f" [MOVE: {p.move_activated}]" if p.move_activated else ""
             lines.append(
                 f"  Q{p.quarter} #{p.possession_number}: {p.action} -> {p.result}"
-                f" ({p.points_scored}pts)"
+                f" ({p.points_scored}pts){move_tag}"
             )
+
+    # Named moves used during the game — context for richer commentary
+    moves_used: set[str] = set()
+    for p in game_result.possession_log:
+        if p.move_activated:
+            moves_used.add(p.move_activated)
+    if moves_used:
+        lines.append(f"\nSignature moves activated: {', '.join(sorted(moves_used))}")
 
     # Narrative context — standings, streaks, head-to-head, rule changes
     if narrative:

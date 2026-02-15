@@ -252,12 +252,36 @@
     }
     if (plays && d.narration) {
       var line = document.createElement('div');
-      line.className = 'live-play-line';
+      var dramaLevel = d.drama_level || 'routine';
+      line.className = 'live-play-line play--' + dramaLevel;
       if (d.offense_color) line.style.color = d.offense_color;
       var pts = d.points_scored > 0 ? ' <span class="live-play-pts">+' + d.points_scored + '</span>' : '';
-      line.innerHTML = '<span class="live-play-clock">' + (d.game_clock || '') + '</span> ' + d.narration + pts;
+      var dramaBadge = '';
+      var tags = d.drama_tags || [];
+      if (tags.indexOf('lead_change') >= 0) dramaBadge = '<span class="drama-badge drama-badge--lead">LEAD CHANGE</span> ';
+      else if (tags.indexOf('game_winner') >= 0) dramaBadge = '<span class="drama-badge drama-badge--winner">GAME WINNER</span> ';
+      else if (tags.indexOf('elam_climax') >= 0) dramaBadge = '<span class="drama-badge drama-badge--elam">ELAM CLIMAX</span> ';
+      else if (tags.indexOf('big_run') >= 0) dramaBadge = '<span class="drama-badge drama-badge--run">BIG RUN</span> ';
+      else if (tags.indexOf('game_tied') >= 0) dramaBadge = '<span class="drama-badge drama-badge--tied">TIED</span> ';
+      line.innerHTML = '<span class="live-play-clock">' + (d.game_clock || '') + '</span> ' + dramaBadge + d.narration + pts;
       plays.insertBefore(line, plays.firstChild);
       while (plays.children.length > maxPlays) plays.removeChild(plays.lastChild);
+    }
+  });
+
+  es.addEventListener('presentation.suspense', function(e) {
+    var d = JSON.parse(e.data).data;
+    var gi = d.game_index;
+    var plays = q('.live-plays[data-g="' + gi + '"]');
+    if (plays) {
+      var suspenseLine = document.createElement('div');
+      suspenseLine.className = 'live-play-line play--suspense';
+      var tags = d.drama_tags || [];
+      var label = 'Something big is coming...';
+      if (tags.indexOf('game_winner') >= 0) label = 'The game is on the line...';
+      else if (tags.indexOf('elam_climax') >= 0) label = 'Target score within reach...';
+      suspenseLine.innerHTML = '<span class="suspense-text">' + label + '</span>';
+      plays.insertBefore(suspenseLine, plays.firstChild);
     }
   });
 

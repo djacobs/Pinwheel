@@ -393,6 +393,193 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             )
 
 
+class AmendConfirmView(discord.ui.View):
+    """Confirm/Cancel buttons for an amendment to an existing proposal."""
+
+    def __init__(
+        self,
+        *,
+        original_user_id: int,
+        proposal_id: str,
+        proposal_raw_text: str,
+        amendment_text: str,
+        interpretation: RuleInterpretation,
+        amendment_number: int,
+        max_amendments: int,
+        governor_info: GovernorInfo,
+        engine: AsyncEngine,
+        interpretation_v2: ProposalInterpretation | None = None,
+    ) -> None:
+        super().__init__(timeout=300)
+        self.original_user_id = original_user_id
+        self.proposal_id = proposal_id
+        self.proposal_raw_text = proposal_raw_text
+        self.amendment_text = amendment_text
+        self.interpretation = interpretation
+        self.amendment_number = amendment_number
+        self.max_amendments = max_amendments
+        self.governor_info = governor_info
+        self.engine = engine
+        self.interpretation_v2 = interpretation_v2
+
+    async def _check_user(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.original_user_id:
+            await interaction.response.send_message(
+                "Only the amender can use these buttons.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+    @discord.ui.button(
+        label="Confirm Amendment",
+        style=discord.ButtonStyle.green,
+        emoji="\u2705",
+    )
+    async def confirm(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        if not await self._check_user(interaction):
+            return
+
+        from pinwheel.core.governance import amend_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.models.governance import Proposal
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                # Reconstruct proposal from submitted event
+                submitted = await repo.get_events_by_type(
+                    season_id=self.governor_info.season_id,
+                    event_types=["proposal.submitted"],
+                )
+                proposal_data = None
+                for evt in submitted:
+                    if evt.aggregate_id == self.proposal_id:
+                        proposal_data = evt.payload
+                        break
+
+                if not proposal_data:
+                    await interaction.response.send_message(
+                        "The proposal could not be found. It may have been removed.",
+                        ephemeral=True,
+                    )
+                    return
+
+                proposal = Proposal(**proposal_data)
+                # Restore current status (may have been amended before)
+                confirmed_events = await repo.get_events_by_type(
+                    season_id=self.governor_info.season_id,
+                    event_types=["proposal.confirmed", "proposal.amended"],
+                )
+                for evt in confirmed_events:
+                    if evt.aggregate_id == self.proposal_id:
+                        if evt.event_type == "proposal.amended":
+                            proposal.status = "amended"
+                        elif proposal.status not in ("amended",):
+                            proposal.status = "confirmed"
+
+                await amend_proposal(
+                    repo=repo,
+                    proposal=proposal,
+                    governor_id=self.governor_info.player_id,
+                    team_id=self.governor_info.team_id,
+                    amendment_text=self.amendment_text,
+                    new_interpretation=self.interpretation,
+                )
+                await session.commit()
+
+            self._disable_all()
+
+            embed = discord.Embed(
+                title="Amendment Submitted",
+                description=(
+                    f"Your amendment to "
+                    f'"{self.proposal_raw_text[:80]}" has been submitted.\n\n'
+                    f"Amendment: \"{self.amendment_text[:200]}\"\n\n"
+                    "The proposal's interpretation has been updated. "
+                    "Existing votes stand."
+                ),
+                color=0x2ECC71,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(
+                embed=embed,
+                view=self,
+            )
+
+            # Post public announcement to the channel
+            if interaction.channel is not None:
+                import contextlib
+
+                announcement = discord.Embed(
+                    title="Proposal Amended",
+                    description=(
+                        f'Original: "{self.proposal_raw_text[:200]}"\n\n'
+                        f'Amendment: "{self.amendment_text[:200]}"\n\n'
+                        f"Amendment {self.amendment_number} of {self.max_amendments}"
+                    ),
+                    color=0x3498DB,
+                )
+                if self.interpretation.parameter:
+                    announcement.add_field(
+                        name="New Interpretation",
+                        value=(
+                            f"`{self.interpretation.parameter}`: "
+                            f"{self.interpretation.old_value} -> "
+                            f"{self.interpretation.new_value}"
+                        ),
+                        inline=False,
+                    )
+                announcement.set_footer(text="Use /vote to cast your vote on the amended version")
+                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                    await interaction.channel.send(embed=announcement)
+
+        except Exception:
+            logger.exception("amendment_confirm_failed")
+            await interaction.response.send_message(
+                "Your amendment could not be submitted right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Confirm again, or use `/amend` to start over.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Cancel",
+        style=discord.ButtonStyle.red,
+        emoji="\u274c",
+    )
+    async def cancel(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        if not await self._check_user(interaction):
+            return
+
+        self._disable_all()
+        embed = discord.Embed(
+            title="Amendment Cancelled",
+            description="No changes made. Your AMEND token was not spent.",
+            color=0x95A5A6,
+        )
+        embed.set_footer(text="Pinwheel Fates")
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self,
+        )
+
+
 class TradeOfferView(discord.ui.View):
     """Accept/Reject buttons for a token trade offer."""
 
@@ -811,6 +998,174 @@ class HooperTradeView(discord.ui.View):
                 embed=embed,
                 view=self,
             )
+
+
+class RepealConfirmView(discord.ui.View):
+    """Confirm/Cancel buttons for a repeal proposal."""
+
+    def __init__(
+        self,
+        *,
+        original_user_id: int,
+        target_effect_id: str,
+        effect_description: str,
+        effect_type: str,
+        token_cost: int,
+        governor_info: GovernorInfo,
+        engine: AsyncEngine,
+        token_already_spent: bool = False,
+    ) -> None:
+        super().__init__(timeout=300)
+        self.original_user_id = original_user_id
+        self.target_effect_id = target_effect_id
+        self.effect_description = effect_description
+        self.effect_type = effect_type
+        self.token_cost = token_cost
+        self.governor_info = governor_info
+        self.engine = engine
+        self.token_already_spent = token_already_spent
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+    @discord.ui.button(
+        label="Confirm Repeal",
+        style=discord.ButtonStyle.green,
+        emoji="\u2705",
+    )
+    async def confirm(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        if interaction.user.id != self.original_user_id:
+            await interaction.response.send_message(
+                "Only the proposer can use these buttons.",
+                ephemeral=True,
+            )
+            return
+
+        from pinwheel.core.governance import (
+            confirm_proposal,
+            submit_repeal_proposal,
+        )
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                proposal = await submit_repeal_proposal(
+                    repo=repo,
+                    governor_id=self.governor_info.player_id,
+                    team_id=self.governor_info.team_id,
+                    season_id=self.governor_info.season_id,
+                    target_effect_id=self.target_effect_id,
+                    effect_description=self.effect_description,
+                    token_already_spent=self.token_already_spent,
+                )
+                await confirm_proposal(repo, proposal)
+                await session.commit()
+
+            self._disable_all()
+
+            embed = discord.Embed(
+                title="Repeal Proposal Submitted",
+                description=(
+                    f"Your proposal to repeal the "
+                    f'**{self.effect_type.replace("_", " ")}** effect:\n\n'
+                    f'"{self.effect_description}"\n\n'
+                    "is now on the Floor and open for voting."
+                ),
+                color=0x2ECC71,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(
+                embed=embed,
+                view=self,
+            )
+
+            # Post public announcement to the channel
+            from pinwheel.discord.embeds import build_proposal_announcement_embed
+
+            announcement = build_proposal_announcement_embed(
+                proposal_text=f"Repeal: {self.effect_description}",
+                tier=proposal.tier,
+                threshold=0.67,  # Tier 5 threshold
+                wild=True,
+            )
+            if interaction.channel is not None:
+                import contextlib
+
+                with contextlib.suppress(
+                    discord.Forbidden,
+                    discord.HTTPException,
+                ):
+                    await interaction.channel.send(embed=announcement)
+        except Exception:
+            logger.exception("repeal_confirm_failed")
+            await interaction.response.send_message(
+                "Your repeal proposal could not be submitted right now. "
+                "This might be a temporary database issue -- "
+                "try clicking Confirm again, or use `/repeal` to start over.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Cancel",
+        style=discord.ButtonStyle.red,
+        emoji="\u274c",
+    )
+    async def cancel(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        if interaction.user.id != self.original_user_id:
+            await interaction.response.send_message(
+                "Only the proposer can cancel.",
+                ephemeral=True,
+            )
+            return
+
+        # Refund the token if it was already spent at propose-time
+        if self.token_already_spent:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            try:
+                async with get_session(self.engine) as session:
+                    repo = Repository(session)
+                    await repo.append_event(
+                        event_type="token.regenerated",
+                        aggregate_id=self.governor_info.player_id,
+                        aggregate_type="token",
+                        season_id=self.governor_info.season_id,
+                        governor_id=self.governor_info.player_id,
+                        payload={
+                            "token_type": "propose",
+                            "amount": self.token_cost,
+                            "reason": "repeal_cancel_refund",
+                        },
+                    )
+                    await session.commit()
+            except Exception:
+                logger.exception("repeal_cancel_refund_failed")
+
+        self._disable_all()
+        refund_note = "Token refunded." if self.token_already_spent else "No tokens spent."
+        embed = discord.Embed(
+            title="Repeal Cancelled",
+            description=f"No repeal proposal submitted.\n\n{refund_note}",
+            color=0x95A5A6,
+        )
+        embed.set_footer(text="Pinwheel Fates")
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self,
+        )
 
 
 async def _notify_admin_for_review(

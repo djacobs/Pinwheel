@@ -2688,3 +2688,90 @@ h3 { font-size: 1.05rem; }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ===== Dramatic Pacing — Visual Treatment ===== */
+
+.play--routine { }
+
+.play--elevated {
+  font-weight: 500;
+}
+
+.play--high {
+  background: rgba(83, 216, 251, 0.08);
+  font-weight: 600;
+  font-size: 1.05em;
+  border-left: 2px solid var(--accent-governance);
+  padding-left: 0.4rem;
+}
+
+.play--peak {
+  background: rgba(233, 69, 96, 0.12);
+  font-weight: 700;
+  font-size: 1.1em;
+  border-left: 3px solid var(--accent-highlight);
+  padding-left: 0.4rem;
+  animation: drama-pulse 0.6s ease-in-out;
+}
+
+.play--suspense {
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 0.3rem 0;
+  animation: suspense-fade 1.5s ease-in-out infinite;
+}
+
+.suspense-text {
+  letter-spacing: 0.05em;
+}
+
+@keyframes drama-pulse {
+  0% { background: rgba(233, 69, 96, 0.25); }
+  50% { background: rgba(233, 69, 96, 0.05); }
+  100% { background: rgba(233, 69, 96, 0.12); }
+}
+
+@keyframes suspense-fade {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Drama badges — inline labels for dramatic moments */
+.drama-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+
+.drama-badge--lead {
+  background: var(--accent-governance);
+  color: var(--bg-primary);
+}
+
+.drama-badge--winner {
+  background: var(--accent-score);
+  color: var(--bg-primary);
+  animation: drama-pulse 0.6s ease-in-out;
+}
+
+.drama-badge--elam {
+  background: var(--accent-elam);
+  color: var(--bg-primary);
+}
+
+.drama-badge--run {
+  background: var(--accent-success);
+  color: var(--bg-primary);
+}
+
+.drama-badge--tied {
+  background: var(--accent-report);
+  color: var(--bg-primary);
+}

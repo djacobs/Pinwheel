@@ -87,12 +87,24 @@ class EffectRegistry:
                 )
         return expired_ids
 
+    def get_effect(self, effect_id: str) -> RegisteredEffect | None:
+        """Get a single effect by ID. Returns None if not found."""
+        return self._effects.get(effect_id)
+
     def get_effects_for_proposal(self, proposal_id: str) -> list[RegisteredEffect]:
         """Get all effects from a specific proposal."""
         return [
             e for e in self._effects.values()
             if e.proposal_id == proposal_id
         ]
+
+    def remove_effect(self, effect_id: str) -> bool:
+        """Remove an effect by ID. Returns True if removed, False if not found."""
+        effect = self._effects.pop(effect_id, None)
+        if effect:
+            logger.info("effect_removed id=%s type=%s", effect_id, effect.effect_type)
+            return True
+        return False
 
     @property
     def count(self) -> int:
@@ -277,3 +289,42 @@ async def persist_expired_effects(
             season_id=season_id,
             payload={"effect_id": effect_id, "reason": "lifetime_expired"},
         )
+
+
+async def repeal_effect(
+    repo: Repository,
+    registry: EffectRegistry,
+    effect_id: str,
+    season_id: str,
+    proposal_id: str,
+) -> bool:
+    """Repeal an active effect via governance.
+
+    Writes an effect.repealed event to the event store and removes the
+    effect from the in-memory registry. Returns True if the effect was
+    found and removed, False if it was not in the registry.
+    """
+    removed = registry.remove_effect(effect_id)
+
+    # Always write the repeal event — even if the effect was already
+    # expired in-memory, the event store needs the record so that
+    # load_effect_registry() excludes it on future reloads.
+    await repo.append_event(
+        event_type="effect.repealed",
+        aggregate_id=effect_id,
+        aggregate_type="effect",
+        season_id=season_id,
+        payload={
+            "effect_id": effect_id,
+            "reason": "governance_repeal",
+            "proposal_id": proposal_id,
+        },
+    )
+
+    logger.info(
+        "effect_repealed id=%s proposal=%s removed_from_registry=%s",
+        effect_id,
+        proposal_id,
+        removed,
+    )
+    return removed

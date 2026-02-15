@@ -145,6 +145,7 @@ EffectType = Literal[
     "hook_callback",
     "narrative",
     "composite",
+    "move_grant",
 ]
 
 EffectDuration = Literal[
@@ -184,6 +185,14 @@ class EffectSpec(BaseModel):
 
     # narrative
     narrative_instruction: str | None = None
+
+    # move_grant — grants a move to hoopers
+    move_name: str | None = None
+    move_trigger: str | None = None
+    move_effect: str | None = None
+    move_attribute_gate: dict[str, int] | None = None
+    target_hooper_id: str | None = None  # specific hooper
+    target_team_id: str | None = None  # all hoopers on a team
 
     # lifetime
     duration: EffectDuration = "permanent"

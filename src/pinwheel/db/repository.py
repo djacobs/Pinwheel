@@ -1034,6 +1034,58 @@ class Repository:
     # Backward-compatible alias
     update_agent_backstory = update_hooper_backstory
 
+    async def get_hooper_season_stats(
+        self, hooper_id: str, season_id: str
+    ) -> dict[str, int]:
+        """Sum box score stats for a hooper across all games in a season.
+
+        Returns a dict mapping stat name to cumulative total, e.g.:
+            {"points": 120, "assists": 34, "steals": 12, ...}
+        """
+        stat_columns = {
+            "points": BoxScoreRow.points,
+            "field_goals_made": BoxScoreRow.field_goals_made,
+            "field_goals_attempted": BoxScoreRow.field_goals_attempted,
+            "three_pointers_made": BoxScoreRow.three_pointers_made,
+            "three_pointers_attempted": BoxScoreRow.three_pointers_attempted,
+            "free_throws_made": BoxScoreRow.free_throws_made,
+            "free_throws_attempted": BoxScoreRow.free_throws_attempted,
+            "assists": BoxScoreRow.assists,
+            "steals": BoxScoreRow.steals,
+            "turnovers": BoxScoreRow.turnovers,
+        }
+        aggregates = [
+            func.coalesce(func.sum(col), 0).label(name)
+            for name, col in stat_columns.items()
+        ]
+        stmt = (
+            select(*aggregates)
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(
+                BoxScoreRow.hooper_id == hooper_id,
+                GameResultRow.season_id == season_id,
+            )
+        )
+        result = await self.session.execute(stmt)
+        row = result.one_or_none()
+        if row is None:
+            return {name: 0 for name in stat_columns}
+        return dict(zip(stat_columns.keys(), row, strict=True))
+
+    async def add_hooper_move(self, hooper_id: str, move_data: dict) -> None:
+        """Append a move to a hooper's moves JSON array.
+
+        Loads the current moves list, appends the new move, and writes back.
+        No-op if the hooper is not found.
+        """
+        hooper = await self.session.get(HooperRow, hooper_id)
+        if hooper is None:
+            return
+        current_moves: list[dict] = list(hooper.moves or [])
+        current_moves.append(move_data)
+        hooper.moves = current_moves
+        await self.session.flush()
+
     # --- Eval Results ---
 
     async def store_eval_result(
@@ -1230,4 +1282,26 @@ class Repository:
         result: dict[str, dict] = {}
         for team in teams:
             result[team.id] = dict(team.meta or {})
+        return result
+
+    async def load_hooper_meta(self, hooper_id: str) -> dict:
+        """Load meta dict for a hooper."""
+        hooper = await self.session.get(HooperRow, hooper_id)
+        if hooper and hooper.meta:
+            return dict(hooper.meta)
+        return {}
+
+    async def load_hoopers_meta_for_teams(
+        self, team_ids: list[str],
+    ) -> dict[str, dict]:
+        """Load meta for all hoopers on the given teams.
+
+        Returns {hooper_id: meta_dict} for hoopers that have non-empty meta.
+        """
+        result: dict[str, dict] = {}
+        for tid in team_ids:
+            hoopers = await self.get_hoopers_for_team(tid)
+            for hooper in hoopers:
+                meta = dict(hooper.meta or {})
+                result[hooper.id] = meta
         return result

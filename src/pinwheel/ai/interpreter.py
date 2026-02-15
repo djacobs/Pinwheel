@@ -340,13 +340,33 @@ not just HOW they say it.
 3. **hook_callback** — register a callback at a specific hook point with conditions and actions
 4. **narrative** — instruct the AI reporter to adopt a narrative element
 5. **composite** — combine multiple effects
+6. **move_grant** — grant a special move to one or more hoopers
+
+## Move Grants
+
+Governors can propose granting moves to hoopers. A move_grant effect specifies:
+- move_name: name of the move
+- move_trigger: when the move activates (e.g., "half_court_setup", "drive_action", \
+"opponent_iso", "any_possession", "elam_period", "stamina_below_40", \
+"made_three_last_possession")
+- move_effect: description of the move's effect on gameplay
+- move_attribute_gate: optional minimum attributes required (e.g., {{"speed": 60}})
+- target_hooper_id: grant to a specific hooper by ID, OR
+- target_team_id: grant to all hoopers on a team
+
+Examples:
+- "Give the center a skyhook" → move_grant to a specific hooper
+- "Teach all guards the crossover" → move_grant with target_team_id
+- "Everyone learns the fadeaway" → move_grant with target_type="hooper", \
+target_selector="all"
 
 ## Hook Points (where effects can fire)
 
-Simulation: sim.game.pre, sim.quarter.pre, sim.possession.pre, sim.shot.pre, sim.shot.post, \
+Simulation: sim.game.pre, sim.quarter.pre, sim.possession.pre, \
 sim.quarter.end, sim.halftime, sim.elam.start, sim.game.end
 Round: round.pre, round.game.pre, round.game.post, round.post, round.complete
-Governance: gov.proposal.submitted, gov.vote.cast, gov.tally.pre, gov.tally.post, gov.rule.enacted
+Governance: gov.pre, gov.post, gov.proposal.submitted, gov.vote.cast, gov.tally.pre, \
+gov.tally.post, gov.rule.enacted
 Reports: report.simulation.pre, report.governance.pre, report.private.pre, report.commentary.pre
 
 ## Action Primitives (for hook_callback action_code)
@@ -393,7 +413,7 @@ Respond with ONLY a JSON object:
 {{
   "effects": [
     {{
-      "effect_type": "parameter_change|meta_mutation|hook_callback|narrative|composite",
+      "effect_type": "parameter_change|meta_mutation|hook_callback|narrative|composite|move_grant",
       "parameter": "param_name or null",
       "new_value": "<value or null>",
       "old_value": "<current value or null>",
@@ -622,7 +642,7 @@ def interpret_proposal_v2_mock(
         effects.append(
             EffectSpec(
                 effect_type="hook_callback",
-                hook_point="sim.shot.pre",
+                hook_point="sim.possession.pre",
                 condition="Always active",
                 action_code={"type": "modify_probability", "modifier": 0.05},
                 description="5% shooting boost",
@@ -632,6 +652,42 @@ def interpret_proposal_v2_mock(
             effects=effects,
             impact_analysis="Adds a 5% shooting boost to all shots.",
             confidence=0.6,
+            original_text_echo=raw_text,
+        )
+
+    # Pattern: move_grant — "give X the Y", "teach X Y", "grant X Y", "learn"
+    if any(k in text for k in ("give", "teach", "grant move", "learn move", "skyhook")):
+        # Default move for mock: a generic governed move
+        move_name = "Skyhook"
+        move_trigger = "half_court_setup"
+        move_effect = "+12% mid-range, unblockable release"
+        if "crossover" in text:
+            move_name = "Crossover"
+            move_trigger = "drive_action"
+            move_effect = "+15% at-rim, chance to freeze defender"
+        elif "fadeaway" in text:
+            move_name = "Fadeaway"
+            move_trigger = "half_court_setup"
+            move_effect = "+12% mid-range shot probability"
+        elif "clutch" in text:
+            move_name = "Clutch Gene"
+            move_trigger = "elam_period"
+            move_effect = "+20% all shots, ignore stamina modifier"
+
+        effects.append(
+            EffectSpec(
+                effect_type="move_grant",
+                move_name=move_name,
+                move_trigger=move_trigger,
+                move_effect=move_effect,
+                move_attribute_gate={},
+                description=f"Grant {move_name} move to hoopers",
+            )
+        )
+        return ProposalInterpretation(
+            effects=effects,
+            impact_analysis=f"Grants the {move_name} move to targeted hoopers.",
+            confidence=0.8,
             original_text_echo=raw_text,
         )
 

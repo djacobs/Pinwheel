@@ -439,6 +439,103 @@ def build_interpretation_embed(
     return embed
 
 
+def build_amendment_confirm_embed(
+    original_text: str,
+    amendment_text: str,
+    interpretation: RuleInterpretation,
+    amendment_number: int,
+    max_amendments: int,
+    amend_tokens_remaining: int,
+    governor_name: str = "",
+    interpretation_v2: ProposalInterpretation | None = None,
+) -> discord.Embed:
+    """Build an embed showing the amendment interpretation for confirmation.
+
+    Displayed ephemeral with confirm/cancel buttons before the amendment
+    is committed.
+
+    Args:
+        original_text: The original proposal text being amended.
+        amendment_text: The amendment text describing the change.
+        interpretation: The new AI interpretation of the amended proposal.
+        amendment_number: Which amendment this is (1-indexed).
+        max_amendments: Maximum amendments allowed per proposal.
+        amend_tokens_remaining: AMEND tokens the governor will have after this.
+        governor_name: Display name of the amending governor.
+        interpretation_v2: Optional V2 interpretation for rich effects display.
+    """
+    embed = discord.Embed(
+        title=f"Amendment {amendment_number} of {max_amendments}",
+        color=COLOR_GOVERNANCE,
+    )
+
+    embed.add_field(
+        name="Original Proposal",
+        value=f'"{original_text[:500]}"',
+        inline=False,
+    )
+    embed.add_field(
+        name="Your Amendment",
+        value=f'"{amendment_text[:500]}"',
+        inline=False,
+    )
+
+    if interpretation_v2 and interpretation_v2.effects:
+        for effect in interpretation_v2.effects:
+            if effect.effect_type == "parameter_change" and effect.parameter:
+                embed.add_field(
+                    name="New Interpretation",
+                    value=(
+                        f"`{effect.parameter}`: "
+                        f"{effect.old_value} -> {effect.new_value}"
+                    ),
+                    inline=False,
+                )
+            elif effect.effect_type == "hook_callback":
+                hook_label = effect.hook_point or "custom hook"
+                embed.add_field(
+                    name=f"Hook: {hook_label}",
+                    value=effect.description[:1024],
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name=effect.effect_type.replace("_", " ").title(),
+                    value=effect.description[:1024],
+                    inline=False,
+                )
+    elif interpretation.parameter:
+        embed.add_field(
+            name="New Interpretation",
+            value=(
+                f"`{interpretation.parameter}`: "
+                f"{interpretation.old_value} -> {interpretation.new_value}"
+            ),
+            inline=False,
+        )
+
+    if interpretation.impact_analysis:
+        embed.add_field(
+            name="Impact Analysis",
+            value=interpretation.impact_analysis[:1024],
+            inline=False,
+        )
+
+    embed.add_field(name="Cost", value="1 AMEND token", inline=True)
+    embed.add_field(
+        name="AMEND Remaining",
+        value=str(amend_tokens_remaining),
+        inline=True,
+    )
+    confidence_pct = f"{interpretation.confidence:.0%}"
+    embed.add_field(name="Confidence", value=confidence_pct, inline=True)
+
+    if governor_name:
+        embed.set_author(name=governor_name)
+    embed.set_footer(text="Pinwheel Fates -- Confirm or Cancel")
+    return embed
+
+
 def build_token_balance_embed(
     balance: TokenBalance,
     governor_name: str = "",
@@ -1054,6 +1151,108 @@ def build_history_list_embed(
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Pinwheel Fates -- Hall of History")
+    return embed
+
+
+COLOR_EFFECTS = 0x8E44AD  # Deep purple — effects browser
+
+
+def build_effects_list_embed(
+    effects: list[dict[str, object]],
+    season_name: str = "this season",
+) -> discord.Embed:
+    """Build an embed listing all active effects for the current season.
+
+    Args:
+        effects: List of dicts with keys: effect_id, effect_type,
+            description, lifetime, rounds_remaining, proposal_text.
+        season_name: Display name of the current season.
+    """
+    embed = discord.Embed(
+        title=f"Active Effects -- {season_name}",
+        color=COLOR_EFFECTS,
+    )
+
+    if not effects:
+        embed.description = "No active effects."
+        embed.set_footer(text="Pinwheel Fates")
+        return embed
+
+    for i, effect in enumerate(effects, 1):
+        eid = str(effect.get("effect_id", ""))
+        short_id = eid[-8:] if len(eid) >= 8 else eid
+        effect_type = str(effect.get("effect_type", "unknown"))
+        desc = str(effect.get("description", "No description"))
+        lifetime = str(effect.get("lifetime", "permanent"))
+        rounds_remaining = effect.get("rounds_remaining")
+        proposal_text = str(effect.get("proposal_text", ""))
+
+        # Format lifetime display
+        if rounds_remaining is not None and isinstance(rounds_remaining, int):
+            lifetime_str = f"{rounds_remaining} rounds remaining"
+        else:
+            lifetime_str = lifetime.replace("_", " ").title()
+
+        # Truncate description
+        if len(desc) > 200:
+            desc = desc[:197] + "..."
+
+        value_parts = [
+            f"**Type:** {effect_type.replace('_', ' ').title()}",
+            f"**Duration:** {lifetime_str}",
+        ]
+        if proposal_text:
+            preview = proposal_text[:80] + ("..." if len(proposal_text) > 80 else "")
+            value_parts.append(f"**Source:** {preview}")
+        value_parts.append(f"**ID:** `{short_id}`")
+
+        embed.add_field(
+            name=f"#{i}: {desc}",
+            value="\n".join(value_parts),
+            inline=False,
+        )
+
+    embed.set_footer(text="Use /repeal to propose removing an effect -- Pinwheel Fates")
+    return embed
+
+
+def build_repeal_confirm_embed(
+    effect_description: str,
+    effect_type: str,
+    effect_id: str,
+    token_cost: int,
+    tokens_remaining: int,
+    governor_name: str = "",
+) -> discord.Embed:
+    """Build an embed confirming a repeal proposal before submission.
+
+    Args:
+        effect_description: Description of the effect to repeal.
+        effect_type: Type of the effect (meta_mutation, narrative, etc.).
+        effect_id: Full UUID of the target effect.
+        token_cost: PROPOSE tokens this repeal costs.
+        tokens_remaining: Governor's PROPOSE tokens after cost.
+        governor_name: Display name of the proposing governor.
+    """
+    short_id = effect_id[-8:] if len(effect_id) >= 8 else effect_id
+
+    embed = discord.Embed(
+        title="Repeal Proposal",
+        description=(
+            f'Propose repealing the **{effect_type.replace("_", " ")}** effect:\n\n'
+            f'"{effect_description}"\n\n'
+            "This will create a proposal on the Floor. "
+            "Other governors will vote on whether to remove this effect."
+        ),
+        color=COLOR_EFFECTS,
+    )
+    embed.add_field(name="Effect ID", value=f"`{short_id}`", inline=True)
+    embed.add_field(name="Cost", value=f"{token_cost} PROPOSE", inline=True)
+    embed.add_field(name="Remaining", value=f"{tokens_remaining} PROPOSE", inline=True)
+
+    if governor_name:
+        embed.set_author(name=governor_name)
+    embed.set_footer(text="Pinwheel Fates -- Confirm or Cancel")
     return embed
 
 

@@ -20,6 +20,11 @@ from pinwheel.models.governance import (
 )
 from pinwheel.models.rules import RuleChange, RuleSet
 
+# Token cost for repeal proposals (same as Tier 5 — game effect).
+REPEAL_TOKEN_COST = 2
+# Repeal proposals are Tier 5 (game effect, not a parameter change).
+REPEAL_TIER = 5
+
 if TYPE_CHECKING:
     from pinwheel.core.effects import EffectRegistry
     from pinwheel.db.repository import Repository
@@ -335,6 +340,98 @@ async def cancel_proposal(repo: Repository, proposal: Proposal) -> Proposal:
     return proposal
 
 
+async def submit_repeal_proposal(
+    repo: Repository,
+    governor_id: str,
+    team_id: str,
+    season_id: str,
+    target_effect_id: str,
+    effect_description: str,
+    *,
+    token_already_spent: bool = False,
+) -> Proposal:
+    """Submit a repeal proposal targeting an active effect.
+
+    Creates a Tier 5 proposal with a special raw_text and stores the
+    target effect ID in the proposal event payload. The proposal goes
+    through the normal voting process; if it passes, the effect is
+    removed during tally.
+    """
+    raw_text = f"Repeal: {effect_description}"
+    sanitized = sanitize_text(raw_text)
+    proposal_id = str(uuid.uuid4())
+
+    interpretation = RuleInterpretation(
+        parameter=None,
+        impact_analysis=f"Repeal of active effect: {effect_description}",
+        confidence=1.0,
+    )
+
+    proposal = Proposal(
+        id=proposal_id,
+        season_id=season_id,
+        governor_id=governor_id,
+        team_id=team_id,
+        window_id="",
+        raw_text=raw_text,
+        sanitized_text=sanitized,
+        interpretation=interpretation,
+        tier=REPEAL_TIER,
+        token_cost=REPEAL_TOKEN_COST,
+        status="submitted",
+    )
+
+    # Append proposal event with repeal metadata
+    payload = proposal.model_dump(mode="json")
+    payload["repeal_target_effect_id"] = target_effect_id
+    payload["proposal_type"] = "repeal"
+
+    await repo.append_event(
+        event_type="proposal.submitted",
+        aggregate_id=proposal_id,
+        aggregate_type="proposal",
+        season_id=season_id,
+        governor_id=governor_id,
+        team_id=team_id,
+        payload=payload,
+    )
+
+    # Spend PROPOSE token (unless already spent at propose-time)
+    if not token_already_spent:
+        await repo.append_event(
+            event_type="token.spent",
+            aggregate_id=governor_id,
+            aggregate_type="token",
+            season_id=season_id,
+            governor_id=governor_id,
+            team_id=team_id,
+            payload={
+                "token_type": "propose",
+                "amount": REPEAL_TOKEN_COST,
+                "reason": f"repeal_proposal:{proposal_id}",
+            },
+        )
+
+    return proposal
+
+
+async def count_amendments(repo: Repository, proposal_id: str, season_id: str) -> int:
+    """Count how many times a proposal has been amended.
+
+    Derived from the event store — counts ``proposal.amended`` events
+    for the given proposal.
+    """
+    events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.amended"],
+    )
+    return sum(1 for e in events if e.aggregate_id == proposal_id)
+
+
+# Maximum number of amendments allowed per proposal.
+MAX_AMENDMENTS_PER_PROPOSAL = 2
+
+
 async def amend_proposal(
     repo: Repository,
     proposal: Proposal,
@@ -580,11 +677,26 @@ async def tally_governance_with_effects(
 
     Returns the updated ruleset and list of vote tallies.
     """
-    from pinwheel.core.effects import register_effects_for_proposal
+    from pinwheel.core.effects import register_effects_for_proposal, repeal_effect
 
     tallies: list[VoteTally] = []
     ruleset = current_ruleset
     _effects_v2_map = effects_v2_by_proposal or {}
+
+    # Build a lookup of repeal target IDs from proposal submitted events.
+    # The repeal_target_effect_id is stored in the proposal event payload
+    # (not in the Proposal model), so we need to check the original payload.
+    repeal_targets: dict[str, str] = {}
+    if effect_registry is not None:
+        submitted_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        for se in submitted_events:
+            pid = se.payload.get("id", se.aggregate_id)
+            target_eid = se.payload.get("repeal_target_effect_id")
+            if target_eid:
+                repeal_targets[str(pid)] = str(target_eid)
 
     for proposal in proposals:
         if proposal.status not in ("confirmed", "amended", "submitted"):
@@ -659,7 +771,9 @@ async def tally_governance_with_effects(
             # 2. Handle non-parameter v2 effects (meta, hook, narrative)
             if effect_registry is not None:
                 non_param_effects = [
-                    e for e in v2_effects if e.effect_type != "parameter_change"
+                    e
+                    for e in v2_effects
+                    if e.effect_type not in ("parameter_change", "move_grant")
                 ]
                 # Also check the legacy extraction path
                 if not non_param_effects:
@@ -672,6 +786,30 @@ async def tally_governance_with_effects(
                         effects=non_param_effects,
                         season_id=season_id,
                         current_round=round_number,
+                    )
+
+            # 2b. Handle move_grant effects
+            move_grant_effects = [
+                e for e in v2_effects if e.effect_type == "move_grant"
+            ]
+            for mg in move_grant_effects:
+                await _enact_move_grant(repo, season_id, mg)
+
+            # 3. Handle repeal proposals — remove the target effect
+            repeal_target_id = repeal_targets.get(proposal.id)
+            if repeal_target_id and effect_registry is not None:
+                target_effect = effect_registry.get_effect(repeal_target_id)
+                if target_effect and target_effect.effect_type == "parameter_change":
+                    # Parameter changes cannot be repealed via this mechanism.
+                    # Governors should submit a new /propose to change the parameter.
+                    pass
+                else:
+                    await repeal_effect(
+                        repo=repo,
+                        registry=effect_registry,
+                        effect_id=repeal_target_id,
+                        season_id=season_id,
+                        proposal_id=proposal.id,
                     )
 
         # Record pass/fail
@@ -723,3 +861,71 @@ def get_proposal_effects_v2(
             except Exception:
                 continue
     return effects
+
+
+async def _enact_move_grant(
+    repo: Repository,
+    season_id: str,
+    effect: EffectSpec,
+) -> list[str]:
+    """Enact a move_grant effect — grant a governed move to targeted hoopers.
+
+    Targets are resolved from the effect's target_hooper_id, target_team_id,
+    or target_selector ("all"). Returns list of hooper IDs that received the move.
+
+    Deduplication: if a hooper already has a move with the same name, skip.
+    """
+    import logging
+
+    from pinwheel.models.team import Move
+
+    logger = logging.getLogger(__name__)
+
+    if not effect.move_name:
+        return []
+
+    move = Move(
+        name=effect.move_name,
+        trigger=effect.move_trigger or "any_possession",
+        effect=effect.move_effect or "",
+        attribute_gate=effect.move_attribute_gate or {},
+        source="governed",
+    )
+    move_dict = move.model_dump()
+
+    target_hooper_ids: list[str] = []
+
+    if effect.target_hooper_id:
+        target_hooper_ids = [effect.target_hooper_id]
+    elif effect.target_team_id:
+        hoopers = await repo.get_hoopers_for_team(effect.target_team_id)
+        target_hooper_ids = [h.id for h in hoopers]
+    elif effect.target_selector == "all":
+        teams = await repo.get_teams_for_season(season_id)
+        for team in teams:
+            hoopers = await repo.get_hoopers_for_team(team.id)
+            target_hooper_ids.extend(h.id for h in hoopers)
+
+    granted: list[str] = []
+    for hooper_id in target_hooper_ids:
+        hooper = await repo.get_hooper(hooper_id)
+        if hooper is None:
+            continue
+        existing_names = {
+            m.get("name") if isinstance(m, dict) else getattr(m, "name", "")
+            for m in (hooper.moves or [])
+        }
+        if effect.move_name in existing_names:
+            continue
+        await repo.add_hooper_move(hooper_id, move_dict)
+        granted.append(hooper_id)
+
+    if granted:
+        logger.info(
+            "move_grant_enacted move=%s hoopers=%d season=%s",
+            effect.move_name,
+            len(granted),
+            season_id,
+        )
+
+    return granted

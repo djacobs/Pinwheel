@@ -109,7 +109,7 @@ Manages the lifecycle of active effects for a season.
 ```python
 registry = EffectRegistry()
 registry.register(effect)              # Add an effect
-registry.get_effects_for_hook("sim.shot.pre")  # Query by hook
+registry.get_effects_for_hook("sim.possession.pre")  # Query by hook
 registry.get_narrative_effects()       # All narrative effects
 registry.get_effects_for_proposal("p-123")     # All effects from one proposal
 registry.tick_round(current_round)     # Expire N_ROUNDS effects, returns expired IDs
@@ -210,14 +210,24 @@ After passing, this effect fires before every shot. It checks the shooting team'
 
 | Hook | When | Typical Context |
 |---|---|---|
+| `round.pre` | Before any games are simulated | Round number, season ID, teams, meta |
+| `round.game.pre` | Before each individual game | Home/away team IDs, teams, meta |
 | `round.game.post` | After each game result stored | Winner, margin, both team IDs |
+| `round.post` | After all games, before governance | Game results, teams, meta |
 
-### Report Hooks (fire during report generation)
+### Governance Hooks (fire during `tally_pending_governance()`)
 
 | Hook | When | Typical Context |
 |---|---|---|
-| `report.simulation.pre` | Before simulation report prompt | Report data dict |
-| `report.commentary.pre` | Before commentary prompt | Game results |
+| `gov.pre` | Before governance tally begins | Round number, season ID, ruleset, meta |
+| `gov.post` | After governance tally completes | Round number, season ID, ruleset, tallies, meta |
+
+### Report Hooks (fire during `_phase_ai()`)
+
+| Hook | When | Typical Context |
+|---|---|---|
+| `report.commentary.pre` | Before game commentary generation | Game summaries, ruleset, meta snapshot |
+| `report.simulation.pre` | Before simulation report generation | Round data, ruleset, meta snapshot |
 
 ## Effect Lifetime
 
@@ -241,14 +251,23 @@ Expiration is persisted via `effect.expired` events. Repeal (by a future proposa
 | `src/pinwheel/core/governance.py` | `tally_governance_with_effects()` |
 | `src/pinwheel/ai/interpreter.py` | `interpret_proposal_v2_mock()` |
 | `src/pinwheel/core/simulation.py` | `_fire_sim_effects()`, updated `simulate_game()` signature |
-| `src/pinwheel/db/repository.py` | `update_team_meta()`, `flush_meta_store()`, `load_all_team_meta()` |
+| `src/pinwheel/db/repository.py` | `update_team_meta()`, `flush_meta_store()`, `load_all_team_meta()`, `load_hooper_meta()`, `load_hoopers_meta_for_teams()` |
 | `scripts/migrate_add_meta.py` | ~~Additive migration~~ Superseded by `auto_migrate_schema()` in `db/engine.py` — kept for reference |
 | `tests/test_effects.py` | 83 tests across 12 test classes |
 
+## Wave 2 Completion (Done)
+
+The following Wave 2 items have been completed:
+
+- [x] **GameEffect hooks** — The effect registry is fully wired into `step_round()`. Effects load from the event store at round start, fire at all hook points (round, game, simulation, governance, report), tick lifetimes at round end, and persist expirations. The full load-fire-tick-flush cycle runs every round.
+- [x] **Governance hooks** — `gov.pre` and `gov.post` hooks fire around `tally_pending_governance()`, allowing effects to react to governance events (e.g., modify voting power, inject narrative before/after tallies).
+- [x] **Report hooks** — `report.commentary.pre` and `report.simulation.pre` hooks fire in `_phase_ai()` before AI generation, using the effect registry and meta store snapshot from Phase 1. Narrative results are injected into the narrative context.
+- [x] **Hooper meta loading** — `load_hoopers_meta_for_teams()` in Repository loads hooper metadata into the MetaStore at round start, alongside team meta. Effects can now read and write hooper-level metadata.
+- [x] **Hook point alignment** — Interpreter prompt and mock function updated to reference `sim.possession.pre` instead of non-existent `sim.shot.pre`.
+- [x] **Multi-parameter interpretation** — The mock interpreter handles compound proposals ("make threes worth 4 AND add a swagger system") and produces multi-effect `ProposalInterpretation` objects.
+
 ## What's Next
 
-The effects system is the foundation. The following Wave 2 items build on it:
-
-- **GameEffect hooks** — Wire the effect registry into `step_round()` so effects load, fire, tick, and persist each round automatically. Currently the integration exists in tests; the game loop orchestration needs the full load→fire→tick→flush cycle.
-- **Multi-parameter interpretation** — Expand the AI interpreter to handle compound proposals ("make threes worth 4 AND add a swagger system") and produce multi-effect `ProposalInterpretation` objects via real Opus calls.
 - **Repeal mechanism** — A proposal that explicitly repeals an existing effect by ID, using `effect.repealed` events.
+- **Effect condition evaluation in governance** — Effects that modify voting rules or proposal thresholds based on meta state.
+- **Real Opus v2 interpreter** — Full AI-powered interpretation producing `ProposalInterpretation` objects with hook callbacks and meta mutations.

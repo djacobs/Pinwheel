@@ -33,11 +33,13 @@ from pinwheel.ai.report import (
     generate_simulation_report,
     generate_simulation_report_mock,
 )
+from pinwheel.core.drama import DramaAnnotation, annotate_drama, get_drama_summary
 from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import tally_governance, tally_governance_with_effects
 from pinwheel.core.hooks import HookContext, fire_effects
 from pinwheel.core.meta import MetaStore
+from pinwheel.core.milestones import check_milestones
 from pinwheel.core.narrative import NarrativeContext, compute_narrative_context
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.core.simulation import simulate_game
@@ -82,6 +84,69 @@ def _row_to_team(team_row: object) -> Team:
         venue=venue,
         hoopers=hoopers,
     )
+
+
+async def _check_earned_moves(
+    repo: Repository,
+    season_id: str,
+    round_number: int,
+    teams_cache: dict[str, Team],
+    event_bus: EventBus | None = None,
+) -> list[dict]:
+    """Check all hoopers for newly earned moves via milestone thresholds.
+
+    Iterates every hooper in teams_cache, aggregates their season stats,
+    and grants any moves whose milestone thresholds have been crossed.
+    Returns a list of grant dicts for narrative integration.
+    """
+    grants: list[dict] = []
+    for team in teams_cache.values():
+        for hooper in team.hoopers:
+            season_stats = await repo.get_hooper_season_stats(hooper.id, season_id)
+            existing_move_names = {m.name for m in hooper.moves}
+
+            new_moves = check_milestones(season_stats, existing_move_names)
+            for move in new_moves:
+                await repo.add_hooper_move(hooper.id, move.model_dump())
+                grant = {
+                    "hooper_id": hooper.id,
+                    "hooper_name": hooper.name,
+                    "team_id": team.id,
+                    "team_name": team.name,
+                    "move_name": move.name,
+                    "source": "earned",
+                }
+                grants.append(grant)
+                logger.info(
+                    "hooper_earned_move hooper=%s move=%s season=%s round=%d",
+                    hooper.name,
+                    move.name,
+                    season_id,
+                    round_number,
+                )
+
+                if event_bus:
+                    await event_bus.publish(
+                        "hooper.milestone_reached",
+                        {
+                            "hooper_id": hooper.id,
+                            "hooper_name": hooper.name,
+                            "team_id": team.id,
+                            "team_name": team.name,
+                            "move_name": move.name,
+                            "round_number": round_number,
+                            "season_id": season_id,
+                        },
+                    )
+
+    if grants:
+        logger.info(
+            "milestones_granted season=%s round=%d count=%d",
+            season_id,
+            round_number,
+            len(grants),
+        )
+    return grants
 
 
 async def _check_season_complete(repo: Repository, season_id: str) -> bool:
@@ -707,6 +772,7 @@ async def tally_pending_governance(
     ruleset: RuleSet,
     event_bus: EventBus | None = None,
     effect_registry: EffectRegistry | None = None,
+    meta_store: MetaStore | None = None,
 ) -> tuple[RuleSet, list[VoteTally], dict]:
     """Tally all pending proposals and enact passing rule changes.
 
@@ -714,9 +780,23 @@ async def tally_pending_governance(
     When ``effect_registry`` is provided, passing proposals that contain
     v2 effects (meta_mutation, hook_callback, narrative) will have those
     effects registered in the registry and persisted to the event store.
+    When ``meta_store`` is provided, fires ``gov.pre`` and ``gov.post``
+    hooks around the governance tally for any registered effects.
     Returns (updated_ruleset, tallies, governance_data).
     """
     governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
+
+    # Fire gov.pre hooks
+    if effect_registry and meta_store:
+        _gov_pre_effects = effect_registry.get_effects_for_hook("gov.pre")
+        if _gov_pre_effects:
+            gov_pre_ctx = HookContext(
+                round_number=round_number,
+                season_id=season_id,
+                meta_store=meta_store,
+                rules=ruleset,
+            )
+            fire_effects("gov.pre", gov_pre_ctx, _gov_pre_effects)
 
     # Gather confirmed proposals that haven't been resolved yet
     confirmed_events = await repo.get_events_by_type(
@@ -822,6 +902,19 @@ async def tally_pending_governance(
                         rc["old_value"] = rc_event.payload.get("old_value")
                         rc["new_value"] = rc_event.payload.get("new_value")
 
+    # Fire gov.post hooks
+    if effect_registry and meta_store:
+        _gov_post_effects = effect_registry.get_effects_for_hook("gov.post")
+        if _gov_post_effects:
+            gov_post_ctx = HookContext(
+                round_number=round_number,
+                season_id=season_id,
+                meta_store=meta_store,
+                rules=ruleset,
+                tally=tallies,
+            )
+            fire_effects("gov.post", gov_post_ctx, _gov_post_effects)
+
     return ruleset, tallies, governance_data
 
 
@@ -883,6 +976,13 @@ async def _phase_simulate_and_govern(
                 team_meta = await repo.load_team_meta(tid)
                 if team_meta:
                     meta_store.load_entity("team", tid, team_meta)
+            # Load hooper meta from DB
+            hooper_meta = await repo.load_hoopers_meta_for_teams(
+                list(teams_cache.keys()),
+            )
+            for hooper_id, h_meta in hooper_meta.items():
+                if h_meta:
+                    meta_store.load_entity("hooper", hooper_id, h_meta)
             logger.info(
                 "effects_loaded season=%s effects=%d",
                 season_id,
@@ -1124,6 +1224,17 @@ async def _phase_simulate_and_govern(
                     round_number,
                 )
 
+    # 4b. Milestone checks — earned moves for hoopers who hit stat thresholds
+    milestone_grants: list[dict] = []
+    try:
+        milestone_grants = await _check_earned_moves(
+            repo, season_id, round_number, teams_cache, event_bus,
+        )
+    except Exception:
+        logger.exception(
+            "milestone_check_failed season=%s round=%d", season_id, round_number
+        )
+
     # 5. Governance — tally every Nth round (interval-based)
     tallies: list[VoteTally] = []
     governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
@@ -1137,6 +1248,7 @@ async def _phase_simulate_and_govern(
             ruleset=ruleset,
             event_bus=event_bus,
             effect_registry=effect_registry,
+            meta_store=meta_store,
         )
 
         # Build per-proposal tally data for Discord notifications
@@ -1216,6 +1328,29 @@ async def _phase_simulate_and_govern(
         if narrative_ctx is not None:
             narrative_ctx.effects_narrative = effects_summary
 
+    # Build meta_store snapshot for AI phase (deep copy, safe to pass without DB)
+    meta_store_snapshot = meta_store.snapshot() if meta_store else None
+
+    # Classify drama for each game (pure computation, sub-millisecond)
+    drama_map: dict[str, list[DramaAnnotation]] = {}
+    for i, result in enumerate(game_results):
+        gid = (
+            game_summaries[i].get("game_id", result.game_id)
+            if i < len(game_summaries)
+            else result.game_id
+        )
+        game_drama = annotate_drama(result)
+        drama_map[gid] = game_drama
+        drama_counts = get_drama_summary(game_drama)
+        logger.info(
+            "drama_classified game=%s routine=%d elevated=%d high=%d peak=%d",
+            gid,
+            drama_counts.get("routine", 0),
+            drama_counts.get("elevated", 0),
+            drama_counts.get("high", 0),
+            drama_counts.get("peak", 0),
+        )
+
     return _SimPhaseResult(
         season_id=season_id,
         round_number=round_number,
@@ -1232,6 +1367,10 @@ async def _phase_simulate_and_govern(
         active_governor_ids=active_governor_ids,
         narrative_context=narrative_ctx,
         effects_summary=effects_summary,
+        milestone_grants=milestone_grants,
+        effect_registry=effect_registry,
+        meta_store_snapshot=meta_store_snapshot,
+        drama_annotations=drama_map,
     )
 
 
@@ -1247,6 +1386,64 @@ async def _phase_ai(
     commentaries: dict[str, str] = {}
     round_data = {"round_number": sim.round_number, "games": sim.game_summaries}
     narrative = sim.narrative_context
+
+    # Fire report hooks using the effect_registry snapshot from Phase 1.
+    # These hooks inject narrative context from effects into the AI prompt.
+    _report_narratives: list[str] = []
+    if sim.effect_registry and sim.effect_registry.count > 0:
+        # Reconstruct a read-only MetaStore from the Phase 1 snapshot
+        _meta_snapshot_store: MetaStore | None = None
+        if sim.meta_store_snapshot:
+            _meta_snapshot_store = MetaStore()
+            for etype, entities in sim.meta_store_snapshot.items():
+                for eid, fields in entities.items():
+                    _meta_snapshot_store.load_entity(etype, eid, dict(fields))
+
+        # report.commentary.pre — fires before game commentary generation
+        _commentary_pre_effects = sim.effect_registry.get_effects_for_hook(
+            "report.commentary.pre",
+        )
+        if _commentary_pre_effects:
+            commentary_pre_ctx = HookContext(
+                round_number=sim.round_number,
+                season_id=sim.season_id,
+                meta_store=_meta_snapshot_store,
+                report_data={"games": sim.game_summaries},
+                rules=sim.ruleset,
+            )
+            commentary_results = fire_effects(
+                "report.commentary.pre", commentary_pre_ctx, _commentary_pre_effects,
+            )
+            for hr in commentary_results:
+                if hr.narrative:
+                    _report_narratives.append(hr.narrative)
+
+        # report.simulation.pre — fires before simulation report generation
+        _sim_pre_effects = sim.effect_registry.get_effects_for_hook(
+            "report.simulation.pre",
+        )
+        if _sim_pre_effects:
+            sim_pre_ctx = HookContext(
+                round_number=sim.round_number,
+                season_id=sim.season_id,
+                meta_store=_meta_snapshot_store,
+                report_data=round_data,
+                rules=sim.ruleset,
+            )
+            sim_results = fire_effects(
+                "report.simulation.pre", sim_pre_ctx, _sim_pre_effects,
+            )
+            for hr in sim_results:
+                if hr.narrative:
+                    _report_narratives.append(hr.narrative)
+
+    # Inject effect-produced narratives into the narrative context
+    if _report_narratives and narrative is not None:
+        combined = "\n".join(_report_narratives)
+        if narrative.effects_narrative:
+            narrative.effects_narrative += "\n" + combined
+        else:
+            narrative.effects_narrative = combined
 
     # Commentary per game
     for i, result in enumerate(sim.game_results):
@@ -1596,11 +1793,25 @@ async def _phase_persist_and_finalize(
         elapsed * 1000,
     )
 
+    # Compute aggregate drama level for the round
+    round_drama_level = "routine"
+    if sim.drama_annotations:
+        all_levels = [
+            a.level for anns in sim.drama_annotations.values() for a in anns
+        ]
+        if any(lv == "peak" for lv in all_levels):
+            round_drama_level = "peak"
+        elif any(lv == "high" for lv in all_levels):
+            round_drama_level = "high"
+        elif any(lv == "elevated" for lv in all_levels):
+            round_drama_level = "elevated"
+
     round_completed_data: dict = {
         "round": sim.round_number,
         "games": len(sim.game_summaries),
         "reports": len(reports),
         "elapsed_ms": round(elapsed * 1000, 1),
+        "drama_level": round_drama_level,
     }
     if ai.highlight_reel:
         round_completed_data["highlight_reel"] = ai.highlight_reel
@@ -1802,6 +2013,12 @@ class _SimPhaseResult:
     active_governor_ids: set[str]
     narrative_context: NarrativeContext | None = None
     effects_summary: str = ""
+    effect_registry: EffectRegistry | None = None
+    meta_store_snapshot: dict[str, dict[str, dict[str, object]]] | None = None
+    milestone_grants: list[dict] = dataclasses.field(default_factory=list)
+    drama_annotations: dict[str, list[DramaAnnotation]] = dataclasses.field(
+        default_factory=dict
+    )  # game_id -> annotations
 
 
 @dataclasses.dataclass

@@ -23,6 +23,7 @@ from discord.ext import commands
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.discord.embeds import (
+    build_amendment_confirm_embed,
     build_game_result_embed,
     build_governor_profile_embed,
     build_history_list_embed,
@@ -157,6 +158,28 @@ class PinwheelBot(commands.Bot):
 
         @vote_command.autocomplete("proposal")
         async def _proposal_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_proposals(interaction, current)
+
+        @self.tree.command(
+            name="amend",
+            description="Propose an amendment to an active proposal on the Floor",
+        )
+        @app_commands.describe(
+            proposal="Which proposal to amend",
+            text="Your amendment in natural language",
+        )
+        async def amend_command(
+            interaction: discord.Interaction,
+            proposal: str,
+            text: str,
+        ) -> None:
+            await self._handle_amend(interaction, proposal, text)
+
+        @amend_command.autocomplete("proposal")
+        async def _amend_proposal_autocomplete(
             interaction: discord.Interaction,
             current: str,
         ) -> list[app_commands.Choice[str]]:
@@ -330,6 +353,35 @@ class PinwheelBot(commands.Bot):
             interaction: discord.Interaction,
         ) -> None:
             await self._handle_roster(interaction)
+
+        @self.tree.command(
+            name="effects",
+            description="View all active game effects for the current season",
+        )
+        async def effects_command(
+            interaction: discord.Interaction,
+        ) -> None:
+            await self._handle_effects(interaction)
+
+        @self.tree.command(
+            name="repeal",
+            description="Propose repealing an active game effect",
+        )
+        @app_commands.describe(
+            effect="The effect to repeal (select from active effects)",
+        )
+        async def repeal_command(
+            interaction: discord.Interaction,
+            effect: str,
+        ) -> None:
+            await self._handle_repeal(interaction, effect)
+
+        @repeal_command.autocomplete("effect")
+        async def _effect_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_effects(current)
 
         @self.tree.command(
             name="status",
@@ -2159,6 +2211,514 @@ class PinwheelBot(commands.Bot):
                 "If it keeps failing, ask an admin for help.",
                 ephemeral=True,
             )
+
+    async def _handle_amend(
+        self,
+        interaction: discord.Interaction,
+        proposal_selector: str,
+        text: str,
+    ) -> None:
+        """Handle the /amend slash command with AI re-interpretation."""
+        if not text.strip():
+            await interaction.response.send_message(
+                "You need to describe your amendment. "
+                "Example: `/amend [proposal] Change the value to 4 instead of 5`",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "The league database is temporarily unavailable. "
+                "Try `/amend` again in a moment -- if this persists, let an admin know.",
+                ephemeral=True,
+            )
+            return
+
+        # Defer immediately -- DB + AI calls can exceed 3s interaction timeout
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        try:
+            gov = await get_governor(self.engine, str(interaction.user.id))
+        except GovernorNotFound as exc:
+            await interaction.followup.send(
+                str(exc) or "You need to `/join` a team first.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.ai.interpreter import (
+                interpret_proposal_v2,
+                interpret_proposal_v2_mock,
+            )
+            from pinwheel.core.governance import (
+                MAX_AMENDMENTS_PER_PROPOSAL,
+                count_amendments,
+            )
+            from pinwheel.core.tokens import get_token_balance, has_token
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+            from pinwheel.models.governance import Proposal
+            from pinwheel.models.rules import RuleSet
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                # Check AMEND tokens
+                if not await has_token(
+                    repo, gov.player_id, gov.season_id, "amend"
+                ):
+                    await interaction.followup.send(
+                        "You don't have any AMEND tokens left. "
+                        "Use `/tokens` to check your balance. "
+                        "Tokens regenerate at the next governance interval.",
+                        ephemeral=True,
+                    )
+                    return
+
+                balance = await get_token_balance(
+                    repo, gov.player_id, gov.season_id
+                )
+
+                # Find the proposal
+                confirmed = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.confirmed"],
+                )
+                resolved = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.passed", "proposal.failed"],
+                )
+                resolved_ids = {e.aggregate_id for e in resolved}
+                pending = [
+                    c
+                    for c in confirmed
+                    if c.payload.get("proposal_id", c.aggregate_id) not in resolved_ids
+                ]
+
+                # Match proposal by ID
+                proposal_id: str | None = None
+                for p in pending:
+                    pid = p.payload.get("proposal_id", p.aggregate_id)
+                    if pid == proposal_selector:
+                        proposal_id = pid
+                        break
+
+                # Try text match if ID didn't match
+                if not proposal_id:
+                    submitted_for_match = await repo.get_events_by_type(
+                        season_id=gov.season_id,
+                        event_types=["proposal.submitted"],
+                    )
+                    for p in pending:
+                        pid = p.payload.get("proposal_id", p.aggregate_id)
+                        for se in submitted_for_match:
+                            if se.aggregate_id == pid:
+                                raw = se.payload.get("raw_text", "")
+                                if proposal_selector.lower() in raw.lower():
+                                    proposal_id = pid
+                                    break
+                        if proposal_id:
+                            break
+
+                if not proposal_id:
+                    await interaction.followup.send(
+                        "Could not find an open proposal matching your selection. "
+                        "Use `/proposals` to see what's currently on the Floor.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Reconstruct proposal from submitted event
+                submitted = await repo.get_events_by_type(
+                    season_id=gov.season_id,
+                    event_types=["proposal.submitted"],
+                )
+                proposal_data = None
+                for evt in submitted:
+                    if evt.aggregate_id == proposal_id:
+                        proposal_data = evt.payload
+                        break
+
+                if not proposal_data:
+                    await interaction.followup.send(
+                        "The proposal data could not be loaded.",
+                        ephemeral=True,
+                    )
+                    return
+
+                proposal = Proposal(**proposal_data)
+
+                # Check amendment cap
+                amendment_count = await count_amendments(
+                    repo, proposal_id, gov.season_id
+                )
+                if amendment_count >= MAX_AMENDMENTS_PER_PROPOSAL:
+                    await interaction.followup.send(
+                        f"This proposal has already been amended "
+                        f"{MAX_AMENDMENTS_PER_PROPOSAL} times (the maximum). "
+                        "No further amendments are allowed.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Get the current ruleset for AI interpretation
+                season = await repo.get_season(gov.season_id)
+                rs_data = (season.current_ruleset or {}) if season else {}
+                ruleset = RuleSet(**rs_data)
+
+            # AI interpretation of the amendment text
+            api_key = self.settings.anthropic_api_key
+            interpretation_v2 = None
+            if api_key:
+                from pinwheel.ai.classifier import classify_injection
+                from pinwheel.evals.injection import store_injection_classification
+                from pinwheel.models.governance import (
+                    ProposalInterpretation as PI,
+                )
+                from pinwheel.models.governance import (
+                    RuleInterpretation as RI,
+                )
+
+                classification = await classify_injection(text, api_key)
+
+                # Store classification result
+                async with get_session(self.engine) as cls_session:
+                    cls_repo = Repository(cls_session)
+                    await store_injection_classification(
+                        repo=cls_repo,
+                        season_id=gov.season_id,
+                        proposal_text=text,
+                        result=classification,
+                        governor_id=gov.player_id,
+                        source="discord_amend",
+                    )
+                    await cls_session.commit()
+
+                if classification.classification == "injection" and classification.confidence > 0.8:
+                    interpretation = RI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Amendment flagged as potential prompt injection.",
+                    )
+                    interpretation_v2 = PI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Amendment flagged as potential prompt injection.",
+                        original_text_echo=text,
+                    )
+                else:
+                    interpretation_v2 = await interpret_proposal_v2(
+                        text, ruleset, api_key
+                    )
+                    interpretation = interpretation_v2.to_rule_interpretation()
+                    if classification.classification == "suspicious":
+                        interpretation.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation.impact_analysis
+                        )
+                        interpretation_v2.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation_v2.impact_analysis
+                        )
+            else:
+                interpretation_v2 = interpret_proposal_v2_mock(text, ruleset)
+                interpretation = interpretation_v2.to_rule_interpretation()
+
+            from pinwheel.discord.views import AmendConfirmView
+
+            new_amendment_number = amendment_count + 1
+
+            view = AmendConfirmView(
+                original_user_id=interaction.user.id,
+                proposal_id=proposal_id,
+                proposal_raw_text=proposal.raw_text,
+                amendment_text=text,
+                interpretation=interpretation,
+                amendment_number=new_amendment_number,
+                max_amendments=MAX_AMENDMENTS_PER_PROPOSAL,
+                governor_info=gov,
+                engine=self.engine,
+                interpretation_v2=interpretation_v2,
+            )
+            embed = build_amendment_confirm_embed(
+                original_text=proposal.raw_text,
+                amendment_text=text,
+                interpretation=interpretation,
+                amendment_number=new_amendment_number,
+                max_amendments=MAX_AMENDMENTS_PER_PROPOSAL,
+                amend_tokens_remaining=balance.amend - 1,
+                governor_name=interaction.user.display_name,
+                interpretation_v2=interpretation_v2,
+            )
+            await interaction.followup.send(
+                embed=embed,
+                view=view,
+                ephemeral=True,
+            )
+        except Exception:
+            logger.exception("discord_amend_failed")
+            await interaction.followup.send(
+                "Your amendment could not be processed right now. "
+                "This might be a temporary issue with the AI interpreter -- "
+                "try `/amend` again with the same text. "
+                "If it keeps failing, ask an admin for help.",
+                ephemeral=True,
+            )
+
+    async def _handle_effects(self, interaction: discord.Interaction) -> None:
+        """Handle the /effects slash command — show all active effects."""
+        await interaction.response.defer()
+
+        if not self.engine:
+            await interaction.followup.send(
+                "The league database is temporarily unavailable.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.core.effects import load_effect_registry
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+            from pinwheel.discord.embeds import build_effects_list_embed
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    await interaction.followup.send(
+                        "No active season.",
+                        ephemeral=True,
+                    )
+                    return
+
+                registry = await load_effect_registry(repo, season.id)
+                active_effects = registry.get_all_active()
+
+                # Look up source proposal text for each effect
+                submitted_events = await repo.get_events_by_type(
+                    season_id=season.id,
+                    event_types=["proposal.submitted"],
+                )
+                proposal_texts: dict[str, str] = {}
+                for se in submitted_events:
+                    pid = se.payload.get("id", se.aggregate_id)
+                    raw = str(se.payload.get("raw_text", ""))
+                    proposal_texts[str(pid)] = raw
+
+                effects_data: list[dict[str, object]] = []
+                for effect in active_effects:
+                    desc = (
+                        effect.description
+                        or effect.narrative_instruction
+                        or effect.effect_type
+                    )
+                    effects_data.append({
+                        "effect_id": effect.effect_id,
+                        "effect_type": effect.effect_type,
+                        "description": desc,
+                        "lifetime": effect.lifetime.value,
+                        "rounds_remaining": effect.rounds_remaining,
+                        "proposal_text": proposal_texts.get(
+                            effect.proposal_id, ""
+                        ),
+                    })
+
+            season_name = season.name if season else "this season"
+            embed = build_effects_list_embed(effects_data, season_name=season_name)
+            await interaction.followup.send(embed=embed)
+        except Exception:
+            logger.exception("discord_effects_failed")
+            await interaction.followup.send(
+                "Could not load active effects right now.",
+                ephemeral=True,
+            )
+
+    async def _handle_repeal(self, interaction: discord.Interaction, effect_id: str) -> None:
+        """Handle the /repeal slash command — propose repealing an active effect."""
+        if not self.engine:
+            await interaction.response.send_message(
+                "The league database is temporarily unavailable.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.discord.helpers import GovernorNotFound, get_governor
+
+        try:
+            gov = await get_governor(self.engine, str(interaction.user.id))
+        except GovernorNotFound as exc:
+            await interaction.followup.send(
+                str(exc) or "You need to `/join` a team first.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.core.effects import load_effect_registry
+            from pinwheel.core.governance import REPEAL_TOKEN_COST
+            from pinwheel.core.tokens import get_token_balance, has_token
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+            from pinwheel.discord.embeds import build_repeal_confirm_embed
+            from pinwheel.discord.views import RepealConfirmView
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                # Check tokens
+                if not await has_token(
+                    repo,
+                    gov.player_id,
+                    gov.season_id,
+                    "propose",
+                ):
+                    await interaction.followup.send(
+                        "You don't have any PROPOSE tokens left. "
+                        "Use `/tokens` to check your balance.",
+                        ephemeral=True,
+                    )
+                    return
+
+                balance = await get_token_balance(
+                    repo, gov.player_id, gov.season_id
+                )
+
+                if balance.propose < REPEAL_TOKEN_COST:
+                    await interaction.followup.send(
+                        f"A repeal proposal costs {REPEAL_TOKEN_COST} PROPOSE tokens, "
+                        f"but you only have {balance.propose}.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Load registry and find the target effect
+                registry = await load_effect_registry(repo, gov.season_id)
+
+            target = registry.get_effect(effect_id)
+            if target is None:
+                await interaction.followup.send(
+                    "That effect is no longer active. "
+                    "Use `/effects` to see current active effects.",
+                    ephemeral=True,
+                )
+                return
+
+            # Parameter changes cannot be repealed via this mechanism
+            if target.effect_type == "parameter_change":
+                await interaction.followup.send(
+                    "Parameter changes cannot be repealed. "
+                    "Submit a new `/propose` to change the parameter to a different value.",
+                    ephemeral=True,
+                )
+                return
+
+            desc = target.description or target.narrative_instruction or target.effect_type
+
+            # Spend PROPOSE token NOW (before confirm UI) to prevent race conditions
+            async with get_session(self.engine) as spend_session:
+                spend_repo = Repository(spend_session)
+                await spend_repo.append_event(
+                    event_type="token.spent",
+                    aggregate_id=gov.player_id,
+                    aggregate_type="token",
+                    season_id=gov.season_id,
+                    governor_id=gov.player_id,
+                    team_id=gov.team_id,
+                    payload={
+                        "token_type": "propose",
+                        "amount": REPEAL_TOKEN_COST,
+                        "reason": "repeal:pending_confirm",
+                    },
+                )
+                await spend_session.commit()
+
+            view = RepealConfirmView(
+                original_user_id=interaction.user.id,
+                target_effect_id=effect_id,
+                effect_description=desc,
+                effect_type=target.effect_type,
+                token_cost=REPEAL_TOKEN_COST,
+                governor_info=gov,
+                engine=self.engine,
+                token_already_spent=True,
+            )
+            embed = build_repeal_confirm_embed(
+                effect_description=desc,
+                effect_type=target.effect_type,
+                effect_id=effect_id,
+                token_cost=REPEAL_TOKEN_COST,
+                tokens_remaining=balance.propose - REPEAL_TOKEN_COST,
+                governor_name=interaction.user.display_name,
+            )
+            await interaction.followup.send(
+                embed=embed,
+                view=view,
+                ephemeral=True,
+            )
+        except Exception:
+            logger.exception("discord_repeal_failed")
+            await interaction.followup.send(
+                "Your repeal proposal could not be processed right now. "
+                "Try `/repeal` again. If it keeps failing, ask an admin for help.",
+                ephemeral=True,
+            )
+
+    async def _autocomplete_effects(
+        self, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete for the /repeal effect parameter.
+
+        Returns active non-parameter effects with their short IDs and descriptions.
+        """
+        if not self.engine:
+            return []
+
+        try:
+            from pinwheel.core.effects import load_effect_registry
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    return []
+
+                registry = await load_effect_registry(repo, season.id)
+                active = registry.get_all_active()
+
+            choices: list[app_commands.Choice[str]] = []
+            for effect in active:
+                # Skip parameter_change effects — cannot be repealed
+                if effect.effect_type == "parameter_change":
+                    continue
+
+                desc = effect.description or effect.narrative_instruction or effect.effect_type
+                short_id = effect.effect_id[-8:]
+                label = f"{desc[:80]} ({short_id})"
+
+                if current and current.lower() not in label.lower():
+                    continue
+
+                choices.append(
+                    app_commands.Choice(name=label[:100], value=effect.effect_id)
+                )
+                if len(choices) >= 25:
+                    break
+
+            return choices
+        except Exception:
+            logger.exception("discord_effect_autocomplete_failed")
+            return []
 
     async def _handle_schedule(self, interaction: discord.Interaction) -> None:
         """Handle the /schedule slash command."""
