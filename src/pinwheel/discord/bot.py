@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 DISCORD_SETUP_LOCK_KEY = "discord_setup_lock"
 DISCORD_SETUP_LOCK_TIMEOUT_SECONDS = 60  # 1 minute — setup is fast
 
+# System-level cooldown between proposals per governor (seconds).
+# NOT governable — protects against rapid-fire submissions that waste AI interpreter capacity.
+PROPOSAL_COOLDOWN_SECONDS = 60
+
 
 class PinwheelBot(commands.Bot):
     """The Pinwheel Fates Discord bot.
@@ -80,6 +84,8 @@ class PinwheelBot(commands.Bot):
         self._team_names_cache: list[str] = []
         self._event_listener_task: asyncio.Task[None] | None = None
         self._setup_done: bool = False
+        # Per-governor cooldown: governor_id → last proposal timestamp (monotonic)
+        self._proposal_cooldowns: dict[str, float] = {}
         self._setup_commands()
 
     def _setup_commands(self) -> None:
@@ -1605,6 +1611,20 @@ class PinwheelBot(commands.Bot):
             )
             return
 
+        # Per-governor cooldown — system-level protection against rapid-fire submissions
+        now = time.monotonic()
+        last_propose = self._proposal_cooldowns.get(gov.player_id)
+        if last_propose is not None:
+            elapsed = now - last_propose
+            if elapsed < PROPOSAL_COOLDOWN_SECONDS:
+                remaining = int(PROPOSAL_COOLDOWN_SECONDS - elapsed)
+                await interaction.followup.send(
+                    f"Please wait {remaining} second{'s' if remaining != 1 else ''} "
+                    "before submitting another proposal.",
+                    ephemeral=True,
+                )
+                return
+
         try:
             from pinwheel.ai.interpreter import (
                 interpret_proposal_v2,
@@ -1742,6 +1762,30 @@ class PinwheelBot(commands.Bot):
             tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
 
+            # Spend PROPOSE token NOW (before confirm UI) to prevent race conditions.
+            # Two rapid /propose calls can no longer both pass the has_token() check
+            # because the token is deducted immediately. If the governor cancels,
+            # the token is refunded in ProposalConfirmView.cancel.
+            async with get_session(self.engine) as spend_session:
+                spend_repo = Repository(spend_session)
+                await spend_repo.append_event(
+                    event_type="token.spent",
+                    aggregate_id=gov.player_id,
+                    aggregate_type="token",
+                    season_id=gov.season_id,
+                    governor_id=gov.player_id,
+                    team_id=gov.team_id,
+                    payload={
+                        "token_type": "propose",
+                        "amount": cost,
+                        "reason": "proposal:pending_confirm",
+                    },
+                )
+                await spend_session.commit()
+
+            # Record cooldown timestamp
+            self._proposal_cooldowns[gov.player_id] = time.monotonic()
+
             from pinwheel.discord.views import ProposalConfirmView
 
             view = ProposalConfirmView(
@@ -1750,18 +1794,19 @@ class PinwheelBot(commands.Bot):
                 interpretation=interpretation,
                 tier=tier,
                 token_cost=cost,
-                tokens_remaining=balance.propose,
+                tokens_remaining=balance.propose - cost,
                 governor_info=gov,
                 engine=self.engine,
                 settings=self.settings,
                 interpretation_v2=interpretation_v2,
+                token_already_spent=True,
             )
             embed = build_interpretation_embed(
                 raw_text=text,
                 interpretation=interpretation,
                 tier=tier,
                 token_cost=cost,
-                tokens_remaining=balance.propose,
+                tokens_remaining=balance.propose - cost,
                 governor_name=interaction.user.display_name,
                 interpretation_v2=interpretation_v2,
             )

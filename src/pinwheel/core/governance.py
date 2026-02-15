@@ -149,8 +149,15 @@ async def submit_proposal(
     raw_text: str,
     interpretation: RuleInterpretation,
     ruleset: RuleSet,
+    *,
+    token_already_spent: bool = False,
 ) -> Proposal:
-    """Submit a proposal. Deducts 1 PROPOSE token via event store."""
+    """Submit a proposal. Deducts PROPOSE token(s) via event store.
+
+    If ``token_already_spent`` is True, the token was deducted at propose-time
+    (before the confirm UI) to prevent race conditions, so the token.spent
+    event is skipped here.
+    """
     sanitized = sanitize_text(raw_text)
     tier = detect_tier(interpretation, ruleset)
     cost = token_cost_for_tier(tier)
@@ -181,16 +188,17 @@ async def submit_proposal(
         payload=proposal.model_dump(mode="json"),
     )
 
-    # Spend PROPOSE token
-    await repo.append_event(
-        event_type="token.spent",
-        aggregate_id=governor_id,
-        aggregate_type="token",
-        season_id=season_id,
-        governor_id=governor_id,
-        team_id=team_id,
-        payload={"token_type": "propose", "amount": cost, "reason": f"proposal:{proposal_id}"},
-    )
+    # Spend PROPOSE token (unless already spent at propose-time)
+    if not token_already_spent:
+        await repo.append_event(
+            event_type="token.spent",
+            aggregate_id=governor_id,
+            aggregate_type="token",
+            season_id=season_id,
+            governor_id=governor_id,
+            team_id=team_id,
+            payload={"token_type": "propose", "amount": cost, "reason": f"proposal:{proposal_id}"},
+        )
 
     return proposal
 

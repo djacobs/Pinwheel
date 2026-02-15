@@ -11,6 +11,7 @@ from typing import Literal
 
 from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.rules import RuleSet
+from pinwheel.models.team import TeamStrategy
 
 DefensiveScheme = Literal["man_tight", "man_switch", "zone", "press"]
 
@@ -45,8 +46,14 @@ def select_scheme(
     game_state: GameState,
     rules: RuleSet,
     rng: random.Random,
+    strategy: TeamStrategy | None = None,
 ) -> DefensiveScheme:
-    """Select defensive scheme based on team attributes and game state."""
+    """Select defensive scheme based on team attributes, game state, and strategy.
+
+    When a TeamStrategy is provided, ``defensive_intensity`` nudges scheme weights:
+    high intensity (> 0.2) favours man-tight and press (aggressive schemes),
+    while low intensity (< -0.1) favours zone (passive/conserve energy).
+    """
     if not defense:
         return "zone"
 
@@ -89,6 +96,14 @@ def select_scheme(
     if game_state.elam_activated and score_diff < 0:
         weights["press"] += 1.5
         weights["man_tight"] += 0.5
+
+    # Strategy influence: defensive_intensity biases scheme selection
+    if strategy:
+        if strategy.defensive_intensity > 0.2:
+            weights["man_tight"] += 1.0
+            weights["press"] += 0.5
+        elif strategy.defensive_intensity < -0.1:
+            weights["zone"] += 1.0
 
     # Normalize and pick
     schemes = list(weights.keys())

@@ -6,6 +6,7 @@ All Discord objects are mocked — no real Discord connection required.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1370,6 +1371,202 @@ class TestProposeGovernance:
         assert "maximum" in msg.lower() or "reached" in msg.lower()
         assert "3" in msg
         assert call_kwargs.kwargs.get("ephemeral") is True
+        await engine.dispose()
+
+    async def test_propose_cooldown_blocks_rapid_submission(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """A second proposal within PROPOSAL_COOLDOWN_SECONDS is rejected."""
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        # First proposal should succeed (show interpret view)
+        await bot._handle_propose(
+            interaction,
+            "Make three-pointers worth 5 points",
+        )
+        interaction.followup.send.assert_called_once()
+        call_kwargs = interaction.followup.send.call_args
+        # First call should show the interpretation embed (not an error string)
+        assert call_kwargs.kwargs.get("embed") is not None
+
+        # Second proposal immediately should be blocked by cooldown
+        interaction2 = make_interaction(
+            user_id=interaction.user.id,
+            display_name="TestGovernor",
+            display_avatar_url="https://example.com/a.png",
+        )
+        interaction2.response.is_done = MagicMock(return_value=False)
+        interaction2.guild = MagicMock(spec=discord.Guild)
+        interaction2.guild.roles = []
+
+        await bot._handle_propose(interaction2, "Another proposal")
+        interaction2.response.defer.assert_called_once()
+        call_kwargs2 = interaction2.followup.send.call_args
+        assert call_kwargs2.kwargs.get("ephemeral") is True
+        msg = str(call_kwargs2.args[0])
+        assert "wait" in msg.lower()
+        assert "second" in msg.lower()
+        await engine.dispose()
+
+    async def test_propose_cooldown_expires(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """After cooldown expires, a new proposal is accepted."""
+        from pinwheel.discord.bot import PROPOSAL_COOLDOWN_SECONDS
+
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        # Manually set a cooldown that is already expired
+        from pinwheel.discord.helpers import get_governor
+
+        gov = await get_governor(engine, str(interaction.user.id))
+        bot._proposal_cooldowns[gov.player_id] = (
+            time.monotonic() - PROPOSAL_COOLDOWN_SECONDS - 1
+        )
+
+        await bot._handle_propose(
+            interaction,
+            "Make three-pointers worth 5 points",
+        )
+        # Should succeed (show interpret view, not cooldown error)
+        call_kwargs = interaction.followup.send.call_args
+        assert call_kwargs.kwargs.get("embed") is not None
+        await engine.dispose()
+
+    async def test_propose_spends_token_at_propose_time(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Token is spent immediately at /propose time, before confirm UI."""
+        from pinwheel.core.tokens import get_token_balance
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        await bot._handle_propose(
+            interaction,
+            "Make three-pointers worth 5 points",
+        )
+
+        # Check that the token was already spent (before confirm)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            balance = await get_token_balance(
+                repo,
+                gov_data["player_id"],
+                gov_data["season_id"],
+            )
+        # Started with 2, spent 1 at propose-time
+        assert balance.propose == 1
+
+        # Verify the view has token_already_spent=True
+        call_kwargs = interaction.followup.send.call_args
+        view = call_kwargs.kwargs.get("view")
+        assert view is not None
+        assert view.token_already_spent is True
+        await engine.dispose()
+
+    async def test_propose_cancel_refunds_token(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Cancelling after propose refunds the token spent at propose-time."""
+        from pinwheel.core.tokens import get_token_balance
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        await bot._handle_propose(
+            interaction,
+            "Make three-pointers worth 5 points",
+        )
+
+        # Get the view from the followup
+        call_kwargs = interaction.followup.send.call_args
+        view = call_kwargs.kwargs.get("view")
+        assert view is not None
+
+        # Simulate cancel button press via the button callback
+        cancel_interaction = make_interaction(
+            user_id=interaction.user.id,
+            display_name="TestGovernor",
+        )
+        await view.cancel.callback(cancel_interaction)
+
+        # Token should be refunded
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            balance = await get_token_balance(
+                repo,
+                gov_data["player_id"],
+                gov_data["season_id"],
+            )
+        assert balance.propose == 2  # Refunded back to original
+        await engine.dispose()
+
+    async def test_propose_confirm_does_not_double_spend(
+        self,
+        settings_discord_enabled: Settings,
+        event_bus: EventBus,
+    ) -> None:
+        """Confirming after propose does not spend the token twice."""
+        from pinwheel.core.tokens import get_token_balance
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
+            settings_discord_enabled,
+            event_bus,
+        )
+
+        # Clear cooldown so we can call propose
+        await bot._handle_propose(
+            interaction,
+            "Make three-pointers worth 5 points",
+        )
+
+        call_kwargs = interaction.followup.send.call_args
+        view = call_kwargs.kwargs.get("view")
+        assert view is not None
+
+        # Simulate confirm button press via the button callback
+        confirm_interaction = make_interaction(
+            user_id=interaction.user.id,
+            display_name="TestGovernor",
+        )
+        confirm_interaction.channel = AsyncMock()
+        await view.confirm.callback(confirm_interaction)
+
+        # Token should have been spent only once (at propose-time)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            balance = await get_token_balance(
+                repo,
+                gov_data["player_id"],
+                gov_data["season_id"],
+            )
+        # Started with 2, spent 1 (only once) → 1 remaining
+        assert balance.propose == 1
         await engine.dispose()
 
 

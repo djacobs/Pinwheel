@@ -572,6 +572,116 @@ class TestGovernanceLifecycle:
         assert new_ruleset.three_point_value == 3  # Unchanged
 
 
+# --- Token Already Spent (Race Condition Fix) Tests ---
+
+
+class TestTokenAlreadySpent:
+    """Tests for the token_already_spent flag that prevents race conditions.
+
+    When token_already_spent=True, submit_proposal skips the token.spent event
+    because the token was deducted at propose-time (before the confirm UI).
+    """
+
+    async def test_submit_with_token_already_spent_skips_deduction(
+        self, repo: Repository, season_id: str, seeded_governor: tuple[str, str]
+    ) -> None:
+        """submit_proposal with token_already_spent=True does not deduct token."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+
+        # Balance starts at 2
+        balance_before = await get_token_balance(repo, gov_id, season_id)
+        assert balance_before.propose == 2
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            token_already_spent=True,
+        )
+        assert proposal.status == "submitted"
+
+        # Balance should be unchanged (token was already spent externally)
+        balance_after = await get_token_balance(repo, gov_id, season_id)
+        assert balance_after.propose == 2
+
+    async def test_submit_without_flag_still_deducts(
+        self, repo: Repository, season_id: str, seeded_governor: tuple[str, str]
+    ) -> None:
+        """submit_proposal without token_already_spent deducts normally (backward compat)."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            token_already_spent=False,
+        )
+        assert proposal.status == "submitted"
+        balance = await get_token_balance(repo, gov_id, season_id)
+        assert balance.propose == 1  # Deducted from 2
+
+    async def test_propose_then_cancel_refunds_correctly(
+        self, repo: Repository, season_id: str, seeded_governor: tuple[str, str]
+    ) -> None:
+        """Simulate the full propose→cancel flow with pre-spent token.
+
+        1. Manually spend token (simulating propose-time deduction)
+        2. Submit with token_already_spent=True (no double-spend)
+        3. Cancel the proposal → token refunded
+        """
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+
+        # Step 1: Pre-spend the token (as the bot would do at propose-time)
+        await repo.append_event(
+            event_type="token.spent",
+            aggregate_id=gov_id,
+            aggregate_type="token",
+            season_id=season_id,
+            governor_id=gov_id,
+            team_id=team_id,
+            payload={
+                "token_type": "propose",
+                "amount": 1,
+                "reason": "proposal:pending_confirm",
+            },
+        )
+        balance = await get_token_balance(repo, gov_id, season_id)
+        assert balance.propose == 1  # 2 - 1 = 1
+
+        # Step 2: Submit with token_already_spent=True
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            token_already_spent=True,
+        )
+        balance = await get_token_balance(repo, gov_id, season_id)
+        assert balance.propose == 1  # Still 1 — no double deduction
+
+        # Step 3: Cancel → refund
+        await cancel_proposal(repo, proposal)
+        balance = await get_token_balance(repo, gov_id, season_id)
+        assert balance.propose == 2  # Refunded
+
+
 # --- tally_governance Tests ---
 
 

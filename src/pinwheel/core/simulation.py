@@ -426,6 +426,8 @@ def simulate_game(
         box_scores=_build_box_scores(game_state),
         possession_log=possession_log,
         duration_ms=elapsed_ms,
+        home_strategy_summary=home_strategy.raw_text if home_strategy else "",
+        away_strategy_summary=away_strategy.raw_text if away_strategy else "",
     )
 
     logger.info(

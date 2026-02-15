@@ -119,10 +119,14 @@ def check_foul(
     scheme: DefensiveScheme,
     rng: random.Random,
     rules: RuleSet | None = None,
+    defensive_intensity: float = 0.0,
 ) -> bool:
     """Check if the defender commits a foul.
 
     The base foul rate is scaled by rules.foul_rate_modifier (default 1.0).
+    Higher defensive_intensity (positive) increases foul rate — tighter defense
+    means more contact. Only positive intensity adds fouls; relaxed defense
+    (negative intensity) does not reduce fouls below the base rate.
     """
     base_foul_rate = 0.08
     modifier = rules.foul_rate_modifier if rules else 1.0
@@ -130,7 +134,9 @@ def check_foul(
     scheme_add = {"man_tight": 0.03, "press": 0.04, "man_switch": 0.01, "zone": 0.0}
     # Low-IQ defenders foul more
     iq_penalty = max(0, (50 - defender.current_attributes.iq)) / 500.0
-    foul_prob = (base_foul_rate * modifier) + scheme_add[scheme] + iq_penalty
+    # High defensive intensity causes more fouls: +0.5 intensity -> +4% foul rate
+    intensity_add = max(0.0, defensive_intensity) * 0.08
+    foul_prob = (base_foul_rate * modifier) + scheme_add[scheme] + iq_penalty + intensity_add
     return rng.random() < min(0.25, foul_prob)
 
 
@@ -198,16 +204,28 @@ def drain_stamina(
     scheme: DefensiveScheme,
     is_defense: bool,
     rules: RuleSet | None = None,
+    defensive_intensity: float = 0.0,
+    pace_modifier: float = 1.0,
 ) -> None:
     """Drain stamina for all agents after a possession.
 
     Base drain rate is governed by rules.stamina_drain_rate (default 0.007).
+
+    Higher defensive_intensity increases stamina drain for defenders — playing
+    tighter defense is more physically demanding.
+
+    Faster pace (pace_modifier < 1.0) increases stamina drain for both teams —
+    faster possessions mean more physical effort per unit of game time.
     """
     base_drain = rules.stamina_drain_rate if rules else 0.007
     scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
+    # Defensive intensity adds drain for defenders only
+    intensity_drain = (max(0.0, defensive_intensity) * 0.005) if is_defense else 0.0
+    # Faster pace (< 1.0) increases drain; slower pace (> 1.0) decreases
+    pace_drain = (1.0 - pace_modifier) * 0.003
     for agent in agents:
         recovery = agent.hooper.attributes.stamina / 3000.0
-        drain = base_drain + scheme_drain - recovery
+        drain = base_drain + scheme_drain + intensity_drain + pace_drain - recovery
         agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
 
@@ -232,8 +250,13 @@ def resolve_possession(
     last_possession_three: bool = False,
 ) -> PossessionResult:
     """Resolve one complete possession."""
+    # Extract strategy parameters once for use throughout the possession
+    off_strategy = game_state.offense_strategy
+    def_strategy = game_state.defense_strategy
+    pace = off_strategy.pace_modifier if off_strategy else 1.0
+    def_intensity = def_strategy.defensive_intensity if def_strategy else 0.0
+
     # Consume clock time first (consistent RNG position)
-    pace = game_state.offense_strategy.pace_modifier if game_state.offense_strategy else 1.0
     time_used = compute_possession_duration(rules, rng, pace_modifier=pace)
 
     offense = game_state.offense
@@ -242,13 +265,12 @@ def resolve_possession(
     if not offense or not defense:
         return PossessionResult(time_used=time_used)
 
-    # 1. Select scheme and matchups
-    scheme = select_scheme(offense, defense, game_state, rules, rng)
+    # 1. Select scheme and matchups (strategy influences scheme selection)
+    scheme = select_scheme(offense, defense, game_state, rules, rng, strategy=def_strategy)
     matchups = assign_matchups(offense, defense, scheme, rng)
     scheme_mod = SCHEME_CONTEST_MODIFIER[scheme]
 
-    # Apply defensive strategy intensity
-    def_strategy = game_state.defense_strategy
+    # Apply defensive strategy intensity to shot contest
     if def_strategy:
         scheme_mod += def_strategy.defensive_intensity
 
@@ -260,8 +282,14 @@ def resolve_possession(
         stealer = rng.choice(defense)
         stealer.steals += 1
         handler.turnovers += 1
-        drain_stamina(offense, scheme, is_defense=False, rules=rules)
-        drain_stamina(defense, scheme, is_defense=True, rules=rules)
+        drain_stamina(
+            offense, scheme, is_defense=False, rules=rules,
+            pace_modifier=pace,
+        )
+        drain_stamina(
+            defense, scheme, is_defense=True, rules=rules,
+            defensive_intensity=def_intensity, pace_modifier=pace,
+        )
 
         log = PossessionLog(
             quarter=game_state.quarter,
@@ -290,8 +318,14 @@ def resolve_possession(
     # 3b. Check shot clock violation (defense shuts down the offense)
     if check_shot_clock_violation(handler, scheme, rng):
         handler.turnovers += 1
-        drain_stamina(offense, scheme, is_defense=False, rules=rules)
-        drain_stamina(defense, scheme, is_defense=True, rules=rules)
+        drain_stamina(
+            offense, scheme, is_defense=False, rules=rules,
+            pace_modifier=pace,
+        )
+        drain_stamina(
+            defense, scheme, is_defense=True, rules=rules,
+            defensive_intensity=def_intensity, pace_modifier=pace,
+        )
 
         log = PossessionLog(
             quarter=game_state.quarter,
@@ -363,7 +397,10 @@ def resolve_possession(
     # 9. Check foul
     foul_on_defender = False
     fouling_id = ""
-    if check_foul(primary_defender, shot_type, scheme, rng, rules=rules):
+    if check_foul(
+        primary_defender, shot_type, scheme, rng,
+        rules=rules, defensive_intensity=def_intensity,
+    ):
         foul_on_defender = True
         primary_defender.fouls += 1
         fouling_id = primary_defender.hooper.id
@@ -408,8 +445,14 @@ def resolve_possession(
             game_state.away_score += pts
 
     # 13. Drain stamina
-    drain_stamina(offense, scheme, is_defense=False, rules=rules)
-    drain_stamina(defense, scheme, is_defense=True, rules=rules)
+    drain_stamina(
+        offense, scheme, is_defense=False, rules=rules,
+        pace_modifier=pace,
+    )
+    drain_stamina(
+        defense, scheme, is_defense=True, rules=rules,
+        defensive_intensity=def_intensity, pace_modifier=pace,
+    )
 
     # Build log
     team_id = (

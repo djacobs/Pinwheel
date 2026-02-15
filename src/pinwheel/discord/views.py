@@ -45,6 +45,7 @@ class ProposalConfirmView(discord.ui.View):
         engine: AsyncEngine,
         settings: Settings,
         interpretation_v2: ProposalInterpretation | None = None,
+        token_already_spent: bool = False,
     ) -> None:
         super().__init__(timeout=300)
         self.original_user_id = original_user_id
@@ -57,6 +58,7 @@ class ProposalConfirmView(discord.ui.View):
         self.engine = engine
         self.settings = settings
         self.interpretation_v2 = interpretation_v2
+        self.token_already_spent = token_already_spent
 
     async def _check_user(
         self,
@@ -114,6 +116,7 @@ class ProposalConfirmView(discord.ui.View):
                     raw_text=self.raw_text,
                     interpretation=self.interpretation,
                     ruleset=ruleset,
+                    token_already_spent=self.token_already_spent,
                 )
                 await confirm_proposal(repo, proposal)
                 await session.commit()
@@ -210,10 +213,36 @@ class ProposalConfirmView(discord.ui.View):
     ) -> None:
         if not await self._check_user(interaction):
             return
+
+        # Refund the token if it was already spent at propose-time
+        if self.token_already_spent:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            try:
+                async with get_session(self.engine) as session:
+                    repo = Repository(session)
+                    await repo.append_event(
+                        event_type="token.regenerated",
+                        aggregate_id=self.governor_info.player_id,
+                        aggregate_type="token",
+                        season_id=self.governor_info.season_id,
+                        governor_id=self.governor_info.player_id,
+                        payload={
+                            "token_type": "propose",
+                            "amount": self.token_cost,
+                            "reason": "cancel_refund",
+                        },
+                    )
+                    await session.commit()
+            except Exception:
+                logger.exception("proposal_cancel_refund_failed")
+
         self._disable_all()
+        refund_note = "Token refunded." if self.token_already_spent else "No tokens spent."
         embed = discord.Embed(
             title="Proposal Cancelled",
-            description=f'"{self.raw_text}"\n\nNo tokens spent.',
+            description=f'"{self.raw_text}"\n\n{refund_note}',
             color=0x95A5A6,
         )
         embed.set_footer(text="Pinwheel Fates")

@@ -106,6 +106,8 @@ class GameResult(BaseModel):
     box_scores: list[HooperBoxScore] = Field(default_factory=list)
     possession_log: list[PossessionLog] = Field(default_factory=list)
     duration_ms: float = 0.0
+    home_strategy_summary: str = ""
+    away_strategy_summary: str = ""
 
 
 class CommentaryLine(BaseModel):
