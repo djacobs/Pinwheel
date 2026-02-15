@@ -744,3 +744,39 @@ Post-round session (~1s): mark games presented
 **970 tests, zero lint errors.**
 
 **What could have gone better:** The atomic lock fix initially failed silently because `INSERT OR IGNORE` swallowed the NOT NULL constraint violation on `updated_at`. No error was logged (the `OR IGNORE` clause suppresses the error at the SQL level, not Python level), and the captured test logs only showed WARNING+. Adding `updated_at` to the raw SQL INSERT fixed it. Lesson: when mixing raw SQL with ORM models, account for all NOT NULL columns — Python-level defaults don't apply to raw SQL.
+
+---
+
+## Session 65 — Wave 1 Complete: NarrativeContext + Rebounds + Cleanup + Effects Doc
+
+**What was asked:** Execute Wave 1 of the remaining work plan — three parallel items (NarrativeContext module, cleanup, rebounds in narration) plus write a dedicated tech doc for the Proposal Effects System.
+
+**What was built:**
+
+### NarrativeContext module (`core/narrative.py`, 47 new tests)
+- `NarrativeContext` dataclass computed per round: standings, win/loss streaks, head-to-head records for current matchups, hot players (20+ pts), active rule changes with narrative descriptions, governance state (pending proposals, next tally round), season arc position (early/mid/late/playoff/championship).
+- `compute_narrative_context()` async function — reads from DB, never writes. Wrapped in try/except in the game loop so failure never blocks a round.
+- `format_narrative_for_prompt()` — formats context as structured text for AI prompt injection.
+- Wired into `_phase_simulate_and_govern()` (computed once per round) and `_phase_ai()` (passed to commentary, highlights, reports). All output functions accept `narrative: NarrativeContext | None = None` for backward compatibility.
+- Mock paths enriched: commentary mentions win streaks 3+, reports include rule change context and late-season arc notes, governance reports mention pending proposals.
+
+### Rebounds in narration (`core/narrate.py`, 12 new tests)
+- Rebounds were already simulated (`attempt_rebound()` in `possession.py`) and tracked in box scores but invisible in play-by-play narration.
+- Added `is_offensive_rebound: bool` field to `PossessionLog` and `PossessionResult`.
+- 8 narration templates (4 offensive, 4 defensive) in `narrate.py`. Only fire on missed shots — no rebound text on makes, fouls, or turnovers.
+- Wired into game detail page (`pages.py`), live SSE presenter (`presenter.py`), and AI commentary box score context (`commentary.py`).
+
+### Cleanup: GovernanceWindow removal (-2 tests)
+- Removed `GovernanceWindow` class (13 lines) from `models/governance.py`.
+- Removed `"window.opened"` and `"window.closed"` from `GovernanceEventType`.
+- Removed `close_governance_window()` function (34 lines) from `core/governance.py`.
+- Removed 2 dead-code tests, rewrote 2 tests to use `tally_governance` directly.
+
+### Effects System tech doc (`docs/EFFECTS_SYSTEM.md`)
+- Comprehensive technical documentation: design principles, 5-layer architecture breakdown, simulation integration, the "swagger" end-to-end example, hook point reference table, effect lifetime semantics, file reference map.
+
+**Files modified (14):** `src/pinwheel/core/narrative.py` (new), `src/pinwheel/core/narrate.py`, `src/pinwheel/core/possession.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/ai/commentary.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/core/presenter.py`, `src/pinwheel/models/game.py`, `src/pinwheel/models/governance.py`, `src/pinwheel/core/governance.py`, `tests/test_narrative.py` (new), `tests/test_narrate.py`, `tests/test_simulation.py`, `tests/test_governance.py`, `docs/EFFECTS_SYSTEM.md` (new)
+
+**970 tests (57 new, 2 removed), zero lint errors.**
+
+**What could have gone better:** All four Wave 1 tasks ran as parallel background agents. The Proposal Effects agent (Session 63) committed all changes together including NarrativeContext and rebounds, since those agents finished while it was still running. Test counts differed across agents (cleanup: 900, NarrativeContext: 1023, rebounds: 1034, effects: 1041) because each saw a different snapshot of the working tree. A subsequent pruning pass (Session 64) brought the count to 970. No merge conflicts.
