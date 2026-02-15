@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}AI Costs — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>AI Cost Dashboard</h1>
+<p class="text-muted" style="margin-bottom: 1.5rem;">
+  Token usage and estimated costs for all Claude API calls this season.
+  <a href="/admin" style="color: var(--accent-highlight);">&larr; Back to Admin</a>
+</p>
+
+{% if not has_data %}
+<div class="card" style="margin-top: 2rem;">
+  <div class="card-body">
+    <p class="text-muted">No AI usage data recorded yet. Usage will appear here once API calls are made with tracking enabled.</p>
+  </div>
+</div>
+{% else %}
+
+{# --- Summary Cards --- #}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-score);">
+        ${{ "%.4f"|format(total_cost) }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Total Cost (USD)</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-highlight);">
+        {{ total_calls }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">API Calls</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-governance);">
+        {{ "{:,}".format(total_input_tokens + total_output_tokens) }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Total Tokens</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-report);">
+        ${{ "%.4f"|format(avg_cost_per_round) }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Avg Cost/Round</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--text-secondary);">
+        {{ "%.1f"|format(avg_latency) }}ms
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Avg Latency</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--text-secondary);">
+        {{ "%.1f"|format(cache_hit_rate * 100) }}%
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Cache Hit Rate</div>
+    </div>
+  </div>
+
+</div>
+
+{# --- Token Breakdown --- #}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.4rem; font-weight: 700;">{{ "{:,}".format(total_input_tokens) }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Input Tokens</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.4rem; font-weight: 700;">{{ "{:,}".format(total_output_tokens) }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Output Tokens</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.4rem; font-weight: 700;">{{ "{:,}".format(total_cache_read_tokens) }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Cache Read Tokens</div>
+    </div>
+  </div>
+</div>
+
+{# --- Spend by Call Type --- #}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>Spend by Call Type</h3>
+  </div>
+  <div class="card-body" style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border);">
+          <th style="text-align: left; padding: 0.5rem;">Call Type</th>
+          <th style="text-align: right; padding: 0.5rem;">Calls</th>
+          <th style="text-align: right; padding: 0.5rem;">Input Tok</th>
+          <th style="text-align: right; padding: 0.5rem;">Output Tok</th>
+          <th style="text-align: right; padding: 0.5rem;">Cache Tok</th>
+          <th style="text-align: right; padding: 0.5rem;">Cost (USD)</th>
+          <th style="text-align: right; padding: 0.5rem;">Avg Latency</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in by_caller %}
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem; font-family: var(--font-mono);">{{ row.call_type }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.count }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "{:,}".format(row.input_tokens) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "{:,}".format(row.output_tokens) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "{:,}".format(row.cache_read_tokens) }}</td>
+          <td style="text-align: right; padding: 0.5rem; font-weight: 600;">${{ "%.4f"|format(row.cost_usd) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.avg_latency_ms }}ms</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# --- Cost per Round --- #}
+{% if by_round %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>Cost per Round</h3>
+  </div>
+  <div class="card-body" style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border);">
+          <th style="text-align: left; padding: 0.5rem;">Round</th>
+          <th style="text-align: right; padding: 0.5rem;">API Calls</th>
+          <th style="text-align: right; padding: 0.5rem;">Input Tok</th>
+          <th style="text-align: right; padding: 0.5rem;">Output Tok</th>
+          <th style="text-align: right; padding: 0.5rem;">Cost (USD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in by_round %}
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem; font-weight: 600;">Round {{ row.round_number }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.count }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "{:,}".format(row.input_tokens) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "{:,}".format(row.output_tokens) }}</td>
+          <td style="text-align: right; padding: 0.5rem; font-weight: 600;">${{ "%.4f"|format(row.cost_usd) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# --- Pricing Reference --- #}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>Pricing Reference</h3>
+  </div>
+  <div class="card-body" style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border);">
+          <th style="text-align: left; padding: 0.5rem;">Model</th>
+          <th style="text-align: right; padding: 0.5rem;">Input $/MTok</th>
+          <th style="text-align: right; padding: 0.5rem;">Output $/MTok</th>
+          <th style="text-align: right; padding: 0.5rem;">Cache Read $/MTok</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ref in pricing_ref %}
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem; font-family: var(--font-mono); font-size: 0.8rem;">{{ ref.model }}</td>
+          <td style="text-align: right; padding: 0.5rem;">${{ "%.2f"|format(ref.input_per_mtok) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">${{ "%.2f"|format(ref.output_per_mtok) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">${{ "%.2f"|format(ref.cache_read_per_mtok) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

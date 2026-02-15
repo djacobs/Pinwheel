@@ -1121,7 +1121,7 @@ async def carry_over_teams(
         )
         new_team_ids.append(new_team.id)
 
-        # Copy hoopers with fresh records (same name, archetype, attributes)
+        # Copy hoopers with fresh records (same name, archetype, attributes, backstory)
         for hooper in old_team.hoopers:
             await repo.create_hooper(
                 team_id=new_team.id,
@@ -1131,6 +1131,7 @@ async def carry_over_teams(
                 attributes=hooper.attributes,
                 moves=hooper.moves,
                 is_active=hooper.is_active,
+                backstory=hooper.backstory or "",
             )
 
         # Carry over governor enrollments

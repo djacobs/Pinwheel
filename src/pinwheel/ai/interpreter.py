@@ -83,11 +83,16 @@ async def interpret_proposal(
     ruleset: RuleSet,
     api_key: str,
     amendment_context: str | None = None,
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
 ) -> RuleInterpretation:
     """Use Claude to interpret a natural language proposal into a structured rule change.
 
     This is a sandboxed call — the AI sees only the proposal text and parameter definitions.
     """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_SYSTEM_PROMPT.format(parameters=params_desc)
 
@@ -95,14 +100,30 @@ async def interpret_proposal(
     if amendment_context:
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=500,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="interpreter.v1",
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
 
         text = response.content[0].text
         # Parse JSON from response (handle markdown code fences)
@@ -230,16 +251,37 @@ Respond with ONLY a JSON object:
 async def interpret_strategy(
     raw_text: str,
     api_key: str,
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
 ) -> TeamStrategy:
     """Use Claude to interpret natural language strategy into structured parameters."""
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=300,
-            system=STRATEGY_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": f"Strategy: {raw_text}"}],
-        )
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=300,
+                system=STRATEGY_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": f"Strategy: {raw_text}"}],
+            )
+
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="interpreter.strategy",
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
 
         text = response.content[0].text.strip()
         if text.startswith("```"):
@@ -384,6 +426,9 @@ async def interpret_proposal_v2(
     ruleset: RuleSet,
     api_key: str,
     amendment_context: str | None = None,
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
 ) -> ProposalInterpretation:
     """Use Claude to interpret a proposal into structured effects (v2).
 
@@ -391,6 +436,8 @@ async def interpret_proposal_v2(
     The AI sees the full vocabulary of hook points, meta targets, and action
     primitives.
     """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_V2_SYSTEM_PROMPT.format(parameters=params_desc)
 
@@ -398,14 +445,30 @@ async def interpret_proposal_v2(
     if amendment_context:
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="interpreter.v2",
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
 
         text = response.content[0].text
         text = text.strip()

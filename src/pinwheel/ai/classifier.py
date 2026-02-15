@@ -58,7 +58,13 @@ class ClassificationResult:
     reason: str
 
 
-async def classify_injection(text: str, api_key: str) -> ClassificationResult:
+async def classify_injection(
+    text: str,
+    api_key: str,
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
+) -> ClassificationResult:
     """Classify proposal text as legitimate, suspicious, or injection.
 
     Uses Claude Haiku for fast, cheap classification (~100ms, ~$0.001).
@@ -66,14 +72,32 @@ async def classify_injection(text: str, api_key: str) -> ClassificationResult:
     with a note (fail-open -- the downstream interpreter has its own
     injection detection).
     """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model=CLASSIFIER_MODEL,
-            max_tokens=200,
-            system=CLASSIFIER_PROMPT,
-            messages=[{"role": "user", "content": text}],
-        )
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=CLASSIFIER_MODEL,
+                max_tokens=200,
+                system=CLASSIFIER_PROMPT,
+                messages=[{"role": "user", "content": text}],
+            )
+
+        # Record usage if DB session is available
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="classifier",
+                model=CLASSIFIER_MODEL,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
 
         raw = response.content[0].text.strip()
         # Handle markdown code fences

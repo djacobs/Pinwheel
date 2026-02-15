@@ -301,6 +301,30 @@ class SeasonArchiveRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
+class AIUsageLogRow(Base):
+    """Append-only log of every AI API call with token counts and cost."""
+
+    __tablename__ = "ai_usage_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    call_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    season_id: Mapped[str] = mapped_column(String(36), default="")
+    round_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("ix_ai_usage_season", "season_id"),
+        Index("ix_ai_usage_call_type", "call_type"),
+        Index("ix_ai_usage_created", "created_at"),
+    )
+
+
 class EvalResultRow(Base):
     """Stored eval results. Never contains private report content."""
 

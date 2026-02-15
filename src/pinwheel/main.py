@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from pinwheel.api.admin_costs import router as admin_costs_router
 from pinwheel.api.admin_review import router as admin_review_router
 from pinwheel.api.admin_roster import router as admin_roster_router
 from pinwheel.api.admin_season import router as admin_season_router
@@ -188,6 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_roster_router)
     app.include_router(admin_season_router)
     app.include_router(admin_workbench_router)
+    app.include_router(admin_costs_router)
     app.include_router(pace_router)
     app.include_router(seasons_router)
 

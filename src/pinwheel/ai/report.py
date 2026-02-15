@@ -143,6 +143,8 @@ async def generate_report_with_prompt(
     round_number: int,
     api_key: str,
     governor_id: str = "",
+    season_id: str = "",
+    db_session: object | None = None,
 ) -> Report:
     """Generate a report using a specific prompt template (for A/B testing)."""
     formatted = prompt_template.format(**format_kwargs)
@@ -150,6 +152,10 @@ async def generate_report_with_prompt(
         system=formatted,
         user_message=f"Generate a {report_type} report for this round.",
         api_key=api_key,
+        call_type=f"report.{report_type}.ab",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
     )
     return Report(
         id=f"{report_id_prefix}-{round_number}-{uuid.uuid4().hex[:8]}",
@@ -166,6 +172,7 @@ async def generate_simulation_report(
     round_number: int,
     api_key: str,
     narrative: NarrativeContext | None = None,
+    db_session: object | None = None,
 ) -> Report:
     """Generate a simulation report using Claude."""
     data_str = json.dumps(round_data, indent=2)
@@ -176,6 +183,10 @@ async def generate_simulation_report(
         system=SIMULATION_REPORT_PROMPT.format(round_data=data_str),
         user_message="Generate a simulation report for this round.",
         api_key=api_key,
+        call_type="report.simulation",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
     )
     return Report(
         id=f"r-sim-{round_number}-{uuid.uuid4().hex[:8]}",
@@ -191,6 +202,7 @@ async def generate_governance_report(
     round_number: int,
     api_key: str,
     narrative: NarrativeContext | None = None,
+    db_session: object | None = None,
 ) -> Report:
     """Generate a governance report using Claude."""
     data_str = json.dumps(governance_data, indent=2)
@@ -201,6 +213,10 @@ async def generate_governance_report(
         system=GOVERNANCE_REPORT_PROMPT.format(governance_data=data_str),
         user_message="Generate a governance report for this round.",
         api_key=api_key,
+        call_type="report.governance",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
     )
     return Report(
         id=f"r-gov-{round_number}-{uuid.uuid4().hex[:8]}",
@@ -216,6 +232,7 @@ async def generate_private_report(
     season_id: str,
     round_number: int,
     api_key: str,
+    db_session: object | None = None,
 ) -> Report:
     """Generate a private report for a specific governor."""
     content = await _call_claude(
@@ -225,6 +242,10 @@ async def generate_private_report(
         ),
         user_message=f"Generate a private report for governor {governor_id}.",
         api_key=api_key,
+        call_type="report.private",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
     )
     return Report(
         id=f"r-priv-{round_number}-{uuid.uuid4().hex[:8]}",
@@ -235,17 +256,49 @@ async def generate_private_report(
     )
 
 
-async def _call_claude(system: str, user_message: str, api_key: str) -> str:
-    """Make a Claude API call for report generation."""
+async def _call_claude(
+    system: str,
+    user_message: str,
+    api_key: str,
+    call_type: str = "report",
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
+) -> str:
+    """Make a Claude API call for report generation.
+
+    When ``db_session`` is provided, records token usage to the AI usage log.
+    """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_message}],
-        )
-        return response.content[0].text
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        text = response.content[0].text
+
+        # Record usage if a DB session is available
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type=call_type,
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
+
+        return text
     except anthropic.APIError as e:
         logger.error("Report generation API error: %s", e)
         return f"[Report generation failed: {e}]"

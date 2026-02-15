@@ -26,6 +26,7 @@ from pinwheel.discord.embeds import (
     build_game_result_embed,
     build_governor_profile_embed,
     build_interpretation_embed,
+    build_onboarding_embed,
     build_report_embed,
     build_roster_embed,
     build_round_summary_embed,
@@ -321,6 +322,15 @@ class PinwheelBot(commands.Bot):
             interaction: discord.Interaction,
         ) -> None:
             await self._handle_roster(interaction)
+
+        @self.tree.command(
+            name="status",
+            description="Get a briefing on the current state of the league",
+        )
+        async def status_command(
+            interaction: discord.Interaction,
+        ) -> None:
+            await self._handle_status(interaction)
 
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
@@ -1091,6 +1101,17 @@ class PinwheelBot(commands.Bot):
                         # Gather season context while the DB session is still open
                         season_context = await _gather_season_context(repo, season)
 
+                        # Gather full league context for the onboarding embed
+                        from pinwheel.core.onboarding import build_league_context
+
+                        league_context = await build_league_context(
+                            repo,
+                            season_id=season.id,
+                            season_name=season.name or "",
+                            season_status=season.status or "active",
+                            governance_interval=self.settings.pinwheel_governance_interval,
+                        )
+
                         await session.commit()
 
                     # DB session closed — safe to do Discord ops and build embeds
@@ -1132,11 +1153,17 @@ class PinwheelBot(commands.Bot):
                     )
                     await interaction.followup.send(embed=embed)
 
-                    # Send welcome DM with quick-start info
+                    # Send welcome DM with quick-start info + onboarding context
                     import contextlib
 
                     with contextlib.suppress(discord.Forbidden, discord.HTTPException):
                         await interaction.user.send(embed=embed)
+                        # Send the State of the League briefing as a second DM
+                        onboarding_embed = build_onboarding_embed(
+                            league_context,
+                            team_name=target_team.name,
+                        )
+                        await interaction.user.send(embed=onboarding_embed)
 
                     return  # Success — exit retry loop
 
@@ -1453,6 +1480,64 @@ class PinwheelBot(commands.Bot):
         except Exception:
             logger.exception("discord_standings_query_failed")
             return []
+
+    async def _handle_status(self, interaction: discord.Interaction) -> None:
+        """Handle the /status slash command -- show current state of the league.
+
+        Available to all server members, not just enrolled governors.
+        Sends an ephemeral embed with standings, active proposals,
+        recent rule changes, and governor counts.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.engine:
+            await interaction.followup.send(
+                "The league database is temporarily unavailable. "
+                "Try `/status` again in a moment.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.core.onboarding import build_league_context
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    await interaction.followup.send(
+                        "No active season right now. Check back soon!",
+                        ephemeral=True,
+                    )
+                    return
+
+                league_context = await build_league_context(
+                    repo,
+                    season_id=season.id,
+                    season_name=season.name or "",
+                    season_status=season.status or "active",
+                    governance_interval=self.settings.pinwheel_governance_interval,
+                )
+
+                # Check if the user is enrolled to highlight their team
+                discord_id = str(interaction.user.id)
+                enrollment = await repo.get_player_enrollment(discord_id, season.id)
+                user_team_name: str | None = None
+                if enrollment is not None:
+                    _team_id, user_team_name = enrollment
+
+            embed = build_onboarding_embed(league_context, team_name=user_team_name)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception:
+            logger.exception("discord_status_failed")
+            await interaction.followup.send(
+                "Something went wrong fetching the league status. "
+                "Try again in a moment.",
+                ephemeral=True,
+            )
 
     async def _handle_roster(self, interaction: discord.Interaction) -> None:
         """Handle the /roster slash command -- show all enrolled governors."""

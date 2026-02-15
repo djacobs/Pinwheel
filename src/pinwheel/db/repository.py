@@ -175,6 +175,7 @@ class Repository:
         attributes: dict,
         moves: list | None = None,
         is_active: bool = True,
+        backstory: str = "",
     ) -> HooperRow:
         row = HooperRow(
             team_id=team_id,
@@ -184,6 +185,7 @@ class Repository:
             attributes=attributes,
             moves=moves or [],
             is_active=is_active,
+            backstory=backstory,
         )
         self.session.add(row)
         await self.session.flush()

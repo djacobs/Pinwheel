@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import discord
 
 if TYPE_CHECKING:
+    from pinwheel.core.onboarding import LeagueContext
     from pinwheel.models.governance import (
         Proposal,
         ProposalInterpretation,
@@ -28,6 +29,7 @@ COLOR_REPORT = 0x9B59B6  # Purple — AI reports
 COLOR_SCHEDULE = 0x2ECC71  # Green — schedule
 COLOR_STANDINGS = 0xF39C12  # Gold — standings
 COLOR_WARNING = 0xE67E22  # Orange — admin review / warnings
+COLOR_ONBOARDING = 0x1ABC9C  # Teal — onboarding / state of the league
 
 
 def build_game_result_embed(
@@ -1030,4 +1032,145 @@ def build_proposals_embed(
         embed.set_footer(text=f"Showing 10 of {len(proposals)} proposals -- Pinwheel Fates")
     else:
         embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+# Phase labels for the onboarding embed description.
+_ONBOARDING_PHASE_DESCRIPTIONS: dict[str, str] = {
+    "setup": "A new season is being set up. Sit tight.",
+    "active": "Regular season is underway.",
+    "tiebreaker_check": "Regular season is over. Tiebreaker seeding is being determined.",
+    "tiebreakers": "Tiebreaker games are being played to determine playoff seeding.",
+    "playoffs": "The playoffs are underway.",
+    "championship": "A champion has been crowned!",
+    "offseason": "The offseason governance window is open -- propose rules for next season.",
+    "complete": "This season is complete.",
+}
+
+
+def build_onboarding_embed(
+    context: LeagueContext,
+    team_name: str | None = None,
+) -> discord.Embed:
+    """Build a State of the League embed for new player onboarding or /status.
+
+    Formats the league context into a visually clean Discord embed with
+    standings, active proposals, recent rule changes, and governor counts.
+
+    Args:
+        context: LeagueContext dataclass with all league state data.
+        team_name: If provided, highlight this team in the standings.
+            Typically the team the player just joined.
+
+    Returns:
+        A styled Discord embed ready to send.
+    """
+    phase_value = (
+        context.season_phase.value
+        if hasattr(context.season_phase, "value")
+        else str(context.season_phase)
+    )
+
+    # Title line: "Season Name -- Phase, Round X of Y"
+    title_parts: list[str] = ["State of the League"]
+    subtitle_parts: list[str] = []
+
+    if context.season_name:
+        subtitle_parts.append(f"**{context.season_name}**")
+
+    phase_desc = _ONBOARDING_PHASE_DESCRIPTIONS.get(phase_value, phase_value)
+
+    if context.current_round > 0 and context.total_rounds > 0:
+        subtitle_parts.append(f"Round {context.current_round} of {context.total_rounds}")
+
+    description_lines: list[str] = []
+    if subtitle_parts:
+        description_lines.append(" -- ".join(subtitle_parts))
+    description_lines.append(phase_desc)
+
+    embed = discord.Embed(
+        title=title_parts[0],
+        description="\n".join(description_lines),
+        color=COLOR_ONBOARDING,
+    )
+
+    # --- Standings field ---
+    if context.standings:
+        standings_lines: list[str] = []
+        for i, team in enumerate(context.standings, 1):
+            name = str(team.get("team_name", team.get("team_id", "???")))
+            wins = team.get("wins", 0)
+            losses = team.get("losses", 0)
+            marker = ""
+            if team_name and name.lower() == team_name.lower():
+                marker = " <-- your team"
+            standings_lines.append(f"**{i}.** {name} ({wins}W-{losses}L){marker}")
+        embed.add_field(
+            name="Standings",
+            value="\n".join(standings_lines),
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name="Standings",
+            value="No games played yet.",
+            inline=False,
+        )
+
+    # --- Active proposals field ---
+    if context.active_proposals:
+        proposal_lines: list[str] = []
+        for p in context.active_proposals:
+            raw = str(p.get("raw_text", ""))
+            preview = raw[:80] + ("..." if len(raw) > 80 else "")
+            tier = p.get("tier", "?")
+            proposal_lines.append(f'"{preview}" -- Tier {tier}')
+        if context.active_proposals_total > len(context.active_proposals):
+            remaining = context.active_proposals_total - len(context.active_proposals)
+            proposal_lines.append(f"...and {remaining} more. Use `/proposals` to see all.")
+        proposal_lines.append("Use `/vote` to cast your vote.")
+
+        embed.add_field(
+            name=f"On the Floor ({context.active_proposals_total} active)",
+            value="\n".join(proposal_lines),
+            inline=False,
+        )
+
+    # --- Recent rule changes field ---
+    if context.recent_rule_changes:
+        change_lines: list[str] = []
+        for rc in context.recent_rule_changes:
+            param = rc.get("parameter", "unknown")
+            old_val = rc.get("old_value", "?")
+            new_val = rc.get("new_value", "?")
+            rnd = rc.get("round_number")
+            round_note = f" (Round {rnd})" if rnd else ""
+            change_lines.append(f"`{param}`: {old_val} -> {new_val}{round_note}")
+        embed.add_field(
+            name="Recent Rule Changes",
+            value="\n".join(change_lines),
+            inline=False,
+        )
+
+    # --- Footer with governor count and governance interval ---
+    team_count = len(context.team_governor_counts) if context.team_governor_counts else 0
+    footer_parts: list[str] = []
+
+    if context.governor_count > 0:
+        gov_word = "governor" if context.governor_count == 1 else "governors"
+        team_word = "team" if team_count == 1 else "teams"
+        footer_parts.append(
+            f"{context.governor_count} {gov_word} across {team_count} {team_word}"
+        )
+
+    if context.governance_interval == 1:
+        footer_parts.append("Governance tallies every round")
+    elif context.governance_interval > 1:
+        footer_parts.append(
+            f"Governance tallies every {context.governance_interval} rounds"
+        )
+
+    footer_text = ". ".join(footer_parts) + "." if footer_parts else "Pinwheel Fates"
+    embed.set_footer(text=footer_text)
+
     return embed

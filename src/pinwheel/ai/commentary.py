@@ -144,12 +144,17 @@ async def generate_game_commentary(
     api_key: str,
     playoff_context: str | None = None,
     narrative: NarrativeContext | None = None,
+    season_id: str = "",
+    round_number: int | None = None,
+    db_session: object | None = None,
 ) -> str:
     """Generate AI-powered broadcaster commentary for a completed game.
 
     Uses Claude Sonnet for cost-effective high-volume generation.
     Falls back to a bracketed error message on API failure.
     """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
     context = _build_game_context(
         game_result, home_team, away_team, ruleset, playoff_context,
         narrative=narrative,
@@ -159,15 +164,33 @@ async def generate_game_commentary(
     )
     system = COMMENTARY_SYSTEM_PROMPT.format(playoff_instructions=playoff_instructions)
 
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=400,
-            system=system,
-            messages=[{"role": "user", "content": f"Call this game:\n\n{context}"}],
-        )
-        return response.content[0].text
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=400,
+                system=system,
+                messages=[{"role": "user", "content": f"Call this game:\n\n{context}"}],
+            )
+        text = response.content[0].text
+
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="commentary.game",
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
+
+        return text
     except anthropic.APIError as e:
         logger.error("Commentary generation API error: %s", e)
         return f"[Commentary generation failed: {e}]"
@@ -336,11 +359,15 @@ async def generate_highlight_reel(
     api_key: str,
     playoff_context: str | None = None,
     narrative: NarrativeContext | None = None,
+    season_id: str = "",
+    db_session: object | None = None,
 ) -> str:
     """Generate an AI-powered highlights summary for all games in a round.
 
     One punchy sentence per game, plus overall round narrative.
     """
+    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+
     if not game_summaries:
         return (
             f"Round {round_number} was eerily quiet. "
@@ -375,15 +402,33 @@ async def generate_highlight_reel(
         playoff_instructions=playoff_instructions
     )
 
+    model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=300,
-            system=system,
-            messages=[{"role": "user", "content": f"Highlights:\n\n{context}"}],
-        )
-        return response.content[0].text
+        async with track_latency() as timing:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=300,
+                system=system,
+                messages=[{"role": "user", "content": f"Highlights:\n\n{context}"}],
+            )
+        text = response.content[0].text
+
+        if db_session is not None:
+            input_tok, output_tok, cache_tok = extract_usage(response)
+            await record_ai_usage(
+                session=db_session,
+                call_type="commentary.highlight_reel",
+                model=model,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                cache_read_tokens=cache_tok,
+                latency_ms=timing["latency_ms"],
+                season_id=season_id,
+                round_number=round_number,
+            )
+
+        return text
     except anthropic.APIError as e:
         logger.error("Highlight reel generation API error: %s", e)
         return f"[Highlight reel generation failed: {e}]"

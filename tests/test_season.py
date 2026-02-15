@@ -286,6 +286,44 @@ class TestTeamCarryOver:
         assert thorns.venue is not None
         assert thorns.venue["name"] == "The Thorn Garden"
 
+    async def test_backstories_survive_season_transition(self, repo: Repository) -> None:
+        """Hooper backstories written via /bio must carry over to the new season."""
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        # Set backstories on the old season's hoopers (simulating /bio usage)
+        old_teams = await repo.get_teams_for_season(old_season_id)
+        for team in old_teams:
+            for hooper in team.hoopers:
+                hooper.backstory = f"The legend of {hooper.name} began on the streets."
+                await repo.session.flush()
+
+        # Carry over teams to a new season
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        # Verify backstories survived the transition
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        for new_team in new_teams:
+            for hooper in new_team.hoopers:
+                assert hooper.backstory, (
+                    f"Hooper {hooper.name} lost backstory during season transition"
+                )
+                assert hooper.backstory.startswith("The legend of ")
+
+    async def test_empty_backstory_does_not_break_carryover(self, repo: Repository) -> None:
+        """Hoopers without backstories should carry over without errors."""
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+
+        # Leave backstories at their default (empty string) -- no /bio calls
+        new_season = await repo.create_season(league.id, "Season 2")
+        await carry_over_teams(repo, old_season_id, new_season.id)
+
+        new_teams = await repo.get_teams_for_season(new_season.id)
+        total_hoopers = sum(len(t.hoopers) for t in new_teams)
+        assert total_hoopers == 4  # All hoopers still carried over
+
 
 class TestGovernorEnrollmentCarryOver:
     """Test that governor enrollments are carried over."""
