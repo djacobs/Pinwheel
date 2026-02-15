@@ -10,7 +10,9 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import (
     _AIPhaseResult,
     _check_season_complete,
+    _generate_series_reports,
     _get_playoff_series_record,
+    _get_series_games,
     _phase_ai,
     _phase_persist_and_finalize,
     _phase_simulate_and_govern,
@@ -2390,3 +2392,273 @@ class TestRowToTeam:
         team_row = await repo.get_team(team.id)
         domain_team = _row_to_team(team_row)
         assert domain_team.hoopers[0].moves == []
+
+
+class TestSeriesReports:
+    """Tests for series report generation on playoff series completion."""
+
+    async def test_get_series_games_returns_playoff_games_only(
+        self, repo: Repository
+    ) -> None:
+        """_get_series_games returns only playoff games between the two teams."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset=_BO1_RULESET,
+        )
+        await repo.update_season_status(season_id, "active")
+
+        # Play regular season
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+        for rnd in range(1, total_rounds + 1):
+            await step_round(repo, season_id, round_number=rnd)
+
+        # Get playoff schedule — semis between specific teams
+        playoff_sched = await repo.get_full_schedule(season_id, phase="playoff")
+        assert len(playoff_sched) >= 2
+        se = playoff_sched[0]
+
+        # Before playoff games: empty list
+        games = await _get_series_games(repo, season_id, se.home_team_id, se.away_team_id)
+        assert games == []
+
+        # Play semi round
+        semi_round = total_rounds + 1
+        await step_round(repo, season_id, round_number=semi_round)
+
+        # After playoff game: one game between these teams
+        games = await _get_series_games(repo, season_id, se.home_team_id, se.away_team_id)
+        assert len(games) == 1
+        assert games[0]["home_team_id"] in (se.home_team_id, se.away_team_id)
+        assert games[0]["away_team_id"] in (se.home_team_id, se.away_team_id)
+        assert games[0]["home_score"] > 0 or games[0]["away_score"] > 0
+
+    async def test_generate_series_reports_semifinal(
+        self, repo: Repository
+    ) -> None:
+        """_generate_series_reports creates a report for semifinals_complete events."""
+        from pinwheel.models.team import Team
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Store a mock playoff game so _get_series_games has data
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[1],
+            phase="playoff",
+        )
+        await repo.store_game_result(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[1],
+            home_score=55,
+            away_score=42,
+            winner_team_id=team_ids[0],
+        )
+
+        teams_cache = {}
+        for tid in team_ids:
+            t = await repo.get_team(tid)
+            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+
+        deferred_events = [
+            (
+                "season.semifinals_complete",
+                {
+                    "semi_series": [
+                        {
+                            "winner_id": team_ids[0],
+                            "loser_id": team_ids[1],
+                            "winner_wins": 1,
+                            "loser_wins": 0,
+                        }
+                    ]
+                },
+            ),
+        ]
+
+        report_events = await _generate_series_reports(
+            repo, season_id, deferred_events, teams_cache,
+        )
+
+        assert len(report_events) == 1
+        assert report_events[0]["report_type"] == "series"
+        assert report_events[0]["series_type"] == "semifinal"
+        assert teams_cache[team_ids[0]].name in report_events[0]["winner_name"]
+
+        # Verify report stored in DB
+        reports = await repo.get_series_reports(season_id)
+        assert len(reports) == 1
+        assert reports[0].report_type == "series"
+        assert reports[0].metadata_json["series_type"] == "semifinal"
+        assert reports[0].metadata_json["winner_id"] == team_ids[0]
+        assert reports[0].metadata_json["loser_id"] == team_ids[1]
+        assert reports[0].metadata_json["record"] == "1-0"
+        # Mock content includes team names
+        assert teams_cache[team_ids[0]].name in reports[0].content
+        assert teams_cache[team_ids[1]].name in reports[0].content
+
+    async def test_generate_series_reports_finals(
+        self, repo: Repository
+    ) -> None:
+        """_generate_series_reports creates a report for playoffs_complete events."""
+        from pinwheel.models.team import Team
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Create playoff schedule with semis + finals
+        # Semis: 0v1, 2v3 at round 100
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[1],
+            phase="playoff",
+        )
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=1,
+            home_team_id=team_ids[2],
+            away_team_id=team_ids[3],
+            phase="playoff",
+        )
+        # Finals: 0v2 at round 101
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=101,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[2],
+            phase="playoff",
+        )
+        # Store finals game result
+        await repo.store_game_result(
+            season_id=season_id,
+            round_number=101,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[2],
+            home_score=60,
+            away_score=48,
+            winner_team_id=team_ids[0],
+        )
+
+        teams_cache = {}
+        for tid in team_ids:
+            t = await repo.get_team(tid)
+            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+
+        deferred_events = [
+            (
+                "season.playoffs_complete",
+                {
+                    "champion_team_id": team_ids[0],
+                    "finals_record": "1-0",
+                },
+            ),
+        ]
+
+        report_events = await _generate_series_reports(
+            repo, season_id, deferred_events, teams_cache,
+        )
+
+        assert len(report_events) == 1
+        assert report_events[0]["report_type"] == "series"
+        assert report_events[0]["series_type"] == "finals"
+
+        reports = await repo.get_series_reports(season_id)
+        assert len(reports) == 1
+        assert reports[0].metadata_json["series_type"] == "finals"
+        assert reports[0].metadata_json["winner_id"] == team_ids[0]
+        assert reports[0].metadata_json["loser_id"] == team_ids[2]
+        assert reports[0].metadata_json["record"] == "1-0"
+        # Mock content references champion
+        assert teams_cache[team_ids[0]].name in reports[0].content
+
+    async def test_generate_series_reports_skips_unknown_events(
+        self, repo: Repository
+    ) -> None:
+        """_generate_series_reports ignores non-series events."""
+        from pinwheel.models.team import Team
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        teams_cache = {
+            tid: Team(id=tid, name=f"Team {i}", hoopers=[], venue=None)
+            for i, tid in enumerate(team_ids)
+        }
+
+        deferred_events = [
+            ("season.phase_changed", {"from": "active", "to": "playoffs"}),
+            ("round.completed", {"round": 5}),
+        ]
+
+        report_events = await _generate_series_reports(
+            repo, season_id, deferred_events, teams_cache,
+        )
+        assert report_events == []
+
+    async def test_generate_series_reports_metadata_stored(
+        self, repo: Repository
+    ) -> None:
+        """Series report metadata_json contains all required fields."""
+        from pinwheel.models.team import Team
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Store a playoff game
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[1],
+            phase="playoff",
+        )
+        await repo.store_game_result(
+            season_id=season_id,
+            round_number=100,
+            matchup_index=0,
+            home_team_id=team_ids[0],
+            away_team_id=team_ids[1],
+            home_score=45,
+            away_score=38,
+            winner_team_id=team_ids[0],
+        )
+
+        teams_cache = {}
+        for tid in team_ids:
+            t = await repo.get_team(tid)
+            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+
+        deferred_events = [
+            (
+                "season.semifinals_complete",
+                {
+                    "semi_series": [
+                        {
+                            "winner_id": team_ids[0],
+                            "loser_id": team_ids[1],
+                            "winner_wins": 2,
+                            "loser_wins": 1,
+                        }
+                    ]
+                },
+            ),
+        ]
+
+        await _generate_series_reports(repo, season_id, deferred_events, teams_cache)
+
+        reports = await repo.get_series_reports(season_id)
+        assert len(reports) == 1
+        meta = reports[0].metadata_json
+        assert "series_type" in meta
+        assert "winner_id" in meta
+        assert "loser_id" in meta
+        assert "record" in meta
+        assert meta["record"] == "2-1"

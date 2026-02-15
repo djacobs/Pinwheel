@@ -30,6 +30,8 @@ from pinwheel.ai.report import (
     generate_governance_report_mock,
     generate_private_report,
     generate_private_report_mock,
+    generate_series_report,
+    generate_series_report_mock,
     generate_simulation_report,
     generate_simulation_report_mock,
 )
@@ -1599,6 +1601,238 @@ async def _phase_ai(
     )
 
 
+async def _get_series_games(
+    repo: Repository,
+    season_id: str,
+    team_a_id: str,
+    team_b_id: str,
+) -> list[dict]:
+    """Get all playoff games between two teams, ordered chronologically.
+
+    Returns a list of dicts with home/away team ids, scores, round number.
+    """
+    playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+    playoff_rounds = {s.round_number for s in playoff_schedule}
+    all_games = await repo.get_all_games(season_id)
+
+    pair = frozenset({team_a_id, team_b_id})
+    series_games: list[dict] = []
+    for g in sorted(all_games, key=lambda g: (g.round_number, g.matchup_index)):
+        if g.round_number not in playoff_rounds:
+            continue
+        if frozenset({g.home_team_id, g.away_team_id}) == pair:
+            series_games.append(
+                {
+                    "round_number": g.round_number,
+                    "home_team_id": g.home_team_id,
+                    "away_team_id": g.away_team_id,
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                }
+            )
+    return series_games
+
+
+async def _generate_series_reports(
+    repo: Repository,
+    season_id: str,
+    deferred_events: list[tuple[str, dict]],
+    teams_cache: dict[str, Team],
+    api_key: str = "",
+) -> list[dict]:
+    """Generate series reports for any completed series in deferred events.
+
+    Scans deferred_events for ``season.semifinals_complete`` and
+    ``season.playoffs_complete`` events, gathers game data for each
+    completed series, generates an AI recap, and stores it.
+
+    Returns list of report event dicts for downstream publishing.
+    """
+    report_events: list[dict] = []
+
+    for event_type, event_data in deferred_events:
+        if event_type == "season.semifinals_complete":
+            # Each semi series that just completed
+            for semi in event_data.get("semi_series", []):
+                winner_id = semi.get("winner_id", "")
+                loser_id = semi.get("loser_id", "")
+                if not winner_id or not loser_id:
+                    continue
+
+                winner_name = teams_cache[winner_id].name if winner_id in teams_cache else winner_id
+                loser_name = teams_cache[loser_id].name if loser_id in teams_cache else loser_id
+                w_wins = semi.get("winner_wins", 0)
+                l_wins = semi.get("loser_wins", 0)
+
+                games = await _get_series_games(repo, season_id, winner_id, loser_id)
+                # Enrich game dicts with team names
+                for g in games:
+                    g["home_team_name"] = (
+                        teams_cache[g["home_team_id"]].name
+                        if g["home_team_id"] in teams_cache
+                        else g["home_team_id"]
+                    )
+                    g["away_team_name"] = (
+                        teams_cache[g["away_team_id"]].name
+                        if g["away_team_id"] in teams_cache
+                        else g["away_team_id"]
+                    )
+
+                series_data = {
+                    "series_type": "semifinal",
+                    "winner_name": winner_name,
+                    "loser_name": loser_name,
+                    "record": f"{w_wins}-{l_wins}",
+                    "games": games,
+                }
+
+                try:
+                    if api_key:
+                        report = await generate_series_report(series_data, season_id, api_key)
+                    else:
+                        report = generate_series_report_mock(series_data)
+
+                    await repo.store_report(
+                        season_id=season_id,
+                        report_type="series",
+                        round_number=0,
+                        content=report.content,
+                        team_id=winner_id,
+                        metadata_json={
+                            "series_type": "semifinal",
+                            "winner_id": winner_id,
+                            "loser_id": loser_id,
+                            "record": f"{w_wins}-{l_wins}",
+                        },
+                    )
+                    report_events.append(
+                        {
+                            "report_type": "series",
+                            "series_type": "semifinal",
+                            "winner_name": winner_name,
+                            "loser_name": loser_name,
+                            "excerpt": report.content[:200],
+                        },
+                    )
+                    logger.info(
+                        "series_report_generated season=%s type=semifinal winner=%s",
+                        season_id,
+                        winner_name,
+                    )
+                except Exception:
+                    logger.exception(
+                        "series_report_failed season=%s type=semifinal winner=%s",
+                        season_id,
+                        winner_name,
+                    )
+
+        elif event_type == "season.playoffs_complete":
+            champion_id = event_data.get("champion_team_id", "")
+            record = event_data.get("finals_record", "")
+            if not champion_id:
+                continue
+
+            # Determine the loser by finding teams in the finals
+            playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+            initial_round = min((s.round_number for s in playoff_schedule), default=0)
+            initial_pairs = [
+                frozenset({s.home_team_id, s.away_team_id})
+                for s in playoff_schedule
+                if s.round_number == initial_round
+            ]
+            # Finals entries are pairs NOT in the initial bracket
+            finals_teams: set[str] = set()
+            for s in playoff_schedule:
+                pair = frozenset({s.home_team_id, s.away_team_id})
+                if pair not in initial_pairs:
+                    finals_teams.update(pair)
+
+            # For direct finals (2-team bracket), use initial pair
+            if not finals_teams:
+                for s in playoff_schedule:
+                    if s.round_number == initial_round:
+                        finals_teams.add(s.home_team_id)
+                        finals_teams.add(s.away_team_id)
+
+            loser_id = ""
+            for tid in finals_teams:
+                if tid != champion_id:
+                    loser_id = tid
+                    break
+
+            if not loser_id:
+                continue
+
+            winner_name = (
+                teams_cache[champion_id].name if champion_id in teams_cache else champion_id
+            )
+            loser_name = teams_cache[loser_id].name if loser_id in teams_cache else loser_id
+
+            games = await _get_series_games(repo, season_id, champion_id, loser_id)
+            for g in games:
+                g["home_team_name"] = (
+                    teams_cache[g["home_team_id"]].name
+                    if g["home_team_id"] in teams_cache
+                    else g["home_team_id"]
+                )
+                g["away_team_name"] = (
+                    teams_cache[g["away_team_id"]].name
+                    if g["away_team_id"] in teams_cache
+                    else g["away_team_id"]
+                )
+
+            series_data = {
+                "series_type": "finals",
+                "winner_name": winner_name,
+                "loser_name": loser_name,
+                "record": record,
+                "games": games,
+            }
+
+            try:
+                if api_key:
+                    report = await generate_series_report(series_data, season_id, api_key)
+                else:
+                    report = generate_series_report_mock(series_data)
+
+                await repo.store_report(
+                    season_id=season_id,
+                    report_type="series",
+                    round_number=0,
+                    content=report.content,
+                    team_id=champion_id,
+                    metadata_json={
+                        "series_type": "finals",
+                        "winner_id": champion_id,
+                        "loser_id": loser_id,
+                        "record": record,
+                    },
+                )
+                report_events.append(
+                    {
+                        "report_type": "series",
+                        "series_type": "finals",
+                        "winner_name": winner_name,
+                        "loser_name": loser_name,
+                        "excerpt": report.content[:200],
+                    },
+                )
+                logger.info(
+                    "series_report_generated season=%s type=finals winner=%s",
+                    season_id,
+                    winner_name,
+                )
+            except Exception:
+                logger.exception(
+                    "series_report_failed season=%s type=finals winner=%s",
+                    season_id,
+                    winner_name,
+                )
+
+    return report_events
+
+
 async def _phase_persist_and_finalize(
     repo: Repository,
     sim: _SimPhaseResult,
@@ -1818,6 +2052,24 @@ async def _phase_persist_and_finalize(
                 )
             )
             deferred_season_events.extend(series_events)
+
+            # Generate series reports for any completed series
+            if series_events:
+                try:
+                    series_report_events = await _generate_series_reports(
+                        repo,
+                        sim.season_id,
+                        series_events,
+                        sim.teams_cache,
+                        api_key=api_key,
+                    )
+                    deferred_report_events.extend(series_report_events)
+                except Exception:
+                    logger.exception(
+                        "series_reports_failed season=%s round=%d",
+                        sim.season_id,
+                        sim.round_number,
+                    )
         except Exception:
             logger.exception(
                 "playoff_series_advance_failed season=%s round=%d",

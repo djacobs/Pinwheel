@@ -685,6 +685,107 @@ def generate_private_report_mock(
     )
 
 
+# --- Series Report Generation ---
+
+SERIES_REPORT_PROMPT = """\
+You are the Sports Chronicler for Pinwheel Fates, a 3v3 basketball governance game.
+
+Write a 2-3 paragraph recap of a completed playoff series. Cover the full arc:
+how the series opened, the turning point, and the clinching game.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Write in vivid sports journalism style — this is the record of the series.
+3. Reference team names, game-by-game scores, and the series record.
+4. Note momentum shifts, dominant performances, and close calls.
+5. Build to the decisive moment of the clinching game.
+
+## Series Data
+
+{series_data}
+"""
+
+
+async def generate_series_report(
+    series_data: dict,
+    season_id: str,
+    api_key: str,
+    db_session: object | None = None,
+) -> Report:
+    """Generate an AI-powered recap of a completed playoff series.
+
+    Args:
+        series_data: Dict with team names, game-by-game scores, series record,
+            series type (semifinal/finals), winner/loser info.
+        season_id: Season ID for usage tracking.
+        api_key: Anthropic API key.
+        db_session: Optional DB session for usage logging.
+
+    Returns:
+        A Report with report_type="series".
+    """
+    data_str = json.dumps(series_data, indent=2)
+    content = await _call_claude(
+        system=SERIES_REPORT_PROMPT.format(series_data=data_str),
+        user_message="Write a recap of this completed playoff series.",
+        api_key=api_key,
+        call_type="report.series",
+        season_id=season_id,
+        db_session=db_session,
+    )
+    return Report(
+        id=f"r-series-{series_data.get('series_type', 'playoff')}-{uuid.uuid4().hex[:8]}",
+        report_type="series",
+        round_number=0,
+        content=content,
+    )
+
+
+def generate_series_report_mock(series_data: dict) -> Report:
+    """Generate a mock series recap for testing.
+
+    Args:
+        series_data: Dict with team names, game-by-game scores, series record,
+            series type, winner/loser info.
+
+    Returns:
+        A Report with report_type="series" and deterministic content.
+    """
+    winner = series_data.get("winner_name", "Winner")
+    loser = series_data.get("loser_name", "Loser")
+    record = series_data.get("record", "?-?")
+    series_type = series_data.get("series_type", "playoff")
+    games = series_data.get("games", [])
+
+    lines: list[str] = []
+
+    if series_type == "finals":
+        lines.append(
+            f"The championship finals are over. {winner} claimed the title "
+            f"with a {record} series victory over {loser}."
+        )
+    else:
+        lines.append(
+            f"{winner} advanced past {loser} in a {record} semifinal series."
+        )
+
+    if games:
+        last_game = games[-1]
+        lines.append(
+            f"The clinching game ended {last_game.get('home_score', 0)}-"
+            f"{last_game.get('away_score', 0)}. "
+            f"From the opening tip of Game 1 to the final buzzer, "
+            f"this series delivered."
+        )
+
+    return Report(
+        id=f"r-series-{series_type}-mock",
+        report_type="series",
+        round_number=0,
+        content=" ".join(lines),
+    )
+
+
 # --- Season Memorial Generation ---
 
 SEASON_NARRATIVE_PROMPT = """\

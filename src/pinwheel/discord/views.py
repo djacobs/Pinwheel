@@ -1180,6 +1180,95 @@ class RepealConfirmView(discord.ui.View):
         )
 
 
+class EditSeriesModal(discord.ui.Modal, title="Edit Series Report"):
+    """Text input modal for collaboratively editing a playoff series report.
+
+    Governors on either team in the series can edit. The full report text
+    is pre-filled so the governor can revise in place.
+    """
+
+    report_content = discord.ui.TextInput(
+        label="Series report",
+        style=discord.TextStyle.paragraph,
+        placeholder="Write the story of this series...",
+        max_length=4000,
+    )
+
+    def __init__(
+        self,
+        *,
+        report_id: str,
+        season_id: str,
+        series_type: str,
+        winner_name: str,
+        loser_name: str,
+        current_content: str,
+        engine: AsyncEngine,
+    ) -> None:
+        super().__init__()
+        self.report_id = report_id
+        self.season_id = season_id
+        self.series_type = series_type
+        self.winner_name = winner_name
+        self.loser_name = loser_name
+        self.engine = engine
+        self.report_content.default = current_content
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        new_content = self.report_content.value
+        if not new_content or not new_content.strip():
+            await interaction.response.send_message(
+                "Report content cannot be empty.",
+                ephemeral=True,
+            )
+            return
+
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.embeds import build_series_edit_embed
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                await repo.update_report_content(self.report_id, new_content)
+                # Audit trail event
+                await repo.append_event(
+                    event_type="report.edited",
+                    aggregate_id=self.report_id,
+                    aggregate_type="report",
+                    season_id=self.season_id,
+                    governor_id=str(interaction.user.id),
+                    payload={
+                        "report_id": self.report_id,
+                        "editor_discord_id": str(interaction.user.id),
+                        "editor_name": interaction.user.display_name,
+                        "series_type": self.series_type,
+                    },
+                )
+                await session.commit()
+
+            embed = build_series_edit_embed(
+                series_type=self.series_type,
+                winner_name=self.winner_name,
+                loser_name=self.loser_name,
+                editor_name=interaction.user.display_name,
+            )
+            await interaction.response.send_message(
+                embed=embed,
+                ephemeral=True,
+            )
+        except Exception:
+            logger.exception("series_report_edit_failed report_id=%s", self.report_id)
+            await interaction.response.send_message(
+                "The series report could not be updated right now. "
+                "This might be a temporary database issue -- try again.",
+                ephemeral=True,
+            )
+
+
 async def _notify_admin_for_review(
     interaction: discord.Interaction,
     proposal: object,

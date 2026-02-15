@@ -53,7 +53,7 @@ class RuleSet(BaseModel):
 
     # Tier 3: League Structure
     teams_count: int = Field(default=8, ge=4, le=16)
-    round_robins_per_season: int = Field(default=3, ge=1, le=5)
+    round_robins_per_season: int = Field(default=3, ge=3, le=5)
     playoff_teams: int = Field(default=4, ge=2, le=8)
     playoff_semis_best_of: int = Field(default=3, ge=1, le=7)
     playoff_finals_best_of: int = Field(default=5, ge=1, le=7)

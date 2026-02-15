@@ -78,3 +78,30 @@ async def get_governor(engine: AsyncEngine, discord_id: str) -> GovernorInfo:
             team_name=team_name,
             season_id=season.id,
         )
+
+
+async def get_governor_info(repo: Repository, discord_id: str) -> GovernorInfo | None:
+    """Look up a governor by Discord ID using an existing repo session.
+
+    Returns None if the user is not enrolled as a governor this season.
+    Unlike ``get_governor`` (which opens its own session), this reuses
+    the caller's session — useful inside an existing ``get_session`` block.
+    """
+    season = await repo.get_active_season()
+    if not season:
+        return None
+
+    player = await repo.get_player_by_discord_id(discord_id)
+    if player is None or player.team_id is None or player.enrolled_season_id != season.id:
+        return None
+
+    team = await repo.get_team(player.team_id)
+    team_name = team.name if team else player.team_id
+
+    return GovernorInfo(
+        player_id=player.id,
+        discord_id=discord_id,
+        team_id=player.team_id,
+        team_name=team_name,
+        season_id=season.id,
+    )

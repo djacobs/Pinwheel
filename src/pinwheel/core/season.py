@@ -879,6 +879,7 @@ async def close_offseason(
     repo: Repository,
     season_id: str,
     event_bus: EventBus | None = None,
+    api_key: str = "",
 ) -> None:
     """Close the offseason window and transition to COMPLETE.
 
@@ -921,6 +922,13 @@ async def close_offseason(
 
     # Transition to COMPLETE
     await transition_season(repo, season_id, SeasonPhase.COMPLETE, event_bus=event_bus)
+
+    # Archive the season (non-fatal — failure doesn't block COMPLETE transition)
+    try:
+        await archive_season(repo, season_id, api_key=api_key, event_bus=event_bus)
+        logger.info("close_offseason_archived season=%s", season_id)
+    except Exception:
+        logger.exception("close_offseason_archive_failed season=%s", season_id)
 
     if event_bus:
         await event_bus.publish(
@@ -1255,9 +1263,10 @@ async def archive_season(
     # Count governors
     governors = await repo.get_all_governors_for_season(season_id)
 
-    # Mark season complete (use raw "completed" for backward compat with
-    # update_season_status which sets completed_at when status == "completed")
-    await repo.update_season_status(season_id, "completed")
+    # Mark season complete if not already in a terminal state (close_offseason
+    # may have already transitioned to "complete" via transition_season)
+    if season.status not in ("complete", "completed"):
+        await repo.update_season_status(season_id, "completed")
 
     # Gather memorial data (computed sections — AI narratives added later)
     from pinwheel.core.memorial import gather_memorial_data

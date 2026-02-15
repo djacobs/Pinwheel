@@ -521,7 +521,7 @@ async def tick_round(
                     if datetime.now(UTC) >= ends_at:
                         from pinwheel.core.season import close_offseason
 
-                        await close_offseason(repo, season.id, event_bus=event_bus)
+                        await close_offseason(repo, season.id, event_bus=event_bus, api_key=api_key)
                         logger.info(
                             "offseason_window_expired season=%s -> complete",
                             season.id,
@@ -536,7 +536,7 @@ async def tick_round(
                     # No ends_at configured — close immediately
                     from pinwheel.core.season import close_offseason
 
-                    await close_offseason(repo, season.id, event_bus=event_bus)
+                    await close_offseason(repo, season.id, event_bus=event_bus, api_key=api_key)
                     logger.info(
                         "offseason_no_deadline season=%s -> complete",
                         season.id,

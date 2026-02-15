@@ -726,6 +726,37 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def update_report_content(
+        self,
+        report_id: str,
+        content: str,
+    ) -> ReportRow | None:
+        """Update the content of an existing report.
+
+        Returns the updated row, or None if not found.
+        """
+        row = await self.session.get(ReportRow, report_id)
+        if row is not None:
+            row.content = content
+            await self.session.flush()
+        return row
+
+    async def get_series_reports(
+        self,
+        season_id: str,
+    ) -> list[ReportRow]:
+        """Get all series reports for a season, newest first."""
+        stmt = (
+            select(ReportRow)
+            .where(
+                ReportRow.season_id == season_id,
+                ReportRow.report_type == "series",
+            )
+            .order_by(ReportRow.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_latest_report(
         self,
         season_id: str,

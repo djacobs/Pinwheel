@@ -13,7 +13,13 @@
   <div class="report-type">
     {{ m.report_type|title }} Report
     {% if m.round_number %}&mdash; Round {{ m.round_number }}{% endif %}
-    {% if m.phase == 'semifinal' %}
+    {% if m.report_type == 'series' and m.metadata_json %}
+      {% if m.metadata_json.series_type == 'semifinal' %}
+      <span style="color: var(--accent-elam); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">SEMIFINAL SERIES</span>
+      {% elif m.metadata_json.series_type == 'finals' %}
+      <span style="color: var(--accent-score); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">CHAMPIONSHIP FINALS SERIES</span>
+      {% endif %}
+    {% elif m.phase == 'semifinal' %}
     <span style="color: var(--accent-elam); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">SEMIFINAL PLAYOFFS</span>
     {% elif m.phase == 'finals' %}
     <span style="color: var(--accent-score); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">CHAMPIONSHIP FINALS</span>

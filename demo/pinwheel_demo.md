@@ -1,6 +1,6 @@
 # Pinwheel Fates -- Full Cycle Demo
 
-*2026-02-14T20:20:20Z by Showboat 0.5.0*
+*2026-02-15T18:08:43Z by Showboat 0.5.0*
 
 **Pinwheel Fates** is a simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules. Starts out as basketball, finishes as ???. The AI serves as a reporter -- surfacing patterns in gameplay and governance that players cannot see from inside the system.
 
@@ -15,12 +15,12 @@ uv run python scripts/demo_seed.py seed
 ```
 
 ```output
-League seeded: 4 teams, 6 scheduled games
-Season ID: f11f7034-71d8-4dab-b5b0-f2f694ce63c2
-  Rose City Thorns: da801dfc-b4a5-49f0-9124-1055f5e6a34e
-  Burnside Breakers: fe3cf682-0273-434c-badb-05b18d1f7855
-  St. Johns Herons: 106ad322-6b41-419c-8a1b-40c34e93cb1f
-  Hawthorne Hammers: e9c024ad-a57e-4c59-8e28-7b4cddb13a97
+League seeded: 4 teams, 18 scheduled games
+Season ID: 4ab5c6ee-dd7b-407c-b749-0bee9a220502
+  Rose City Thorns: f95b7bc7-6232-453b-be20-a314bc977a6a
+  Burnside Breakers: 8f1758da-5f6c-4190-bdb9-ca9535692a5e
+  St. Johns Herons: 9c86a156-df5e-4c61-b9ba-edcfd933469d
+  Hawthorne Hammers: a7c4855a-b08e-43c7-b905-915c3f79ac0d
 ```
 
 ## Step 2: Start the Web Dashboard
