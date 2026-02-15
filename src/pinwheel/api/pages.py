@@ -1669,7 +1669,7 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
         if season_row:
             terminal = {"completed", "complete", "archived"}
             season_complete = season_row.status in terminal
-            champion_name = season_row.champion_team_name or ""
+            champion_name = getattr(season_row, "champion_team_name", "") or ""
 
         # Find latest round
         for rn in range(1, 100):
