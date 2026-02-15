@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1514 tests**, zero lint errors (Session 82)
+- **1515 tests**, zero lint errors (Session 83)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -24,7 +24,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Tick-based scheduling — no team plays twice per tick; No-Look Pass narration fix
 - **Day 15 (cont):** Post-commit skill relocation, SSE dedup, team name links, blank team page fix, playoff series banners
 - **Day 16:** AI intelligence layer (impact validation, leverage detection, behavioral profiles, The Pinwheel Post), playoff series banner fix
-- **Latest commit:** `b06a216` — fix: playoff series banner showed wrong team leading
+- **Day 16 (cont):** Interpreter fix for conditional mechanics, Amplify Human Judgment roadmap
+- **Latest commit:** `3443c3f` — feat: add custom_mechanic effect type for proposals beyond existing primitives
 
 ## Today's Agenda
 
@@ -33,6 +34,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Deploy to production
 - [ ] Reset season history for hackathon demo
 - [ ] Demo verification — Showboat/Rodney pipeline
+- [x] Fix V2 interpreter for conditional mechanic proposals
+- [ ] Amplify Human Judgment — features 1-8 and 10 (see roadmap below)
 
 ---
 
@@ -413,3 +416,167 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1514 tests, zero lint errors.**
 
 **What could have gone better:** The original series banner code (Session 80) had a subtle ordering assumption. The bug only manifests when the home team's ID sorts alphabetically after the away team's ID, which depends on seed ordering. Should have normalized to sorted order from the start.
+
+---
+
+## Session 83 — V2 Interpreter Fix + Amplify Human Judgment Roadmap
+
+**What was asked:** Two parallel tracks: (1) Fix the V2 interpreter for creative conditional proposals — a player proposed "when the ball goes out of bounds, double the value of the next basket" and was discouraged by the AI's response. The interpreter was too focused on mapping to parameters instead of reasoning about the mechanic. (2) Plan features 1-8 and 10 from the Amplify Human Judgment audit — every output surface should make the system visible to governors, not just display data.
+
+**What was built:**
+
+### V2 Interpreter — Conditional Mechanics Support
+- Added "Conditional Mechanics" section to V2 system prompt with 6 "when X happens, do Y" examples showing how to compose novel game mechanics from hook_callback + action primitives
+- Separated "Creative Language → Parameters" examples from conditional mechanics examples — the AI now distinguishes between creative phrasing for existing parameters vs. genuinely novel game mechanics
+- Updated confidence guidelines: conditional mechanics with clear intent get >= 0.8, not the < 0.5 reserved for truly ambiguous proposals
+- Added 7 regex patterns to the V2 mock: out-of-bounds/dead-ball doubling, scoring run effects, second-half modifiers, trailing team boosts, milestone baskets, first-basket-of-quarter, foul-triggered bonuses
+- Moved conditional mechanics check BEFORE generic keyword patterns in mock (more specific matches first)
+- 1 new test verifying 4 conditional proposal types produce hook_callback effects with high confidence
+
+### Amplify Human Judgment — Feature Roadmap
+
+See below: **Amplify Human Judgment Roadmap (P1/P2/P3)**
+
+**Files modified (2):** `src/pinwheel/ai/interpreter.py`, `tests/test_effects.py`
+
+**1515 tests (1 new), zero lint errors.**
+
+**What could have gone better:** The player's discouragement was avoidable — the V2 prompt had the infrastructure for hook_callbacks but all its examples mapped creative language to parameters. The interpreter followed the examples, not the intent. Lesson: prompt examples are instructions, not just illustrations.
+
+---
+
+## Session 84 — Inline Pinwheel Post on Home Page
+
+**What was asked:** Move "The Post" out of the top nav. Put the Post content directly on the home page above the existing content, cutting duplicate sections (standings) since they already exist on the home page.
+
+**What was built:**
+- Removed "The Post" link from the top navigation bar (`base.html`)
+- Added newspaper data fetching to the home page route handler — headline generation, sim report, governance report, hot players
+- Inlined the Post section on the home page above "Latest Scores" with masthead, headline/subhead, two-column game reports + governance, highlight reel, and hot players
+- Cut duplicate content: standings (already on home page) and newspaper footer
+- Added `.home-post-*` CSS classes for the inlined newspaper styling
+- The `/post` route still works for direct links but is no longer discoverable via nav
+
+**Files modified (4):** `templates/base.html`, `templates/pages/home.html`, `src/pinwheel/api/pages.py`, `static/css/pinwheel.css`
+
+**1515 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — clean cut-and-integrate.
+
+---
+
+## Amplify Human Judgment Roadmap (P1/P2/P3)
+
+**North Star:** "Build AI that makes researchers, professionals, and decision-makers dramatically more capable — without taking them out of the loop."
+
+In Pinwheel, this means: every output surface should make the *system* visible to the people who *govern* it. A governor can see their own team, their own proposals, their own games. They can't see the whole. The AI sees the whole. Make the whole visible.
+
+### P1 — Already producing output, make it smarter
+
+#### 1. Simulation Report — The Pinwheel Post Editorial Prompt
+**Current:** Template-filling mock + generic API prompt. "Round 8 saw some exciting games."
+**Target:** Find the ONE story. Use the lede hierarchy: champion crowned > team eliminated > upset > streak > blowout/classic > standings shift > rule change. Highlight what CHANGED (the news). Surface what humans can't see from inside (scoring variance, correlation between rule changes and outcomes, narrowing margins).
+**Implementation:**
+- [ ] Replace `SIMULATION_REPORT_PROMPT` with The Pinwheel Post editorial prompt (drafted in conversation)
+- [ ] Rewrite `generate_simulation_report_mock()` to follow the lede hierarchy and "what changed" principle
+- [ ] Feed system-level context: before/after comparisons, league-wide stats, rule correlation data
+- [ ] Close with what the round *reveals* about the system — not prescriptions
+
+#### 2. Governance Report — Coalition and Pattern Detection
+**Current:** "Round N saw X proposal(s). Y votes cast (Z yes, W no)." Counting, not analyzing.
+**Target:** Surface what governors can't see: voting coalitions forming, proposal themes clustering, one team's proposals consistently targeting the same parameter, the gap between what governors vote for and what actually helps their teams.
+**Implementation:**
+- [ ] Compute pairwise voting alignment across all governors (existing in `compute_governor_leverage`)
+- [ ] Track proposal parameter clustering: "3 of the last 4 proposals targeted scoring parameters"
+- [ ] Detect coalition formation: "Two governors voted identically on 90% of proposals"
+- [ ] Note governance velocity: "This is the most active governance window of the season"
+- [ ] Update mock to include at least one system-level insight per report
+
+#### 3. Private Report — Relative to the System
+**Current:** "You submitted X proposals and cast Y votes." Activity log, not reflection.
+**Target:** "You've proposed 4 changes. All 4 targeted offense. Meanwhile, the league's biggest problem is defensive balance." Show each governor their blind spots.
+**Implementation:**
+- [ ] Compare governor's proposal topics to league-wide parameter distribution
+- [ ] Show what they're NOT seeing: "You haven't proposed anything about [category] despite it being the most-changed area"
+- [ ] Surface their voting record relative to outcomes: "You voted yes on 3 rules that passed — scoring went up 15% since"
+- [ ] Feed leverage data (swing votes, alignment rate) into the private report context
+
+#### 4. Discord Embeds — Smart Game Result Cards
+**Current:** Flat score cards: "Team A 58 - Team B 48"
+**Target:** "Thorns 56, Hammers 45 — that's a 7-game win streak and the championship sweep"
+**Implementation:**
+- [ ] Add streak context to game result embeds ("W7" / "L3")
+- [ ] Add standings movement indicator ("moved to 1st" / "dropped to 4th")
+- [ ] Add rule-change context when a round is the first under new rules
+- [ ] Highlight margin significance: closest game of the season, biggest blowout, etc.
+
+#### 5. Commentary/Highlight Reel — System-Level Threading
+**Current:** Play-by-play commentary is game-internal — describes what happened on the court.
+**Target:** Thread system-level awareness into the narrative: "This is the first game under the new three-point value, and it showed."
+**Implementation:**
+- [ ] Pass active rule changes to commentary context
+- [ ] Detect "first game under new rule" and inject contextual callouts
+- [ ] Compare current game stats to pre-rule-change averages in commentary prompts
+- [ ] Add milestone callouts: "50th game of the season", "100th three-pointer under new rules"
+
+### P1 — Currently displaying data, make it interpret
+
+#### 6. Rules Page — Governance Dashboard
+**Current:** Parameter table with current values and ranges.
+**Target:** Each rule shows its history and impact: "Three-point value: 4 (changed from 3 in Round 5 by Governor X's proposal). Since the change: average scoring +8pts/game."
+**Implementation:**
+- [ ] Build rule change timeline from governance events (already stored)
+- [ ] Compute before/after gameplay deltas per rule change (reuse `compute_impact_validation`)
+- [ ] Display change attribution: who proposed it, when it passed, vote margin
+- [ ] Visual diff: highlight parameters that are far from defaults vs. unchanged
+
+#### 7. Standings Page — Narrative Standings
+**Current:** W-L record and point differential.
+**Target:** "Thorns and Breakers separated by 1 game with 2 rounds left" / "Hammers have the best record but haven't beaten a team above .500"
+**Implementation:**
+- [ ] Compute strength-of-schedule: record against above-.500 teams
+- [ ] Detect magic numbers: "X wins from clinching playoff berth"
+- [ ] Add contextual callouts: tightest race, most dominant team, most improved
+- [ ] Show standings trajectory: moved up/down N spots in the last 3 rounds
+
+#### 8. Team Pages — Performance Trajectory
+**Current:** Snapshot: roster, record, strategy.
+**Target:** How has this team's performance changed after each rule change their governor proposed? Did their own governance help or hurt them?
+**Implementation:**
+- [ ] Build per-team win rate timeline segmented by rule changes
+- [ ] Show performance deltas after the team's own governor proposed changes
+- [ ] Highlight team-specific trends: "5-1 since the shot clock change" / "1-4 in road games"
+- [ ] Compare team record under different rule regimes
+
+#### 9. Game Detail Pages — Historical Context
+**Current:** Box scores with no context.
+**Target:** "This was the lowest-scoring game since the three-point value changed" / "First time these teams met since Breakers' governor proposed the stamina change"
+**Implementation:**
+- [ ] Show head-to-head record between the two teams
+- [ ] Note rule-change context: which rules were different from the teams' last meeting
+- [ ] Highlight statistical anomalies: season highs/lows, personal bests
+- [ ] Surface game significance: playoff implications, streak context
+
+### P1 — New surface
+
+#### 10. "What Changed" Widget on Home Page
+**Current:** Home page shows latest results and standings. No editorial summary.
+**Target:** A one-liner that captures the NEWS: "Thorns clinched the 1-seed. Hammers dropped to 3rd. Three-point value takes effect next round."
+**Implementation:**
+- [ ] Compute 3-5 "change signals" after each round: standings movements, streak changes, rule enactments, playoff clinches, records set
+- [ ] Rank by significance (same lede hierarchy as the Post)
+- [ ] Render as a bold one-liner strip between hero and latest results
+- [ ] Update via SSE after round completion for live refresh
+- [ ] Fall back to most recent Post headline when no changes detected
+
+### P3 — Post-hackathon
+
+#### 11. Impact Validation (already built in Session 81)
+- Surfaces predicted vs. actual outcomes for rule changes
+- Already integrated into the game loop and the Pinwheel Post page
+- Future: deeper before/after analysis, governor-facing confidence scoring
+
+#### 12. Governor Decision Context at Proposal Time
+- When a governor types `/propose`, surface: "The last 3 proposals targeting this parameter all passed. Current scoring average is 48 — historically high."
+- Amplifies governance judgment at the moment of decision
+- Requires real-time context injection into the Discord `/propose` flow

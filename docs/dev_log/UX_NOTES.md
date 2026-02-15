@@ -705,3 +705,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 108. [DONE] Playoff series banner showed wrong team leading
 **Problem:** During championship finals, the series context banner showed the wrong team leading (e.g. "HAWTHORNE HAMMERS LEAD 2-0" when Rose City Thorns had 2 wins).
 **Fix:** The pre-round series record stored wins in `(home_team, away_team)` order but keyed by alphabetically-sorted pair. When home sorted after away, wins were swapped. Fixed by passing sorted IDs to the record lookup so tuple order always matches key order.
+
+### 109. [DONE] Inline Pinwheel Post on home page, remove from top nav
+**Problem:** The Pinwheel Post was a separate page linked from the top navigation, adding clutter to the nav and requiring an extra click to see the round summary.
+**Fix:** Removed "The Post" from the top nav. Inlined the newspaper content (headline, subhead, game reports, governance report, highlight reel, hot players) directly on the home page above "Latest Scores". Cut duplicate content (standings already on home page, footer tagline). Added `.home-post-*` CSS for the inlined newspaper card with masthead, two-column layout, and responsive grid. The `/post` route still works for direct links.
