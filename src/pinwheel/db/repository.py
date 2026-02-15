@@ -313,12 +313,10 @@ class Repository:
         governor_id: str | None = None,
         team_id: str | None = None,
     ) -> GovernanceEventRow:
-        # Atomic sequence assignment: SELECT FOR UPDATE prevents concurrent
-        # writers from getting the same sequence number on PostgreSQL.
-        # SQLite ignores FOR UPDATE (single-writer is inherently safe).
+        # SQLite is single-writer, so concurrent sequence assignment is safe.
         stmt = select(
             func.coalesce(func.max(GovernanceEventRow.sequence_number), 0)
-        ).with_for_update()
+        )
         result = await self.session.execute(stmt)
         seq = result.scalar_one() + 1
 

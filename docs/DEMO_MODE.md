@@ -9,8 +9,8 @@ One place for all environment-specific behavior. Consolidates config scattered a
 | Environment | Purpose | Database | AI Calls | Audience |
 |-------------|---------|----------|----------|----------|
 | **development** | Local dev, fast iteration, tests | SQLite (aiosqlite) | Mocked in tests, real for seeding | Developer |
-| **staging** | Pre-deploy validation, demo rehearsal | SQLite or Postgres | Real (Opus 4.6) | Team, demo prep |
-| **production** | Live league with real governors | PostgreSQL (asyncpg) | Real (Opus 4.6) | Players |
+| **staging** | Pre-deploy validation, demo rehearsal | SQLite (aiosqlite) | Real (Opus 4.6) | Team, demo prep |
+| **production** | Live league with real governors | SQLite (aiosqlite) on persistent volume | Real (Opus 4.6) | Players |
 
 Set via `PINWHEEL_ENV` environment variable. Defaults to `development`.
 
@@ -181,7 +181,7 @@ Full reference. All variables, all environments.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes (staging/prod) | `""` | Claude API key for Opus 4.6 calls |
-| `DATABASE_URL` | No | `sqlite+aiosqlite:///pinwheel.db` | Database connection string. PostgreSQL for production (`postgresql+asyncpg://...`). |
+| `DATABASE_URL` | No | `sqlite+aiosqlite:///pinwheel.db` | SQLite connection string. |
 | `DISCORD_BOT_TOKEN` | Yes (when Discord enabled) | — | Discord bot token |
 | `DISCORD_GUILD_ID` | Yes (when Discord enabled) | — | Discord server ID |
 | `PINWHEEL_ENV` | No | `development` | Environment: `development`, `staging`, `production` |

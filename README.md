@@ -103,10 +103,6 @@ All tests must pass before every commit.
 fly auth login
 fly launch --no-deploy
 
-# Create and attach Postgres
-fly postgres create --name pinwheel-db --region sjc --vm-size shared-cpu-1x --volume-size 1
-fly postgres attach pinwheel-db
-
 # Set secrets
 fly secrets set \
   ANTHROPIC_API_KEY=sk-ant-... \

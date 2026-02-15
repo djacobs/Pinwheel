@@ -17,7 +17,7 @@ See also: `docs/product/VISION.md` for the full philosophical grounding.
 ## Tech Stack
 
 - **Backend:** Python 3.12+ / FastAPI
-- **Database:** PostgreSQL via SQLAlchemy 2.0 async (SQLite/aiosqlite for local dev, asyncpg for production). Schema managed via `Base.metadata.create_all()` (no Alembic — acceptable for hackathon pace).
+- **Database:** SQLite via SQLAlchemy 2.0 async (aiosqlite). Schema managed via `Base.metadata.create_all()` (no Alembic — acceptable for hackathon pace).
 - **AI:** Claude Opus 4.6 via Anthropic API
 - **Discord:** discord.py 2.x — bot runs in-process with FastAPI
 - **Frontend:** HTMX + SSE + Jinja2 templates (optional Textual TUI for terminal). Technically a live-updating data dashboard — standings, play-by-play, governance panels, AI reflections — but it **must be fun**. The aesthetic is retro, bold, community-focused — joyful chaos. Full CSS control via Jinja2 templates. No JS build step.
@@ -305,7 +305,7 @@ The simulation has the data — make sure the outputs use it. When adding or mod
 
 ```
 ANTHROPIC_API_KEY=              # Claude API key (mock fallback if unset)
-DATABASE_URL=                   # PostgreSQL or sqlite+aiosqlite:///:memory:
+DATABASE_URL=                   # SQLite only — e.g. sqlite+aiosqlite:///pinwheel.db
 PINWHEEL_ENV=development        # development | staging | production
 PINWHEEL_PRESENTATION_PACE=fast # fast (1min) | normal (5min) | slow (15min) | manual
 PINWHEEL_PRESENTATION_MODE=instant # instant | replay

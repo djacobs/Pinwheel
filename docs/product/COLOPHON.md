@@ -16,7 +16,7 @@ The project was built solo during the Anthropic Hackathon, February 2026. The bu
 |-------|-----------|------|
 | Backend | **Python 3.12 + FastAPI 0.115+** | Async API server, simulation orchestration, governance engine |
 | Frontend | **HTMX 1.x + SSE + Jinja2** | Live-updating dashboard — standings, play-by-play, governance, reports — with no JS build step |
-| Database | **SQLAlchemy 2.0 async** (aiosqlite for dev, asyncpg for production) | Schema via `Base.metadata.create_all()` — no Alembic, acceptable for hackathon pace |
+| Database | **SQLAlchemy 2.0 async** (aiosqlite) | SQLite on persistent volume. Schema via `Base.metadata.create_all()` — no Alembic, acceptable for hackathon pace |
 | Models | **Pydantic 2.9+** | Shared vocabulary across all layers: API contracts, domain models, rule definitions, eval results |
 | Deployment | **Fly.io** | Single-machine deployment (shared-cpu-2x, 1GB), SJC region, SQLite on encrypted volume |
 | Scheduling | **APScheduler** (AsyncIOScheduler) | Automatic round advancement via configurable cron |

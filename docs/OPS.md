@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pinwheel Fates deploys to [Fly.io](https://fly.io) — a platform that runs Docker containers on hardware close to users. The deployment model is a single application process running the FastAPI server, the background game loop (APScheduler), and SSE streaming from one machine. PostgreSQL runs as a Fly-managed database. The Discord bot connects outbound from the same process.
+Pinwheel Fates deploys to [Fly.io](https://fly.io) — a platform that runs Docker containers on hardware close to users. The deployment model is a single application process running the FastAPI server, the background game loop (APScheduler), and SSE streaming from one machine. SQLite runs on a persistent Fly volume (`/data`). The Discord bot connects outbound from the same process.
 
 This architecture is deliberately simple for the hackathon. The single-process model avoids inter-process coordination, message queues, and distributed state. If load demands it post-hackathon, the game loop worker can be split into a separate process.
 
@@ -23,8 +23,8 @@ This architecture is deliberately simple for the hackathon. The single-process m
 │  └───────────────┬───────────────────┘    │
 │                  │                         │
 │  ┌───────────────▼───────────────────┐    │
-│  │ Fly Postgres (attached)           │    │
-│  │  └── pinwheel_db                  │    │
+│  │ SQLite (persistent volume /data)  │    │
+│  │  └── pinwheel.db                  │    │
 │  └───────────────────────────────────┘    │
 └───────────────────────────────────────────┘
          │                    │
@@ -49,18 +49,16 @@ The `fly.toml` at the project root defines the deployment. Key decisions:
 
 ## Database
 
-**Hackathon:** Fly Postgres (managed). Single-node, 256 MB shared plan. Sufficient for a 5-day hackathon with 8 teams and 21 rounds.
+SQLite on a persistent Fly volume mounted at `/data`. The database file lives at `/data/pinwheel.db`. WAL journal mode is enabled for concurrent read access while the single writer (game loop, Discord commands, web requests) serializes writes.
+
+**Local dev:** SQLite (`sqlite+aiosqlite:///pinwheel.db`) for zero-config local development. Same engine, same queries, same database.
+
+**Backup:**
 
 ```bash
-fly postgres create --name pinwheel-db --region sea --vm-size shared-cpu-1x --volume-size 1
-fly postgres attach pinwheel-db
+# Copy the database file on the Fly machine
+fly ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"
 ```
-
-This sets `DATABASE_URL` automatically in the Fly environment.
-
-**Local dev:** SQLite (`sqlite:///pinwheel.db`) for zero-config local development. The repository layer abstracts the difference — same queries, different engine.
-
-**Migrations:** Alembic for schema migrations. Run migrations on deploy via the release command in `fly.toml`.
 
 ## Environment Variables
 
@@ -75,12 +73,10 @@ fly secrets set PINWHEEL_GAME_CRON="0 * * * *"
 fly secrets set PINWHEEL_GOV_WINDOW=1800
 ```
 
-The `DATABASE_URL` is injected automatically by `fly postgres attach`.
-
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ANTHROPIC_API_KEY` | Claude API key for Opus 4.6 | (required) |
-| `DATABASE_URL` | PostgreSQL connection string | (set by Fly) |
+| `DATABASE_URL` | SQLite connection string | `sqlite+aiosqlite:///pinwheel.db` |
 | `DISCORD_BOT_TOKEN` | Discord bot token | (required) |
 | `DISCORD_GUILD_ID` | Discord server ID | (required) |
 | `PINWHEEL_ENV` | `development` / `staging` / `production` | `development` |
@@ -106,10 +102,6 @@ fly auth login
 # Launch the app (creates the Fly app from fly.toml)
 fly launch --no-deploy
 
-# Create and attach Postgres
-fly postgres create --name pinwheel-db --region sea --vm-size shared-cpu-1x --volume-size 1
-fly postgres attach pinwheel-db
-
 # Set secrets
 fly secrets set ANTHROPIC_API_KEY=sk-ant-... DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=...
 
@@ -117,13 +109,15 @@ fly secrets set ANTHROPIC_API_KEY=sk-ant-... DISCORD_BOT_TOKEN=... DISCORD_GUILD
 fly deploy
 ```
 
+The persistent volume for SQLite is configured in `fly.toml`. The database file is created automatically on first run.
+
 ### Subsequent Deploys
 
 ```bash
 fly deploy
 ```
 
-The Dockerfile builds the image, `fly.toml` defines the release command (run migrations), and Fly handles zero-downtime deployment by starting the new machine before stopping the old one.
+The Dockerfile builds the image, and Fly handles zero-downtime deployment by starting the new machine before stopping the old one.
 
 ### Rollback
 
@@ -194,9 +188,9 @@ For the hackathon, monitor manually via `fly logs` and the health endpoint. Post
 | Resource | Fly Plan | Monthly Cost | Hackathon (5 days) |
 |----------|----------|-------------|-------------------|
 | App machine | shared-cpu-2x, 1 GB | ~$10/mo | ~$2 |
-| Postgres | shared-cpu-1x, 256 MB, 1 GB disk | ~$7/mo | ~$1 |
+| Volume (1 GB) | Persistent SSD | ~$0.15/mo | ~$0.01 |
 | Bandwidth | Included (first 100 GB) | $0 | $0 |
-| **Total Fly** | | | **~$3** |
+| **Total Fly** | | | **~$2** |
 
 The real cost is Anthropic API usage — see INSTRUMENTATION.md for token cost estimates (~76K-124K tokens/day for 12-24 players).
 
@@ -227,11 +221,10 @@ This registers the `/propose`, `/amend`, `/vote`, `/boost`, `/trade`, `/tokens`,
 
 ## Backup & Recovery
 
-**Database:** Fly Postgres includes automatic daily backups. For the hackathon, this is sufficient. Manual backups:
+**Database:** Back up the SQLite file before any risky operation:
 
 ```bash
-fly postgres connect --app pinwheel-db
-pg_dump pinwheel > backup.sql
+fly ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"
 ```
 
 **Event sourcing as insurance:** Because governance is append-only events and simulation is deterministic, the entire league state can be reconstructed from the event log and the initial seed config. Even a total database loss is recoverable if the events survive.
@@ -240,7 +233,6 @@ pg_dump pinwheel > backup.sql
 
 Upgrades needed beyond the hackathon deployment:
 
-- **Dedicated Postgres:** Move from shared to dedicated CPU, increase storage, enable point-in-time recovery.
 - **Worker separation:** Split the game loop into a separate Fly Machine communicating via the database or Redis.
 - **CDN:** Put static assets (HTMX, CSS, images) behind Fly's built-in CDN or Cloudflare.
 - **Rate limiting:** Add rate limits on API endpoints and Discord commands to prevent abuse.

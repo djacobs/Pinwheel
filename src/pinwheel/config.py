@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     discord_invite_url: str = ""
     session_secret_key: str = ""
 
-    # Database
+    # Database — SQLite only, no PostgreSQL support
     database_url: str = "sqlite+aiosqlite:///pinwheel.db"
 
     # Environment

@@ -531,7 +531,7 @@ async def _phase_simulate_and_govern(
     # Team rosters are read from the DB at the start of each round. Any hooper
     # trade executed (via Discord) after this point will be committed in a
     # separate DB session and will NOT be visible to the current session thanks
-    # to transaction-level snapshot isolation (SQLite WAL / PostgreSQL MVCC).
+    # to transaction-level snapshot isolation (SQLite WAL).
     # This means trades accepted mid-round automatically take effect at the
     # next round — exactly the intended behavior.
     teams_cache: dict[str, Team] = {}

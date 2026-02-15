@@ -1,4 +1,4 @@
-"""Async SQLAlchemy engine and session factory.
+"""Async SQLAlchemy engine and session factory (SQLite-only).
 
 Usage:
     engine = create_engine(settings.database_url)
@@ -23,25 +23,21 @@ from sqlalchemy.ext.asyncio import (
 def create_engine(database_url: str) -> AsyncEngine:
     """Create an async SQLAlchemy engine.
 
-    For SQLite, enables WAL journal mode and a 15-second busy timeout so
-    concurrent sessions (scheduler, Discord commands, web requests) don't
-    immediately fail with "database is locked".
+    Enables WAL journal mode and a 15-second busy timeout so concurrent
+    sessions (scheduler, Discord commands, web requests) don't immediately
+    fail with "database is locked".
     """
-    connect_args: dict[str, object] = {}
-    if "sqlite" in database_url:
-        connect_args["timeout"] = 15
+    connect_args: dict[str, object] = {"timeout": 15}
 
     engine = create_async_engine(database_url, echo=False, connect_args=connect_args)
 
-    if "sqlite" in database_url:
-
-        @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragmas(dbapi_conn: object, connection_record: object) -> None:
-            cursor = dbapi_conn.cursor()  # type: ignore[union-attr]
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=15000")
-            cursor.close()
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn: object, connection_record: object) -> None:
+        cursor = dbapi_conn.cursor()  # type: ignore[union-attr]
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=15000")
+        cursor.close()
 
     return engine
 

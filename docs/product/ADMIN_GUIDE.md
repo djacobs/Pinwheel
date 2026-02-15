@@ -22,7 +22,7 @@ When you need to start a fresh season from scratch (new season structure, clean 
 
 ```bash
 # 1. Back up the production database
-fly ssh console -C "pg_dump \$DATABASE_URL > /data/backup_$(date +%Y%m%d).sql"
+fly ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"
 
 # 2. Deploy (ensures the script is on the machine)
 fly deploy
@@ -214,7 +214,7 @@ The rule evaluator is different from the reporter. The reporter describes and ne
 | `PINWHEEL_GOV_WINDOW` | Governance window duration in seconds (for GQI vote deliberation) | `900` |
 | `PINWHEEL_EVALS_ENABLED` | Run evals (grounding, prescriptive, GQI, flags, rule evaluator) after each round | `true` |
 | `ANTHROPIC_API_KEY` | Claude API key. If unset, AI features fall back to mocks. | (unset) |
-| `DATABASE_URL` | PostgreSQL or sqlite+aiosqlite connection string | (required) |
+| `DATABASE_URL` | SQLite connection string (e.g. `sqlite+aiosqlite:///pinwheel.db`) | `sqlite+aiosqlite:///pinwheel.db` |
 | `PINWHEEL_ENV` | `development`, `staging`, or `production` | `development` |
 | `SESSION_SECRET_KEY` | Session signing key. **Must set in production.** | (unset) |
 | `DISCORD_TOKEN` | Discord bot token | (required for Discord) |
@@ -231,8 +231,6 @@ The rule evaluator is different from the reporter. The reporter describes and ne
 
 ```bash
 fly launch --no-deploy
-fly postgres create --name pinwheel-db --region sea --vm-size shared-cpu-1x --volume-size 1
-fly postgres attach pinwheel-db
 fly secrets set ANTHROPIC_API_KEY=sk-ant-... DISCORD_TOKEN=... DISCORD_GUILD_ID=...
 fly deploy
 ```
@@ -259,7 +257,7 @@ fly secrets set PINWHEEL_ENV=production
 fly secrets set PINWHEEL_PRESENTATION_PACE=slow
 ```
 
-`DATABASE_URL` is injected automatically by `fly postgres attach`.
+`DATABASE_URL` defaults to `sqlite+aiosqlite:///pinwheel.db`. In production on Fly, it points to `/data/pinwheel.db` on the persistent volume.
 
 ### Monitoring
 
