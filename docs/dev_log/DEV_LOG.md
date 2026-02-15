@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1041 tests**, zero lint errors (Session 63)
+- **970 tests**, zero lint errors (Session 64)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 63 (Proposal Effects System — core implementation)
+- **Latest commit:** Session 64 (Fix duplicate Discord channels — root cause)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -717,3 +717,30 @@ Post-round session (~1s): mark games presented
 **1041 tests (139 new), zero lint errors.**
 
 **What could have gone better:** The `PlayerAttributes` model gained three new fields (`ego`, `chaotic_alignment`, `fate`) since the effects plan was written. Test fixtures needed updating. Also, the `Venue` model requires a `capacity` field that was initially missed. Both caught immediately by test failures.
+
+---
+
+## Session 64 — Fix Duplicate Discord Channels (Root Cause)
+
+**What was asked:** Duplicate team channels keep appearing in Discord despite multiple prior fixes (Sessions 59, 61). Investigate every commit from today, trace all channel creation code paths, and find the actual root cause.
+
+**What was built:**
+
+### Root cause: guild cache incomplete on `on_ready` (`bot.py`)
+- `on_ready` can fire before Discord has fully populated `guild.text_channels` — Discord sends guild data in chunks. When the local cache is incomplete, `discord.utils.get(guild.text_channels, name=slug)` returns `None` for channels that actually exist, and a duplicate is created.
+- This explains why the bug survived every prior fix: the `_setup_done` guard, the category-free fallback, and the distributed lock all worked correctly, but all relied on the same broken assumption — that `guild.text_channels` is complete when `on_ready` fires.
+- **Fix:** `_setup_server()` now calls `guild.fetch_channels()` (a real Discord API call) once at the start of setup and passes the complete channel list to `_get_or_create_shared_channel()` and `_setup_team_channel_and_role()`. The API call guarantees a complete picture regardless of cache state. Runs once per bot lifecycle so the latency cost is negligible.
+
+### Atomic distributed lock (`bot.py`)
+- The old lock used a read-check-write pattern susceptible to TOCTOU races during rolling deploys (two instances both read "no lock" before either writes).
+- **Fix:** Replaced with `INSERT OR IGNORE INTO bot_state` — exactly one writer succeeds, the other gets rowcount=0 and backs off. Stale locks (from crashed instances) are expired via `DELETE` with `json_extract` timestamp check before the atomic insert.
+- **Bug found:** The raw SQL `INSERT` was missing the `updated_at` column (NOT NULL with only a Python-level default in the ORM, no SQL-level DEFAULT). `OR IGNORE` silently swallowed the constraint violation, causing the lock to never be acquired. Fixed by including `updated_at` in the INSERT.
+
+### Test updates (`test_discord.py`)
+- Updated 5 test classes to mock `guild.fetch_channels()` instead of `guild.text_channels`/`guild.categories`: `TestSetupServer` (2 tests), `TestBotStatePersistence` (2 tests), `TestSetupIdempotencyWithDB` (2 tests).
+
+**Files modified (2):** `src/pinwheel/discord/bot.py`, `tests/test_discord.py`
+
+**970 tests, zero lint errors.**
+
+**What could have gone better:** The atomic lock fix initially failed silently because `INSERT OR IGNORE` swallowed the NOT NULL constraint violation on `updated_at`. No error was logged (the `OR IGNORE` clause suppresses the error at the SQL level, not Python level), and the captured test logs only showed WARNING+. Adding `updated_at` to the raw SQL INSERT fixed it. Lesson: when mixing raw SQL with ORM models, account for all NOT NULL columns — Python-level defaults don't apply to raw SQL.
