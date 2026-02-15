@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **970 tests**, zero lint errors (Session 64)
+- **970 tests**, zero lint errors (Session 65)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 64 (Fix duplicate Discord channels — root cause)
+- **Latest commit:** Session 65 (Wave 1 complete — effects doc + NarrativeContext + rebounds + cleanup)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -41,7 +41,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 - [x] **Remove Alembic** — Removed from `pyproject.toml` (+ transitive dep `mako`). Never imported anywhere. 725 tests pass.
 
 ### P1 — Thin UX (works but feels empty)
-- [ ] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Medium — `plans/2026-02-13-narrative-physics-making-pinwheel-alive-at-runtime.md`)*
+- [x] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Session 65)*
 - [ ] **Game Richness audit** — Audit all player-facing outputs against `GAME_MOMENTS.md`. Playoff games should feel different from regular season. Championship finals should feel epic. *(Medium — per CLAUDE.md Game Richness principle)*
 - [ ] **Multi-parameter interpretation + expanded RuleSet** — Currently proposals map to ~6 parameters. Expand to cover court size, foul rules, substitution patterns, Elam threshold. AI interpretation handles compound proposals. *(Medium — `plans/2026-02-11-simulation-extensibility-plan.md`)*
 
@@ -59,7 +59,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 ### P3 — Infrastructure (quality of life)
 - [ ] **Workbench + safety layer** — Admin eval dashboard with injection classifier. *(Large — `plans/WORKBENCH_AND_SAFETY_LAYER.md`)*
 - [ ] **GameEffect hooks** — Rule changes trigger visual/mechanical effects in simulation. *(Medium — part of simulation extensibility plan)*
-- [ ] **Cleanup** — Remove dead `GovernanceWindow` model, rebounds in narration, best-of-N playoff series.
+- [x] **Cleanup** — Remove dead `GovernanceWindow` model, rebounds in narration. *(Session 65)*
 
 ### Wave execution plan (Session 62+)
 
@@ -67,8 +67,8 @@ Remaining work structured into four waves optimized for parallelism and dependen
 
 **Wave 1 — Foundation (parallel, no interdependencies)**
 - [x] **Proposal Effects System** (P0, large) — Rewires how proposals execute. Callbacks at every hook point, meta JSON columns, effect execution engine. Independent of output systems. *(Session 63)*
-- [ ] **NarrativeContext module** (P1, medium) — Read-only data aggregation layer (streaks, rivalries, playoff implications) that feeds all output systems. Independent of proposal mechanics.
-- [ ] **Cleanup** (P3, small) — Remove dead `GovernanceWindow` model, rebounds in narration. Trivial, no dependencies.
+- [x] **NarrativeContext module** (P1, medium) — Read-only data aggregation layer (streaks, rivalries, playoff implications) that feeds all output systems. Independent of proposal mechanics. *(Session 65)*
+- [x] **Cleanup** (P3, small) — Remove dead `GovernanceWindow` model, rebounds in narration. Trivial, no dependencies. *(Session 65)*
 
 *Why parallel:* These three touch entirely different subsystems. Proposal Effects rewires governance execution. NarrativeContext is a read-only layer for output enrichment. Cleanup is dead code removal. No conflicts.
 
