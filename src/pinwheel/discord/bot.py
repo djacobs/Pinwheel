@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -762,7 +763,13 @@ class PinwheelBot(commands.Bot):
         instead of the local guild cache, which may be incomplete when on_ready
         fires before Discord has finished populating it.
         """
-        slug = team.name.lower().replace(" ", "-")  # type: ignore[union-attr]
+        # Normalize to match Discord's channel name rules: lowercase,
+        # spaces→hyphens, strip non-alphanumeric (periods, apostrophes, etc.),
+        # collapse runs of hyphens.  Without this, "St. Johns" becomes
+        # "st.-johns" locally but Discord stores "st-johns", causing
+        # duplicate channel creation on every deploy.
+        raw = team.name.lower().replace(" ", "-")  # type: ignore[union-attr]
+        slug = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]", "", raw)).strip("-")
         team_key = f"team_{team.id}"  # type: ignore[union-attr]
 
         # --- Role ---

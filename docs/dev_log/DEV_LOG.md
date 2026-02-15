@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1427 tests**, zero lint errors (Session 72)
+- **1446 tests**, zero lint errors (Session 73)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -16,7 +16,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15:** Overnight wave execution — amendments, repeal, milestones, drama pacing, effects wave 2, documentation
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15 (cont):** Dev-mode Discord guard, server welcome DM for new members
-- **Latest commit:** `c3d89eb` — dev-mode Discord guard + server welcome DM
+- **Day 15 (cont):** V2 tier detection, minimum voting period, Discord channel slug fix
+- **Latest commit:** `cd20137` — V2 tier detection + minimum voting period
 
 ## Today's Agenda
 
@@ -108,3 +109,34 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1427 tests, zero lint errors.**
 
 **What could have gone better:** The duplicate channel issue was caused by running a dev server that picked up `DISCORD_ENABLED=true` from the environment. The guard is simple and effective — check for development mode first.
+
+---
+
+## Session 73 — V2 Tier Detection + Minimum Voting Period + Channel Slug Fix
+
+**What was asked:** Fix two governance production bugs: (1) V2 tier detection gap — proposals with `hook_callback` effects from V2 interpreter were classified as Tier 5 ("wild") because the legacy `detect_tier()` only checked `parameter_change`; (2) No minimum voting period — proposals tallied immediately with 1 vote before other governors could see them. Also fix duplicate Discord channel creation caused by slug normalization mismatch.
+
+**What was built:**
+
+### V2 Tier Detection
+- `detect_tier_v2()` in `governance.py` — examines `ProposalInterpretation.effects` directly: `parameter_change` → reuse existing tier logic, `hook_callback`/`meta_mutation`/`move_grant` → Tier 3, `narrative` → Tier 2, empty/injection/rejection → Tier 5, compound = max tier
+- Updated `_needs_admin_review()` with optional `interpretation_v2` param — V2 with real effects and no injection flag → not wild; V2 with empty effects or injection → wild; low confidence (< 0.5) always flagged
+- Updated `submit_proposal()` and `confirm_proposal()` with optional `interpretation_v2` param
+- Wired V2 tier into `bot.py` and `views.py` (ProposalConfirmView, ReviseProposalModal)
+
+### Minimum Voting Period
+- Added `proposal.first_tally_seen` event type to `GovernanceEventType` (also added `proposal.vetoed` and `proposal.flagged_for_review` which were used but missing)
+- `tally_pending_governance()` now defers new proposals on first tally cycle — emits `first_tally_seen` event, removes from pending list. Proposals only tallied on their second tally cycle
+- Added `skip_deferral` param for season-close catch-up tallies in `season.py`
+- 19 new tests: `TestTierDetectionV2` (10), `TestNeedsAdminReviewV2` (6), `TestMinimumVotingPeriod` (3)
+- Updated 10+ existing tests to account for two-cycle tally pattern
+
+### Discord Channel Slug Fix
+- Root cause: `team.name.lower().replace(" ", "-")` produces `st.-johns-ravens` for "St. Johns Ravens", but Discord normalizes to `st-johns-ravens`. Name lookup fails → duplicate created on every deploy
+- Fix: `re.sub(r"[^a-z0-9-]", "", raw)` strips periods, apostrophes, and other special chars to match Discord's normalization
+
+**Files modified (8):** `src/pinwheel/core/governance.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/season.py`, `src/pinwheel/models/governance.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/views.py`, `tests/test_governance.py`, `tests/test_game_loop.py`, `tests/test_api/test_e2e_workflow.py`, `tests/test_scheduler_runner.py`
+
+**1446 tests, zero lint errors.**
+
+**What could have gone better:** The minimum voting period change required updating 10+ existing tests that assumed immediate tally. The `skip_deferral` parameter for season-close was discovered only after tests failed — should have been identified during planning.
