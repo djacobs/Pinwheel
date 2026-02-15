@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Hall of History -- Pinwheel Fates{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Hall of History</h2>
+  <p class="subtitle">Every season leaves its mark. These are the records.</p>
+</div>
+
+{% if archives %}
+<div style="display:grid; gap:1.5rem;">
+  {% for a in archives %}
+  <a href="/seasons/{{ a.season_id }}/memorial" class="card" style="text-decoration:none; color:inherit; display:block; padding:1.5rem; transition:border-color 0.2s; border-left:4px solid {% if a.has_memorial %}var(--accent-score){% else %}var(--border){% endif %};">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.75rem;">
+      <div style="flex:1; min-width:200px;">
+        <h3 style="margin:0 0 0.25rem; font-size:1.2rem;">{{ a.season_name }}</h3>
+        {% if a.champion_team_name %}
+        <p style="margin:0 0 0.5rem; font-size:0.9rem; color:var(--accent-score); font-weight:600;">
+          Champion: {{ a.champion_team_name }}
+        </p>
+        {% endif %}
+        {% if a.narrative_excerpt %}
+        <p style="margin:0; font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
+          {{ a.narrative_excerpt }}{% if a.narrative_excerpt|length >= 200 %}...{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <div style="display:flex; gap:1.5rem; font-size:0.8rem; color:var(--text-muted); flex-shrink:0;">
+        <div style="text-align:center;">
+          <div style="font-size:1.4rem; font-weight:800; color:var(--accent-highlight);">{{ a.total_games }}</div>
+          <div style="text-transform:uppercase; letter-spacing:0.05em;">Games</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:1.4rem; font-weight:800; color:var(--accent-governance);">{{ a.total_proposals }}</div>
+          <div style="text-transform:uppercase; letter-spacing:0.05em;">Proposals</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:1.4rem; font-weight:800; color:var(--accent-score);">{{ a.total_rule_changes }}</div>
+          <div style="text-transform:uppercase; letter-spacing:0.05em;">Rules</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:1.4rem; font-weight:800; color:var(--accent-report);">{{ a.governor_count }}</div>
+          <div style="text-transform:uppercase; letter-spacing:0.05em;">Govs</div>
+        </div>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No History Yet</h3>
+  <p>Completed seasons will appear here once they are archived. History is written by those who finish.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -25,12 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pinwheel.discord.embeds import (
     build_game_result_embed,
     build_governor_profile_embed,
+    build_history_list_embed,
     build_interpretation_embed,
+    build_memorial_embed,
     build_onboarding_embed,
     build_report_embed,
     build_roster_embed,
     build_round_summary_embed,
     build_schedule_embed,
+    build_search_result_embed,
     build_standings_embed,
     build_strategy_embed,
     build_token_balance_embed,
@@ -50,6 +53,9 @@ DISCORD_SETUP_LOCK_TIMEOUT_SECONDS = 60  # 1 minute — setup is fast
 # System-level cooldown between proposals per governor (seconds).
 # NOT governable — protects against rapid-fire submissions that waste AI interpreter capacity.
 PROPOSAL_COOLDOWN_SECONDS = 60
+
+# Cooldown between /ask queries per user (seconds).
+ASK_COOLDOWN_SECONDS = 10
 
 
 class PinwheelBot(commands.Bot):
@@ -87,6 +93,8 @@ class PinwheelBot(commands.Bot):
         self._setup_done: bool = False
         # Per-governor cooldown: governor_id → last proposal timestamp (monotonic)
         self._proposal_cooldowns: dict[str, float] = {}
+        # Per-user cooldown for /ask queries (discord_user_id → monotonic timestamp)
+        self._ask_cooldowns: dict[str, float] = {}
         self._setup_commands()
 
     def _setup_commands(self) -> None:
@@ -331,6 +339,32 @@ class PinwheelBot(commands.Bot):
             interaction: discord.Interaction,
         ) -> None:
             await self._handle_status(interaction)
+
+        @self.tree.command(
+            name="history",
+            description="View past season memorials",
+        )
+        @app_commands.describe(
+            season="Name of a specific season to view (optional)",
+        )
+        async def history_command(
+            interaction: discord.Interaction,
+            season: str = "",
+        ) -> None:
+            await self._handle_history(interaction, season)
+
+        @self.tree.command(
+            name="ask",
+            description="Ask anything about the league -- stats, standings, games, rules",
+        )
+        @app_commands.describe(
+            question="Your question in natural language",
+        )
+        async def ask_command(
+            interaction: discord.Interaction,
+            question: str,
+        ) -> None:
+            await self._handle_ask(interaction, question)
 
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
@@ -1418,6 +1452,38 @@ class PinwheelBot(commands.Bot):
                         ):
                             await ch.send(embed=embed)
 
+        elif event_type == "season.memorial_generated":
+            season_name = str(data.get("season_name", ""))
+            champion_name = str(data.get("champion_team_name", ""))
+            narrative_excerpt = str(data.get("narrative_excerpt", ""))
+            total_games = int(data.get("total_games", 0))
+            total_proposals = int(data.get("total_proposals", 0))
+            total_rule_changes = int(data.get("total_rule_changes", 0))
+
+            embed = build_memorial_embed(
+                season_name=season_name,
+                champion_team_name=champion_name,
+                narrative_excerpt=narrative_excerpt,
+                total_games=total_games,
+                total_proposals=total_proposals,
+                total_rule_changes=total_rule_changes,
+            )
+
+            channel = self._get_channel_for("main")
+            if channel:
+                await channel.send(embed=embed)
+
+            # Post to all team channels
+            for key, chan_id in self.channel_ids.items():
+                if key.startswith("team_"):
+                    ch = self.get_channel(chan_id)
+                    if isinstance(ch, discord.TextChannel):
+                        with contextlib.suppress(
+                            discord.Forbidden,
+                            discord.HTTPException,
+                        ):
+                            await ch.send(embed=embed)
+
         elif event_type == "season.phase_changed":
             to_phase = str(data.get("to_phase", ""))
             if to_phase == "complete":
@@ -1481,6 +1547,101 @@ class PinwheelBot(commands.Bot):
             logger.exception("discord_standings_query_failed")
             return []
 
+    async def _handle_ask(self, interaction: discord.Interaction, question: str) -> None:
+        """Handle the /ask slash command -- natural language stats queries.
+
+        Available to all server members. Rate-limited per user (10s cooldown).
+        Uses a two-step pipeline: parse question -> execute query -> format response.
+        Falls back to mock (keyword-based) when ANTHROPIC_API_KEY is not set.
+        """
+        user_id = str(interaction.user.id)
+
+        # Rate limiting: 10s cooldown per user
+        now = time.monotonic()
+        last_ask = self._ask_cooldowns.get(user_id, 0.0)
+        if now - last_ask < ASK_COOLDOWN_SECONDS:
+            remaining = int(ASK_COOLDOWN_SECONDS - (now - last_ask))
+            await interaction.response.send_message(
+                f"Easy there -- try again in {remaining} seconds.",
+                ephemeral=True,
+            )
+            return
+
+        self._ask_cooldowns[user_id] = now
+        await interaction.response.defer()
+
+        if not self.engine:
+            await interaction.followup.send(
+                "The league database is temporarily unavailable. Try again in a moment.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            from pinwheel.ai.search import (
+                NameResolver,
+                execute_query,
+                format_response_mock,
+                parse_query_mock,
+            )
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                season = await repo.get_active_season()
+                if not season:
+                    await interaction.followup.send(
+                        "No active season right now. Check back soon!",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Build name resolver
+                teams = await repo.get_teams_for_season(season.id)
+                all_hoopers = []
+                for t in teams:
+                    all_hoopers.extend(t.hoopers)
+                resolver = NameResolver(teams, all_hoopers)
+
+                # Step 1: Parse the question
+                api_key = self.settings.anthropic_api_key
+                if api_key:
+                    from pinwheel.ai.search import parse_query_ai
+
+                    team_names = [t.name for t in teams]
+                    hooper_names = [h.name for h in all_hoopers]
+                    plan = await parse_query_ai(
+                        question, api_key, team_names, hooper_names
+                    )
+                else:
+                    plan = parse_query_mock(question)
+
+                # Step 2: Execute the query
+                result = await execute_query(plan, repo, season.id, resolver)
+
+                # Step 3: Format the response
+                if api_key:
+                    from pinwheel.ai.search import format_response_ai
+
+                    answer = await format_response_ai(question, result, api_key)
+                else:
+                    answer = format_response_mock(question, result)
+
+            embed = build_search_result_embed(question, answer, result.query_type)
+            await interaction.followup.send(embed=embed)
+
+        except Exception:
+            logger.exception(
+                "discord_ask_failed user=%s question=%s",
+                interaction.user.display_name if interaction.user else "unknown",
+                question[:100],
+            )
+            await interaction.followup.send(
+                "Something went wrong processing your question. Try again!",
+                ephemeral=True,
+            )
+
     async def _handle_status(self, interaction: discord.Interaction) -> None:
         """Handle the /status slash command -- show current state of the league.
 
@@ -1537,6 +1698,95 @@ class PinwheelBot(commands.Bot):
                 "Something went wrong fetching the league status. "
                 "Try again in a moment.",
                 ephemeral=True,
+            )
+
+    async def _handle_history(
+        self, interaction: discord.Interaction, season: str = ""
+    ) -> None:
+        """Handle the /history slash command -- show past season memorials.
+
+        With no args, lists all archived seasons. With a season name,
+        shows a memorial summary embed.
+        """
+        await interaction.response.defer()
+
+        if not self.engine:
+            await interaction.followup.send(
+                "The league database is temporarily unavailable. "
+                "Try `/history` again in a moment.",
+            )
+            return
+
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.repository import Repository
+
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                archives = await repo.get_all_archives()
+
+                if not archives:
+                    await interaction.followup.send(
+                        "No seasons have been archived yet. "
+                        "History is written by those who finish.",
+                    )
+                    return
+
+                if not season:
+                    # List all archived seasons
+                    archive_list = [
+                        {
+                            "season_name": a.season_name,
+                            "champion_team_name": a.champion_team_name,
+                            "total_games": a.total_games,
+                        }
+                        for a in archives
+                    ]
+                    embed = build_history_list_embed(archive_list)
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                # Find archive matching the season name
+                matching = None
+                season_lower = season.lower()
+                for a in archives:
+                    if a.season_name.lower() == season_lower:
+                        matching = a
+                        break
+
+                if not matching:
+                    # Try partial match
+                    for a in archives:
+                        if season_lower in a.season_name.lower():
+                            matching = a
+                            break
+
+                if not matching:
+                    await interaction.followup.send(
+                        f'No archived season found matching "{season}". '
+                        "Use `/history` to see all archived seasons.",
+                    )
+                    return
+
+                # Build memorial summary embed
+                memorial = matching.memorial or {}
+                narrative = str(memorial.get("season_narrative", ""))
+
+                embed = build_memorial_embed(
+                    season_name=matching.season_name,
+                    champion_team_name=matching.champion_team_name or "",
+                    narrative_excerpt=narrative[:500] if narrative else "",
+                    total_games=matching.total_games,
+                    total_proposals=matching.total_proposals,
+                    total_rule_changes=matching.total_rule_changes,
+                )
+                await interaction.followup.send(embed=embed)
+
+        except Exception:
+            logger.exception("discord_history_failed")
+            await interaction.followup.send(
+                "Something went wrong fetching the history. "
+                "Try again in a moment.",
             )
 
     async def _handle_roster(self, interaction: discord.Interaction) -> None:

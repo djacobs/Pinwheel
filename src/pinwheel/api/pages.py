@@ -1417,6 +1417,24 @@ async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUs
     )
 
 
+@router.get("/playoffs", response_class=HTMLResponse)
+async def playoffs_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """Playoff bracket visualization page."""
+    from pinwheel.api.games import _build_bracket_data
+
+    bracket = await _build_bracket_data(repo)
+
+    return templates.TemplateResponse(
+        request,
+        "pages/playoffs.html",
+        {
+            "active_page": "playoffs",
+            "bracket": bracket,
+            **_auth_context(request, current_user),
+        },
+    )
+
+
 @router.get("/seasons/archive", response_class=HTMLResponse)
 async def season_archives_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """List all archived seasons."""
@@ -1479,6 +1497,94 @@ async def season_archive_detail(
             "active_page": "archives",
             "archives": None,
             "archive": archive_data,
+            **_auth_context(request, current_user),
+        },
+    )
+
+
+@router.get("/history", response_class=HTMLResponse)
+async def history_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """Hall of History -- index of all past seasons with championship banners."""
+    archives = await repo.get_all_archives()
+    archive_list = []
+    for a in archives:
+        # Extract memorial data if available
+        memorial = a.memorial or {}
+        narrative_excerpt = str(memorial.get("season_narrative", ""))[:200]
+
+        archive_list.append(
+            {
+                "season_id": a.season_id,
+                "season_name": a.season_name,
+                "champion_team_name": a.champion_team_name,
+                "total_games": a.total_games,
+                "total_proposals": a.total_proposals,
+                "total_rule_changes": a.total_rule_changes,
+                "governor_count": a.governor_count,
+                "narrative_excerpt": narrative_excerpt,
+                "has_memorial": bool(memorial.get("season_narrative")),
+                "created_at": a.created_at.isoformat() if a.created_at else "",
+            }
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "pages/history.html",
+        {
+            "active_page": "history",
+            "archives": archive_list,
+            **_auth_context(request, current_user),
+        },
+    )
+
+
+@router.get("/seasons/{season_id}/memorial", response_class=HTMLResponse)
+async def memorial_page(
+    request: Request, season_id: str, repo: RepoDep, current_user: OptionalUser
+):
+    """Full memorial page for a completed season."""
+    archive = await repo.get_season_archive(season_id)
+    if not archive:
+        raise HTTPException(404, "Season archive not found")
+
+    memorial = archive.memorial or {}
+
+    # Build structured memorial data for the template
+    memorial_data = {
+        "season_id": archive.season_id,
+        "season_name": archive.season_name,
+        "champion_team_id": archive.champion_team_id,
+        "champion_team_name": archive.champion_team_name,
+        "total_games": archive.total_games,
+        "total_proposals": archive.total_proposals,
+        "total_rule_changes": archive.total_rule_changes,
+        "governor_count": archive.governor_count,
+        "final_standings": archive.final_standings or [],
+        "final_ruleset": archive.final_ruleset or {},
+        "rule_change_history": archive.rule_change_history or [],
+        # AI narrative sections
+        "season_narrative": memorial.get("season_narrative", ""),
+        "championship_recap": memorial.get("championship_recap", ""),
+        "champion_profile": memorial.get("champion_profile", ""),
+        "governance_legacy": memorial.get("governance_legacy", ""),
+        # Computed data sections
+        "awards": memorial.get("awards", []),
+        "statistical_leaders": memorial.get("statistical_leaders", {}),
+        "key_moments": memorial.get("key_moments", []),
+        "head_to_head": memorial.get("head_to_head", []),
+        "rule_timeline": memorial.get("rule_timeline", []),
+        # Metadata
+        "generated_at": memorial.get("generated_at", ""),
+        "model_used": memorial.get("model_used", ""),
+        "created_at": archive.created_at.isoformat() if archive.created_at else "",
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "pages/memorial.html",
+        {
+            "active_page": "history",
+            "memorial": memorial_data,
             **_auth_context(request, current_user),
         },
     )

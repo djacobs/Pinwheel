@@ -974,6 +974,89 @@ def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> dis
     return embed
 
 
+COLOR_MEMORIAL = 0xFFD700  # Gold — season memorial
+
+
+def build_memorial_embed(
+    season_name: str,
+    champion_team_name: str,
+    narrative_excerpt: str,
+    total_games: int = 0,
+    total_proposals: int = 0,
+    total_rule_changes: int = 0,
+    web_url: str = "",
+) -> discord.Embed:
+    """Build a gold-themed memorial embed for a completed season.
+
+    Posted when a season memorial is generated. Provides a summary
+    and links to the full web memorial.
+
+    Args:
+        season_name: Name of the archived season.
+        champion_team_name: Name of the champion team.
+        narrative_excerpt: First ~500 chars of the season narrative.
+        total_games: Number of games played.
+        total_proposals: Number of proposals submitted.
+        total_rule_changes: Number of rule changes enacted.
+        web_url: URL to the full memorial page.
+    """
+    embed = discord.Embed(
+        title=f"Season Memorial -- {season_name}",
+        description=narrative_excerpt[:2048] if narrative_excerpt else "A season to remember.",
+        color=COLOR_MEMORIAL,
+    )
+
+    if champion_team_name:
+        embed.add_field(name="Champion", value=champion_team_name, inline=True)
+    if total_games:
+        embed.add_field(name="Games", value=str(total_games), inline=True)
+    if total_proposals:
+        embed.add_field(name="Proposals", value=str(total_proposals), inline=True)
+    if total_rule_changes:
+        embed.add_field(name="Rule Changes", value=str(total_rule_changes), inline=True)
+    if web_url:
+        embed.add_field(
+            name="Full Memorial",
+            value=f"[View on web]({web_url})",
+            inline=False,
+        )
+
+    embed.set_footer(text="Pinwheel Fates -- Hall of History")
+    return embed
+
+
+def build_history_list_embed(
+    archives: list[dict[str, object]],
+) -> discord.Embed:
+    """Build an embed listing all archived seasons.
+
+    Args:
+        archives: List of archive dicts with season_name, champion_team_name,
+            total_games keys.
+    """
+    embed = discord.Embed(
+        title="Hall of History",
+        color=COLOR_MEMORIAL,
+    )
+
+    if not archives:
+        embed.description = "No seasons have been archived yet."
+        embed.set_footer(text="Pinwheel Fates")
+        return embed
+
+    lines: list[str] = []
+    for a in archives:
+        name = a.get("season_name", "???")
+        champ = a.get("champion_team_name")
+        games = a.get("total_games", 0)
+        champ_str = f" -- Champion: **{champ}**" if champ else ""
+        lines.append(f"**{name}**{champ_str} ({games} games)")
+
+    embed.description = "\n".join(lines)
+    embed.set_footer(text="Pinwheel Fates -- Hall of History")
+    return embed
+
+
 _STATUS_LABELS: dict[str, str] = {
     "pending": "Submitted",
     "pending_review": "Awaiting Admin Review",
@@ -1173,4 +1256,37 @@ def build_onboarding_embed(
     footer_text = ". ".join(footer_parts) + "." if footer_parts else "Pinwheel Fates"
     embed.set_footer(text=footer_text)
 
+    return embed
+
+
+# ---------------------------------------------------------------------------
+# Bot Search
+# ---------------------------------------------------------------------------
+
+COLOR_SEARCH = 0x1ABC9C  # Teal — search / ask results
+
+
+def build_search_result_embed(
+    question: str,
+    answer: str,
+    query_type: str = "unknown",
+) -> discord.Embed:
+    """Build an embed for an /ask search result.
+
+    Args:
+        question: The original question asked by the user.
+        answer: Formatted answer string (may contain Discord markdown).
+        query_type: The resolved query type for the footer.
+    """
+    # Truncate answer to Discord embed description limit (4096 chars)
+    if len(answer) > 4000:
+        answer = answer[:3997] + "..."
+
+    embed = discord.Embed(
+        title=question[:256],
+        description=answer,
+        color=COLOR_SEARCH,
+    )
+    query_label = query_type.replace("_", " ").title()
+    embed.set_footer(text=f"Pinwheel Fates -- {query_label}")
     return embed

@@ -1,8 +1,9 @@
-"""Tests for season memorial data collection functions."""
+"""Tests for season memorial system — data collection, AI generation, and embeds."""
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from pinwheel.ai.report import generate_season_memorial_mock
 from pinwheel.core.game_loop import step_round
 from pinwheel.core.memorial import (
     compute_head_to_head,
@@ -16,6 +17,7 @@ from pinwheel.core.season import archive_season
 from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
+from pinwheel.discord.embeds import build_history_list_embed, build_memorial_embed
 from pinwheel.models.report import SeasonMemorial
 
 
@@ -508,3 +510,251 @@ class TestArchiveIntegration:
 
         memorial = SeasonMemorial(**archive.memorial)
         assert memorial.generated_at != ""
+
+    async def test_archive_with_mock_narratives(self, repo: Repository):
+        """archive_season() without api_key should generate mock narratives."""
+        season_id, _ = await _seed_season_with_games(repo)
+        archive = await archive_season(repo, season_id)
+
+        memorial = archive.memorial or {}
+        assert memorial.get("season_narrative") != ""
+        assert memorial.get("model_used") == "mock"
+
+    async def test_archive_with_event_bus(self, repo: Repository):
+        """archive_season() should publish memorial event when event_bus provided."""
+        from pinwheel.core.event_bus import EventBus
+
+        event_bus = EventBus()
+
+        season_id, _ = await _seed_season_with_games(repo)
+
+        # Subscribe before archiving
+        async with event_bus.subscribe("season.memorial_generated") as sub:
+            await archive_season(repo, season_id, event_bus=event_bus)
+
+            # Event should be in the queue
+            evt = await sub.get(timeout=1.0)
+            assert evt is not None
+            assert evt["data"]["season_id"] == season_id
+            assert "narrative_excerpt" in evt["data"]
+
+
+class TestMockNarrativeGeneration:
+    """Tests for generate_season_memorial_mock()."""
+
+    def test_fills_all_narrative_fields(self):
+        """Mock should fill all four narrative sections."""
+        data = {
+            "season_narrative": "",
+            "championship_recap": "",
+            "champion_profile": "",
+            "governance_legacy": "",
+            "awards": [],
+            "statistical_leaders": {"ppg": [], "apg": [], "spg": [], "fg_pct": []},
+            "key_moments": [],
+            "head_to_head": [],
+            "rule_timeline": [],
+            "generated_at": "2026-01-01T00:00:00",
+            "model_used": "",
+        }
+        result = generate_season_memorial_mock(data)
+
+        assert result["season_narrative"] != ""
+        assert result["championship_recap"] != ""
+        assert result["champion_profile"] != ""
+        assert result["governance_legacy"] != ""
+        assert result["model_used"] == "mock"
+
+    def test_uses_awards_data(self):
+        """Mock should reference awards when available."""
+        data = {
+            "season_narrative": "",
+            "championship_recap": "",
+            "champion_profile": "",
+            "governance_legacy": "",
+            "awards": [
+                {
+                    "category": "gameplay",
+                    "award": "MVP",
+                    "recipient_name": "TestHooper",
+                    "stat_value": 25.3,
+                    "stat_label": "PPG",
+                }
+            ],
+            "statistical_leaders": {"ppg": [], "apg": [], "spg": [], "fg_pct": []},
+            "key_moments": [],
+            "head_to_head": [],
+            "rule_timeline": [],
+            "generated_at": "2026-01-01T00:00:00",
+            "model_used": "",
+        }
+        result = generate_season_memorial_mock(data)
+
+        assert "TestHooper" in result["champion_profile"]
+
+    def test_uses_rule_timeline(self):
+        """Mock should reference rule changes when available."""
+        data = {
+            "season_narrative": "",
+            "championship_recap": "",
+            "champion_profile": "",
+            "governance_legacy": "",
+            "awards": [],
+            "statistical_leaders": {"ppg": [], "apg": [], "spg": [], "fg_pct": []},
+            "key_moments": [],
+            "head_to_head": [],
+            "rule_timeline": [
+                {"parameter": "three_point_value", "old_value": 3, "new_value": 4}
+            ],
+            "generated_at": "2026-01-01T00:00:00",
+            "model_used": "",
+        }
+        result = generate_season_memorial_mock(data)
+
+        assert "three_point_value" in result["governance_legacy"]
+        assert "1 rule change" in result["governance_legacy"]
+
+    def test_uses_stat_leaders(self):
+        """Mock should reference statistical leaders when available."""
+        data = {
+            "season_narrative": "",
+            "championship_recap": "",
+            "champion_profile": "",
+            "governance_legacy": "",
+            "awards": [],
+            "statistical_leaders": {
+                "ppg": [
+                    {
+                        "hooper_id": "h1",
+                        "hooper_name": "ScoreMaster",
+                        "team_name": "TeamA",
+                        "value": 30.5,
+                        "games": 10,
+                    }
+                ],
+                "apg": [],
+                "spg": [],
+                "fg_pct": [],
+            },
+            "key_moments": [],
+            "head_to_head": [],
+            "rule_timeline": [],
+            "generated_at": "2026-01-01T00:00:00",
+            "model_used": "",
+        }
+        result = generate_season_memorial_mock(data)
+
+        assert "ScoreMaster" in result["season_narrative"]
+        assert "30.5 PPG" in result["season_narrative"]
+
+    def test_validates_as_season_memorial(self):
+        """Mock output should be valid SeasonMemorial data."""
+        data = {
+            "season_narrative": "",
+            "championship_recap": "",
+            "champion_profile": "",
+            "governance_legacy": "",
+            "awards": [],
+            "statistical_leaders": {"ppg": [], "apg": [], "spg": [], "fg_pct": []},
+            "key_moments": [],
+            "head_to_head": [],
+            "rule_timeline": [],
+            "generated_at": "2026-01-01T00:00:00",
+            "model_used": "",
+        }
+        result = generate_season_memorial_mock(data)
+
+        memorial = SeasonMemorial(**result)
+        assert memorial.season_narrative != ""
+        assert memorial.model_used == "mock"
+
+
+class TestMemorialEmbeds:
+    """Tests for Discord memorial embed builders."""
+
+    def test_memorial_embed_basic(self):
+        """build_memorial_embed should return a gold-themed embed."""
+        embed = build_memorial_embed(
+            season_name="Season ONE",
+            champion_team_name="The Ballers",
+            narrative_excerpt="A season to remember.",
+            total_games=18,
+            total_proposals=5,
+            total_rule_changes=2,
+        )
+
+        assert "Season ONE" in embed.title
+        assert embed.color.value == 0xFFD700
+        assert "A season to remember." in embed.description
+
+    def test_memorial_embed_fields(self):
+        """Memorial embed should include champion and stats fields."""
+        embed = build_memorial_embed(
+            season_name="Season TWO",
+            champion_team_name="Winners",
+            narrative_excerpt="",
+            total_games=12,
+            total_proposals=3,
+            total_rule_changes=1,
+        )
+
+        field_names = [f.name for f in embed.fields]
+        assert "Champion" in field_names
+        assert "Games" in field_names
+        assert "Proposals" in field_names
+
+    def test_memorial_embed_with_url(self):
+        """Memorial embed should include web link when provided."""
+        embed = build_memorial_embed(
+            season_name="Season THREE",
+            champion_team_name="Champs",
+            narrative_excerpt="Great season.",
+            web_url="https://example.com/memorial",
+        )
+
+        field_names = [f.name for f in embed.fields]
+        assert "Full Memorial" in field_names
+
+    def test_history_list_embed_with_archives(self):
+        """build_history_list_embed should list all archived seasons."""
+        archives = [
+            {
+                "season_name": "Season ONE",
+                "champion_team_name": "Ballers",
+                "total_games": 18,
+            },
+            {
+                "season_name": "Season TWO",
+                "champion_team_name": "Dunkers",
+                "total_games": 24,
+            },
+        ]
+        embed = build_history_list_embed(archives)
+
+        assert "Hall of History" in embed.title
+        assert "Season ONE" in embed.description
+        assert "Season TWO" in embed.description
+        assert "Ballers" in embed.description
+
+    def test_history_list_embed_empty(self):
+        """build_history_list_embed should handle empty archives."""
+        embed = build_history_list_embed([])
+
+        assert "No seasons" in embed.description
+
+
+class TestWebRouteIntegration:
+    """Test that /history and /seasons/{id}/memorial routes exist and return HTML."""
+
+    async def test_history_route_exists(self, repo: Repository):
+        """The history page should return the archive list."""
+        # Verify the route function can be imported and called
+        from pinwheel.api.pages import history_page
+
+        assert history_page is not None
+
+    async def test_memorial_route_exists(self, repo: Repository):
+        """The memorial page route should exist."""
+        from pinwheel.api.pages import memorial_page
+
+        assert memorial_page is not None

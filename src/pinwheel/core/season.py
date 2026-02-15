@@ -1184,16 +1184,25 @@ async def regenerate_all_governor_tokens(
     return governor_count
 
 
-async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
+async def archive_season(
+    repo: Repository,
+    season_id: str,
+    api_key: str = "",
+    event_bus: EventBus | None = None,
+) -> SeasonArchiveRow:
     """Create an archive snapshot of a completed season.
 
     Gathers final standings, rule change history, game counts, proposal
     counts, and governor participation into an immutable archive row.
-    Marks the season as completed.
+    Generates a season memorial (AI narratives + computed data) and stores
+    it on the archive row. Marks the season as completed.
 
     Args:
         repo: Repository bound to an active session.
         season_id: The season to archive.
+        api_key: Anthropic API key for AI narrative generation.
+            If empty, uses mock narratives.
+        event_bus: Optional event bus for publishing memorial events.
 
     Returns:
         The created SeasonArchiveRow.
@@ -1258,6 +1267,20 @@ async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
 
     memorial_data = await gather_memorial_data(repo, season_id, awards=awards)
 
+    # Generate AI narratives (or mock if no API key)
+    if api_key:
+        from pinwheel.ai.report import generate_season_memorial
+
+        memorial_data = await generate_season_memorial(
+            memorial_data=memorial_data,
+            season_id=season_id,
+            api_key=api_key,
+        )
+    else:
+        from pinwheel.ai.report import generate_season_memorial_mock
+
+        memorial_data = generate_season_memorial_mock(memorial_data)
+
     # Create archive
     archive = SeasonArchiveRow(
         season_id=season_id,
@@ -1283,5 +1306,20 @@ async def archive_season(repo: Repository, season_id: str) -> SeasonArchiveRow:
         len(rule_changes),
         len(governors),
     )
+
+    # Publish memorial generated event
+    if event_bus:
+        await event_bus.publish(
+            "season.memorial_generated",
+            {
+                "season_id": season_id,
+                "season_name": season.name,
+                "champion_team_name": champion_team_name or "",
+                "total_games": len(games),
+                "total_proposals": len(proposal_events),
+                "total_rule_changes": len(rule_changes),
+                "narrative_excerpt": (memorial_data.get("season_narrative", ""))[:500],
+            },
+        )
 
     return archive

@@ -683,3 +683,293 @@ def generate_private_report_mock(
         governor_id=governor_id,
         content=content,
     )
+
+
+# --- Season Memorial Generation ---
+
+SEASON_NARRATIVE_PROMPT = """\
+You are the chronicler of Pinwheel Fates, a 3v3 basketball governance game.
+
+Write the definitive season narrative: 3-5 paragraphs covering the full arc from
+opening round to final whistle. This is the almanac entry for this season.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Write in the style of a sports almanac — vivid, authoritative, specific.
+3. Reference specific teams, hoopers, and rule changes by name.
+4. Note turning points: when the standings shifted, when a rule change reshaped
+   the meta, when a streak defined a team's season.
+5. Build to the playoffs and championship as a dramatic conclusion.
+
+## Season Data
+
+{season_data}
+"""
+
+CHAMPIONSHIP_RECAP_PROMPT = """\
+You are the chronicler of Pinwheel Fates, a 3v3 basketball governance game.
+
+Write a detailed championship recap: the playoff bracket, semifinal drama,
+and the championship finals. 2-3 paragraphs of vivid sports writing.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Cover each playoff round — who won, the score, the momentum shifts.
+3. If the Elam Ending activated, describe how it shaped the outcome.
+4. Build to the championship moment — the final basket, the winning team's
+   reaction, the season's capstone.
+
+## Playoff Data
+
+{playoff_data}
+"""
+
+CHAMPION_PROFILE_PROMPT = """\
+You are the chronicler of Pinwheel Fates, a 3v3 basketball governance game.
+
+Write a champion profile: the winning team's journey from regular season
+through playoffs to the title. 1-2 paragraphs.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Highlight the team's regular season record and standout hoopers.
+3. Describe their playoff path — close calls, dominant wins, the finals.
+4. Note their roster's strengths and how they matched up against opponents.
+
+## Champion Data
+
+{champion_data}
+"""
+
+GOVERNANCE_LEGACY_PROMPT = """\
+You are the chronicler of Pinwheel Fates, a 3v3 basketball governance game.
+
+Write the governance legacy section: how the rules evolved during this season,
+who drove changes, and what the governance record reveals about the community.
+2-3 paragraphs.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Note which rules changed, who proposed them, and whether they passed or failed.
+3. Identify patterns: were governors bold or conservative? Did consensus form?
+4. Reflect on how rule changes affected gameplay outcomes.
+
+## Governance Data
+
+{governance_data}
+"""
+
+
+async def generate_season_memorial(
+    memorial_data: dict,
+    season_id: str,
+    api_key: str,
+    db_session: object | None = None,
+) -> dict:
+    """Generate AI narrative sections for a season memorial.
+
+    Makes 4 concurrent Claude calls for the narrative sections:
+    season_narrative, championship_recap, champion_profile, governance_legacy.
+
+    Args:
+        memorial_data: Dict from gather_memorial_data() with computed sections.
+        season_id: Season being memorialized.
+        api_key: Anthropic API key.
+        db_session: Optional DB session for usage logging.
+
+    Returns:
+        Updated memorial_data dict with AI narratives filled in.
+    """
+    import asyncio
+
+    # Prepare context for each prompt
+    season_context = json.dumps(
+        {
+            "awards": memorial_data.get("awards", []),
+            "statistical_leaders": memorial_data.get("statistical_leaders", {}),
+            "key_moments": memorial_data.get("key_moments", []),
+            "head_to_head": memorial_data.get("head_to_head", []),
+            "rule_timeline": memorial_data.get("rule_timeline", []),
+        },
+        indent=2,
+    )
+
+    playoff_context = json.dumps(
+        {
+            "key_moments": [
+                m for m in memorial_data.get("key_moments", [])
+                if m.get("moment_type") == "playoff"
+            ],
+            "awards": memorial_data.get("awards", []),
+        },
+        indent=2,
+    )
+
+    champion_context = json.dumps(
+        {
+            "awards": [
+                a for a in memorial_data.get("awards", [])
+                if a.get("category") == "gameplay"
+            ],
+            "statistical_leaders": memorial_data.get("statistical_leaders", {}),
+        },
+        indent=2,
+    )
+
+    governance_context = json.dumps(
+        {
+            "rule_timeline": memorial_data.get("rule_timeline", []),
+            "awards": [
+                a for a in memorial_data.get("awards", [])
+                if a.get("category") == "governance"
+            ],
+        },
+        indent=2,
+    )
+
+    # Make 4 concurrent calls
+    narrative_task = _call_claude(
+        system=SEASON_NARRATIVE_PROMPT.format(season_data=season_context),
+        user_message="Write the season narrative.",
+        api_key=api_key,
+        call_type="memorial.season_narrative",
+        season_id=season_id,
+        db_session=db_session,
+    )
+    championship_task = _call_claude(
+        system=CHAMPIONSHIP_RECAP_PROMPT.format(playoff_data=playoff_context),
+        user_message="Write the championship recap.",
+        api_key=api_key,
+        call_type="memorial.championship_recap",
+        season_id=season_id,
+        db_session=db_session,
+    )
+    champion_task = _call_claude(
+        system=CHAMPION_PROFILE_PROMPT.format(champion_data=champion_context),
+        user_message="Write the champion profile.",
+        api_key=api_key,
+        call_type="memorial.champion_profile",
+        season_id=season_id,
+        db_session=db_session,
+    )
+    governance_task = _call_claude(
+        system=GOVERNANCE_LEGACY_PROMPT.format(governance_data=governance_context),
+        user_message="Write the governance legacy.",
+        api_key=api_key,
+        call_type="memorial.governance_legacy",
+        season_id=season_id,
+        db_session=db_session,
+    )
+
+    results = await asyncio.gather(
+        narrative_task,
+        championship_task,
+        champion_task,
+        governance_task,
+        return_exceptions=True,
+    )
+
+    # Fill in results, using empty string for any failures
+    narratives = []
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error("Memorial AI call failed: %s", r)
+            narratives.append("")
+        else:
+            narratives.append(str(r))
+
+    memorial_data["season_narrative"] = narratives[0]
+    memorial_data["championship_recap"] = narratives[1]
+    memorial_data["champion_profile"] = narratives[2]
+    memorial_data["governance_legacy"] = narratives[3]
+    memorial_data["model_used"] = "claude-sonnet-4-5-20250929"
+
+    return memorial_data
+
+
+def generate_season_memorial_mock(memorial_data: dict) -> dict:
+    """Generate mock AI narrative sections for testing.
+
+    Fills in reasonable static content for each narrative section
+    based on available computed data.
+
+    Args:
+        memorial_data: Dict from gather_memorial_data() with computed sections.
+
+    Returns:
+        Updated memorial_data dict with mock narratives filled in.
+    """
+    awards = memorial_data.get("awards", [])
+    key_moments = memorial_data.get("key_moments", [])
+    rule_timeline = memorial_data.get("rule_timeline", [])
+    leaders = memorial_data.get("statistical_leaders", {})
+
+    # Season narrative
+    parts = ["Another season in the books for Pinwheel Fates."]
+    if key_moments:
+        closest = [m for m in key_moments if m.get("moment_type") == "closest_game"]
+        if closest:
+            m = closest[0]
+            parts.append(
+                f"The closest game of the season saw {m.get('home_team_name', '?')} "
+                f"edge {m.get('away_team_name', '?')} by {m.get('margin', 0)} points."
+            )
+    ppg_leaders = leaders.get("ppg", [])
+    if ppg_leaders:
+        top = ppg_leaders[0]
+        parts.append(
+            f"{top['hooper_name']} ({top['team_name']}) led the league in scoring "
+            f"with {top['value']} PPG across {top['games']} games."
+        )
+    memorial_data["season_narrative"] = " ".join(parts)
+
+    # Championship recap
+    playoff_moments = [m for m in key_moments if m.get("moment_type") == "playoff"]
+    if playoff_moments:
+        pm = playoff_moments[0]
+        memorial_data["championship_recap"] = (
+            f"The playoffs delivered. {pm.get('winner_name', '?')} "
+            f"took down {pm.get('away_team_name', pm.get('home_team_name', '?'))} "
+            f"{pm.get('home_score', 0)}-{pm.get('away_score', 0)} "
+            f"to advance. Every possession counted under the bright lights."
+        )
+    else:
+        memorial_data["championship_recap"] = (
+            "The playoff bracket was set and the best teams battled for the title. "
+            "When the final buzzer sounded, a champion was crowned."
+        )
+
+    # Champion profile
+    gameplay_awards = [a for a in awards if a.get("category") == "gameplay"]
+    if gameplay_awards:
+        mvp = gameplay_awards[0]
+        memorial_data["champion_profile"] = (
+            f"The champion's run was anchored by {mvp.get('recipient_name', '?')}, "
+            f"who earned {mvp.get('award', 'top honors')} with "
+            f"{mvp.get('stat_value', '?')} {mvp.get('stat_label', '')}. "
+            f"A roster built for the moment."
+        )
+    else:
+        memorial_data["champion_profile"] = (
+            "The champions proved their mettle across the entire season, "
+            "building consistency in the regular season and peaking in the playoffs."
+        )
+
+    # Governance legacy
+    if rule_timeline:
+        changes = [f"{r.get('parameter', '?')}" for r in rule_timeline[:3]]
+        memorial_data["governance_legacy"] = (
+            f"Governors reshaped the game this season with {len(rule_timeline)} "
+            f"rule change{'s' if len(rule_timeline) != 1 else ''}. "
+            f"Parameters affected: {', '.join(changes)}. "
+            f"The community's fingerprints are all over this ruleset."
+        )
+    else:
+        memorial_data["governance_legacy"] = (
+            "The governors held steady this season -- no rule changes were enacted. "
+            "Whether by consensus or inaction, the default ruleset stood."
+        )
+
+    memorial_data["model_used"] = "mock"
+
+    return memorial_data

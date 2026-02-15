@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}{{ memorial.season_name }} Memorial -- Pinwheel Fates{% endblock %}
+
+{% block content %}
+{# --- Hero Section --- #}
+<div style="text-align:center; padding:2rem 0 1.5rem;">
+  <p style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.15em; color:var(--text-muted); margin-bottom:0.5rem;">Season Memorial</p>
+  <h1 style="font-size:2.2rem; margin:0 0 0.5rem; color:var(--text-primary);">{{ memorial.season_name }}</h1>
+  {% if memorial.champion_team_name %}
+  <p style="font-size:1.1rem; color:var(--accent-score); font-weight:700; margin:0;">
+    Champion: {{ memorial.champion_team_name }}
+  </p>
+  {% endif %}
+  <a href="/history" style="font-size:0.85rem; color:var(--accent-highlight); display:inline-block; margin-top:0.75rem;">&larr; All Seasons</a>
+</div>
+
+{# --- Stats Bar --- #}
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(100px, 1fr)); gap:1rem; margin:0 0 2rem;">
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-highlight);">{{ memorial.total_games }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Games</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-governance);">{{ memorial.total_proposals }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Proposals</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-score);">{{ memorial.total_rule_changes }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Rule Changes</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1rem;">
+    <div style="font-size:1.8rem; font-weight:800; color:var(--accent-report);">{{ memorial.governor_count }}</div>
+    <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Governors</div>
+  </div>
+</div>
+
+{# --- Season Narrative --- #}
+{% if memorial.season_narrative %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-highlight);">The Season</h3>
+  <div style="line-height:1.8; color:var(--text-secondary);">
+    {% for paragraph in memorial.season_narrative.split('\n\n') %}
+    <p style="margin:0 0 1rem;">{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Championship Recap --- #}
+{% if memorial.championship_recap %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem; border-left:4px solid var(--accent-score);">
+  <h3 style="margin:0 0 1rem; color:var(--accent-score);">Championship</h3>
+  <div style="line-height:1.8; color:var(--text-secondary);">
+    {% for paragraph in memorial.championship_recap.split('\n\n') %}
+    <p style="margin:0 0 1rem;">{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Awards --- #}
+{% if memorial.awards %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-score);">Season Awards</h3>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:1rem;">
+    {% for award in memorial.awards %}
+    <div style="background:var(--bg-card-inner, rgba(255,255,255,0.03)); border-radius:var(--radius); padding:1rem; text-align:center;">
+      <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:0.25rem;">
+        {{ award.award }}
+      </div>
+      <div style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:0.25rem;">
+        {{ award.recipient_name }}
+      </div>
+      <div style="font-size:0.85rem; color:var(--accent-score);">
+        {{ award.stat_value }} {{ award.stat_label }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Champion Profile --- #}
+{% if memorial.champion_profile %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-score);">
+    {% if memorial.champion_team_name %}{{ memorial.champion_team_name }} --{% endif %} Champion Profile
+  </h3>
+  <div style="line-height:1.8; color:var(--text-secondary);">
+    {% for paragraph in memorial.champion_profile.split('\n\n') %}
+    <p style="margin:0 0 1rem;">{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Statistical Leaders --- #}
+{% if memorial.statistical_leaders %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-highlight);">Statistical Leaders</h3>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:1.5rem;">
+    {% set categories = [("ppg", "Points Per Game"), ("apg", "Assists Per Game"), ("spg", "Steals Per Game"), ("fg_pct", "Field Goal %")] %}
+    {% for cat_key, cat_label in categories %}
+    {% set leaders = memorial.statistical_leaders.get(cat_key, []) %}
+    {% if leaders %}
+    <div>
+      <h4 style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin:0 0 0.5rem;">{{ cat_label }}</h4>
+      {% for leader in leaders %}
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0; border-bottom:1px solid var(--border);">
+        <div>
+          <span style="font-weight:600; color:var(--text-primary);">{{ leader.hooper_name }}</span>
+          <span style="font-size:0.8rem; color:var(--text-muted);"> ({{ leader.team_name }})</span>
+        </div>
+        <span style="font-weight:700; color:var(--accent-highlight);">{{ leader.value }}{% if cat_key == 'fg_pct' %}%{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Key Moments --- #}
+{% if memorial.key_moments %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-highlight);">Key Moments</h3>
+  <div style="display:grid; gap:0.75rem;">
+    {% set moment_labels = {"playoff": "Playoff", "closest_game": "Nail-biter", "blowout": "Blowout", "elam_ending": "Elam Ending"} %}
+    {% for moment in memorial.key_moments %}
+    <div style="display:flex; align-items:center; gap:1rem; padding:0.75rem; background:var(--bg-card-inner, rgba(255,255,255,0.03)); border-radius:var(--radius);">
+      <span style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; padding:0.25rem 0.5rem; border-radius:4px; background:{% if moment.moment_type == 'playoff' %}var(--accent-score){% elif moment.moment_type == 'closest_game' %}var(--accent-governance){% elif moment.moment_type == 'blowout' %}var(--accent-highlight){% else %}var(--accent-report){% endif %}; color:#fff; white-space:nowrap;">
+        {{ moment_labels.get(moment.moment_type, moment.moment_type) }}
+      </span>
+      <div style="flex:1;">
+        <span style="font-weight:600;">{{ moment.home_team_name }}</span>
+        <span style="color:var(--text-muted);"> {{ moment.home_score }}-{{ moment.away_score }} </span>
+        <span style="font-weight:600;">{{ moment.away_team_name }}</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);"> (Round {{ moment.round_number }})</span>
+      </div>
+      {% if moment.elam_target %}
+      <span style="font-size:0.8rem; color:var(--accent-report);">Elam {{ moment.elam_target }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Head to Head --- #}
+{% if memorial.head_to_head %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-highlight);">Head-to-Head Records</h3>
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th>Matchup</th>
+        <th class="num">Record</th>
+        <th class="num">Diff</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in memorial.head_to_head %}
+      <tr>
+        <td>{{ h.team_a_name }} vs {{ h.team_b_name }}</td>
+        <td class="num">{{ h.team_a_wins }}-{{ h.team_b_wins }}</td>
+        <td class="num {% if h.point_differential > 0 %}diff-positive{% elif h.point_differential < 0 %}diff-negative{% endif %}">
+          {% if h.point_differential > 0 %}+{% endif %}{{ h.point_differential }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# --- Governance Legacy --- #}
+{% if memorial.governance_legacy %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem; border-left:4px solid var(--accent-governance);">
+  <h3 style="margin:0 0 1rem; color:var(--accent-governance);">Governance Legacy</h3>
+  <div style="line-height:1.8; color:var(--text-secondary);">
+    {% for paragraph in memorial.governance_legacy.split('\n\n') %}
+    <p style="margin:0 0 1rem;">{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Rule Timeline --- #}
+{% if memorial.rule_timeline %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem; color:var(--accent-governance);">Rule Change Timeline</h3>
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th class="num">Round</th>
+        <th>Parameter</th>
+        <th class="num">Old</th>
+        <th class="num">New</th>
+        <th>Proposer</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in memorial.rule_timeline %}
+      <tr>
+        <td class="num">{{ r.round_number }}</td>
+        <td>{{ r.parameter }}</td>
+        <td class="num">{{ r.old_value }}</td>
+        <td class="num" style="color:var(--accent-score);">{{ r.new_value }}</td>
+        <td>{{ r.proposer_name or "--" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# --- Final Standings --- #}
+{% if memorial.final_standings %}
+<div class="card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <h3 style="margin:0 0 1rem;">Final Standings</h3>
+  <table class="standings-table">
+    <thead>
+      <tr>
+        <th style="width:2rem">#</th>
+        <th>Team</th>
+        <th class="num">W</th>
+        <th class="num">L</th>
+        <th class="num">PCT</th>
+        <th class="num">PF</th>
+        <th class="num">PA</th>
+        <th class="num">DIFF</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for team in memorial.final_standings %}
+      <tr>
+        <td class="rank rank-{{ loop.index }}">{{ loop.index }}</td>
+        <td>{{ team.team_name | default(team.team_id) }}</td>
+        <td class="num record">{{ team.wins }}</td>
+        <td class="num record">{{ team.losses }}</td>
+        <td class="num pct">
+          {% if team.wins + team.losses > 0 %}
+            {{ "%.3f"|format(team.wins / (team.wins + team.losses)) }}
+          {% else %}
+            .000
+          {% endif %}
+        </td>
+        <td class="num">{{ team.points_for }}</td>
+        <td class="num">{{ team.points_against }}</td>
+        <td class="num {% if team.point_diff > 0 %}diff-positive{% elif team.point_diff < 0 %}diff-negative{% endif %}">
+          {% if team.point_diff > 0 %}+{% endif %}{{ team.point_diff }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# --- Footer Metadata --- #}
+{% if memorial.generated_at %}
+<div style="text-align:center; padding:1rem 0; font-size:0.75rem; color:var(--text-muted);">
+  Memorial generated {{ memorial.generated_at[:10] }}
+  {% if memorial.model_used %} -- {{ memorial.model_used }}{% endif %}
+</div>
+{% endif %}
+{% endblock %}

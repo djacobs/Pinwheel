@@ -886,6 +886,100 @@ class Repository:
         team_name = team.name if team else player.team_id
         return (player.team_id, team_name)
 
+    # --- Search / Stats Queries ---
+
+    async def get_stat_leaders(
+        self,
+        season_id: str,
+        stat: str,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Aggregate box score stats across the season, return top N hoopers.
+
+        Args:
+            season_id: Season to query.
+            stat: Column name on BoxScoreRow (e.g. "points", "assists", "steals").
+            limit: Number of leaders to return.
+
+        Returns:
+            List of dicts with hooper_id and total.
+        """
+        stat_col = getattr(BoxScoreRow, stat, None)
+        if stat_col is None:
+            return []
+
+        stmt = (
+            select(
+                BoxScoreRow.hooper_id,
+                func.sum(stat_col).label("total"),
+            )
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(GameResultRow.season_id == season_id)
+            .group_by(BoxScoreRow.hooper_id)
+            .order_by(func.sum(stat_col).desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            {"hooper_id": row[0], "total": row[1]}
+            for row in result.all()
+        ]
+
+    async def get_head_to_head(
+        self,
+        season_id: str,
+        team_a_id: str,
+        team_b_id: str,
+    ) -> list[GameResultRow]:
+        """Get all games between two teams in a season.
+
+        Returns games ordered by round_number.
+        """
+        stmt = (
+            select(GameResultRow)
+            .where(
+                GameResultRow.season_id == season_id,
+                or_(
+                    (
+                        (GameResultRow.home_team_id == team_a_id)
+                        & (GameResultRow.away_team_id == team_b_id)
+                    ),
+                    (
+                        (GameResultRow.home_team_id == team_b_id)
+                        & (GameResultRow.away_team_id == team_a_id)
+                    ),
+                ),
+            )
+            .options(selectinload(GameResultRow.box_scores))
+            .order_by(GameResultRow.round_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_games_for_team(
+        self,
+        season_id: str,
+        team_id: str,
+    ) -> list[GameResultRow]:
+        """Get all games involving a specific team in a season.
+
+        Returns games ordered by round_number.
+        """
+        stmt = (
+            select(GameResultRow)
+            .where(
+                GameResultRow.season_id == season_id,
+                or_(
+                    GameResultRow.home_team_id == team_id,
+                    GameResultRow.away_team_id == team_id,
+                ),
+            )
+            .options(selectinload(GameResultRow.box_scores))
+            .order_by(GameResultRow.round_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     # --- Hooper Box Scores & League Averages ---
 
     async def get_box_scores_for_hooper(
