@@ -91,9 +91,9 @@
         </span>
         {% if streaks is defined %}
         {% set streak = streaks.get(s.team_id, 0) %}
-        {% if streak >= 3 %}
+        {% if streak > 0 %}
         <span class="mono diff-positive" style="font-size:0.75rem; min-width:2rem; text-align:right;">W{{ streak }}</span>
-        {% elif streak <= -3 %}
+        {% elif streak < 0 %}
         <span class="mono diff-negative" style="font-size:0.75rem; min-width:2rem; text-align:right;">L{{ streak|abs }}</span>
         {% endif %}
         {% endif %}
