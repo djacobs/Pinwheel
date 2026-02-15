@@ -17,7 +17,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15 (cont):** Dev-mode Discord guard, server welcome DM for new members
 - **Day 15 (cont):** V2 tier detection, minimum voting period, Discord channel slug fix
-- **Latest commit:** `0260e78` — normalize Discord channel slugs to prevent duplicate creation
+- **Day 15 (cont):** /schedule nudge in new-season Discord embeds
+- **Latest commit:** `8b30441` — add /schedule nudge to new-season Discord embeds
 
 ## Today's Agenda
 
@@ -157,3 +158,37 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1446 tests, zero lint errors.**
 
 **What could have gone better:** Straightforward change — nothing to flag.
+
+---
+
+## Plan/Implementation Alignment Cleanup Checklist (Appended)
+
+### Phase 1: Triage plan artifacts (highest impact)
+- [ ] Move non-Pinwheel plans out of active planning scope (archive to `docs/plans/external/` or delete if accidental imports).
+- [ ] Triage these clearly foreign files: `docs/plans/2026-02-15-tk-authorship-journey-implementation.md`, `docs/plans/2026-02-15-close-document-navigation-draftstage.md`, `docs/plans/2026-02-15-fix-three-revise-draft-ux-bugs.md`, `docs/plans/2026-02-15-token-counter-animation.md`, `docs/plans/2026-02-15-llm-call-optimization-advisor.md`.
+- [ ] Triage these non-Pinwheel project plans: `docs/plans/2026-02-15-linkblog-link-aggregation-syndication.md`, `docs/plans/2026-02-15-feedly-oauth-refresh-token.md`, `docs/plans/2026-02-15-newsletter-ring-implementation.md`.
+- [ ] Add a short note at top of each moved file: "Archived as out-of-repo scope."
+
+### Phase 2: Mark implemented plans as implemented
+- [ ] Update `docs/plans/2026-02-14-token-cost-tracking-dashboard.md` status from Draft to Implemented (except demo step if still pending).
+- [ ] Update `docs/plans/2026-02-14-rate-limiting-proposals.md` status to Implemented (cooldown + window cap + spend-before-confirm landed in `src/pinwheel/discord/bot.py:2026`).
+- [ ] Update `docs/plans/2026-02-14-dramatic-pacing-modulation.md` status to Implemented (module + tests exist in `src/pinwheel/core/drama.py`, `tests/test_drama.py`).
+- [ ] Update `docs/plans/2026-02-14-season-memorial-system.md` status to Implemented (core + template + tests exist).
+- [ ] Update high-level stale checklists (at least add "historical snapshot; see DEV_LOG for completion state") in `docs/plans/2026-02-11-discord-bot-plan.md`, `docs/plans/2026-02-11-frontend-plan.md`, `docs/plans/2026-02-11-day1-implementation-plan.md`.
+
+### Phase 3: True remaining gaps (keep as active TODO)
+- [ ] Spectator follow system remains genuinely unimplemented; keep `docs/plans/2026-02-14-spectator-journey-and-team-following.md` active and break into executable tickets.
+- [ ] Create missing follow API/module: `src/pinwheel/api/follow.py`.
+- [ ] Add DB model + repository methods for follows (`TeamFollowRow`, `follow_team`, `unfollow_team`, etc.) in `src/pinwheel/db/models.py` and `src/pinwheel/db/repository.py`.
+- [ ] Add follow/unfollow UI on `templates/pages/team.html` and personalized home highlighting in `templates/pages/home.html`.
+- [ ] Add tests for follow flow (`tests/test_follow.py`).
+
+### Phase 4: Lifecycle/data integrity fixes
+- [ ] Resolve archive lifecycle mismatch: `close_offseason()` docstring says it archives, but it currently only transitions to complete (`src/pinwheel/core/season.py:883`, `src/pinwheel/core/season.py:922`).
+- [ ] Either call `archive_season()` during season close, or revise docs/dev log to reflect manual archive policy.
+- [ ] Confirm whether `"series"` report type should be produced; if yes, add generation/store path in `src/pinwheel/core/game_loop.py` (current flow stores simulation/governance/private only).
+
+### Phase 5: Dev log + demo hygiene
+- [ ] Close or carry forward open agenda items in `docs/dev_log/DEV_LOG.md:27` and `docs/dev_log/DEV_LOG.md:28`.
+- [ ] If cost dashboard is now implemented, add demo capture step for `/admin/costs` in `scripts/run_demo.sh`.
+- [ ] Add one "Plan hygiene" entry to `docs/dev_log/DEV_LOG.md` documenting what was archived vs marked complete.
