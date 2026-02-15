@@ -73,6 +73,7 @@ class PinwheelBot(commands.Bot):
         self.channel_ids: dict[str, int] = {}
         self._team_names_cache: list[str] = []
         self._event_listener_task: asyncio.Task[None] | None = None
+        self._setup_done: bool = False
         self._setup_commands()
 
     def _setup_commands(self) -> None:
@@ -321,14 +322,21 @@ class PinwheelBot(commands.Bot):
             logger.info("discord_commands_synced globally")
 
     async def on_ready(self) -> None:
-        """Called when the bot has connected to Discord."""
+        """Called when the bot has connected to Discord.
+
+        on_ready fires on every reconnect, not just the first connection.
+        Guard setup to run only once to prevent duplicate channel creation.
+        """
         user = self.user
         name = user.name if user else "unknown"
         logger.info("discord_bot_ready user=%s", name)
-        await self._setup_server()
-        self._event_listener_task = asyncio.create_task(
-            self._listen_to_event_bus(), name="discord-event-listener"
-        )
+        if not self._setup_done:
+            await self._setup_server()
+            self._setup_done = True
+        if self._event_listener_task is None or self._event_listener_task.done():
+            self._event_listener_task = asyncio.create_task(
+                self._listen_to_event_bus(), name="discord-event-listener"
+            )
 
     async def _listen_to_event_bus(self) -> None:
         """Subscribe to EventBus and forward events to Discord channels."""
@@ -484,8 +492,10 @@ class PinwheelBot(commands.Bot):
                 logger.info("discord_setup_reused channel=%s id=%d", ch_name, persisted_id)
                 return existing
 
-        # 2. Look up by name in guild
+        # 2. Look up by name in guild (prefer same category, fall back to any)
         existing = discord.utils.get(guild.text_channels, name=ch_name, category=category)
+        if existing is None:
+            existing = discord.utils.get(guild.text_channels, name=ch_name)
         if existing is not None:
             logger.info("discord_setup_found_by_name channel=%s id=%d", ch_name, existing.id)
             return existing
@@ -544,13 +554,16 @@ class PinwheelBot(commands.Bot):
                 team_ch = found
                 logger.info("discord_setup_reused team_channel=%s id=%d", slug, persisted_id)
 
-        # 2. Look up by name
+        # 2. Look up by name (prefer same category, fall back to any)
         if team_ch is None:
             team_ch = discord.utils.get(
                 guild.text_channels,
                 name=slug,
                 category=category,
             )
+            if team_ch is None:
+                # Channel may exist outside the category (from older setup)
+                team_ch = discord.utils.get(guild.text_channels, name=slug)
             if team_ch is not None:
                 logger.info("discord_setup_found_by_name team_channel=%s id=%d", slug, team_ch.id)
 
