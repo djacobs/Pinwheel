@@ -979,6 +979,49 @@ async def start_new_season(
     if ruleset_data is None:
         ruleset_data = DEFAULT_RULESET.model_dump()
 
+    # 2b. Complete the previous season (tally any remaining proposals first)
+    if source_season_id is not None:
+        prev_season_to_close = await repo.get_season(source_season_id)
+        if prev_season_to_close and prev_season_to_close.status not in (
+            "completed",
+            "complete",
+            "archived",
+        ):
+            # Tally any untallied proposals so they resolve (ties fail at 0-0)
+            from sqlalchemy import func as sa_func
+            from sqlalchemy import select as sa_select
+
+            from pinwheel.core.game_loop import tally_pending_governance
+            from pinwheel.db.models import GameResultRow
+
+            prev_ruleset = RuleSet(**(prev_season_to_close.current_ruleset or {}))
+            max_round_result = await repo.session.execute(
+                sa_select(
+                    sa_func.coalesce(sa_func.max(GameResultRow.round_number), 0)
+                ).where(GameResultRow.season_id == source_season_id)
+            )
+            last_round: int = max_round_result.scalar_one()
+            updated_ruleset, tallies, _gov_data = await tally_pending_governance(
+                repo, source_season_id, last_round, prev_ruleset,
+            )
+            if tallies:
+                logger.info(
+                    "start_new_season_final_tally season=%s tallied=%d",
+                    source_season_id,
+                    len(tallies),
+                )
+            # If tally changed the ruleset and we're carrying forward, use it
+            if carry_forward_rules and updated_ruleset != prev_ruleset:
+                ruleset_data = updated_ruleset.model_dump()
+
+            prev_season_to_close.status = SeasonPhase.COMPLETE.value
+            await repo.session.flush()
+            logger.info(
+                "start_new_season_closed_previous season=%s status=%s",
+                source_season_id,
+                prev_season_to_close.status,
+            )
+
     # 3. Create the new season
     new_season = await repo.create_season(
         league_id=league_id,

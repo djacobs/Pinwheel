@@ -439,3 +439,83 @@ class TestStartNewSeasonIntegration:
         # Everything else still works
         teams = await repo.get_teams_for_season(new_season.id)
         assert len(teams) == 2
+
+    async def test_previous_season_completed_on_new_season(self, repo: Repository) -> None:
+        """Starting a new season should complete the previous one."""
+        league = await repo.create_league("Test League")
+        old = await _seed_completed_season(repo, league.id)
+        # Set old season back to active (simulating admin running /new-season mid-season)
+        old_season = await repo.get_season(old)
+        old_season.status = "active"
+        await repo.session.flush()
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            previous_season_id=old,
+        )
+
+        # Old season should be completed
+        refreshed_old = await repo.get_season(old)
+        assert refreshed_old.status == "complete"
+        assert new_season.status == "active"
+
+    async def test_untallied_proposals_resolved_on_season_close(
+        self, repo: Repository
+    ) -> None:
+        """Untallied proposals should be tallied (and fail at 0-0) when season closes."""
+        league = await repo.create_league("Test League")
+        old = await _seed_completed_season(repo, league.id)
+        old_season = await repo.get_season(old)
+        old_season.status = "active"
+        await repo.session.flush()
+
+        # Submit and confirm a proposal in the old season
+        teams = await repo.get_teams_for_season(old)
+        team = teams[0]
+        player = await repo.get_or_create_player("disc123", "tester")
+        await repo.enroll_player(player.id, old, team.id)
+        await repo.append_event(
+            event_type="proposal.submitted",
+            aggregate_id="prop-1",
+            aggregate_type="proposal",
+            season_id=old,
+            governor_id=player.id,
+            payload={
+                "id": "prop-1",
+                "raw_text": "test proposal",
+                "status": "submitted",
+                "season_id": old,
+                "governor_id": player.id,
+                "team_id": team.id,
+                "tier": 1,
+                "interpretation": {"parameter": "shot_clock_seconds", "new_value": 20,
+                                   "old_value": 30, "confidence": 0.9},
+            },
+        )
+        await repo.append_event(
+            event_type="proposal.confirmed",
+            aggregate_id="prop-1",
+            aggregate_type="proposal",
+            season_id=old,
+            governor_id=player.id,
+            payload={"proposal_id": "prop-1"},
+        )
+
+        # Start new season — should tally the orphaned proposal
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            previous_season_id=old,
+        )
+
+        # The proposal should now be resolved (failed — 0 votes, ties fail)
+        resolved = await repo.get_events_by_type(
+            season_id=old,
+            event_types=["proposal.passed", "proposal.failed"],
+        )
+        assert len(resolved) == 1
+        assert resolved[0].event_type == "proposal.failed"
+        assert new_season.status == "active"
