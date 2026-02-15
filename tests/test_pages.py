@@ -2,6 +2,7 @@
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from itsdangerous import URLSafeTimedSerializer
 
 from pinwheel.config import Settings
 from pinwheel.core.game_loop import step_round
@@ -693,3 +694,142 @@ class TestAdminSeason:
         assert "NORMAL" in r.text
         assert "SLOW" in r.text
         assert "MANUAL" in r.text
+
+
+def _sign_session(secret_key: str, data: dict) -> str:
+    """Create a signed session cookie value for testing."""
+    serializer = URLSafeTimedSerializer(secret_key, salt="pinwheel-session")
+    return serializer.dumps(data)
+
+
+ADMIN_DISCORD_ID = "999888777"
+NON_ADMIN_DISCORD_ID = "111222333"
+
+
+@pytest.fixture
+async def admin_auth_client():
+    """App with admin Discord ID set + signed session cookie for admin user."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        pinwheel_env="production",
+        pinwheel_admin_discord_id=ADMIN_DISCORD_ID,
+        session_secret_key="test-secret-key",
+        discord_client_id="",
+        discord_client_secret="",
+    )
+    app = create_app(settings)
+
+    engine = create_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.engine = engine
+
+    from pinwheel.core.event_bus import EventBus
+    from pinwheel.core.presenter import PresentationState
+
+    app.state.event_bus = EventBus()
+    app.state.presentation_state = PresentationState()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client, settings
+
+    await engine.dispose()
+
+
+class TestAdminLandingPage:
+    """Tests for the /admin landing page."""
+
+    async def test_admin_page_renders_for_admin(self, admin_auth_client):
+        """Admin landing page renders for authenticated admin user."""
+        client, settings = admin_auth_client
+        cookie = _sign_session(
+            settings.session_secret_key,
+            {
+                "discord_id": ADMIN_DISCORD_ID,
+                "username": "TheAdmin",
+                "avatar_url": "",
+            },
+        )
+        client.cookies.set("pinwheel_session", cookie)
+
+        r = await client.get("/admin")
+        assert r.status_code == 200
+        assert "Admin" in r.text
+        assert "Season" in r.text
+        assert "Governors" in r.text
+        assert "Evals" in r.text
+
+    async def test_admin_page_403_for_non_admin(self, admin_auth_client):
+        """Non-admin authenticated user gets 403."""
+        client, settings = admin_auth_client
+        cookie = _sign_session(
+            settings.session_secret_key,
+            {
+                "discord_id": NON_ADMIN_DISCORD_ID,
+                "username": "RegularUser",
+                "avatar_url": "",
+            },
+        )
+        client.cookies.set("pinwheel_session", cookie)
+
+        r = await client.get("/admin")
+        assert r.status_code == 403
+
+    async def test_admin_page_redirect_unauthenticated(self, admin_auth_client):
+        """Unauthenticated user with OAuth enabled gets redirected to login."""
+        client, settings = admin_auth_client
+        # Enable OAuth so redirect kicks in
+        settings.discord_client_id = "fake-client-id"
+        settings.discord_client_secret = "fake-secret"
+
+        r = await client.get("/admin", follow_redirects=False)
+        assert r.status_code == 302
+        assert "/auth/login" in r.headers["location"]
+
+    async def test_admin_page_403_unauthenticated_no_oauth(self, admin_auth_client):
+        """Unauthenticated user without OAuth gets 403."""
+        client, _ = admin_auth_client
+        r = await client.get("/admin")
+        assert r.status_code == 403
+
+    async def test_admin_nav_visible_for_admin(self, admin_auth_client):
+        """Admin nav link appears on any page for admin users."""
+        client, settings = admin_auth_client
+        cookie = _sign_session(
+            settings.session_secret_key,
+            {
+                "discord_id": ADMIN_DISCORD_ID,
+                "username": "TheAdmin",
+                "avatar_url": "",
+            },
+        )
+        client.cookies.set("pinwheel_session", cookie)
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert 'href="/admin"' in r.text
+
+    async def test_admin_nav_hidden_for_non_admin(self, admin_auth_client):
+        """Admin nav link is NOT visible for non-admin users."""
+        client, settings = admin_auth_client
+        cookie = _sign_session(
+            settings.session_secret_key,
+            {
+                "discord_id": NON_ADMIN_DISCORD_ID,
+                "username": "RegularUser",
+                "avatar_url": "",
+            },
+        )
+        client.cookies.set("pinwheel_session", cookie)
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert 'href="/admin"' not in r.text
+
+    async def test_admin_nav_hidden_when_logged_out(self, admin_auth_client):
+        """Admin nav link is NOT visible when no user is logged in."""
+        client, _ = admin_auth_client
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert 'href="/admin"' not in r.text

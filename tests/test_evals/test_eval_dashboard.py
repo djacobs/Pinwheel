@@ -101,17 +101,17 @@ async def test_dashboard_no_report_text(app_client):
 
 
 @pytest.mark.asyncio
-async def test_nav_link_dev(app_client):
-    """Evals nav link appears in dev environment."""
+async def test_admin_nav_hidden_without_auth(app_client):
+    """Admin nav link hidden when no user is authenticated."""
     resp = await app_client.get("/")
-    assert "/admin/evals" in resp.text
+    assert 'href="/admin"' not in resp.text
 
 
 @pytest.mark.asyncio
-async def test_nav_link_production(prod_app_client):
-    """Evals nav link hidden in production."""
+async def test_admin_nav_hidden_production(prod_app_client):
+    """Admin nav link hidden in production when not authenticated."""
     resp = await prod_app_client.get("/")
-    assert "/admin/evals" not in resp.text
+    assert 'href="/admin"' not in resp.text
 
 
 @pytest.mark.asyncio

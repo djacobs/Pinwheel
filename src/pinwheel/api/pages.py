@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from pinwheel.api.charts import (
@@ -30,12 +30,19 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
     """Build auth-related template context available on every page."""
     settings = request.app.state.settings
     oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+    admin_id = settings.pinwheel_admin_discord_id
+    is_admin = (
+        current_user is not None
+        and bool(admin_id)
+        and current_user.discord_id == admin_id
+    )
     return {
         "current_user": current_user,
         "oauth_enabled": oauth_enabled,
         "pinwheel_env": settings.pinwheel_env,
         "app_version": APP_VERSION,
         "discord_invite_url": settings.discord_invite_url,
+        "is_admin": is_admin,
     }
 
 
@@ -1345,6 +1352,30 @@ async def season_archive_detail(
             "archive": archive_data,
             **_auth_context(request, current_user),
         },
+    )
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_landing_page(request: Request, current_user: OptionalUser):
+    """Admin landing page — hub for admin tools.
+
+    Redirects unauthenticated users to login. Returns 403 for non-admins.
+    """
+    settings = request.app.state.settings
+    if current_user is None:
+        oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+        if oauth_enabled:
+            return RedirectResponse("/auth/login", status_code=302)
+        raise HTTPException(403, "Not authorized")
+
+    admin_id = settings.pinwheel_admin_discord_id
+    if not admin_id or current_user.discord_id != admin_id:
+        raise HTTPException(403, "Not authorized")
+
+    return templates.TemplateResponse(
+        request,
+        "pages/admin.html",
+        {"active_page": "admin", **_auth_context(request, current_user)},
     )
 
 

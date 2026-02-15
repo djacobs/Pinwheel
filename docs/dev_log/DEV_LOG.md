@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **888 tests**, zero lint errors (Session 61)
+- **902 tests**, zero lint errors (Session 62)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 61 (P0 playoff fixes — deferred events + best-of-N series)
+- **Latest commit:** Session 62 (Admin nav: auth-gated landing page)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -61,12 +61,37 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 - [ ] **GameEffect hooks** — Rule changes trigger visual/mechanical effects in simulation. *(Medium — part of simulation extensibility plan)*
 - [ ] **Cleanup** — Remove dead `GovernanceWindow` model, rebounds in narration, best-of-N playoff series.
 
-### Suggested execution order
-1. P0: Admin visibility (quick win, ~30 min)
-2. P0: Season Lifecycle (large, foundational — unlocks P2 items)
-3. P1: NarrativeContext (medium, transforms output quality)
-4. P1: Game Richness audit (pairs naturally with NarrativeContext)
-5. P2: Playoff fixes + demo verification (hackathon polish)
+### Wave execution plan (Session 62+)
+
+Remaining work structured into four waves optimized for parallelism and dependency order.
+
+**Wave 1 — Foundation (parallel, no interdependencies)**
+- [ ] **Proposal Effects System** (P0, large) — Rewires how proposals execute. Callbacks at every hook point, meta JSON columns, effect execution engine. Independent of output systems.
+- [ ] **NarrativeContext module** (P1, medium) — Read-only data aggregation layer (streaks, rivalries, playoff implications) that feeds all output systems. Independent of proposal mechanics.
+- [ ] **Cleanup** (P3, small) — Remove dead `GovernanceWindow` model, rebounds in narration. Trivial, no dependencies.
+
+*Why parallel:* These three touch entirely different subsystems. Proposal Effects rewires governance execution. NarrativeContext is a read-only layer for output enrichment. Cleanup is dead code removal. No conflicts.
+
+**Wave 2 — Build on foundations (parallel, each depends on a Wave 1 item)**
+- [ ] **Game Richness audit** (P1, medium) — Audit all player-facing outputs against `GAME_MOMENTS.md`. *Depends on NarrativeContext* — that module provides the dramatic context data this audit wires into outputs.
+- [ ] **GameEffect hooks** (P3, medium) — Rule changes trigger visual/mechanical effects in simulation. *Depends on Proposal Effects* — effects need the hook points and execution engine from the effects system.
+- [ ] **Multi-parameter interpretation + expanded RuleSet** (P1, medium) — Compound proposals, more tunable parameters. *Depends on Proposal Effects* — expands the target space proposals can hit, needs the broader effects architecture in place first.
+
+*Why parallel:* All three depend on Wave 1 items but are independent of each other. Game Richness touches output templates. GameEffect hooks touch simulation. Multi-parameter interpretation touches the AI interpreter. No conflicts.
+
+**Wave 3 — Verify (after Waves 1-2 land)**
+- [ ] **End-to-end workflow verification** (P0.5) — Full player journey: `/join` → `/propose` → `/vote` → games → standings → reports → playoffs → championship. Every step, no dead ends. This is where integration bugs from Waves 1-2 surface.
+- [ ] **Workbench + safety layer** (P3, large) — Admin eval dashboard with injection classifier. Independent of everything else — can run parallel with e2e verification.
+
+*Why here:* E2e verification must follow the architectural changes in Waves 1-2 to be meaningful. Running it earlier would just verify the old system. Workbench is truly independent but lower priority (P3), so it slots here rather than competing for attention in Wave 1.
+
+**Wave 4 — Hackathon prep (sequential, do last)**
+1. [ ] **Reset season history to 0** — Clear game/season data, retain player enrollments. Fresh slate for demo.
+2. [ ] **Demo verification** — Run full Showboat/Rodney pipeline, capture updated screenshots on the clean slate.
+
+*Why last and sequential:* Reset destroys data — must happen after all features are verified. Demo captures the final state — must happen after reset. Order is non-negotiable.
+
+**Critical path:** Proposal Effects → GameEffect hooks + Multi-param interpretation → E2E verification → Reset → Demo. The NarrativeContext → Game Richness track runs in parallel and doesn't block the critical path.
 
 ### Open issues (deferred)
 - [ ] Future: Rebounds in play-by-play narration
@@ -571,3 +596,32 @@ Post-round session (~1s): mark games presented
 **888 tests (12 new, 1 removed), zero lint errors.**
 
 **What could have gone better:** The default ruleset change (`playoff_semis_best_of=3`) caused two tests in other files to fail — `test_season_archive` and `test_season_lifecycle` both ran full season lifecycles that included playoffs, and the new default meant series didn't clinch in 1 game. Adding `playoff_semis_best_of=1, playoff_finals_best_of=1` to those tests' starting rulesets fixed it cleanly.
+
+---
+
+## Session 62 — Admin Nav: Auth-Gated Landing Page
+
+**What was asked:** Admin nav links (Evals, Season) were env-gated (`development`/`staging` only), invisible in production. Replace with a single "Admin" nav item gated on `PINWHEEL_ADMIN_DISCORD_ID` that works in all environments, leading to a landing page hub.
+
+**What was built:**
+
+### `is_admin` in auth context (`pages.py`)
+- Added `is_admin` boolean to `_auth_context()`: true when current user's Discord ID matches `PINWHEEL_ADMIN_DISCORD_ID`. Available in every template.
+
+### Auth-gated nav (`base.html`)
+- Replaced env-gated `{% if pinwheel_env in ['development', 'staging'] %}` block (two links: Evals, Season) with `{% if is_admin %}` block (one link: Admin).
+- Admin link visible in all environments for authenticated admin users only.
+
+### `/admin` landing page (`pages.py` + `templates/pages/admin.html`)
+- New route with auth checks: redirects to login if unauthenticated (when OAuth enabled), returns 403 for non-admins.
+- Hub page with three cards linking to Season, Governors, and Evals admin pages. Styled with existing card classes and accent colors.
+
+### Tests (7 new)
+- `TestAdminLandingPage`: renders for admin, 403 for non-admin, redirect for unauthenticated with OAuth, 403 without OAuth, nav visible for admin, nav hidden for non-admin, nav hidden when logged out.
+- Updated 2 existing tests in `test_eval_dashboard.py` to reflect auth-gated (not env-gated) nav behavior.
+
+**Files modified (4):** `src/pinwheel/api/pages.py`, `templates/base.html`, `templates/pages/admin.html` (new), `tests/test_pages.py`, `tests/test_evals/test_eval_dashboard.py`
+
+**902 tests (7 new, 2 updated), zero lint errors.**
+
+**What could have gone better:** The `admin_auth_client` test fixture initially didn't explicitly set `discord_client_id=""` and `discord_client_secret=""`, so the Settings class picked up values from the environment, causing the "403 without OAuth" test to get a 302 redirect instead. Fixed by explicitly clearing those values in the fixture.

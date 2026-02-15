@@ -609,3 +609,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 87. [DONE] /admin/season page — runtime config + season history
 **Problem:** No admin visibility into current season configuration (pace, auto-advance, governance interval, etc.) or season history.
 **Fix:** New `/admin/season` page with: current season card (status, round, teams, governors, games, start date), runtime configuration table (pace with color coding, all settings from env vars), season history table with status badges, and HTMX-powered quick action buttons for pace control.
+
+### 88. [DONE] Admin nav — auth-gated single link + landing page hub
+**Problem:** Admin links (Evals, Season) were gated on `pinwheel_env in ['development', 'staging']`, making them invisible in production. Admins had to type URLs manually.
+**Fix:** Replaced env-gated nav block with auth-gated `{% if is_admin %}` check using `PINWHEEL_ADMIN_DISCORD_ID`. Single "Admin" nav link leads to `/admin` landing page with three cards (Season, Governors, Evals). Works in all environments. Non-admins never see the link; direct URL returns 403.

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Admin — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Admin</h1>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+
+  <a href="/admin/season" class="card" style="text-decoration: none; color: inherit; transition: transform 0.15s ease;">
+    <div class="card-header">
+      <h3 style="color: var(--accent-score);">Season</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-muted">Season management, runtime config, pace control, and season history.</p>
+    </div>
+  </a>
+
+  <a href="/admin/roster" class="card" style="text-decoration: none; color: inherit; transition: transform 0.15s ease;">
+    <div class="card-header">
+      <h3 style="color: var(--accent-governance);">Governors</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-muted">Player roster, team enrollments, tokens, and proposals.</p>
+    </div>
+  </a>
+
+  <a href="/admin/evals" class="card" style="text-decoration: none; color: inherit; transition: transform 0.15s ease;">
+    <div class="card-header">
+      <h3 style="color: var(--accent-report);">Evals</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-muted">Safety metrics, Governance Quality Index, flags, and round drill-downs.</p>
+    </div>
+  </a>
+
+</div>
+{% endblock %}
