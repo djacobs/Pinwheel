@@ -486,6 +486,7 @@ def generate_simulation_report_mock(
     if narrative:
         # Streaks — only for teams that played THIS round, woven into
         # the game context rather than floating disconnected.
+        sweep_noted = False
         for team_id, streak in narrative.streaks.items():
             if team_id not in played_ids and played_ids:
                 continue
@@ -497,7 +498,16 @@ def generate_simulation_report_mock(
 
             if streak >= 3:
                 won = any(str(e["winner_id"]) == team_id for e in entries)
-                if won:
+                # Detect sweep: in playoffs, a win streak matching the
+                # series best-of means they never lost a game.
+                if is_playoff and won and not sweep_noted:
+                    lines.append(
+                        f"That's a {streak}-game win streak "
+                        f"for {team_name} — a clean sweep "
+                        f"of the {phase_label} series."
+                    )
+                    sweep_noted = True
+                elif won:
                     lines.append(
                         f"That's a {streak}-game win streak "
                         f"for {team_name}."
@@ -508,10 +518,18 @@ def generate_simulation_report_mock(
                         f"{streak}-game win streak."
                     )
             elif streak <= -3:
-                lines.append(
-                    f"{team_name} have now dropped "
-                    f"{abs(streak)} in a row."
-                )
+                if is_playoff and not sweep_noted:
+                    lines.append(
+                        f"{team_name} were swept — "
+                        f"{abs(streak)} straight losses "
+                        f"in the {phase_label}."
+                    )
+                    sweep_noted = True
+                else:
+                    lines.append(
+                        f"{team_name} have now dropped "
+                        f"{abs(streak)} in a row."
+                    )
 
         # Rules narrative (only if no rule changes from round data)
         if narrative.rules_narrative and not rule_changes:
@@ -528,9 +546,19 @@ def generate_simulation_report_mock(
         elif narrative.season_arc == "championship":
             lines.append("The championship celebration has begun.")
 
-        # Hot players — connected to the game they played in
+        # Hot players — connected to the game they played in.
+        # Sort so winners come before losers.
         if narrative.hot_players:
-            for hp in narrative.hot_players[:2]:
+            sorted_hp = sorted(
+                narrative.hot_players[:4],
+                key=lambda hp: (
+                    0 if any(
+                        hp.get("team_name") == e["winner"]
+                        for e in entries
+                    ) else 1
+                ),
+            )
+            for hp in sorted_hp[:2]:
                 hp_name = hp.get("name", "?")
                 hp_team = hp.get("team_name", "?")
                 hp_pts = hp.get("value", 0)

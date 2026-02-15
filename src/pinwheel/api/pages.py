@@ -1754,10 +1754,18 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
                 "governance": {},
             }
 
+            # Detect playoff phase for this round
+            round_phase = await _get_game_phase(repo, season_id, current_round)
+
+            # Total games played this season
+            total_season_games = sum(s.get("wins", 0) for s in standings)
+
             headlines = generate_newspaper_headlines_mock(
                 round_data, current_round,
                 season_complete=season_complete,
                 champion_name=champion_name,
+                playoff_phase=round_phase or "",
+                total_games_played=total_season_games,
             )
             headline = headlines.get("headline", "")
             subhead = headlines.get("subhead", "")
