@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1085 tests**, zero lint errors (Session 66)
+- **1089 tests**, zero lint errors (Session 67)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 66 (Game Richness audit — playoff awareness across all output systems)
+- **Latest commit:** Session 67 (Doc updates for auto-migrate schema)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -831,3 +831,23 @@ Post-round session (~1s): mark games presented
 **1085 tests (115 new), zero lint errors.**
 
 **What could have gone better:** The Showboat demo pipeline (`run_demo.sh`) has a fragile screenshot invocation that failed on argument parsing. Rodney screenshots were not captured automatically. Manual refresh would be needed for demo artifacts.
+
+---
+
+## Session 67 — Doc Updates for Auto-Migrate Schema
+
+**What was asked:** Update CLAUDE.md and EFFECTS_SYSTEM.md to reflect the new `auto_migrate_schema()` system introduced in commit `1d9964c`. The system replaces hand-coded `_add_column_if_missing()` calls with a generic startup introspection that compares ORM models against SQLite `PRAGMA table_info` and adds missing columns automatically.
+
+**What was built:**
+
+### CLAUDE.md updates
+- **Tech Stack:** Updated "Schema managed via" note to mention `auto_migrate_schema()` alongside `create_all()`.
+- **LIVE DATA section:** Replaced the "Schema changes require migration scripts" bullet with a new bullet documenting auto-migration for additive changes (nullable columns and columns with scalar defaults) while noting destructive changes still need manual scripts.
+
+### EFFECTS_SYSTEM.md updates
+- **MetaStore "Database backing" paragraph:** Updated to note that `auto_migrate_schema()` handles the meta columns at startup, making `scripts/migrate_add_meta.py` redundant (kept for reference).
+- **File Reference table:** Marked the `scripts/migrate_add_meta.py` row as superseded by `auto_migrate_schema()`.
+
+**Files modified (2):** `CLAUDE.md`, `docs/EFFECTS_SYSTEM.md`
+
+**1089 tests, zero lint errors.**
