@@ -1,9 +1,10 @@
 """Tests for database layer: engine, ORM models, repository round-trips."""
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from pinwheel.db.engine import create_engine, get_session
+from pinwheel.db.engine import auto_migrate_schema, create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
 
@@ -409,3 +410,68 @@ class TestSchedule:
         schedule = await repo.get_schedule_for_round(season.id, 1)
         assert len(schedule) == 1
         assert schedule[0].home_team_id == t1.id
+
+
+class TestAutoMigrateSchema:
+    """Tests for the generic auto-migration that detects and adds missing columns."""
+
+    async def test_adds_missing_nullable_column(self):
+        """Drop a nullable column (seasons.meta), verify auto_migrate re-adds it."""
+        eng = create_engine("sqlite+aiosqlite:///:memory:")
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("ALTER TABLE seasons DROP COLUMN meta"))
+
+            # Confirm it's gone
+            result = await conn.execute(text("PRAGMA table_info(seasons)"))
+            assert "meta" not in {row[1] for row in result}
+
+            added = await auto_migrate_schema(conn)
+            assert added >= 1
+
+            # Confirm it's back
+            result = await conn.execute(text("PRAGMA table_info(seasons)"))
+            assert "meta" in {row[1] for row in result}
+        await eng.dispose()
+
+    async def test_adds_column_with_scalar_default(self):
+        """Drop a column with a scalar default (game_results.presented), verify re-add."""
+        eng = create_engine("sqlite+aiosqlite:///:memory:")
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(
+                text("ALTER TABLE game_results DROP COLUMN presented")
+            )
+
+            added = await auto_migrate_schema(conn)
+            assert added >= 1
+
+            result = await conn.execute(text("PRAGMA table_info(game_results)"))
+            cols = {row[1]: row for row in result}
+            assert "presented" in cols
+            # Default should be 0 (False)
+            assert cols["presented"][4] == "0"
+        await eng.dispose()
+
+    async def test_skips_not_null_no_default(self):
+        """A NOT-NULL column with no SQL default should be skipped, not crash."""
+        eng = create_engine("sqlite+aiosqlite:///:memory:")
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("ALTER TABLE seasons DROP COLUMN name"))
+
+            await auto_migrate_schema(conn)
+
+            # name should NOT be re-added (unsafe: NOT NULL, no default)
+            result = await conn.execute(text("PRAGMA table_info(seasons)"))
+            assert "name" not in {row[1] for row in result}
+        await eng.dispose()
+
+    async def test_returns_zero_when_no_drift(self):
+        """On a fresh schema with no drift, auto_migrate should add nothing."""
+        eng = create_engine("sqlite+aiosqlite:///:memory:")
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            added = await auto_migrate_schema(conn)
+            assert added == 0
+        await eng.dispose()

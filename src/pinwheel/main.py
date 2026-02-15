@@ -29,22 +29,6 @@ from pinwheel.db.models import Base
 logger = logging.getLogger(__name__)
 
 
-async def _add_column_if_missing(
-    conn: object,
-    table: str,
-    column: str,
-    col_def: str,
-) -> None:
-    """Add a column to an existing table if it doesn't already exist (SQLite)."""
-    from sqlalchemy import text
-
-    result = await conn.execute(text(f"PRAGMA table_info({table})"))
-    columns = {row[1] for row in result}
-    if column not in columns:
-        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"))
-        logger.info("migration: added %s.%s", table, column)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: create engine/tables, optionally start Discord bot and scheduler."""
@@ -52,18 +36,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     engine = create_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Inline migration: add columns that create_all won't add to existing tables
-        await _add_column_if_missing(conn, "game_results", "presented", "BOOLEAN DEFAULT 0")
-        await _add_column_if_missing(
-            conn,
-            "teams",
-            "color_secondary",
-            "VARCHAR(7) DEFAULT '#ffffff'",
-        )
-        await _add_column_if_missing(conn, "players", "team_id", "VARCHAR(36)")
-        await _add_column_if_missing(conn, "players", "enrolled_season_id", "VARCHAR(36)")
-        await _add_column_if_missing(conn, "hoopers", "is_active", "BOOLEAN DEFAULT 1")
-        await _add_column_if_missing(conn, "season_archives", "memorial", "JSON")
+        # Auto-migrate: add any columns present in ORM models but missing from DB
+        from pinwheel.db.engine import auto_migrate_schema
+
+        added = await auto_migrate_schema(conn)
+        if added:
+            logger.info("auto-migration: added %d column(s)", added)
     app.state.engine = engine
     app.state.event_bus = EventBus()
     app.state.presentation_state = PresentationState()
