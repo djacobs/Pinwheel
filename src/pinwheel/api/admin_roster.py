@@ -23,11 +23,18 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
     """Build auth-related template context."""
     settings = request.app.state.settings
     oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+    admin_id = settings.pinwheel_admin_discord_id
+    is_admin = (
+        current_user is not None
+        and bool(admin_id)
+        and current_user.discord_id == admin_id
+    )
     return {
         "current_user": current_user,
         "oauth_enabled": oauth_enabled,
         "pinwheel_env": settings.pinwheel_env,
         "app_version": APP_VERSION,
+        "is_admin": is_admin,
     }
 
 

@@ -20,8 +20,8 @@
             <span style="color: var(--accent-score);">ACTIVE</span>
           {% elif current_season.status in ['playoffs', 'championship'] %}
             <span style="color: var(--accent-game);">{{ current_season.status|upper }}</span>
-          {% elif current_season.status in ['completed', 'archived'] %}
-            <span style="color: var(--text-secondary);">{{ current_season.status|upper }}</span>
+          {% elif current_season.status in ['complete', 'completed', 'archived'] %}
+            <span style="color: var(--text-secondary);">COMPLETE</span>
           {% else %}
             <span style="color: var(--accent-gov);">{{ current_season.status|upper }}</span>
           {% endif %}
@@ -171,11 +171,11 @@
           <td>
             <span class="mono" style="font-size: 0.8rem;
               {% if s.status == 'active' %}color: var(--accent-score);
-              {% elif s.status in ['completed', 'archived'] %}color: var(--text-secondary);
+              {% elif s.status in ['complete', 'completed', 'archived'] %}color: var(--text-secondary);
               {% elif s.status in ['playoffs', 'championship'] %}color: var(--accent-game);
               {% else %}color: var(--accent-gov);
               {% endif %}">
-              {{ s.status|upper }}
+              {% if s.status in ['completed', 'archived'] %}COMPLETE{% else %}{{ s.status|upper }}{% endif %}
             </span>
           </td>
           <td class="mono">{{ s.team_count }}</td>
