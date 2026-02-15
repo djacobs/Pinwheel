@@ -697,3 +697,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 106. [DONE] Playoff series context banners on arena game board
 **Problem:** Playoff games on the arena page looked identical to regular-season games. No indication of series context (which round, series score, elimination status).
 **Fix:** Added series context banners to game panels on the arena page showing the playoff round, series score, and elimination game markers.
+
+### 107. [DONE] The Pinwheel Post — newspaper-style round summary page
+**Problem:** AI-generated reports were scattered across the reports page with no unified editorial framing. No single page gave you a "what happened this round" view.
+**Fix:** New `/post` route with newspaper layout — masthead, AI-generated headline, two-column GAME REPORTS / THE FLOOR sections, full-width HIGHLIGHT REEL, bottom STANDINGS + HOT PLAYERS. Added "The Post" to the nav bar. Retro newspaper typography with `letter-spacing`, double-rule borders, and responsive grid.
+
+### 108. [DONE] Playoff series banner showed wrong team leading
+**Problem:** During championship finals, the series context banner showed the wrong team leading (e.g. "HAWTHORNE HAMMERS LEAD 2-0" when Rose City Thorns had 2 wins).
+**Fix:** The pre-round series record stored wins in `(home_team, away_team)` order but keyed by alphabetically-sorted pair. When home sorted after away, wins were swapped. Fixed by passing sorted IDs to the record lookup so tuple order always matches key order.

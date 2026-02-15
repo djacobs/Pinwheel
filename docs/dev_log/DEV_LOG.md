@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1491 tests**, zero lint errors (Session 80)
+- **1514 tests**, zero lint errors (Session 82)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -23,7 +23,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Time-slot grouping — games within a round split into non-overlapping slots, series reports + collaborative editing
 - **Day 15 (cont):** Tick-based scheduling — no team plays twice per tick; No-Look Pass narration fix
 - **Day 15 (cont):** Post-commit skill relocation, SSE dedup, team name links, blank team page fix, playoff series banners
-- **Latest commit:** `56573c5` — fix: blank team pages when viewing cross-season teams
+- **Day 16:** AI intelligence layer (impact validation, leverage detection, behavioral profiles, The Pinwheel Post), playoff series banner fix
+- **Latest commit:** `b06a216` — fix: playoff series banner showed wrong team leading
 
 ## Today's Agenda
 
@@ -319,3 +320,96 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1491 tests, zero lint errors.**
 
 **What could have gone better:** The blank team page bug was subtle — tests pass because tests use the active season, but production had teams from a previous season accessible via game page links (added in this same session). The cross-season scenario was only exposed by the combination of the team links feature and having run multiple seasons in production. The SSE duplicate issue was a regression from earlier HTMX boost work — should have been caught when `hx-boost` was first added.
+
+---
+
+## Security + Simplification Execution Checklist (P0/P1/P2)
+
+### P0 — Execute now (remove/disable first)
+- [ ] **(16)** Disable or remove unauthenticated mutating governance API endpoints in `src/pinwheel/api/governance.py` (`POST /proposals`, `POST /proposals/{id}/confirm`, `POST /votes`) unless they are auth-bound to the caller identity.
+- [ ] **(15)** Disable or remove private report read endpoint `GET /api/reports/private/{season_id}/{governor_id}` in `src/pinwheel/api/reports.py` until ownership checks are enforced.
+- [ ] **(9)** Fix stored XSS risk in hooper bio HTMX fragments in `src/pinwheel/api/pages.py` by escaping user content or rendering via safe templates.
+- [ ] **(10)** Make admin auth fail closed in non-dev environments (deny access when OAuth/session auth is unavailable or misconfigured), including `src/pinwheel/api/admin_costs.py` and sibling admin routes.
+- [ ] **(20)** Freeze new AI idea implementation until P0 and P1 are complete; prioritize risk reduction and gameplay reliability.
+
+### P1 — Next sprint (surface-area reduction + hardening)
+- [ ] **(17)** Remove legacy mirror stack if unused: `src/pinwheel/ai/mirror.py`, `src/pinwheel/models/mirror.py`, `src/pinwheel/api/mirrors.py` (or explicitly keep with hardened auth + tests).
+- [ ] **(18)** Replace inline HTML string handlers with template partial rendering in `src/pinwheel/api/pages.py` (bio edit/view/save fragments), with escaping by default.
+- [ ] **(19)** Reconcile product/docs claims with shipped behavior (report types, season flow, acceptance criteria) across `docs/product/*.md` and `docs/ACCEPTANCE_CRITERIA.md`.
+- [ ] If APIs are retained, auth-bind identity fields server-side: ignore caller-supplied `governor_id`/`team_id` and derive from authenticated session.
+- [ ] If private report API is retained, require authenticated governor ownership checks and return 403 on mismatch.
+
+### P2 — After security baseline is stable
+- [ ] **(11)** Optimize per-tick governance activity queries in `src/pinwheel/core/game_loop.py` (avoid full-season scans each tick).
+- [ ] **(12)** Reduce private-report latency by batching/parallelizing generation where safe in `src/pinwheel/core/game_loop.py`.
+- [ ] **(13)** Remove N+1 patterns in memorial/stat assembly in `src/pinwheel/core/memorial.py`.
+- [ ] **(14)** Improve player-facing pacing/status messaging for tick cadence and voting deferral windows.
+- [ ] **(1)** Implement only selected high-impact AI ideas after P0/P1 complete.
+- [ ] **(2)** Implement spectator follow system only after core security/UX loop is stable.
+- [ ] **(3)(4)(5)(6)** Close remaining doc/dev-log alignment gaps.
+
+### Suggested order of execution (single path)
+1. Remove/disable unauthenticated governance writes (16)
+2. Remove/disable private report API access (15)
+3. Patch bio XSS path (9)
+4. Enforce fail-closed admin auth (10)
+5. Remove unused mirror surfaces (17)
+6. Replace inline HTMX HTML with template partials (18)
+7. Update docs to match reality (19)
+8. Then performance and gameplay-loop quality work (11, 12, 13, 14)
+
+---
+
+## Session 81 — AI Intelligence Layer (4 Features)
+
+**What was asked:** Implement the AI intelligence layer plan — four new features: Proposal Impact Validation, Hidden Leverage Detection, Behavioral Pattern Detection, and The Pinwheel Post newspaper page.
+
+**What was built:**
+
+### New module: `ai/insights.py`
+- **Impact Validation** (`compute_impact_validation` + `generate_impact_validation_mock`): When a rule change passes, compares gameplay stats before/after to grade the prediction. Stored as `report_type="impact_validation"`.
+- **Leverage Detection** (`compute_governor_leverage` + `generate_leverage_report_mock`): Per-governor private report showing swing vote frequency, vote alignment, proposal success rate, token velocity. Stored as `report_type="leverage"`.
+- **Behavioral Profiles** (`compute_behavioral_profile` + `generate_behavioral_report_mock`): Longitudinal governor arc — proposal drift, risk appetite trends, engagement arc, anonymized coalition signals. Stored as `report_type="behavioral"`.
+- **Newspaper Headlines** (`generate_newspaper_headlines_mock`): Generates punchy headlines from round data for The Pinwheel Post.
+- All four features have mock fallbacks and full API generation paths via `_call_claude`.
+
+### The Pinwheel Post (`/post`)
+- New route `newspaper_page()` in `api/pages.py` — aggregates simulation, governance, and impact validation reports into a newspaper layout
+- New template `templates/pages/newspaper.html` — two-column newspaper design with masthead, headline, game reports, The Floor, standings, hot players
+- "The Post" nav link added to `base.html`
+
+### Game loop integration
+- Pre-computed insight data in `_SimPhaseResult` (Phase 1, has DB access)
+- AI generation in `_phase_ai()` (Phase 2, no DB)
+- Storage in `_phase_persist_and_finalize()` (Phase 3)
+- Leverage + behavioral reports generated every 3 rounds (configurable `insight_interval`)
+- Impact validation only when `governance_data["rules_changed"]` is non-empty
+
+### Infrastructure
+- 3 new report types in `ReportType`: `impact_validation`, `leverage`, `behavioral`
+- Discord embed labels for new report types
+- `get_game_stats_for_rounds()` added to repository
+
+**Files modified (7):** `src/pinwheel/models/report.py`, `src/pinwheel/discord/embeds.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/api/pages.py`, `templates/base.html`
+
+**New files (3):** `src/pinwheel/ai/insights.py`, `templates/pages/newspaper.html`, `tests/test_insights.py`
+
+**1514 tests (23 new), zero lint errors.**
+
+**What could have gone better:** The `_phase_ai` function has no DB access, so insight data had to be pre-computed in Phase 1 and carried through `_SimPhaseResult`. This pattern works but adds fields to the dataclass. The active governor detection (only generate reports for governors who submitted proposals or voted) required careful event querying.
+
+---
+
+## Session 82 — Playoff Series Banner Fix
+
+**What was asked:** Live arena showed "HAWTHORNE HAMMERS LEAD 2-0" when Rose City Thorns were actually leading 2-0.
+
+**What was built:**
+- Root cause: `_pre_round_series` dict stored wins in `(entry.home_team_id, entry.away_team_id)` order but the pair key was alphabetically sorted. When the home team sorted after the away team (Rose City > Hawthorne), the wins were attributed to the wrong team.
+- Fix: pass sorted IDs to `_get_playoff_series_record` so the returned tuple always matches the sorted pair key order.
+
+**Files modified (1):** `src/pinwheel/core/game_loop.py`
+
+**1514 tests, zero lint errors.**
+
+**What could have gone better:** The original series banner code (Session 80) had a subtle ordering assumption. The bug only manifests when the home team's ID sorts alphabetically after the away team's ID, which depends on seed ordering. Should have normalized to sorted order from the start.
