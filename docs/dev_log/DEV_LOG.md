@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1089 tests**, zero lint errors (Session 67)
+- **1163 tests**, zero lint errors (Session 68)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 67 (Doc updates for auto-migrate schema)
+- **Latest commit:** Session 68 (Fix /join interaction timeout)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -851,3 +851,27 @@ Post-round session (~1s): mark games presented
 **Files modified (2):** `CLAUDE.md`, `docs/EFFECTS_SYSTEM.md`
 
 **1089 tests, zero lint errors.**
+
+---
+
+## Session 68 — Fix /join Interaction Timeout (Autocomplete Event Loop Congestion)
+
+**What was asked:** Adriana's `/join` attempt shows Discord's generic "Something went wrong joining the team." instead of our custom error messages. The error message doesn't exist anywhere in the codebase.
+
+**What was built:**
+
+### Root cause identified via Fly.io production logs
+- **Chain of failure:** Team autocomplete DB queries (4 in 2 seconds) congested the asyncio event loop. By the time the `/join` command handler ran, Discord's 3-second interaction window had expired. `defer()` raised `NotFound: 404 Unknown interaction`. The `except Exception` handler tried `followup.send()` — which requires a successful defer — creating a double failure. The exception escaped entirely, and Discord showed its own generic error.
+- **Why our error messages never appeared:** `followup.send()` only works after `defer()`. When `defer()` fails, `followup.send()` also fails, so none of our error messages in the except block could be delivered.
+
+### Fix 1: Remove DB queries from team autocomplete
+- `_autocomplete_teams()` now uses **only** the in-memory cache populated at startup. If the cache isn't populated yet, returns empty results instead of falling back to a DB query. This prevents autocomplete from congesting the event loop during typing.
+
+### Fix 2: Graceful handling of expired interactions
+- Wrapped `defer()` in `_handle_join()` with a `try/except (discord.NotFound, discord.HTTPException)` guard. If the interaction already expired, logs a warning and returns cleanly instead of cascading into the followup failure.
+
+**Files modified (1):** `src/pinwheel/discord/bot.py`
+
+**1163 tests, zero lint errors.**
+
+**What could have gone better:** The "Something went wrong" message not existing in our codebase was the key diagnostic clue — it meant Discord itself was generating it because our handler crashed without responding. We should add a global `CommandTree.on_error` handler to catch any future cases where commands fail without responding.
