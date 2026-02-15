@@ -17,7 +17,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15 (cont):** Dev-mode Discord guard, server welcome DM for new members
 - **Day 15 (cont):** V2 tier detection, minimum voting period, Discord channel slug fix
-- **Latest commit:** `cd20137` — V2 tier detection + minimum voting period
+- **Latest commit:** `0260e78` — normalize Discord channel slugs to prevent duplicate creation
 
 ## Today's Agenda
 
@@ -140,3 +140,20 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1446 tests, zero lint errors.**
 
 **What could have gone better:** The minimum voting period change required updating 10+ existing tests that assumed immediate tally. The `skip_deferral` parameter for season-close was discovered only after tests failed — should have been identified during planning.
+
+---
+
+## Session 74 — Schedule Nudge in New-Season Embeds
+
+**What was asked:** After running `/new-season`, governors have no prompt to check the schedule. Add a `/schedule` nudge to the new-season response.
+
+**What was built:**
+- Added "Run `/schedule` to see the matchups." to the admin-facing `/new-season` response embed (ephemeral)
+- Added the same line to the public announcement embed posted to #play-by-play
+- Welcome message already referenced `/schedule`, so no change needed there
+
+**Files modified (1):** `src/pinwheel/discord/bot.py`
+
+**1446 tests, zero lint errors.**
+
+**What could have gone better:** Straightforward change — nothing to flag.

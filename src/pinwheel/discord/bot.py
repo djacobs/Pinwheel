@@ -3728,7 +3728,8 @@ class PinwheelBot(commands.Bot):
                     f"**Rules:** {rules_note}\n"
                     f"**Status:** {new_season.status}\n\n"
                     "Teams, hoopers, and governor enrollments have been "
-                    "carried over. All governors have received fresh tokens."
+                    "carried over. All governors have received fresh tokens.\n\n"
+                    "Run `/schedule` to see the matchups."
                 ),
                 color=0x2ECC71,
             )
@@ -3746,7 +3747,8 @@ class PinwheelBot(commands.Bot):
                         f"A new season has begun! **{name}** is now active.\n\n"
                         f"**{len(teams)} teams** are ready to compete.\n"
                         f"Rules: {rules_note}.\n\n"
-                        "Fresh tokens have been distributed to all governors."
+                        "Fresh tokens have been distributed to all governors.\n\n"
+                        "Run `/schedule` to see the matchups."
                     ),
                     color=0x2ECC71,
                 )

@@ -661,3 +661,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 97. [DONE] First-touch server welcome DM for new Discord members
 **Problem:** New members joining the Discord server had no context about what Pinwheel is or how to get started until they ran `/join`. The first interaction was a blank slate.
 **Fix:** Added `on_member_join` handler that sends a gold-colored DM embed explaining "Pinwheel starts as basketball, but becomes whatever you want" with quick-start commands (`/join`, `/propose`, `/vote`, `/standings`). Skips bots, fails silently if DMs are disabled. Separate from the post-`/join` welcome which is team-specific.
+
+### 98. [DONE] Schedule nudge in /new-season response
+**Problem:** After an admin runs `/new-season`, the response confirms creation but doesn't mention the schedule. Governors have to know to run `/schedule` separately — no discoverability.
+**Fix:** Added "Run `/schedule` to see the matchups." to both the admin-facing ephemeral embed and the public #play-by-play announcement embed.
