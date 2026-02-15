@@ -162,6 +162,105 @@ async def _get_game_phase(repo: RepoDep, season_id: str, round_number: int) -> s
     return "finals"
 
 
+def build_series_context(
+    phase: str,
+    home_team_name: str,
+    away_team_name: str,
+    home_wins: int,
+    away_wins: int,
+    best_of: int,
+) -> dict:
+    """Build a series context dict for display in the arena template.
+
+    Args:
+        phase: 'semifinal' or 'finals'.
+        home_team_name: Display name for home team.
+        away_team_name: Display name for away team.
+        home_wins: Number of series wins for the home team.
+        away_wins: Number of series wins for the away team.
+        best_of: Best-of-N for this series round.
+
+    Returns:
+        Dict with keys: phase, phase_label, home_wins, away_wins, best_of,
+        wins_needed, description.
+    """
+    wins_needed = (best_of + 1) // 2
+
+    if phase == "finals":
+        phase_label = "CHAMPIONSHIP FINALS"
+        clinch_text = f"First to {wins_needed} wins is champion"
+    else:
+        phase_label = "SEMIFINAL SERIES"
+        clinch_text = f"First to {wins_needed} wins advances"
+
+    if home_wins == away_wins:
+        record_text = f"Series tied {home_wins}-{away_wins}"
+    elif home_wins > away_wins:
+        record_text = f"{home_team_name} lead {home_wins}-{away_wins}"
+    else:
+        record_text = f"{away_team_name} lead {away_wins}-{home_wins}"
+
+    description = f"{phase_label} \u00b7 {record_text} \u00b7 {clinch_text}"
+
+    return {
+        "phase": phase,
+        "phase_label": phase_label,
+        "home_wins": home_wins,
+        "away_wins": away_wins,
+        "best_of": best_of,
+        "wins_needed": wins_needed,
+        "description": description,
+    }
+
+
+async def _compute_series_context_for_game(
+    repo: RepoDep,
+    season_id: str,
+    home_team_id: str,
+    away_team_id: str,
+    home_team_name: str,
+    away_team_name: str,
+    game_phase: str | None,
+    ruleset: RuleSet | None = None,
+) -> dict | None:
+    """Compute series context for a specific playoff matchup.
+
+    Returns None if the game is not a playoff game.
+    """
+    if not game_phase:
+        return None
+
+    # Get ruleset for best-of values
+    if ruleset is None:
+        season = await repo.get_season(season_id)
+        if season and season.current_ruleset:
+            ruleset = RuleSet(**season.current_ruleset)
+        else:
+            ruleset = DEFAULT_RULESET
+
+    best_of = (
+        ruleset.playoff_finals_best_of
+        if game_phase == "finals"
+        else ruleset.playoff_semis_best_of
+    )
+
+    # Get series record from playoff games
+    from pinwheel.core.game_loop import _get_playoff_series_record
+
+    home_wins, away_wins, _ = await _get_playoff_series_record(
+        repo, season_id, home_team_id, away_team_id
+    )
+
+    return build_series_context(
+        phase=game_phase,
+        home_team_name=home_team_name,
+        away_team_name=away_team_name,
+        home_wins=home_wins,
+        away_wins=away_wins,
+        best_of=best_of,
+    )
+
+
 def _compute_streaks_from_games(games: list[object]) -> dict[str, int]:
     """Compute current win/loss streaks per team from game result rows.
 
@@ -596,6 +695,34 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             # Determine the phase for this round
             round_phase = await _get_game_phase(repo, season_id, round_num)
 
+            # Compute series context for playoff games
+            round_series_contexts: list[dict | None] = []
+            if round_phase:
+                # Load ruleset once for best-of values
+                season_row = await repo.get_season(season_id)
+                round_ruleset = DEFAULT_RULESET
+                if season_row and season_row.current_ruleset:
+                    round_ruleset = RuleSet(**season_row.current_ruleset)
+
+                for g in games_for_round:
+                    ctx = await _compute_series_context_for_game(
+                        repo,
+                        season_id,
+                        g["home_team_id"],
+                        g["away_team_id"],
+                        g["home_name"],
+                        g["away_name"],
+                        round_phase,
+                        ruleset=round_ruleset,
+                    )
+                    round_series_contexts.append(ctx)
+            else:
+                round_series_contexts = [None] * len(games_for_round)
+
+            # Attach series_context to each game dict
+            for g, sc in zip(games_for_round, round_series_contexts, strict=False):
+                g["series_context"] = sc
+
             rounds.append(
                 {
                     "round_number": round_num,
@@ -630,6 +757,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "home_color2": gs.home_team_color2,
                     "away_color": gs.away_team_color,
                     "away_color2": gs.away_team_color2,
+                    "series_context": gs.series_context,
                 }
                 for gs in pstate.live_games.values()
             ],

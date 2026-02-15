@@ -1094,6 +1094,17 @@ async def _phase_simulate_and_govern(
         )
         fire_effects("round.pre", round_ctx, _round_effects)
 
+    # Pre-compute series records for playoff games (before this round's games)
+    _pre_round_series: dict[str, tuple[int, int]] = {}  # "teamA:teamB" -> (a_wins, b_wins)
+    if playoff_context:
+        for entry in schedule:
+            pair_key = ":".join(sorted([entry.home_team_id, entry.away_team_id]))
+            if pair_key not in _pre_round_series:
+                a_wins, b_wins, _ = await _get_playoff_series_record(
+                    repo, season_id, entry.home_team_id, entry.away_team_id
+                )
+                _pre_round_series[pair_key] = (a_wins, b_wins)
+
     game_summaries: list[dict] = []
     game_results: list[GameResult] = []
     game_row_ids: list[str] = []
@@ -1205,6 +1216,50 @@ async def _phase_simulate_and_govern(
             )
             fire_effects("round.game.post", game_post_ctx, _game_post_effects)
 
+        # Build series_context for playoff games (pre-round record)
+        _series_ctx: dict | None = None
+        if playoff_context:
+            pair_key = ":".join(sorted([home.id, away.id]))
+            pre_wins = _pre_round_series.get(pair_key, (0, 0))
+            # Map pre-round wins to home/away order
+            if pair_key == ":".join(sorted([home.id, away.id])):
+                # Determine which is which based on sort order
+                sorted_ids = sorted([home.id, away.id])
+                if sorted_ids[0] == home.id:
+                    h_wins, a_wins = pre_wins
+                else:
+                    a_wins, h_wins = pre_wins
+            else:
+                h_wins, a_wins = 0, 0
+            best_of = (
+                ruleset.playoff_finals_best_of
+                if playoff_context == "finals"
+                else ruleset.playoff_semis_best_of
+            )
+            wins_needed = _series_wins_needed(best_of)
+            if playoff_context == "finals":
+                phase_label = "CHAMPIONSHIP FINALS"
+                clinch_text = f"First to {wins_needed} wins is champion"
+            else:
+                phase_label = "SEMIFINAL SERIES"
+                clinch_text = f"First to {wins_needed} wins advances"
+            if h_wins == a_wins:
+                record_text = f"Series tied {h_wins}-{a_wins}"
+            elif h_wins > a_wins:
+                record_text = f"{home.name} lead {h_wins}-{a_wins}"
+            else:
+                record_text = f"{away.name} lead {a_wins}-{h_wins}"
+
+            _series_ctx = {
+                "phase": playoff_context,
+                "phase_label": phase_label,
+                "home_wins": h_wins,
+                "away_wins": a_wins,
+                "best_of": best_of,
+                "wins_needed": wins_needed,
+                "description": f"{phase_label} \u00b7 {record_text} \u00b7 {clinch_text}",
+            }
+
         summary = {
             "game_id": game_id,
             "home_team": home.name,
@@ -1217,6 +1272,7 @@ async def _phase_simulate_and_govern(
             "elam_activated": result.elam_activated,
             "total_possessions": result.total_possessions,
             "playoff_context": playoff_context,
+            "series_context": _series_ctx,
         }
 
         game_summaries.append(summary)

@@ -1487,3 +1487,164 @@ class TestPresenterPlayoffContext:
         ]
         assert len(round_events) == 1
         assert round_events[0]["data"]["playoff_context"] == "semifinal"
+
+    async def test_game_starting_includes_series_context(self) -> None:
+        """game_starting event should include series_context."""
+        from pinwheel.core.presenter import (
+            PresentationState,
+            _present_full_game,
+        )
+
+        bus = EventBus()
+        state = PresentationState()
+        series_ctx = {
+            "phase": "semifinal",
+            "phase_label": "SEMIFINAL SERIES",
+            "home_wins": 1,
+            "away_wins": 0,
+            "best_of": 3,
+            "wins_needed": 2,
+            "description": "SEMIFINAL SERIES \u00b7 Home lead 1-0",
+        }
+        state.game_summaries = [
+            {
+                "playoff_context": "semifinal",
+                "series_context": series_ctx,
+                "home_team": "Home",
+                "away_team": "Away",
+            },
+        ]
+        state.is_active = True
+
+        result = _make_game_result()
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        starting_events = [
+            e for e in received
+            if e["type"] == "presentation.game_starting"
+        ]
+        assert len(starting_events) == 1
+        sc = starting_events[0]["data"]["series_context"]
+        assert sc is not None
+        assert sc["phase"] == "semifinal"
+        assert sc["home_wins"] == 1
+        assert sc["away_wins"] == 0
+        assert sc["best_of"] == 3
+
+    async def test_series_context_stored_on_live_state(self) -> None:
+        """series_context should be stored on LiveGameState."""
+        from pinwheel.core.presenter import (
+            PresentationState,
+            _present_full_game,
+        )
+
+        bus = EventBus()
+        state = PresentationState()
+        series_ctx = {
+            "phase": "finals",
+            "phase_label": "CHAMPIONSHIP FINALS",
+            "home_wins": 2,
+            "away_wins": 1,
+            "best_of": 5,
+            "wins_needed": 3,
+            "description": "CHAMPIONSHIP FINALS \u00b7 Home lead 2-1",
+        }
+        state.game_summaries = [
+            {
+                "playoff_context": "finals",
+                "series_context": series_ctx,
+                "home_team": "Home",
+                "away_team": "Away",
+            },
+        ]
+        state.is_active = True
+
+        result = _make_game_result()
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            # Drain events
+            while await sub.get(timeout=0.1):
+                pass
+
+        # LiveGameState should have series_context
+        live = state.live_games[0]
+        assert live.series_context is not None
+        assert live.series_context["phase"] == "finals"
+        assert live.series_context["home_wins"] == 2
+
+    async def test_no_series_context_when_not_playoff(self) -> None:
+        """series_context should be None for non-playoff games."""
+        from pinwheel.core.presenter import (
+            PresentationState,
+            _present_full_game,
+        )
+
+        bus = EventBus()
+        state = PresentationState()
+        state.game_summaries = [
+            {
+                "home_team": "Home",
+                "away_team": "Away",
+            },
+        ]
+        state.is_active = True
+
+        result = _make_game_result()
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        starting_events = [
+            e for e in received
+            if e["type"] == "presentation.game_starting"
+        ]
+        assert len(starting_events) == 1
+        assert starting_events[0]["data"]["series_context"] is None
+
+        live = state.live_games[0]
+        assert live.series_context is None

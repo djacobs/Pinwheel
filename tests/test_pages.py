@@ -724,3 +724,212 @@ class TestReportsPhaseContext:
         r = await client.get("/reports")
         assert r.status_code == 200
         assert "Simulation" in r.text or "simulation" in r.text
+
+
+class TestBuildSeriesContext:
+    """Unit tests for build_series_context helper."""
+
+    def test_semifinal_tied(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="semifinal",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=0,
+            away_wins=0,
+            best_of=3,
+        )
+        assert ctx["phase"] == "semifinal"
+        assert ctx["phase_label"] == "SEMIFINAL SERIES"
+        assert ctx["home_wins"] == 0
+        assert ctx["away_wins"] == 0
+        assert ctx["best_of"] == 3
+        assert ctx["wins_needed"] == 2
+        assert "Series tied 0-0" in ctx["description"]
+        assert "First to 2 wins advances" in ctx["description"]
+
+    def test_semifinal_home_leads(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="semifinal",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=1,
+            away_wins=0,
+            best_of=3,
+        )
+        assert "Thorns lead 1-0" in ctx["description"]
+        assert "First to 2 wins advances" in ctx["description"]
+
+    def test_semifinal_away_leads(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="semifinal",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=0,
+            away_wins=1,
+            best_of=3,
+        )
+        assert "Storm lead 1-0" in ctx["description"]
+
+    def test_finals_tied(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="finals",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=1,
+            away_wins=1,
+            best_of=5,
+        )
+        assert ctx["phase_label"] == "CHAMPIONSHIP FINALS"
+        assert "Series tied 1-1" in ctx["description"]
+        assert "First to 3 wins is champion" in ctx["description"]
+        assert ctx["wins_needed"] == 3
+
+    def test_finals_near_clinch(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="finals",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=2,
+            away_wins=1,
+            best_of=5,
+        )
+        assert "Thorns lead 2-1" in ctx["description"]
+
+
+class TestArenaSeriesContextLive:
+    """Tests for series context display in the live arena."""
+
+    async def test_live_game_with_series_context(self, app_client):
+        """Live game with series_context should render the series banner."""
+        client, engine = app_client
+        from pinwheel.core.presenter import LiveGameState
+
+        pstate = client._transport.app.state.presentation_state  # type: ignore
+        pstate.is_active = True
+        pstate.current_round = 7
+        pstate.live_games = {
+            0: LiveGameState(
+                game_index=0,
+                game_id="g-7-0",
+                home_team_id="team-a",
+                away_team_id="team-b",
+                home_team_name="Thorns",
+                away_team_name="Storm",
+                home_score=15,
+                away_score=12,
+                quarter=1,
+                game_clock="5:00",
+                status="live",
+                series_context={
+                    "phase": "semifinal",
+                    "phase_label": "SEMIFINAL SERIES",
+                    "home_wins": 0,
+                    "away_wins": 0,
+                    "best_of": 3,
+                    "wins_needed": 2,
+                    "description": (
+                        "SEMIFINAL SERIES \u00b7 Series tied 0-0"
+                        " \u00b7 First to 2 wins advances"
+                    ),
+                },
+            ),
+        }
+
+        r = await client.get("/arena")
+        assert r.status_code == 200
+        assert "SEMIFINAL SERIES" in r.text
+        assert "Series tied 0-0" in r.text
+        assert "First to 2 wins advances" in r.text
+        assert "series-context--semifinal" in r.text
+
+        pstate.reset()
+
+    async def test_live_game_finals_series_context(self, app_client):
+        """Live finals game should render the championship series banner."""
+        client, engine = app_client
+        from pinwheel.core.presenter import LiveGameState
+
+        pstate = client._transport.app.state.presentation_state  # type: ignore
+        pstate.is_active = True
+        pstate.current_round = 9
+        pstate.live_games = {
+            0: LiveGameState(
+                game_index=0,
+                game_id="g-9-0",
+                home_team_id="team-a",
+                away_team_id="team-b",
+                home_team_name="Thorns",
+                away_team_name="Storm",
+                home_score=30,
+                away_score=28,
+                quarter=3,
+                game_clock="2:30",
+                status="live",
+                series_context={
+                    "phase": "finals",
+                    "phase_label": "CHAMPIONSHIP FINALS",
+                    "home_wins": 1,
+                    "away_wins": 1,
+                    "best_of": 5,
+                    "wins_needed": 3,
+                    "description": (
+                        "CHAMPIONSHIP FINALS \u00b7"
+                        " Series tied 1-1 \u00b7"
+                        " First to 3 wins is champion"
+                    ),
+                },
+            ),
+        }
+
+        r = await client.get("/arena")
+        assert r.status_code == 200
+        assert "CHAMPIONSHIP FINALS" in r.text
+        assert "Series tied 1-1" in r.text
+        assert "First to 3 wins is champion" in r.text
+        assert "series-context--finals" in r.text
+
+        pstate.reset()
+
+    async def test_live_game_without_series_context(self, app_client):
+        """Live regular season game should NOT show series context."""
+        client, engine = app_client
+        from pinwheel.core.presenter import LiveGameState
+
+        pstate = client._transport.app.state.presentation_state  # type: ignore
+        pstate.is_active = True
+        pstate.current_round = 3
+        pstate.live_games = {
+            0: LiveGameState(
+                game_index=0,
+                game_id="g-3-0",
+                home_team_id="team-a",
+                away_team_id="team-b",
+                home_team_name="Thorns",
+                away_team_name="Storm",
+                home_score=10,
+                away_score=8,
+                quarter=1,
+                game_clock="7:00",
+                status="live",
+                # No series_context — regular season
+            ),
+        }
+
+        r = await client.get("/arena")
+        assert r.status_code == 200
+        assert "SEMIFINAL SERIES" not in r.text
+        assert "CHAMPIONSHIP FINALS" not in r.text
+        # Hidden series-context div should still be present (for SSE)
+        assert 'data-g="0"' in r.text
+
+        pstate.reset()

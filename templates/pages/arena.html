@@ -31,6 +31,13 @@
         <span class="live-score" data-role="away" data-g="{{ game.game_index }}">{{ game.away_score }}</span>
       </div>
     </div>
+    {% if game.series_context %}
+    <div class="series-context series-context--{{ game.series_context.phase }}" data-g="{{ game.game_index }}">
+      {{ game.series_context.description }}
+    </div>
+    {% else %}
+    <div class="series-context" data-g="{{ game.game_index }}" style="display:none;"></div>
+    {% endif %}
     {% if game.home_leader or game.away_leader %}
     <div class="live-leaders" data-g="{{ game.game_index }}">
       {% if game.home_leader %}
@@ -91,6 +98,11 @@
           <span class="game-meta">Game {{ game.matchup_index + 1 }}</span>
           <span class="game-meta">{{ game.total_possessions }} poss</span>
         </div>
+        {% if game.series_context %}
+        <div class="series-context series-context--{{ game.series_context.phase }}">
+          {{ game.series_context.description }}
+        </div>
+        {% endif %}
         <div class="game-panel-teams">
           <div class="team-score-block" style="border-left: 3px solid {{ game.home_color }}; padding-left: 0.5rem;">
             <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}" {% if game.winner_team_id == game.home_team_id %}style="color: {{ game.home_color }};"{% endif %}>
@@ -211,6 +223,17 @@
     container.style.display = '';
     var homeColor = d.home_team_color || '#888';
     var awayColor = d.away_team_color || '#888';
+
+    // Build series context HTML if present
+    var seriesHtml = '';
+    if (d.series_context && d.series_context.description) {
+      var sc = d.series_context;
+      var phaseClass = sc.phase === 'finals' ? 'series-context--finals' : 'series-context--semifinal';
+      seriesHtml = '<div class="series-context ' + phaseClass + '" data-g="' + gameIdx + '">' + sc.description + '</div>';
+    } else {
+      seriesHtml = '<div class="series-context" data-g="' + gameIdx + '" style="display:none;"></div>';
+    }
+
     zone = document.createElement('div');
     zone.id = zoneId;
     zone.className = 'live-zone';
@@ -231,6 +254,7 @@
           '<span class="live-score" data-role="away" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
       '</div>' +
+      seriesHtml +
       '<div class="live-leaders" data-g="' + gameIdx + '"></div>' +
       '<div class="live-status" data-g="' + gameIdx + '"></div>' +
       '<div class="live-plays" data-g="' + gameIdx + '"></div>';

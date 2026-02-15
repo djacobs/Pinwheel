@@ -53,6 +53,7 @@ class LiveGameState:
     elam_target: int | None = None
     home_leader: dict | None = None
     away_leader: dict | None = None
+    series_context: dict | None = None
 
 
 @dataclass
@@ -227,12 +228,19 @@ async def _present_full_game(
     live.elam_target = game_result.elam_target_score
     state.live_games[game_idx] = live
 
-    # Extract playoff_context from game_summaries if available
+    # Extract playoff_context and series_context from game_summaries if available
     _playoff_context: str | None = None
+    _series_context: dict | None = None
     if game_idx < len(state.game_summaries):
         _pc = state.game_summaries[game_idx].get("playoff_context")
         if _pc:
             _playoff_context = str(_pc)
+        _sc = state.game_summaries[game_idx].get("series_context")
+        if _sc and isinstance(_sc, dict):
+            _series_context = _sc
+
+    # Store series_context on live state for server-render on page load
+    live.series_context = _series_context
 
     await event_bus.publish(
         "presentation.game_starting",
@@ -248,6 +256,7 @@ async def _present_full_game(
             "away_team_color": away_colors[0],
             "away_team_color2": away_colors[1],
             "playoff_context": _playoff_context,
+            "series_context": _series_context,
         },
     )
 
