@@ -4,6 +4,8 @@ type: feat
 date: 2026-02-11
 ---
 
+> **Historical snapshot.** The frontend is fully implemented — HTMX + SSE + Jinja2 dashboard with 10+ pages. See DEV_LOG for completion state.
+
 # Frontend Architecture
 
 ## Overview

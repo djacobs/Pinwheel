@@ -4,6 +4,8 @@ type: feat
 date: 2026-02-11
 ---
 
+> **Historical snapshot.** The Discord bot is fully implemented with 15+ slash commands. See DEV_LOG for completion state.
+
 # Discord Bot Implementation
 
 ## Overview

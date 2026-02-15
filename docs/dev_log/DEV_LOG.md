@@ -170,11 +170,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Triage these non-Pinwheel project plans: `linkblog-link-aggregation-syndication`, `feedly-oauth-refresh-token`, `newsletter-ring-implementation`.
 
 ### Phase 2: Mark implemented plans as implemented
-- [ ] Update `docs/plans/2026-02-14-token-cost-tracking-dashboard.md` status from Draft to Implemented (except demo step if still pending).
-- [ ] Update `docs/plans/2026-02-14-rate-limiting-proposals.md` status to Implemented (cooldown + window cap + spend-before-confirm landed in `src/pinwheel/discord/bot.py:2026`).
-- [ ] Update `docs/plans/2026-02-14-dramatic-pacing-modulation.md` status to Implemented (module + tests exist in `src/pinwheel/core/drama.py`, `tests/test_drama.py`).
-- [ ] Update `docs/plans/2026-02-14-season-memorial-system.md` status to Implemented (core + template + tests exist).
-- [ ] Update high-level stale checklists (at least add "historical snapshot; see DEV_LOG for completion state") in `docs/plans/2026-02-11-discord-bot-plan.md`, `docs/plans/2026-02-11-frontend-plan.md`, `docs/plans/2026-02-11-day1-implementation-plan.md`.
+- [x] Update `docs/plans/2026-02-14-token-cost-tracking-dashboard.md` status from Draft to Implemented.
+- [x] Update `docs/plans/2026-02-14-rate-limiting-proposals.md` status to Implemented.
+- [x] Update `docs/plans/2026-02-14-dramatic-pacing-modulation.md` status to Implemented.
+- [x] Update `docs/plans/2026-02-14-season-memorial-system.md` status to Implemented.
+- [x] Update high-level stale checklists with "historical snapshot" note in `discord-bot-plan.md`, `frontend-plan.md`, `day1-implementation-plan.md`.
 
 ### Phase 3: True remaining gaps (keep as active TODO)
 - [ ] Spectator follow system remains genuinely unimplemented; keep `docs/plans/2026-02-14-spectator-journey-and-team-following.md` active and break into executable tickets.

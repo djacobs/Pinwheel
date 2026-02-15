@@ -1,7 +1,7 @@
 # Plan: Rate Limiting Proposals
 
 **Date:** 2026-02-14
-**Status:** Draft
+**Status:** Implemented
 **Ref:** ACCEPTANCE_CRITERIA.md 5.4.5 — "Rate limiting prevents a single governor from submitting more proposals than their token balance allows"
 
 ## Context

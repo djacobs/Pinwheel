@@ -4,6 +4,8 @@ type: feat
 date: 2026-02-11
 ---
 
+> **Historical snapshot.** Day 1 was completed on 2026-02-11. All phases delivered. See DEV_LOG for completion state.
+
 # Day 1 Implementation Plan
 
 ## Goal
