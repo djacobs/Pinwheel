@@ -17,11 +17,40 @@ from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
 from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
 from pinwheel.core.narrate import narrate_play, narrate_winner
+from pinwheel.core.schedule_times import compute_game_start_times, format_game_time
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
 from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 
 router = APIRouter(tags=["pages"])
+
+
+def _inject_start_times(
+    request: Request,
+    upcoming_games: list[dict],
+) -> None:
+    """Enrich *upcoming_games* dicts with ``start_time`` display strings.
+
+    Uses APScheduler's ``tick_round`` job to determine the next fire time,
+    then staggers each game by ``pinwheel_game_interval_seconds``.
+    Mutates the dicts in-place (adds ``"start_time"`` key).
+    """
+    if not upcoming_games:
+        return
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if not scheduler:
+        return
+    job = scheduler.get_job("tick_round")
+    if not job or not job.next_run_time:
+        return
+    settings: Settings = request.app.state.settings
+    times = compute_game_start_times(
+        job.next_run_time,
+        len(upcoming_games),
+        settings.pinwheel_game_interval_seconds,
+    )
+    for ug, t in zip(upcoming_games, times, strict=False):
+        ug["start_time"] = format_game_time(t)
 
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
@@ -273,6 +302,9 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                     "away_color": team_colors.get(entry.away_team_id, "#888"),
                 }
             )
+
+    # Enrich upcoming games with computed start times
+    _inject_start_times(request, upcoming_games)
 
     # Phase and streaks for template enrichment
     season_phase = ""
@@ -619,6 +651,9 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "away_color": team_colors_sched.get(entry.away_team_id, ("#888", "#1a1a2e"))[0],
                 }
             )
+
+    # Enrich upcoming games with computed start times
+    _inject_start_times(request, upcoming_games)
 
     settings: Settings = request.app.state.settings
     return templates.TemplateResponse(

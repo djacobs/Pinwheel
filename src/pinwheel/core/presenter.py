@@ -94,16 +94,20 @@ async def present_round(
     game_summaries: list[dict] | None = None,
     skip_quarters: int = 0,
 ) -> None:
-    """Replay a round's games concurrently over real time via EventBus.
+    """Replay a round's games over real time via EventBus.
 
-    All games start simultaneously and stream possessions in parallel.
-    The round finishes when every game is done.
+    When *game_interval_seconds* > 0 and there are multiple games, each
+    game launches after a staggered delay so viewers experience a natural
+    "early game / late game" rhythm instead of all games starting at once.
+    With ``game_interval_seconds=0`` (the default), all games start
+    simultaneously and stream possessions in parallel.
 
     Args:
         game_results: Pre-computed game results from simulation.
         event_bus: EventBus instance for publishing events.
         state: Shared PresentationState for re-entry guard.
-        game_interval_seconds: Unused (kept for API compat). Games run concurrently.
+        game_interval_seconds: Seconds between successive game starts.
+            0 means all games launch concurrently (original behaviour).
         quarter_replay_seconds: Wall-clock seconds to replay each quarter.
         name_cache: Mapping of entity IDs to display names (team IDs, hooper IDs).
         color_cache: Mapping of team IDs to (primary_color, secondary_color) tuples.
@@ -129,23 +133,47 @@ async def present_round(
     state.live_games = {}
 
     try:
-        tasks = [
-            _present_full_game(
-                game_idx=idx,
-                game_result=gr,
-                total_games=len(game_results),
-                event_bus=event_bus,
-                state=state,
-                quarter_replay_seconds=quarter_replay_seconds,
-                names=names,
-                colors=colors,
-                on_game_finished=on_game_finished,
-                skip_quarters=skip_quarters,
-            )
-            for idx, gr in enumerate(game_results)
-        ]
-
-        await asyncio.gather(*tasks)
+        if game_interval_seconds > 0 and len(game_results) > 1:
+            # Stagger: launch each game after a delay so viewers see
+            # an "early game / late game" rhythm.
+            running: list[asyncio.Task[None]] = []
+            for idx, gr in enumerate(game_results):
+                if idx > 0 and not state.cancel_event.is_set():
+                    await asyncio.sleep(game_interval_seconds)
+                task = asyncio.create_task(
+                    _present_full_game(
+                        game_idx=idx,
+                        game_result=gr,
+                        total_games=len(game_results),
+                        event_bus=event_bus,
+                        state=state,
+                        quarter_replay_seconds=quarter_replay_seconds,
+                        names=names,
+                        colors=colors,
+                        on_game_finished=on_game_finished,
+                        skip_quarters=skip_quarters,
+                    )
+                )
+                running.append(task)
+            await asyncio.gather(*running)
+        else:
+            # All games launch concurrently (instant mode / single game).
+            tasks = [
+                _present_full_game(
+                    game_idx=idx,
+                    game_result=gr,
+                    total_games=len(game_results),
+                    event_bus=event_bus,
+                    state=state,
+                    quarter_replay_seconds=quarter_replay_seconds,
+                    names=names,
+                    colors=colors,
+                    on_game_finished=on_game_finished,
+                    skip_quarters=skip_quarters,
+                )
+                for idx, gr in enumerate(game_results)
+            ]
+            await asyncio.gather(*tasks)
 
         # Derive playoff_context from game summaries for the round event
         _round_pc: str | None = None

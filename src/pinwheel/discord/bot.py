@@ -2754,7 +2754,39 @@ class PinwheelBot(commands.Bot):
         """Handle the /schedule slash command."""
         await interaction.response.defer()
         schedule, round_number = await self._query_schedule()
-        embed = build_schedule_embed(schedule, round_number=round_number)
+
+        # Compute staggered start times from the effective cron schedule
+        start_times: list[str] | None = None
+        if schedule:
+            try:
+                from apscheduler.triggers.cron import CronTrigger
+
+                from pinwheel.core.schedule_times import (
+                    compute_game_start_times,
+                    format_game_time,
+                )
+
+                effective_cron = self.settings.effective_game_cron()
+                if effective_cron:
+                    trigger = CronTrigger.from_crontab(effective_cron)
+                    next_fire = trigger.get_next_fire_time(
+                        None, datetime.now(UTC),
+                    )
+                    if next_fire:
+                        times = compute_game_start_times(
+                            next_fire,
+                            len(schedule),
+                            self.settings.pinwheel_game_interval_seconds,
+                        )
+                        start_times = [format_game_time(t) for t in times]
+            except Exception:
+                logger.debug("discord_schedule_start_times_failed", exc_info=True)
+
+        embed = build_schedule_embed(
+            schedule,
+            round_number=round_number,
+            start_times=start_times,
+        )
         await interaction.followup.send(embed=embed)
 
     async def _query_schedule(self) -> tuple[list[dict[str, object]], int]:

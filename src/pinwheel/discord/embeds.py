@@ -292,6 +292,7 @@ def build_schedule_embed(
     schedule: list[dict[str, object]],
     round_number: int,
     playoff_context: str | None = None,
+    start_times: list[str] | None = None,
 ) -> discord.Embed:
     """Build an embed for an upcoming round's schedule.
 
@@ -299,6 +300,7 @@ def build_schedule_embed(
         schedule: List of matchup dicts with home_team_name, away_team_name.
         round_number: The round number.
         playoff_context: 'semifinal', 'finals', or None for regular season.
+        start_times: Optional formatted start times (one per game).
     """
     if playoff_context == "finals":
         title = f"CHAMPIONSHIP FINALS -- Round {round_number}"
@@ -317,10 +319,13 @@ def build_schedule_embed(
         return embed
 
     lines: list[str] = []
-    for matchup in schedule:
+    for idx, matchup in enumerate(schedule):
         home = matchup.get("home_team_name", matchup.get("home_team_id", "TBD"))
         away = matchup.get("away_team_name", matchup.get("away_team_id", "TBD"))
-        lines.append(f"{home} vs {away}")
+        line = f"{home} vs {away}"
+        if start_times and idx < len(start_times):
+            line += f" -- {start_times[idx]}"
+        lines.append(line)
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Pinwheel Fates")

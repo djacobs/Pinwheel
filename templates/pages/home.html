@@ -134,6 +134,9 @@
   <div class="upcoming-strip">
     {% for game in upcoming_games %}
     <div class="upcoming-card">
+      {% if game.start_time %}
+      <div class="uc-time">{{ game.start_time }}</div>
+      {% endif %}
       <div class="uc-team">
         <span class="sc-dot" style="background:{{ game.home_color }};"></span>
         <span>{{ game.home_name }}</span>
@@ -234,7 +237,7 @@
 {# Empty state for brand-new league #}
 <div class="empty-state">
   <h3>The season hasn't started yet.</h3>
-  <p>Games will appear here once the first round is simulated.</p>
+  <p>Games will appear here once the first round is played.</p>
 </div>
 {% endif %}
 {% endblock %}

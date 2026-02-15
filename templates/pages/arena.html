@@ -157,7 +157,7 @@
 {% if not live_round %}
 <div class="empty-state">
   <h3>No Games Yet</h3>
-  <p>The season hasn't started. Games will appear here once the first round is simulated.</p>
+  <p>The season hasn't started. Games will appear here once the first round is played.</p>
 </div>
 {% endif %}
 {% endif %}
@@ -168,6 +168,11 @@
   <div class="arena-grid">
     {% for ug in upcoming_games %}
     <div class="game-panel upcoming-panel">
+      {% if ug.start_time %}
+      <div class="game-panel-header">
+        <span class="game-meta">{{ ug.start_time }}</span>
+      </div>
+      {% endif %}
       <div class="game-panel-teams">
         <div class="team-score-block" style="border-left: 3px solid {{ ug.home_color }}; padding-left: 0.5rem;">
           <div class="team-name">{{ ug.home_name }}</div>
