@@ -446,6 +446,24 @@ class PinwheelBot(commands.Bot):
                 self._listen_to_event_bus(), name="discord-event-listener"
             )
 
+    async def on_member_join(self, member: discord.Member) -> None:
+        """Send a first-touch welcome DM when someone joins the Discord server."""
+        if member.bot:
+            return
+        try:
+            from pinwheel.discord.embeds import build_server_welcome_embed
+
+            embed = build_server_welcome_embed()
+            await member.send(embed=embed)
+            logger.info("server_welcome_dm_sent user=%s", member.display_name)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            # DMs disabled or other issue — non-fatal
+            logger.info(
+                "server_welcome_dm_failed user=%s err=%s",
+                member.display_name,
+                exc,
+            )
+
     async def _listen_to_event_bus(self) -> None:
         """Subscribe to EventBus and forward events to Discord channels."""
         async with self.event_bus.subscribe(None) as subscription:
@@ -3827,8 +3845,14 @@ async def _gather_season_context(
 def is_discord_enabled(settings: Settings) -> bool:
     """Check whether Discord integration should be started.
 
-    Returns True only when both discord_enabled is True and a token is set.
+    Returns True only when discord_enabled is True, a token is set, AND the
+    environment is not development.  This prevents a local dev server from
+    accidentally connecting to the production Discord guild and creating
+    duplicate channels / syncing commands.
     """
+    if settings.pinwheel_env == "development":
+        logger.info("discord_bot_skipped_in_development")
+        return False
     return bool(settings.discord_enabled and settings.discord_bot_token)
 
 

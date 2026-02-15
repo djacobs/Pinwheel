@@ -643,6 +643,33 @@ def build_commentary_embed(
     return embed
 
 
+def build_server_welcome_embed() -> discord.Embed:
+    """Build a first-touch DM for someone who just joined the Discord server.
+
+    Sent before they pick a team — explains what Pinwheel is and how to start.
+    """
+    embed = discord.Embed(
+        title="Welcome to Pinwheel Fates!",
+        description=(
+            "Pinwheel starts as basketball, but becomes whatever you want.\n\n"
+            "**First, choose a team** with `/join`. "
+            "Don't worry -- you can switch between seasons.\n\n"
+            "Once you're on a team, you're a **governor**. "
+            "Use `/propose` to change the rules of the game, "
+            "or `/amend` existing proposals on the Floor. "
+            "Your team's hoopers play by whatever rules the governors create.\n\n"
+            "**Quick start:**\n"
+            "`/join` -- Pick a team and meet your hoopers\n"
+            "`/propose` -- Submit a rule change\n"
+            "`/vote` -- Vote on active proposals\n"
+            "`/standings` -- See how the league looks"
+        ),
+        color=discord.Color.gold(),
+    )
+    embed.set_footer(text="Pinwheel Fates -- The rules are yours to write.")
+    return embed
+
+
 def build_welcome_embed(
     team_name: str,
     team_color: str,

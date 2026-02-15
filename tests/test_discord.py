@@ -23,6 +23,7 @@ from pinwheel.discord.embeds import (
     build_roster_embed,
     build_round_summary_embed,
     build_schedule_embed,
+    build_server_welcome_embed,
     build_standings_embed,
     build_token_balance_embed,
     build_vote_tally_embed,
@@ -55,14 +56,15 @@ def make_interaction(**overrides) -> AsyncMock:
 
 @pytest.fixture
 def settings_discord_enabled() -> Settings:
-    """Settings with Discord enabled."""
+    """Settings with Discord enabled (production env so the guard passes)."""
     return Settings(
-        pinwheel_env="development",
+        pinwheel_env="production",
         database_url="sqlite+aiosqlite:///:memory:",
         discord_bot_token="test-token-not-real",
         discord_channel_id="123456789",
         discord_guild_id="987654321",
         discord_enabled=True,
+        session_secret_key="test-secret-for-prod",
     )
 
 
@@ -98,18 +100,30 @@ class TestIsDiscordEnabled:
 
     def test_disabled_when_flag_false(self) -> None:
         settings = Settings(
-            pinwheel_env="development",
+            pinwheel_env="production",
             database_url="sqlite+aiosqlite:///:memory:",
             discord_bot_token="some-token",
             discord_enabled=False,
+            session_secret_key="test-secret",
         )
         assert is_discord_enabled(settings) is False
 
     def test_disabled_when_token_empty(self) -> None:
         settings = Settings(
-            pinwheel_env="development",
+            pinwheel_env="production",
             database_url="sqlite+aiosqlite:///:memory:",
             discord_bot_token="",
+            discord_enabled=True,
+            session_secret_key="test-secret",
+        )
+        assert is_discord_enabled(settings) is False
+
+    def test_disabled_in_development_env(self) -> None:
+        """Discord bot must not start in development, even with token + flag."""
+        settings = Settings(
+            pinwheel_env="development",
+            database_url="sqlite+aiosqlite:///:memory:",
+            discord_bot_token="some-token",
             discord_enabled=True,
         )
         assert is_discord_enabled(settings) is False
@@ -2308,6 +2322,83 @@ class TestBioCommand:
 # ---------------------------------------------------------------------------
 # Welcome embed with motto and backstory
 # ---------------------------------------------------------------------------
+
+
+class TestServerWelcomeEmbed:
+    """First-touch DM sent when someone joins the Discord server."""
+
+    def test_server_welcome_embed_content(self) -> None:
+        embed = build_server_welcome_embed()
+        assert embed.title == "Welcome to Pinwheel Fates!"
+        desc = embed.description or ""
+        assert "/join" in desc
+        assert "/propose" in desc
+        assert "basketball" in desc
+        assert "whatever you want" in desc
+        assert embed.footer.text is not None
+        assert "Pinwheel Fates" in embed.footer.text
+
+    def test_server_welcome_embed_color(self) -> None:
+        embed = build_server_welcome_embed()
+        assert embed.color == discord.Color.gold()
+
+
+class TestOnMemberJoin:
+    """Bot sends a server welcome DM when a new member joins."""
+
+    async def test_sends_welcome_dm_to_human(self) -> None:
+        settings = Settings(
+            pinwheel_env="production",
+            database_url="sqlite+aiosqlite:///:memory:",
+            discord_bot_token="tok",
+            discord_enabled=True,
+            session_secret_key="test-secret",
+        )
+        bot = PinwheelBot(settings=settings, event_bus=EventBus())
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.display_name = "NewPlayer"
+        member.send = AsyncMock()
+
+        await bot.on_member_join(member)
+
+        member.send.assert_called_once()
+        embed = member.send.call_args[1].get("embed") or member.send.call_args[0][0]
+        assert "Pinwheel Fates" in embed.title
+
+    async def test_skips_bots(self) -> None:
+        settings = Settings(
+            pinwheel_env="production",
+            database_url="sqlite+aiosqlite:///:memory:",
+            discord_bot_token="tok",
+            discord_enabled=True,
+            session_secret_key="test-secret",
+        )
+        bot = PinwheelBot(settings=settings, event_bus=EventBus())
+        member = MagicMock(spec=discord.Member)
+        member.bot = True
+        member.send = AsyncMock()
+
+        await bot.on_member_join(member)
+
+        member.send.assert_not_called()
+
+    async def test_handles_dm_forbidden_gracefully(self) -> None:
+        settings = Settings(
+            pinwheel_env="production",
+            database_url="sqlite+aiosqlite:///:memory:",
+            discord_bot_token="tok",
+            discord_enabled=True,
+            session_secret_key="test-secret",
+        )
+        bot = PinwheelBot(settings=settings, event_bus=EventBus())
+        member = MagicMock(spec=discord.Member)
+        member.bot = False
+        member.display_name = "PrivateUser"
+        member.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Cannot send"))
+
+        # Should not raise
+        await bot.on_member_join(member)
 
 
 class TestWelcomeEmbedExtended:
