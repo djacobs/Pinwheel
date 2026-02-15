@@ -55,7 +55,7 @@ store.toggle("team", "team-123", "hot_streak")  # False → True
 
 **Snapshot.** `snapshot()` returns a deep copy of all state. Used to pass meta context to AI reports without risking mutation.
 
-**Database backing.** A `meta` JSON column was added to 7 entity tables (teams, hoopers, game_results, seasons, schedule, box_scores, players) via `scripts/migrate_add_meta.py`. The migration is idempotent. Repository methods `update_team_meta()`, `flush_meta_store()`, and `load_all_team_meta()` handle persistence.
+**Database backing.** A `meta` JSON column exists on 7 entity tables (teams, hoopers, game_results, seasons, schedule, box_scores, players). These columns are auto-migrated at startup by `auto_migrate_schema()` in `db/engine.py`, which compares ORM models against the live SQLite schema and adds any missing nullable columns automatically. The manual migration script `scripts/migrate_add_meta.py` is now redundant — kept for reference only. Repository methods `update_team_meta()`, `flush_meta_store()`, and `load_all_team_meta()` handle persistence.
 
 ### Layer 2: Hook System (`core/hooks.py`)
 
@@ -242,7 +242,7 @@ Expiration is persisted via `effect.expired` events. Repeal (by a future proposa
 | `src/pinwheel/ai/interpreter.py` | `interpret_proposal_v2_mock()` |
 | `src/pinwheel/core/simulation.py` | `_fire_sim_effects()`, updated `simulate_game()` signature |
 | `src/pinwheel/db/repository.py` | `update_team_meta()`, `flush_meta_store()`, `load_all_team_meta()` |
-| `scripts/migrate_add_meta.py` | Additive migration: `meta` JSON column on 7 tables |
+| `scripts/migrate_add_meta.py` | ~~Additive migration~~ Superseded by `auto_migrate_schema()` in `db/engine.py` — kept for reference |
 | `tests/test_effects.py` | 83 tests across 12 test classes |
 
 ## What's Next

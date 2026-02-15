@@ -17,7 +17,7 @@ See also: `docs/product/VISION.md` for the full philosophical grounding.
 ## Tech Stack
 
 - **Backend:** Python 3.12+ / FastAPI
-- **Database:** SQLite via SQLAlchemy 2.0 async (aiosqlite). Schema managed via `Base.metadata.create_all()` (no Alembic — acceptable for hackathon pace).
+- **Database:** SQLite via SQLAlchemy 2.0 async (aiosqlite). Schema managed via `Base.metadata.create_all()` + `auto_migrate_schema()` for additive changes (no Alembic).
 - **AI:** Claude Opus 4.6 via Anthropic API
 - **Discord:** discord.py 2.x — bot runs in-process with FastAPI
 - **Frontend:** HTMX + SSE + Jinja2 templates (optional Textual TUI for terminal). Technically a live-updating data dashboard — standings, play-by-play, governance panels, AI reflections — but it **must be fun**. The aesthetic is retro, bold, community-focused — joyful chaos. Full CSS control via Jinja2 templates. No JS build step.
@@ -30,7 +30,7 @@ See also: `docs/product/VISION.md` for the full philosophical grounding.
 **Production has real players.** Testers have joined teams via Discord. Any operation that drops, resets, or migrates the production database forces them to re-enroll. This is painful and erodes trust.
 
 - **Never drop or recreate the production database** without explicit user approval. No `create_all()` on prod, no `rm pinwheel.db`, no table renames without a migration path.
-- **Schema changes require migration scripts**, not drop-and-recreate. Write `ALTER TABLE` SQL or use a migration tool. Test the migration against a copy of prod data first.
+- **Additive schema changes are auto-migrated.** `auto_migrate_schema()` in `db/engine.py` runs at startup: it compares ORM models against the live SQLite schema and adds missing columns automatically (nullable columns and columns with scalar defaults). No migration script needed for adding new fields. **Destructive changes** (column renames, type changes, drops, NOT NULL without default) still require manual `ALTER TABLE` scripts — test against a copy of prod data first.
 - **Deploy is not reseed.** Deploying new code should not require reseeding. If a code change would break existing data, stop and flag it.
 - **Back up before destructive operations.** `flyctl ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"` takes 2 seconds and saves hours of apologies.
 - **Test locally with prod-shaped data** before deploying schema or data-layer changes. Use `demo_seed.py` to create a representative dataset and verify the migration preserves it.
