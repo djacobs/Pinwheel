@@ -831,6 +831,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             rebounder=hooper_names.get(reb_id, reb_id) if reb_id else "",
             is_offensive_rebound=play.get("is_offensive_rebound", False),
             seed=play.get("possession_number", 0),
+            assist_id=play.get("assist_id", ""),
         )
         play_by_play.append(enriched)
 

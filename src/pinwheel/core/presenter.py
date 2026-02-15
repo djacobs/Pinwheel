@@ -444,6 +444,7 @@ async def _present_game(
                 rebounder=rebounder_name,
                 is_offensive_rebound=possession.is_offensive_rebound,
                 seed=possession.possession_number,
+                assist_id=possession.assist_id,
             )
 
             # During Elam ending, show target score instead of empty clock

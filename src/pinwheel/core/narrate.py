@@ -166,6 +166,7 @@ def narrate_play(
     score_home: int = 0,
     score_away: int = 0,
     seed: int = 0,
+    assist_id: str = "",
 ) -> str:
     """Generate a one-line play-by-play description from structured data.
 
@@ -217,7 +218,12 @@ def narrate_play(
             rebound_text = rng.choice(_DEFENSIVE_REBOUND).format(rebounder=rebounder)
         text += f". {rebound_text}"
 
+    # Only tag No-Look Pass when there's an actual assist (a pass led to a score).
+    # Other moves always show when activated.
     if move and move in _MOVE_FLOURISHES:
-        text = f"[{move}] {text}"
+        if move == "No-Look Pass" and not assist_id:
+            pass  # suppress — no pass play happened
+        else:
+            text = f"[{move}] {text}"
 
     return text

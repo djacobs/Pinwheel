@@ -180,6 +180,46 @@ class TestNarratePlay:
         )
         assert t1 == t2
 
+    def test_no_look_pass_suppressed_without_assist(self) -> None:
+        """No-Look Pass tag should NOT appear when there's no assist."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="mid_range",
+            result="made",
+            points=2,
+            move="No-Look Pass",
+            seed=1,
+        )
+        assert "[No-Look Pass]" not in text
+
+    def test_no_look_pass_shown_with_assist(self) -> None:
+        """No-Look Pass tag should appear when there's an assist."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="mid_range",
+            result="made",
+            points=2,
+            move="No-Look Pass",
+            assist_id="teammate-1",
+            seed=1,
+        )
+        assert "[No-Look Pass]" in text
+
+    def test_other_moves_shown_without_assist(self) -> None:
+        """Non-pass moves should still show tags regardless of assist."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="three_point",
+            result="made",
+            points=3,
+            move="Heat Check",
+            seed=1,
+        )
+        assert "[Heat Check]" in text
+
     def test_no_rebound_on_foul(self) -> None:
         """Foul results should not include rebound narration."""
         text = narrate_play(
