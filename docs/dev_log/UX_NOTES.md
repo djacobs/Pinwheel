@@ -673,3 +673,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 100. [DONE] "Simulated" → "played" language fix
 **Problem:** Empty-state text on arena and home pages said "once the first round is simulated" — engineering language, not player language.
 **Fix:** Changed to "once the first round is played" in both `arena.html` and `home.html`.
+
+### 101. [DONE] Round-based start times (replaces per-game stagger from #99)
+**Problem:** UX note #99 implemented per-game stagger using `game_interval_seconds`, producing times like 1:00, 1:01, 1:02 PM — one per game. This was wrong: a team can't play two games at once, so games within a round are simultaneous (no team overlap). The correct grouping is by round, spaced by the cron cadence (e.g. 30 min apart). "Up Next" also only showed the next single round instead of all remaining rounds.
+**Fix:** Start times now derive from the cron schedule via `compute_round_start_times()` — one time per round. Arena and home "Up Next" sections show ALL remaining rounds grouped with time headers (e.g. "Round 4 — 1:00 PM ET" with 2 games underneath, "Round 5 — 1:30 PM ET" with 2 more). Template variable changed from flat `upcoming_games` to grouped `upcoming_rounds`. Discord `/schedule` embed shows all rounds with per-round times. Replaced `.uc-time` (per-game) with `.uc-round-header` CSS class. Presenter reverted to concurrent — all games in a round launch simultaneously.

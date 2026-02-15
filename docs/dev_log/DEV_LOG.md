@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1455 tests**, zero lint errors (Session 75)
+- **1456 tests**, zero lint errors (Session 76)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -19,7 +19,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** V2 tier detection, minimum voting period, Discord channel slug fix
 - **Day 15 (cont):** /schedule nudge in new-season Discord embeds
 - **Day 15 (cont):** Staggered game start times, "played" language fix, playoffs nav test fix
-- **Latest commit:** `aba3fa2` — fix playoffs nav test after nav link moved to Play page
+- **Day 15 (cont):** Round-based start times — games grouped by cron cadence, not per-game stagger
+- **Latest commit:** `137a649` — fix: round-based start times — group by cron cadence, not per-game stagger
 
 ## Today's Agenda
 
@@ -176,12 +177,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Update `docs/plans/2026-02-14-season-memorial-system.md` status to Implemented.
 - [x] Update high-level stale checklists with "historical snapshot" note in `discord-bot-plan.md`, `frontend-plan.md`, `day1-implementation-plan.md`.
 
-### Phase 3: True remaining gaps (keep as active TODO)
-- [ ] Spectator follow system remains genuinely unimplemented; keep `docs/plans/2026-02-14-spectator-journey-and-team-following.md` active and break into executable tickets.
-- [ ] Create missing follow API/module: `src/pinwheel/api/follow.py`.
-- [ ] Add DB model + repository methods for follows (`TeamFollowRow`, `follow_team`, `unfollow_team`, etc.) in `src/pinwheel/db/models.py` and `src/pinwheel/db/repository.py`.
-- [ ] Add follow/unfollow UI on `templates/pages/team.html` and personalized home highlighting in `templates/pages/home.html`.
-- [ ] Add tests for follow flow (`tests/test_follow.py`).
+### Phase 3: True remaining gaps (P2 — post-hackathon)
+- [ ] Spectator follow system — full plan at `docs/plans/2026-02-14-spectator-journey-and-team-following.md`. Phases: team following (DB + API + UI), notifications, spectator→governor conversion, metrics. Deprioritized for hackathon; revisit post-launch.
 
 ### Phase 4: Lifecycle/data integrity fixes
 - [ ] Resolve archive lifecycle mismatch: `close_offseason()` docstring says it archives, but it currently only transitions to complete (`src/pinwheel/core/season.py:883`, `src/pinwheel/core/season.py:922`).
@@ -217,3 +214,27 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1455 tests, zero lint errors.**
 
 **What could have gone better:** The pre-existing test failure was from a prior commit that moved nav links but didn't update the corresponding test. Should always run the full suite before pushing.
+
+---
+
+## Session 76 — Round-Based Start Times (Fundamental Fix)
+
+**What was asked:** The previous session's implementation (Session 75) was fundamentally wrong. It staggered individual games within a round by `game_interval_seconds`, producing times like 1:00, 1:01, 1:02 PM. The correct model: all games in a round play simultaneously (no team plays twice per round), rounds are spaced by the cron schedule (e.g. every 30 min), and "Up Next" should show ALL remaining rounds grouped by time slot.
+
+**What was built:**
+- Rewrote `schedule_times.py` — replaced `compute_game_start_times()` (per-game, interval-based) with `compute_round_start_times()` (per-round, cron-based via APScheduler `CronTrigger`)
+- Reverted presenter stagger — removed `asyncio.sleep()` between games; all games in a round are concurrent (correct since no team overlap)
+- Rewrote `_inject_start_times()` → `_get_round_start_times()` in `pages.py` — computes one time per round from cron expression
+- Both `arena_page()` and `home_page()` now fetch ALL remaining unplayed rounds via `get_full_schedule()`, group by round number, assign cron-derived start times
+- Template variable changed from flat `upcoming_games` to grouped `upcoming_rounds` (list of round dicts with `round_number`, `start_time`, `games`)
+- Arena "Up Next" shows round headers with times and nested game cards
+- Home "Coming Up" shows grouped rounds with time headers
+- Discord `_query_schedule()` returns all remaining rounds; `build_schedule_embed()` renders grouped sections
+- Replaced `.uc-time` CSS with `.uc-round-header` for round-level time display
+- Rewrote all tests for new API signatures
+
+**Files modified (11):** `src/pinwheel/api/pages.py`, `src/pinwheel/core/presenter.py`, `src/pinwheel/core/schedule_times.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/embeds.py`, `static/css/pinwheel.css`, `templates/pages/arena.html`, `templates/pages/home.html`, `tests/test_commentary.py`, `tests/test_discord.py`, `tests/test_schedule_times.py`
+
+**1456 tests, zero lint errors.**
+
+**What could have gone better:** Session 75's implementation reflected a fundamental misunderstanding of the timing model. The user had to correct the approach twice — first about the interval (60s vs 1800s in production), then about the entire per-game stagger concept being wrong. The correct mental model was always: rounds are the scheduling unit (one cron tick = one round), and games within a round are simultaneous because no team plays twice. Should have asked clarifying questions before implementing.
