@@ -2458,12 +2458,17 @@ class TestSeriesReports:
             home_score=55,
             away_score=42,
             winner_team_id=team_ids[0],
+            seed=42,
+            total_possessions=100,
         )
 
         teams_cache = {}
         for tid in team_ids:
             t = await repo.get_team(tid)
-            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+            teams_cache[tid] = Team(
+                id=tid, name=t.name, hoopers=[],
+                venue={"name": "Arena", "capacity": 5000},
+            )
 
         deferred_events = [
             (
@@ -2547,12 +2552,17 @@ class TestSeriesReports:
             home_score=60,
             away_score=48,
             winner_team_id=team_ids[0],
+            seed=42,
+            total_possessions=100,
         )
 
         teams_cache = {}
         for tid in team_ids:
             t = await repo.get_team(tid)
-            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+            teams_cache[tid] = Team(
+                id=tid, name=t.name, hoopers=[],
+                venue={"name": "Arena", "capacity": 5000},
+            )
 
         deferred_events = [
             (
@@ -2589,7 +2599,10 @@ class TestSeriesReports:
 
         season_id, team_ids = await _setup_season_with_teams(repo)
         teams_cache = {
-            tid: Team(id=tid, name=f"Team {i}", hoopers=[], venue=None)
+            tid: Team(
+                id=tid, name=f"Team {i}", hoopers=[],
+                venue={"name": "Arena", "capacity": 5000},
+            )
             for i, tid in enumerate(team_ids)
         }
 
@@ -2629,12 +2642,17 @@ class TestSeriesReports:
             home_score=45,
             away_score=38,
             winner_team_id=team_ids[0],
+            seed=42,
+            total_possessions=100,
         )
 
         teams_cache = {}
         for tid in team_ids:
             t = await repo.get_team(tid)
-            teams_cache[tid] = Team(id=tid, name=t.name, hoopers=[], venue=None)
+            teams_cache[tid] = Team(
+                id=tid, name=t.name, hoopers=[],
+                venue={"name": "Arena", "capacity": 5000},
+            )
 
         deferred_events = [
             (

@@ -1444,3 +1444,56 @@ class TestAllowedTransitionsComplete:
     def test_tiebreakers_to_playoffs(self):
         """TIEBREAKERS -> PLAYOFFS is a valid transition."""
         assert SeasonPhase.PLAYOFFS in ALLOWED_TRANSITIONS[SeasonPhase.TIEBREAKERS]
+
+
+class TestCloseOffseasonArchive:
+    """Tests for archive_season wired into close_offseason (Part 1)."""
+
+    async def test_close_offseason_produces_archive_row(self, repo: Repository):
+        """close_offseason creates a SeasonArchiveRow on COMPLETE transition."""
+        from pinwheel.db.models import SeasonArchiveRow
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "active")
+
+        # Play one round so standings data exists
+        await step_round(repo, season_id, round_number=1)
+
+        # Progress through to offseason
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+        await enter_offseason(repo, season_id, duration_seconds=10)
+
+        await close_offseason(repo, season_id)
+
+        # Archive row should exist
+        from sqlalchemy import select
+
+        stmt = select(SeasonArchiveRow).where(SeasonArchiveRow.season_id == season_id)
+        result = await repo.session.execute(stmt)
+        archive = result.scalar_one_or_none()
+        assert archive is not None
+        assert archive.season_id == season_id
+        assert archive.champion_team_id is not None
+
+    async def test_archive_failure_does_not_block_complete(
+        self, repo: Repository
+    ):
+        """If archive_season fails, close_offseason still transitions to COMPLETE."""
+        from unittest.mock import patch
+
+        season_id, team_ids = await _setup_season_with_teams(repo)
+        await repo.update_season_status(season_id, "playoffs")
+        await enter_championship(repo, season_id, team_ids[0])
+        await enter_offseason(repo, season_id, duration_seconds=10)
+
+        # Make archive_season raise
+        with patch(
+            "pinwheel.core.season.archive_season",
+            side_effect=RuntimeError("archive boom"),
+        ):
+            await close_offseason(repo, season_id)
+
+        season = await repo.get_season(season_id)
+        assert season.status == "complete"
+        assert season.completed_at is not None

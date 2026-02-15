@@ -3415,3 +3415,320 @@ class TestProposalsEmbed:
         # Should have proposal detail field
         field_values = [f.value for f in embed.fields]
         assert any("Awaiting Admin Review" in v for v in field_values)
+
+
+# ---------------------------------------------------------------------------
+# /edit-series command
+# ---------------------------------------------------------------------------
+
+
+class TestEditSeriesCommand:
+    """Tests for /edit-series auth and flow."""
+
+    @pytest.fixture
+    def bot(self, settings_discord_enabled: Settings, event_bus: EventBus) -> PinwheelBot:
+        return PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
+
+    async def test_edit_series_registered(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        bot = PinwheelBot(settings=settings_discord_enabled, event_bus=event_bus)
+        command_names = [cmd.name for cmd in bot.tree.get_commands()]
+        assert "edit-series" in command_names
+
+    async def test_edit_series_no_engine(self, bot: PinwheelBot) -> None:
+        """Without an engine, edit-series fails gracefully."""
+        interaction = make_interaction(user_id=111222333)
+        await bot._handle_edit_series(interaction, "some-report-id")
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+
+    async def test_edit_series_not_enrolled(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        """A user not enrolled as a governor gets rejected."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(season.id, "Thorns", color="#e94560")
+            # Store a series report
+            report = await repo.store_report(
+                season_id=season.id,
+                report_type="series",
+                round_number=0,
+                content="The Thorns advanced.",
+                team_id=team.id,
+                metadata_json={
+                    "series_type": "semifinal",
+                    "winner_id": team.id,
+                    "loser_id": "other-team",
+                    "record": "2-1",
+                },
+            )
+            report_id = report.id
+            await session.commit()
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+        interaction = make_interaction(user_id=999888777)
+        await bot._handle_edit_series(interaction, report_id)
+        # Not enrolled → ephemeral rejection
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        assert "join" in call_kwargs.args[0].lower()
+
+        await engine.dispose()
+
+    async def test_edit_series_non_participating_governor_rejected(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        """A governor on a non-participating team is rejected."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            await repo.update_season_status(season.id, "active")
+            team_winner = await repo.create_team(season.id, "Thorns")
+            team_loser = await repo.create_team(season.id, "Breakers")
+            team_other = await repo.create_team(season.id, "Outsiders")
+            # Enroll governor on the non-participating team
+            player = await repo.get_or_create_player(
+                discord_id="444555666",
+                username="OutsiderGov",
+            )
+            await repo.enroll_player(player.id, team_other.id, season.id)
+            # Store a series report between winner and loser
+            report = await repo.store_report(
+                season_id=season.id,
+                report_type="series",
+                round_number=0,
+                content="Thorns beat Breakers.",
+                team_id=team_winner.id,
+                metadata_json={
+                    "series_type": "semifinal",
+                    "winner_id": team_winner.id,
+                    "loser_id": team_loser.id,
+                    "record": "2-0",
+                },
+            )
+            report_id = report.id
+            await session.commit()
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+        interaction = make_interaction(user_id=444555666)
+        await bot._handle_edit_series(interaction, report_id)
+        # Non-participating → ephemeral rejection
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+        assert "participating" in call_kwargs.args[0].lower()
+
+        await engine.dispose()
+
+    async def test_edit_series_participating_governor_opens_modal(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        """A governor on the winning team can open the edit modal."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            await repo.update_season_status(season.id, "active")
+            team_winner = await repo.create_team(season.id, "Thorns")
+            team_loser = await repo.create_team(season.id, "Breakers")
+            player = await repo.get_or_create_player(
+                discord_id="111222333",
+                username="ThornsGov",
+            )
+            await repo.enroll_player(player.id, team_winner.id, season.id)
+            report = await repo.store_report(
+                season_id=season.id,
+                report_type="series",
+                round_number=0,
+                content="Thorns beat Breakers in a tight series.",
+                team_id=team_winner.id,
+                metadata_json={
+                    "series_type": "semifinal",
+                    "winner_id": team_winner.id,
+                    "loser_id": team_loser.id,
+                    "record": "2-1",
+                },
+            )
+            report_id = report.id
+            await session.commit()
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+        interaction = make_interaction(user_id=111222333)
+        await bot._handle_edit_series(interaction, report_id)
+        # Should open a modal
+        interaction.response.send_modal.assert_called_once()
+        modal = interaction.response.send_modal.call_args.args[0]
+        assert modal.report_id == report_id
+        assert modal.winner_name == "Thorns"
+        assert modal.loser_name == "Breakers"
+
+        await engine.dispose()
+
+    async def test_edit_series_loser_governor_can_also_edit(
+        self, settings_discord_enabled: Settings, event_bus: EventBus
+    ) -> None:
+        """A governor on the losing team can also open the edit modal."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            await repo.update_season_status(season.id, "active")
+            team_winner = await repo.create_team(season.id, "Thorns")
+            team_loser = await repo.create_team(season.id, "Breakers")
+            player = await repo.get_or_create_player(
+                discord_id="777888999",
+                username="BreakersGov",
+            )
+            await repo.enroll_player(player.id, team_loser.id, season.id)
+            report = await repo.store_report(
+                season_id=season.id,
+                report_type="series",
+                round_number=0,
+                content="Thorns won the series.",
+                team_id=team_winner.id,
+                metadata_json={
+                    "series_type": "finals",
+                    "winner_id": team_winner.id,
+                    "loser_id": team_loser.id,
+                    "record": "3-2",
+                },
+            )
+            report_id = report.id
+            await session.commit()
+
+        bot = PinwheelBot(
+            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+        )
+        interaction = make_interaction(user_id=777888999)
+        await bot._handle_edit_series(interaction, report_id)
+        # Loser-team governor should also get the modal
+        interaction.response.send_modal.assert_called_once()
+
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# EditSeriesModal
+# ---------------------------------------------------------------------------
+
+
+class TestEditSeriesModal:
+    """Tests for the EditSeriesModal view."""
+
+    async def test_modal_saves_content_and_appends_event(self) -> None:
+        """on_submit saves updated content and appends report.edited event."""
+        from pinwheel.db.engine import create_engine, get_session
+        from pinwheel.db.models import Base
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.views import EditSeriesModal
+
+        engine = create_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            await repo.update_season_status(season.id, "active")
+            team = await repo.create_team(season.id, "Thorns")
+            report = await repo.store_report(
+                season_id=season.id,
+                report_type="series",
+                round_number=0,
+                content="Original content.",
+                team_id=team.id,
+                metadata_json={
+                    "series_type": "semifinal",
+                    "winner_id": team.id,
+                    "loser_id": "other-team",
+                    "record": "2-0",
+                },
+            )
+            report_id = report.id
+            season_id = season.id
+            await session.commit()
+
+        modal = EditSeriesModal(
+            report_id=report_id,
+            season_id=season_id,
+            series_type="semifinal",
+            winner_name="Thorns",
+            loser_name="Breakers",
+            current_content="Original content.",
+            engine=engine,
+        )
+
+        # Simulate user typing new content
+        modal.report_content._value = "Revised series report with more drama."
+
+        interaction = make_interaction(user_id=111222333, display_name="TestEditor")
+        await modal.on_submit(interaction)
+
+        # Verify content was saved
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            updated = await session.get(
+                __import__("pinwheel.db.models", fromlist=["ReportRow"]).ReportRow,
+                report_id,
+            )
+            assert updated.content == "Revised series report with more drama."
+
+            # Verify report.edited event was appended
+            events = await repo.get_events_for_aggregate("report", report_id)
+            edited_events = [e for e in events if e.event_type == "report.edited"]
+            assert len(edited_events) == 1
+            assert edited_events[0].payload["editor_discord_id"] == "111222333"
+            assert edited_events[0].payload["series_type"] == "semifinal"
+
+        # Verify interaction response was sent
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args
+        assert call_kwargs.kwargs.get("ephemeral") is True
+
+        await engine.dispose()
