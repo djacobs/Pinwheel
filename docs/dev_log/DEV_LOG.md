@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1476 tests**, zero lint errors (Session 77)
+- **1479 tests**, zero lint errors (Session 79)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -21,7 +21,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Staggered game start times, "played" language fix, playoffs nav test fix
 - **Day 15 (cont):** Round-based start times — games grouped by cron cadence, not per-game stagger
 - **Day 15 (cont):** Time-slot grouping — games within a round split into non-overlapping slots, series reports + collaborative editing
-- **Latest commit:** `cf87597` — feat: series reports + collaborative editing for playoff matchups
+- **Day 15 (cont):** Tick-based scheduling — no team plays twice per tick; No-Look Pass narration fix
+- **Latest commit:** `22c37f0` — fix: suppress [No-Look Pass] tag when no assist on the play
 
 ## Today's Agenda
 
@@ -261,3 +262,38 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1476 tests, zero lint errors.**
 
 **What could have gone better:** This was the third attempt at getting game times right. Session 75: per-game stagger (wrong model). Session 76: per-round grouping (missed that rounds contain more games than can play simultaneously). Session 77: per-slot grouping (correct — greedy first-fit by team non-overlap). The circle method scheduler already generates matchups in slot order, so the greedy algorithm produces optimal groupings. Should have understood the full data model before the first attempt.
+
+---
+
+## Session 78 — Tick-Based Scheduling
+
+**What was asked:** Implement the plan "Tick-Based Scheduling — No Team Plays Twice Per Tick." The scheduler was putting an entire round-robin cycle (6 games for 4 teams) into a single `round_number`, violating the invariant that no team plays more than one game at once.
+
+**What was built:**
+- Moved `round_num` (now `tick`) increment inside the `_slot` loop in `scheduler.py` — each time slot gets its own `round_number` (4 teams: 9 ticks × 2 games instead of 3 rounds × 6 games)
+- Updated `schedule_times.py` docstring — removed stale "may contain more games than can play simultaneously"
+- Updated docs (`DEMO_MODE.md`, `OPS.md`, `GAME_LOOP.md`) — governance_interval default 3 → 1
+- Fixed 8 test files: introduced `GAMES_PER_TICK` constant, replaced all `comb(NUM_TEAMS, 2)` references, updated round count assertions, fixed playoff round numbering
+
+**Files modified (12):** `src/pinwheel/core/scheduler.py`, `src/pinwheel/core/schedule_times.py`, `docs/DEMO_MODE.md`, `docs/OPS.md`, `docs/GAME_LOOP.md`, `tests/test_api/test_e2e.py`, `tests/test_api/test_e2e_workflow.py`, `tests/test_game_loop.py`, `tests/test_commentary.py`, `tests/test_scheduler_runner.py`, `tests/test_narrative.py`, `tests/test_season_archive.py`
+
+**1476 tests, zero lint errors.**
+
+**What could have gone better:** Many test files assumed `comb(N, 2)` games per round. Iterative test-fix cycle required ~10 runs of `pytest -x -q`. The plan correctly identified most affected tests but missed the `test_season_archive.py` change (needed extra playoff ticks).
+
+---
+
+## Session 79 — No-Look Pass Narration Fix
+
+**What was asked:** `[No-Look Pass]` tags were appearing on ~70% of floor general mid-range/three-point shots. The trigger `"half_court_setup"` fires on those actions, but narrating a player's own shot as a "no-look pass" is semantically wrong.
+
+**What was built:**
+- Added `assist_id` parameter to `narrate_play()` — No-Look Pass tag only shown when an actual assist exists (meaning a pass led to a score)
+- Updated both callers (`pages.py`, `presenter.py`) to pass `assist_id`
+- 3 new tests: suppressed without assist, shown with assist, other moves unaffected
+
+**Files modified (4):** `src/pinwheel/core/narrate.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/core/presenter.py`, `tests/test_narrate.py`
+
+**1479 tests, zero lint errors.**
+
+**What could have gone better:** The move system conflates "ball handler who shoots" with "ball handler who passes" — No-Look Pass conceptually sets up a *teammate's* shot, but the simulation doesn't model pass-then-shoot sequences. The narration fix is correct but the mechanical +10% still applies to the handler's own shot probability. A deeper refactor of the possession system would make moves like this more authentic.

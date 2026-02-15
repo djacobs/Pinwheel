@@ -16,13 +16,25 @@ Manage a basketball team, change the game to change the world.
 
 ## Seasons
 
-A season is a round-robin schedule. Four teams play each other. There are three rounds of six games, with a post-season to follow. 
+### Definitions
 
-After each round, votes and proposals are tallied, and winning proposals are put in effect immediately. 
+**Round:** Every team plays every other team exactly once. With 4 teams, a round is 6 games. Games within a round are scheduled so no team plays more than one game at once -- with 4 teams, that's 3 sets of 2 simultaneous games, presented sequentially.
 
-When all regular-season games finish, the top 4 teams enter playoffs. Semifinals (best of 3), then finals (best of 5). The winner is crowned champion.
+**Tick:** One firing of the scheduler. Each tick plays one set of simultaneous games where no team appears twice. With 4 teams, a tick is 2 games. A round takes 3 ticks to complete. The cron schedule controls how often ticks fire.
 
-The season archives. A new season begins. Rules carry over to new seasons unless written otherwise.
+**Series:** A playoff matchup between two teams, played until one team meets the progression criteria (best-of-3 for semifinals, best-of-5 for finals).
+
+### Regular Season
+
+A season has a configurable number of rounds (default 3, governable via `round_robins_per_season`, range 1-5). No team plays more than one game at once. With 4 teams and 3 rounds: 18 total games.
+
+After each set of games, votes and proposals are tallied, and winning proposals take effect immediately.
+
+### Playoffs
+
+When all regular-season games finish, the top 4 teams enter playoffs. Semifinals: #1 vs #4 and #2 vs #3 (best-of-3 series). Finals: series winners meet (best-of-5 series). No team plays more than one game at once. Two semifinal games can be simultaneous since no team overlaps.
+
+The winner is crowned champion. The season archives. A new season begins. Rules carry over to new seasons unless written otherwise.
 
 ### Season Lifecycle Phases
 
