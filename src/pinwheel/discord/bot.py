@@ -928,6 +928,20 @@ class PinwheelBot(commands.Bot):
 
     async def _handle_join(self, interaction: discord.Interaction, team_name: str) -> None:
         """Handle the /join slash command for team enrollment."""
+        # Diagnostic: measure interaction age to debug "Unknown interaction" errors.
+        interaction_age = (
+            datetime.now(UTC) - interaction.created_at
+        ).total_seconds()
+        logger.info(
+            "join_interaction_received user=%s team=%s age_seconds=%.3f "
+            "is_expired=%s interaction_id=%s",
+            interaction.user.display_name if interaction.user else "unknown",
+            team_name,
+            interaction_age,
+            interaction.is_expired(),
+            interaction.id,
+        )
+
         if not self.engine:
             await interaction.response.send_message(
                 "The league database is temporarily unavailable. "
@@ -943,9 +957,10 @@ class PinwheelBot(commands.Bot):
             await interaction.response.defer()
         except (discord.NotFound, discord.HTTPException) as defer_err:
             logger.warning(
-                "join_defer_expired user=%s team=%s err=%s",
+                "join_defer_expired user=%s team=%s age_seconds=%.3f err=%s",
                 interaction.user.display_name if interaction.user else "unknown",
                 team_name,
+                interaction_age,
                 defer_err,
             )
             return
