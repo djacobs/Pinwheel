@@ -1,53 +1,67 @@
-"""Tests for schedule_times — staggered game start time computation."""
+"""Tests for schedule_times — round-based start time computation."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from pinwheel.core.schedule_times import compute_game_start_times, format_game_time
+from pinwheel.core.schedule_times import compute_round_start_times, format_game_time
 
 
-class TestComputeGameStartTimes:
-    """Tests for compute_game_start_times."""
+class TestComputeRoundStartTimes:
+    """Tests for compute_round_start_times (cron-based, per-round)."""
 
-    def test_two_games_staggered(self):
-        """Two games should have the second offset by interval_seconds."""
-        base = datetime(2026, 2, 15, 18, 0, 0, tzinfo=UTC)
-        times = compute_game_start_times(base, game_count=2, interval_seconds=1800)
-
-        assert len(times) == 2
-        assert times[0] == base
-        assert times[1] == base + timedelta(seconds=1800)
-
-    def test_single_game_no_stagger(self):
-        """A single game should return exactly one time — the fire time."""
-        base = datetime(2026, 2, 15, 20, 0, 0, tzinfo=UTC)
-        times = compute_game_start_times(base, game_count=1, interval_seconds=1800)
-
-        assert len(times) == 1
-        assert times[0] == base
-
-    def test_zero_interval_all_identical(self):
-        """With interval=0, all games start at the same time."""
-        base = datetime(2026, 2, 15, 18, 0, 0, tzinfo=UTC)
-        times = compute_game_start_times(base, game_count=3, interval_seconds=0)
+    def test_half_hour_cron_three_rounds(self):
+        """*/30 cron should produce three times 30 min apart."""
+        now = datetime(2026, 2, 15, 17, 55, 0, tzinfo=UTC)
+        times = compute_round_start_times("*/30 * * * *", 3, now=now)
 
         assert len(times) == 3
-        assert all(t == base for t in times)
+        # First fire: top of the next half-hour (18:00)
+        assert times[0] == datetime(2026, 2, 15, 18, 0, 0, tzinfo=UTC)
+        assert times[1] == datetime(2026, 2, 15, 18, 30, 0, tzinfo=UTC)
+        assert times[2] == datetime(2026, 2, 15, 19, 0, 0, tzinfo=UTC)
 
-    def test_three_games_offsets(self):
-        """Three games should have proper 0, 1x, 2x offsets."""
-        base = datetime(2026, 2, 15, 17, 0, 0, tzinfo=UTC)
-        times = compute_game_start_times(base, game_count=3, interval_seconds=600)
+    def test_hourly_cron_two_rounds(self):
+        """Hourly cron should produce times 1 hour apart."""
+        now = datetime(2026, 2, 15, 12, 30, 0, tzinfo=UTC)
+        times = compute_round_start_times("0 * * * *", 2, now=now)
 
-        assert times[0] == base
-        assert times[1] == base + timedelta(seconds=600)
-        assert times[2] == base + timedelta(seconds=1200)
+        assert len(times) == 2
+        assert times[0] == datetime(2026, 2, 15, 13, 0, 0, tzinfo=UTC)
+        assert times[1] == datetime(2026, 2, 15, 14, 0, 0, tzinfo=UTC)
 
-    def test_empty_game_count(self):
-        """Zero games should return an empty list."""
-        base = datetime(2026, 2, 15, 18, 0, 0, tzinfo=UTC)
-        times = compute_game_start_times(base, game_count=0, interval_seconds=1800)
+    def test_single_round(self):
+        """A single round returns exactly one fire time."""
+        now = datetime(2026, 2, 15, 12, 0, 0, tzinfo=UTC)
+        times = compute_round_start_times("*/30 * * * *", 1, now=now)
+
+        assert len(times) == 1
+        assert times[0] == datetime(2026, 2, 15, 12, 30, 0, tzinfo=UTC)
+
+    def test_zero_rounds(self):
+        """Zero rounds returns an empty list."""
+        now = datetime(2026, 2, 15, 12, 0, 0, tzinfo=UTC)
+        times = compute_round_start_times("*/30 * * * *", 0, now=now)
 
         assert times == []
+
+    def test_defaults_to_now(self):
+        """Without an explicit now, should still return valid fire times."""
+        times = compute_round_start_times("*/30 * * * *", 2)
+
+        assert len(times) == 2
+        # Second time should be 30 min after the first
+        diff = (times[1] - times[0]).total_seconds()
+        assert diff == 1800
+
+    def test_every_fifteen_minutes(self):
+        """*/15 cron should produce times 15 min apart."""
+        now = datetime(2026, 2, 15, 10, 0, 0, tzinfo=UTC)
+        times = compute_round_start_times("*/15 * * * *", 4, now=now)
+
+        assert len(times) == 4
+        assert times[0] == datetime(2026, 2, 15, 10, 15, 0, tzinfo=UTC)
+        assert times[1] == datetime(2026, 2, 15, 10, 30, 0, tzinfo=UTC)
+        assert times[2] == datetime(2026, 2, 15, 10, 45, 0, tzinfo=UTC)
+        assert times[3] == datetime(2026, 2, 15, 11, 0, 0, tzinfo=UTC)
 
 
 class TestFormatGameTime:

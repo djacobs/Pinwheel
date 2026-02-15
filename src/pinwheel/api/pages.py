@@ -17,7 +17,7 @@ from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
 from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
 from pinwheel.core.narrate import narrate_play, narrate_winner
-from pinwheel.core.schedule_times import compute_game_start_times, format_game_time
+from pinwheel.core.schedule_times import compute_round_start_times, format_game_time
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.models.governance import Proposal
 from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
@@ -25,32 +25,27 @@ from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 router = APIRouter(tags=["pages"])
 
 
-def _inject_start_times(
+def _get_round_start_times(
     request: Request,
-    upcoming_games: list[dict],
-) -> None:
-    """Enrich *upcoming_games* dicts with ``start_time`` display strings.
+    round_count: int,
+) -> list[str]:
+    """Compute formatted start times for the next *round_count* rounds.
 
-    Uses APScheduler's ``tick_round`` job to determine the next fire time,
-    then staggers each game by ``pinwheel_game_interval_seconds``.
-    Mutates the dicts in-place (adds ``"start_time"`` key).
+    Each round fires on the cron cadence (e.g. every 30 min).  All games
+    within a round start simultaneously (no team plays twice per round).
+    Returns an empty list if the scheduler is unavailable.
     """
-    if not upcoming_games:
-        return
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if not scheduler:
-        return
-    job = scheduler.get_job("tick_round")
-    if not job or not job.next_run_time:
-        return
+    if round_count <= 0:
+        return []
     settings: Settings = request.app.state.settings
-    times = compute_game_start_times(
-        job.next_run_time,
-        len(upcoming_games),
-        settings.pinwheel_game_interval_seconds,
-    )
-    for ug, t in zip(upcoming_games, times, strict=False):
-        ug["start_time"] = format_game_time(t)
+    cron_expr = settings.effective_game_cron()
+    if not cron_expr:
+        return []
+    try:
+        times = compute_round_start_times(cron_expr, round_count)
+        return [format_game_time(t) for t in times]
+    except Exception:
+        return []
 
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
@@ -201,7 +196,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     latest_round_games: list[dict] = []
     current_round = 0
     total_games = 0
-    upcoming_games: list[dict] = []
+    upcoming_rounds: list[dict] = []
     team_colors: dict[str, str] = {}
 
     if season_id:
@@ -285,26 +280,39 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 "round_number": m.round_number,
             }
 
-        # Upcoming games (next unplayed round)
-        next_round = current_round + 1
-        schedule = await repo.get_schedule_for_round(season_id, next_round)
-        for entry in schedule:
-            for tid in (entry.home_team_id, entry.away_team_id):
-                if tid not in team_names:
-                    t = await repo.get_team(tid)
-                    team_names[tid] = t.name if t else tid
-                    team_colors[tid] = t.color if t else "#888"
-            upcoming_games.append(
+        # Upcoming rounds — all unplayed rounds grouped by round number
+        full_schedule = await repo.get_full_schedule(season_id)
+        remaining: dict[int, list] = {}
+        for entry in full_schedule:
+            if entry.round_number > current_round:
+                remaining.setdefault(entry.round_number, []).append(entry)
+
+        round_numbers = sorted(remaining.keys())
+        start_times = _get_round_start_times(request, len(round_numbers))
+
+        for idx, rn in enumerate(round_numbers):
+            round_games: list[dict] = []
+            for entry in remaining[rn]:
+                for tid in (entry.home_team_id, entry.away_team_id):
+                    if tid not in team_names:
+                        t = await repo.get_team(tid)
+                        team_names[tid] = t.name if t else tid
+                        team_colors[tid] = t.color if t else "#888"
+                round_games.append(
+                    {
+                        "home_name": team_names.get(entry.home_team_id, "?"),
+                        "away_name": team_names.get(entry.away_team_id, "?"),
+                        "home_color": team_colors.get(entry.home_team_id, "#888"),
+                        "away_color": team_colors.get(entry.away_team_id, "#888"),
+                    }
+                )
+            upcoming_rounds.append(
                 {
-                    "home_name": team_names.get(entry.home_team_id, "?"),
-                    "away_name": team_names.get(entry.away_team_id, "?"),
-                    "home_color": team_colors.get(entry.home_team_id, "#888"),
-                    "away_color": team_colors.get(entry.away_team_id, "#888"),
+                    "round_number": rn,
+                    "start_time": start_times[idx] if idx < len(start_times) else None,
+                    "games": round_games,
                 }
             )
-
-    # Enrich upcoming games with computed start times
-    _inject_start_times(request, upcoming_games)
 
     # Phase and streaks for template enrichment
     season_phase = ""
@@ -323,7 +331,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "latest_round_games": latest_round_games,
         "current_round": current_round,
         "total_games": total_games,
-        "upcoming_games": upcoming_games,
+        "upcoming_rounds": upcoming_rounds,
         "team_colors": team_colors,
         "season_phase": season_phase,
         "streaks": streaks,
@@ -615,45 +623,63 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             ],
         }
 
-    # Upcoming games (next unplayed round)
-    upcoming_games: list[dict] = []
+    # Upcoming rounds — all unplayed rounds grouped by round number
+    upcoming_rounds: list[dict] = []
     if season_id:
-        latest_round = 0
+        latest_played = 0
         for rn in range(1, 100):
             rg = await repo.get_games_for_round(season_id, rn)
             if rg:
-                latest_round = rn
+                latest_played = rn
             else:
                 break
-        next_round = latest_round + 1
-        schedule = await repo.get_schedule_for_round(season_id, next_round)
+
+        full_schedule = await repo.get_full_schedule(season_id)
+        remaining: dict[int, list] = {}
+        for entry in full_schedule:
+            if entry.round_number > latest_played:
+                remaining.setdefault(entry.round_number, []).append(entry)
+
+        round_numbers = sorted(remaining.keys())
+        start_times = _get_round_start_times(request, len(round_numbers))
+
         team_names_sched: dict[str, str] = {}
         team_colors_sched: dict[str, tuple[str, str]] = {}
-        for entry in schedule:
-            for tid in (entry.home_team_id, entry.away_team_id):
-                if tid not in team_names_sched:
-                    if tid in team_names:
-                        team_names_sched[tid] = team_names[tid]
-                        team_colors_sched[tid] = team_colors.get(tid, ("#888", "#1a1a2e"))
-                    else:
-                        t = await repo.get_team(tid)
-                        team_names_sched[tid] = t.name if t else tid
-                        team_colors_sched[tid] = (
-                            (t.color or "#888", getattr(t, "color_secondary", None) or "#1a1a2e")
-                            if t
-                            else ("#888", "#1a1a2e")
-                        )
-            upcoming_games.append(
+        for idx, rn in enumerate(round_numbers):
+            round_games: list[dict] = []
+            for entry in remaining[rn]:
+                for tid in (entry.home_team_id, entry.away_team_id):
+                    if tid not in team_names_sched:
+                        if tid in team_names:
+                            team_names_sched[tid] = team_names[tid]
+                            team_colors_sched[tid] = team_colors.get(tid, ("#888", "#1a1a2e"))
+                        else:
+                            t = await repo.get_team(tid)
+                            team_names_sched[tid] = t.name if t else tid
+                            c2 = getattr(t, "color_secondary", None) or "#1a1a2e"
+                            team_colors_sched[tid] = (
+                                (t.color or "#888", c2) if t else ("#888", "#1a1a2e")
+                            )
+                _dflt = ("#888", "#1a1a2e")
+                round_games.append(
+                    {
+                        "home_name": team_names_sched.get(entry.home_team_id, "?"),
+                        "away_name": team_names_sched.get(entry.away_team_id, "?"),
+                        "home_color": team_colors_sched.get(
+                            entry.home_team_id, _dflt,
+                        )[0],
+                        "away_color": team_colors_sched.get(
+                            entry.away_team_id, _dflt,
+                        )[0],
+                    }
+                )
+            upcoming_rounds.append(
                 {
-                    "home_name": team_names_sched.get(entry.home_team_id, "?"),
-                    "away_name": team_names_sched.get(entry.away_team_id, "?"),
-                    "home_color": team_colors_sched.get(entry.home_team_id, ("#888", "#1a1a2e"))[0],
-                    "away_color": team_colors_sched.get(entry.away_team_id, ("#888", "#1a1a2e"))[0],
+                    "round_number": rn,
+                    "start_time": start_times[idx] if idx < len(start_times) else None,
+                    "games": round_games,
                 }
             )
-
-    # Enrich upcoming games with computed start times
-    _inject_start_times(request, upcoming_games)
 
     settings: Settings = request.app.state.settings
     return templates.TemplateResponse(
@@ -663,7 +689,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             "active_page": "arena",
             "rounds": rounds,
             "live_round": live_round,
-            "upcoming_games": upcoming_games,
+            "upcoming_rounds": upcoming_rounds,
             "auto_advance": settings.pinwheel_auto_advance,
             **_auth_context(request, current_user),
         },

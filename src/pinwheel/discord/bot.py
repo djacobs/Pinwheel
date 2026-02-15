@@ -2753,48 +2753,42 @@ class PinwheelBot(commands.Bot):
     async def _handle_schedule(self, interaction: discord.Interaction) -> None:
         """Handle the /schedule slash command."""
         await interaction.response.defer()
-        schedule, round_number = await self._query_schedule()
+        upcoming_rounds = await self._query_schedule()
 
-        # Compute staggered start times from the effective cron schedule
+        # Compute start times from the cron cadence (one per round)
         start_times: list[str] | None = None
-        if schedule:
+        if upcoming_rounds:
             try:
-                from apscheduler.triggers.cron import CronTrigger
-
                 from pinwheel.core.schedule_times import (
-                    compute_game_start_times,
+                    compute_round_start_times,
                     format_game_time,
                 )
 
                 effective_cron = self.settings.effective_game_cron()
                 if effective_cron:
-                    trigger = CronTrigger.from_crontab(effective_cron)
-                    next_fire = trigger.get_next_fire_time(
-                        None, datetime.now(UTC),
+                    times = compute_round_start_times(
+                        effective_cron,
+                        len(upcoming_rounds),
                     )
-                    if next_fire:
-                        times = compute_game_start_times(
-                            next_fire,
-                            len(schedule),
-                            self.settings.pinwheel_game_interval_seconds,
-                        )
-                        start_times = [format_game_time(t) for t in times]
+                    start_times = [format_game_time(t) for t in times]
             except Exception:
                 logger.debug("discord_schedule_start_times_failed", exc_info=True)
 
         embed = build_schedule_embed(
-            schedule,
-            round_number=round_number,
+            upcoming_rounds,
             start_times=start_times,
         )
         await interaction.followup.send(embed=embed)
 
-    async def _query_schedule(self) -> tuple[list[dict[str, object]], int]:
-        """Query the next unplayed round's schedule."""
-        if not self.engine:
-            return [], 0
-        try:
+    async def _query_schedule(self) -> list[dict]:
+        """Query all upcoming unplayed rounds' schedules.
 
+        Returns a list of round dicts, each with ``round_number`` and
+        ``games`` (list of matchup dicts with team names).
+        """
+        if not self.engine:
+            return []
+        try:
             from pinwheel.db.engine import get_session
             from pinwheel.db.repository import Repository
 
@@ -2802,35 +2796,46 @@ class PinwheelBot(commands.Bot):
                 repo = Repository(session)
                 season = await repo.get_active_season()
                 if not season:
-                    return [], 0
+                    return []
 
-                # Find the next round that has schedule but no results
-                next_round = 1
+                # Find the latest played round
+                latest_played = 0
                 for rn in range(1, 100):
                     games = await repo.get_games_for_round(season.id, rn)
                     if games:
-                        next_round = rn + 1
+                        latest_played = rn
                     else:
                         break
 
-                matchups = await repo.get_schedule_for_round(
-                    season.id,
-                    next_round,
-                )
-                schedule = []
-                for m in matchups:
-                    home = await repo.get_team(m.home_team_id)
-                    away = await repo.get_team(m.away_team_id)
-                    schedule.append(
+                # Get all remaining scheduled rounds
+                full_schedule = await repo.get_full_schedule(season.id)
+                remaining: dict[int, list] = {}
+                for entry in full_schedule:
+                    if entry.round_number > latest_played:
+                        remaining.setdefault(entry.round_number, []).append(entry)
+
+                result: list[dict] = []
+                for rn in sorted(remaining.keys()):
+                    games_list: list[dict] = []
+                    for m in remaining[rn]:
+                        home = await repo.get_team(m.home_team_id)
+                        away = await repo.get_team(m.away_team_id)
+                        games_list.append(
+                            {
+                                "home_team_name": home.name if home else m.home_team_id,
+                                "away_team_name": away.name if away else m.away_team_id,
+                            }
+                        )
+                    result.append(
                         {
-                            "home_team_name": home.name if home else m.home_team_id,
-                            "away_team_name": away.name if away else m.away_team_id,
+                            "round_number": rn,
+                            "games": games_list,
                         }
                     )
-                return schedule, next_round
+                return result
         except Exception:
             logger.exception("discord_schedule_query_failed")
-            return [], 0
+            return []
 
     async def _handle_reports(self, interaction: discord.Interaction) -> None:
         """Handle the /reports slash command."""

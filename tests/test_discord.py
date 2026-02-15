@@ -666,17 +666,22 @@ class TestBuildReportEmbed:
 
 class TestBuildScheduleEmbed:
     def test_empty_schedule(self) -> None:
-        embed = build_schedule_embed([], round_number=1)
+        embed = build_schedule_embed([])
         assert "No games scheduled" in (embed.description or "")
 
     def test_with_matchups(self) -> None:
-        schedule = [
-            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
-            {"home_team_name": "Hammers", "away_team_name": "Herons"},
+        rounds = [
+            {
+                "round_number": 5,
+                "games": [
+                    {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+                    {"home_team_name": "Hammers", "away_team_name": "Herons"},
+                ],
+            },
         ]
-        embed = build_schedule_embed(schedule, round_number=5)
-        assert "Round 5" in embed.title
+        embed = build_schedule_embed(rounds)
         desc = embed.description or ""
+        assert "Round 5" in desc
         assert "Thorns vs Breakers" in desc
 
 

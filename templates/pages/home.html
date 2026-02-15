@@ -125,30 +125,34 @@
 {% endif %}
 
 {# ===== UPCOMING ===== #}
-{% if upcoming_games %}
+{% if upcoming_rounds %}
 <div class="home-section">
   <div class="section-title-bar">
     <span class="section-title-text">Coming Up</span>
-    <span class="section-title-badge upcoming-badge">Round {{ current_round + 1 }}</span>
+    <span class="section-title-badge upcoming-badge">{{ upcoming_rounds|length }} round{{ 's' if upcoming_rounds|length != 1 else '' }}</span>
   </div>
-  <div class="upcoming-strip">
-    {% for game in upcoming_games %}
-    <div class="upcoming-card">
-      {% if game.start_time %}
-      <div class="uc-time">{{ game.start_time }}</div>
-      {% endif %}
-      <div class="uc-team">
-        <span class="sc-dot" style="background:{{ game.home_color }};"></span>
-        <span>{{ game.home_name }}</span>
-      </div>
-      <span class="uc-vs">vs</span>
-      <div class="uc-team">
-        <span class="sc-dot" style="background:{{ game.away_color }};"></span>
-        <span>{{ game.away_name }}</span>
-      </div>
+  {% for round in upcoming_rounds %}
+  <div class="{% if not loop.first %}mt-1{% endif %}">
+    <div class="uc-round-header">
+      Round {{ round.round_number }}{% if round.start_time %} &mdash; {{ round.start_time }}{% endif %}
     </div>
-    {% endfor %}
+    <div class="upcoming-strip">
+      {% for game in round.games %}
+      <div class="upcoming-card">
+        <div class="uc-team">
+          <span class="sc-dot" style="background:{{ game.home_color }};"></span>
+          <span>{{ game.home_name }}</span>
+        </div>
+        <span class="uc-vs">vs</span>
+        <div class="uc-team">
+          <span class="sc-dot" style="background:{{ game.away_color }};"></span>
+          <span>{{ game.away_name }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
+  {% endfor %}
 </div>
 {% endif %}
 

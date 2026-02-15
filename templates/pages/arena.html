@@ -162,29 +162,31 @@
 {% endif %}
 {% endif %}
 
-{% if upcoming_games %}
+{% if upcoming_rounds %}
 <div class="mt-2">
   <div class="section-title">Up Next</div>
-  <div class="arena-grid">
-    {% for ug in upcoming_games %}
-    <div class="game-panel upcoming-panel">
-      {% if ug.start_time %}
-      <div class="game-panel-header">
-        <span class="game-meta">{{ ug.start_time }}</span>
-      </div>
-      {% endif %}
-      <div class="game-panel-teams">
-        <div class="team-score-block" style="border-left: 3px solid {{ ug.home_color }}; padding-left: 0.5rem;">
-          <div class="team-name">{{ ug.home_name }}</div>
-        </div>
-        <div class="vs-divider">vs</div>
-        <div class="team-score-block" style="border-left: 3px solid {{ ug.away_color }}; padding-left: 0.5rem;">
-          <div class="team-name">{{ ug.away_name }}</div>
-        </div>
-      </div>
+  {% for round in upcoming_rounds %}
+  <div class="{% if not loop.first %}mt-1{% endif %}">
+    <div class="game-panel-header" style="margin-bottom:0.5rem;">
+      <span class="game-meta">Round {{ round.round_number }}{% if round.start_time %} &mdash; {{ round.start_time }}{% endif %}</span>
     </div>
-    {% endfor %}
+    <div class="arena-grid">
+      {% for ug in round.games %}
+      <div class="game-panel upcoming-panel">
+        <div class="game-panel-teams">
+          <div class="team-score-block" style="border-left: 3px solid {{ ug.home_color }}; padding-left: 0.5rem;">
+            <div class="team-name">{{ ug.home_name }}</div>
+          </div>
+          <div class="vs-divider">vs</div>
+          <div class="team-score-block" style="border-left: 3px solid {{ ug.away_color }}; padding-left: 0.5rem;">
+            <div class="team-name">{{ ug.away_name }}</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
+  {% endfor %}
 </div>
 {% endif %}
 

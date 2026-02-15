@@ -1,44 +1,50 @@
-"""Compute and format staggered game start times for upcoming rounds.
+"""Compute and format game start times for upcoming rounds.
 
-Pure functions — no database or framework dependencies.  Given a round's
-next fire time and the number of games, produces a list of start times
-spaced by the configured interval so viewers see a natural "early game /
-late game" rhythm.
+Uses the cron schedule to determine when each round tips off.  All games
+within a round start at the same time (no team plays twice in a round),
+and successive rounds are spaced by the cron cadence.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 # Eastern Time for display — the league's canonical time zone.
 _ET = ZoneInfo("America/New_York")
 
 
-def compute_game_start_times(
-    next_fire_time: datetime,
-    game_count: int,
-    interval_seconds: int,
+def compute_round_start_times(
+    cron_expression: str,
+    round_count: int,
+    now: datetime | None = None,
 ) -> list[datetime]:
-    """Return a list of start times, one per game, staggered by *interval_seconds*.
+    """Return the start time for each of the next *round_count* rounds.
 
-    Game 0 starts at *next_fire_time*; game N starts at
-    ``next_fire_time + N * interval_seconds``.
+    Uses APScheduler's ``CronTrigger`` to iterate successive fire times
+    from the game cron expression, so it works correctly with any cron
+    cadence (``*/30 * * * *``, ``0 * * * *``, etc.).
 
     Args:
-        next_fire_time: When the round's first game tips off (tz-aware).
-        game_count: Number of games in the round.
-        interval_seconds: Seconds between successive game starts.
+        cron_expression: The cron expression driving round advancement.
+        round_count: How many upcoming rounds to compute times for.
+        now: Reference time (defaults to ``datetime.now(UTC)``).
 
     Returns:
-        List of tz-aware datetimes, length == *game_count*.
+        List of tz-aware datetimes, length == *round_count*.
     """
-    from datetime import timedelta
+    from apscheduler.triggers.cron import CronTrigger
 
-    return [
-        next_fire_time + timedelta(seconds=idx * interval_seconds)
-        for idx in range(game_count)
-    ]
+    trigger = CronTrigger.from_crontab(cron_expression)
+    ref = now or datetime.now(UTC)
+    times: list[datetime] = []
+    for _ in range(round_count):
+        t = trigger.get_next_fire_time(ref, ref)
+        if t is None:
+            break
+        times.append(t)
+        ref = t
+    return times
 
 
 def format_game_time(dt: datetime, tz_label: str = "ET") -> str:

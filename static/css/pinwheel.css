@@ -1503,15 +1503,12 @@ h3 { font-size: 1.05rem; }
   color: var(--text-primary);
 }
 
-.uc-time {
-  font-size: 0.7rem;
+.uc-round-header {
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
   letter-spacing: 0.03em;
-  white-space: nowrap;
-  margin-right: 0.25rem;
-  padding-right: 0.5rem;
-  border-right: 1px solid var(--border);
+  margin-bottom: 0.5rem;
 }
 
 .uc-vs {

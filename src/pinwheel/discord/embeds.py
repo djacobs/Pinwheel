@@ -289,45 +289,42 @@ def build_report_embed(report: Report) -> discord.Embed:
 
 
 def build_schedule_embed(
-    schedule: list[dict[str, object]],
-    round_number: int,
-    playoff_context: str | None = None,
+    upcoming_rounds: list[dict],
     start_times: list[str] | None = None,
 ) -> discord.Embed:
-    """Build an embed for an upcoming round's schedule.
+    """Build an embed showing all upcoming rounds with start times.
 
     Args:
-        schedule: List of matchup dicts with home_team_name, away_team_name.
-        round_number: The round number.
-        playoff_context: 'semifinal', 'finals', or None for regular season.
-        start_times: Optional formatted start times (one per game).
+        upcoming_rounds: List of round dicts, each with ``round_number``
+            and ``games`` (list of matchup dicts with team names).
+        start_times: Optional formatted start times (one per round).
     """
-    if playoff_context == "finals":
-        title = f"CHAMPIONSHIP FINALS -- Round {round_number}"
-    elif playoff_context == "semifinal":
-        title = f"SEMIFINAL PLAYOFFS -- Round {round_number}"
-    else:
-        title = f"Schedule -- Round {round_number}"
-
     embed = discord.Embed(
-        title=title,
-        color=COLOR_STANDINGS if playoff_context == "finals" else COLOR_SCHEDULE,
+        title="Upcoming Schedule",
+        color=COLOR_SCHEDULE,
     )
 
-    if not schedule:
-        embed.description = "No games scheduled for this round."
+    if not upcoming_rounds:
+        embed.description = "No games scheduled."
+        embed.set_footer(text="Pinwheel Fates")
         return embed
 
-    lines: list[str] = []
-    for idx, matchup in enumerate(schedule):
-        home = matchup.get("home_team_name", matchup.get("home_team_id", "TBD"))
-        away = matchup.get("away_team_name", matchup.get("away_team_id", "TBD"))
-        line = f"{home} vs {away}"
+    sections: list[str] = []
+    for idx, rd in enumerate(upcoming_rounds):
+        rn = rd.get("round_number", "?")
+        header = f"**Round {rn}**"
         if start_times and idx < len(start_times):
-            line += f" -- {start_times[idx]}"
-        lines.append(line)
+            header += f" -- {start_times[idx]}"
 
-    embed.description = "\n".join(lines)
+        matchup_lines: list[str] = []
+        for matchup in rd.get("games", []):
+            home = matchup.get("home_team_name", "TBD")
+            away = matchup.get("away_team_name", "TBD")
+            matchup_lines.append(f"{home} vs {away}")
+
+        sections.append(header + "\n" + "\n".join(matchup_lines))
+
+    embed.description = "\n\n".join(sections)
     embed.set_footer(text="Pinwheel Fates")
     return embed
 

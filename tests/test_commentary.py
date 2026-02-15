@@ -850,36 +850,46 @@ class TestStandingsEmbedStreaks:
         assert "Championship" in embed.title
 
 
-class TestScheduleEmbedPlayoff:
-    """Schedule embeds should show playoff context."""
+class TestScheduleEmbed:
+    """Schedule embed tests for multi-round format."""
 
-    def test_regular_season_title(self) -> None:
-        schedule = [
-            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+    def test_single_round_with_time(self) -> None:
+        rounds = [
+            {
+                "round_number": 5,
+                "games": [
+                    {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+                ],
+            },
         ]
-        embed = build_schedule_embed(schedule, round_number=5)
+        embed = build_schedule_embed(rounds, start_times=["1:00 PM ET"])
 
-        assert embed.title == "Schedule -- Round 5"
+        assert "Round 5" in embed.description
+        assert "1:00 PM ET" in embed.description
+        assert "Thorns vs Breakers" in embed.description
 
-    def test_semifinal_title(self) -> None:
-        schedule = [
-            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+    def test_multiple_rounds(self) -> None:
+        rounds = [
+            {
+                "round_number": 5,
+                "games": [{"home_team_name": "A", "away_team_name": "B"}],
+            },
+            {
+                "round_number": 6,
+                "games": [{"home_team_name": "C", "away_team_name": "D"}],
+            },
         ]
-        embed = build_schedule_embed(
-            schedule, round_number=10, playoff_context="semifinal"
-        )
+        embed = build_schedule_embed(rounds, start_times=["1:00 PM ET", "1:30 PM ET"])
 
-        assert "SEMIFINAL" in embed.title
+        assert "Round 5" in embed.description
+        assert "Round 6" in embed.description
+        assert "1:00 PM ET" in embed.description
+        assert "1:30 PM ET" in embed.description
 
-    def test_finals_title(self) -> None:
-        schedule = [
-            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
-        ]
-        embed = build_schedule_embed(
-            schedule, round_number=11, playoff_context="finals"
-        )
+    def test_empty_schedule(self) -> None:
+        embed = build_schedule_embed([])
 
-        assert "CHAMPIONSHIP" in embed.title
+        assert "No games scheduled" in embed.description
 
 
 class TestCommentaryEmbedPlayoff:
