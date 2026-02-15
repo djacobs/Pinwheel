@@ -327,234 +327,247 @@ def generate_simulation_report_mock(
 
     rng = _rng.Random(round_number * 1000 + len(games))
 
-    # Collect narrative ingredients
-    blowouts = []
-    close_games = []
+    phase = narrative.phase if narrative else "regular"
+    phase_label = ""
+    if phase in ("finals", "championship"):
+        phase_label = "championship"
+    elif phase == "semifinal":
+        phase_label = "semifinal"
+    is_playoff = bool(phase_label)
+
+    # --- Parse and classify every game ---
+    entries: list[dict[str, object]] = []
     for g in games:
         home = g.get("home_team", "Home")
         away = g.get("away_team", "Away")
-        hs, aws = g.get("home_score", 0), g.get("away_score", 0)
+        hs: int = g.get("home_score", 0)
+        aws: int = g.get("away_score", 0)
         margin = abs(hs - aws)
         winner = home if hs > aws else away
         loser = away if hs > aws else home
         w_score, l_score = max(hs, aws), min(hs, aws)
-        entry = {
-            "winner": winner,
-            "loser": loser,
-            "w_score": w_score,
-            "l_score": l_score,
-            "margin": margin,
-            "total": hs + aws,
-        }
-        if margin >= 10:
-            blowouts.append(entry)
-        elif margin <= 4:
-            close_games.append(entry)
+        winner_id: str = g.get("winner_team_id", "")
+        home_id: str = g.get("home_team_id", "")
+        away_id: str = g.get("away_team_id", "")
+        loser_id = away_id if winner_id == home_id else home_id
+        entries.append({
+            "winner": winner, "loser": loser,
+            "w_score": w_score, "l_score": l_score,
+            "margin": margin, "total": hs + aws,
+            "winner_id": winner_id, "loser_id": loser_id,
+            "home_id": home_id, "away_id": away_id,
+        })
 
-    total_points = sum(g.get("home_score", 0) + g.get("away_score", 0) for g in games)
-    avg_total = total_points // max(len(games), 1)
+    # Sort by drama: close games first, then blowouts, then mid-range
+    def _drama(e: dict[str, object]) -> tuple[int, int]:
+        m = int(e["margin"])  # type: ignore[arg-type]
+        if m <= 4:
+            return (0, m)
+        if m >= 10:
+            return (1, -m)
+        return (2, m)
 
-    # Build narrative lines
-    lines = []
+    entries.sort(key=_drama)
 
-    # Playoff phase opener — a playoff sim report must FEEL different
-    if narrative and narrative.phase in ("semifinal", "finals", "championship"):
-        if narrative.phase == "finals":
-            lines.append(
-                "THE CHAMPIONSHIP FINALS. The biggest stage. "
-                "Everything this season built toward comes down to this."
-            )
-        elif narrative.phase == "semifinal":
-            lines.append(
-                "SEMIFINAL PLAYOFFS — win or go home. "
-                "The pressure of elimination hangs over every possession."
-            )
+    # Collect team IDs that played this round (for streak filtering)
+    played_ids: set[str] = set()
+    team_id_to_name: dict[str, str] = {}
+    for e in entries:
+        for fld in ("home_id", "away_id"):
+            tid = str(e[fld])
+            if tid:
+                played_ids.add(tid)
+        wid, lid = str(e["winner_id"]), str(e["loser_id"])
+        if wid:
+            team_id_to_name[wid] = str(e["winner"])
+        if lid:
+            team_id_to_name[lid] = str(e["loser"])
 
-    # Lead with the most dramatic game
-    if close_games:
-        g = close_games[0]
-        w, lo = g["winner"], g["loser"]
-        ws, ls, m = g["w_score"], g["l_score"], g["margin"]
-        if narrative and narrative.phase in ("semifinal", "finals"):
-            openers = [
-                (
-                    f"{w} survived {lo} by {m} — a {ws}-{ls} "
-                    f"{'championship' if narrative.phase == 'finals' else 'playoff'} "
-                    "classic that will echo for seasons."
-                ),
-                (
-                    f"A {m}-point margin was all that separated "
-                    f"{w} from {lo}. "
-                    + (
-                        "A title decided by inches."
-                        if narrative.phase == "finals"
-                        else "Elimination avoided by the thinnest margin."
-                    )
-                ),
-            ]
+    # --- Build per-game descriptions (phase context is inline, not a
+    #     separate opener paragraph) ---
+    lines: list[str] = []
+
+    for e in entries:
+        w, lo = str(e["winner"]), str(e["loser"])
+        ws, ls, m = int(e["w_score"]), int(e["l_score"]), int(e["margin"])  # type: ignore[arg-type]
+
+        if m <= 4:
+            # Close game
+            if phase_label:
+                lines.append(
+                    f"{w} survived {lo} {ws}-{ls} in a {phase_label} "
+                    f"classic — just {m} points between them."
+                )
+            else:
+                templates = [
+                    (
+                        f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
+                        "that went down to the final Elam possession."
+                    ),
+                    (
+                        f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
+                        "until the Elam target came into view."
+                    ),
+                ]
+                lines.append(rng.choice(templates))
+        elif m >= 10:
+            # Blowout — no claims about elimination or season ending
+            if phase_label:
+                lines.append(
+                    f"{w} rolled through {lo} in the {phase_label} — "
+                    f"{ws}-{ls}. The {m}-point margin tells you everything."
+                )
+            else:
+                templates = [
+                    (
+                        f"{w} dismantled {lo} by {m}. "
+                        "It wasn't close after the first quarter."
+                    ),
+                    (
+                        f"A {m}-point demolition: {w} {ws}, {lo} {ls}. "
+                        "The Elam target was a formality."
+                    ),
+                ]
+                lines.append(rng.choice(templates))
         else:
-            openers = [
-                (
-                    f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
-                    "that went down to the final Elam possession."
-                ),
-                (
-                    f"A {m}-point margin was all that separated "
-                    f"{w} from {lo}. The kind of game that turns a season."
-                ),
-                (
-                    f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
-                    "until the Elam target came into view."
-                ),
-            ]
-        lines.append(rng.choice(openers))
-    elif blowouts:
-        g = blowouts[0]
-        w, lo = g["winner"], g["loser"]
-        ws, ls, m = g["w_score"], g["l_score"], g["margin"]
-        if narrative and narrative.phase in ("semifinal", "finals"):
-            openers = [
-                (
-                    f"{w} dominated {lo} by {m} in a "
-                    f"{'championship' if narrative.phase == 'finals' else 'semifinal'} "
-                    f"rout. {lo}'s season ends in decisive fashion."
-                ),
-            ]
-        else:
-            openers = [
-                (f"{w} dismantled {lo} by {m}. It wasn't close after the first quarter."),
-                (f"A {m}-point demolition: {w} {ws}, {lo} {ls}. The Elam target was a formality."),
-            ]
-        lines.append(rng.choice(openers))
-    else:
-        g0 = games[0]
-        home, away = g0.get("home_team", "Home"), g0.get("away_team", "Away")
+            # Mid-range — one specific sentence with phase context
+            if phase_label:
+                lines.append(
+                    f"In the {phase_label}, {w} beat {lo} {ws}-{ls}."
+                )
+            else:
+                lines.append(f"{w} beat {lo} {ws}-{ls}.")
+
+    # --- Scoring pace (regular season only, raised thresholds) ---
+    if not is_playoff and len(entries) > 1:
+        avg_total = sum(int(e["total"]) for e in entries) // len(entries)  # type: ignore[arg-type]
+        highest = max(entries, key=lambda e: int(e["total"]))  # type: ignore[arg-type]
+        lowest = min(entries, key=lambda e: int(e["total"]))  # type: ignore[arg-type]
+        if avg_total >= 80:
+            lines.append(
+                f"Scoring surged to {avg_total} per game — "
+                f"{highest['winner']} and {highest['loser']} "
+                f"combined for {highest['total']} alone."
+            )
+        elif avg_total <= 35:
+            lines.append(
+                f"Defense locked in at {avg_total} PPG. "
+                f"{lowest['winner']} and {lowest['loser']} "
+                f"ground out a {lowest['total']}-point affair."
+            )
+
+    # Blowout + close contrast
+    has_blowout = any(int(e["margin"]) >= 10 for e in entries)  # type: ignore[arg-type]
+    has_close = any(int(e["margin"]) <= 4 for e in entries)  # type: ignore[arg-type]
+    if has_blowout and has_close:
         lines.append(
-            f"{home} and {away} traded buckets all game. "
-            f"Final: {g0.get('home_score', 0)}-{g0.get('away_score', 0)}."
+            "A round of extremes: blowouts and nail-biters "
+            "sharing the same scorecard."
         )
 
-    # Add secondary observations about scoring pace
-    if len(games) > 1:
-        if avg_total >= 60:
-            high_scoring = [
-                (
-                    f"The courts ran hot — {avg_total} points per game on average. "
-                    "Defenses are struggling or offenses are evolving. Maybe both."
-                ),
-                (
-                    f"{avg_total} PPG across the round. Pace was relentless — "
-                    "teams aren't holding back."
-                ),
-                (
-                    f"Buckets fell at an {avg_total}-point clip. "
-                    "The shot-makers had the last word this round."
-                ),
-                (
-                    f"Scoring surged to {avg_total} per game. "
-                    "Whoever's gameplanning defense needs to go back to the drawing board."
-                ),
-                (
-                    f"An {avg_total}-point average tells the story: "
-                    "offenses found their rhythm and never let go."
-                ),
-            ]
-            lines.append(rng.choice(high_scoring))
-        elif avg_total <= 40:
-            low_scoring = [
-                (
-                    f"Only {avg_total} points per game this round. "
-                    "Someone tightened the screws. The game is getting physical."
-                ),
-                (f"Defense locked in. {avg_total} PPG — that's a lockdown night across the board."),
-                (f"{avg_total} points per game. Every bucket earned, nothing came easy."),
-                (
-                    f"A grind-it-out round at {avg_total} PPG. "
-                    "Possessions felt precious — nobody was giving anything away."
-                ),
-            ]
-            lines.append(rng.choice(low_scoring))
-        else:
-            mid_scoring = [
-                (
-                    f"The pace settled at {avg_total} points per game — "
-                    "neither runaway offense nor suffocating defense dominated."
-                ),
-                (f"{avg_total} PPG. A balanced round where matchups mattered more than systems."),
-                (
-                    f"Scoring landed at {avg_total} per game. "
-                    "The meta feels unsettled — teams are still figuring each other out."
-                ),
-            ]
-            lines.append(rng.choice(mid_scoring))
-
-    if blowouts and close_games:
-        lines.append("A round of extremes: blowouts and nail-biters sharing the same scorecard.")
-
-    # Note rule changes if present in round data
+    # --- Rule changes from round data ---
     rule_changes = round_data.get("rule_changes", [])
     if rule_changes:
-        change_notes = []
-        for rc in rule_changes:
-            param = rc.get("parameter", "")
-            if param:
-                change_notes.append(f"{param.replace('_', ' ')}")
+        change_notes = [
+            rc["parameter"].replace("_", " ")
+            for rc in rule_changes
+            if rc.get("parameter")
+        ]
         if change_notes:
+            verb = "was" if len(change_notes) == 1 else "were"
             lines.append(
                 f"This round marked the first games under new rules — "
-                f"{', '.join(change_notes)} {'was' if len(change_notes) == 1 else 'were'} "
-                f"adjusted heading into the round. The effects are starting to show."
+                f"{', '.join(change_notes)} {verb} "
+                f"adjusted heading into the round. "
+                f"The effects are starting to show."
             )
 
-    # Narrative context enrichment
+    # --- Narrative context enrichment ---
     if narrative:
-        # Mention notable streaks
+        # Streaks — only for teams that played THIS round, woven into
+        # the game context rather than floating disconnected.
         for team_id, streak in narrative.streaks.items():
+            if team_id not in played_ids and played_ids:
+                continue
+            team_name = team_id_to_name.get(team_id, team_id)
+            for s in narrative.standings:
+                if s.get("team_id") == team_id:
+                    team_name = str(s.get("team_name", team_id))
+                    break
+
             if streak >= 3:
-                team_name = team_id
-                for s in narrative.standings:
-                    if s.get("team_id") == team_id:
-                        team_name = str(s.get("team_name", team_id))
-                        break
-                lines.append(
-                    f"{team_name} are riding a {streak}-game win streak."
-                )
+                won = any(str(e["winner_id"]) == team_id for e in entries)
+                if won:
+                    lines.append(
+                        f"That's a {streak}-game win streak "
+                        f"for {team_name}."
+                    )
+                else:
+                    lines.append(
+                        f"{team_name} are riding a "
+                        f"{streak}-game win streak."
+                    )
             elif streak <= -3:
-                team_name = team_id
-                for s in narrative.standings:
-                    if s.get("team_id") == team_id:
-                        team_name = str(s.get("team_name", team_id))
-                        break
                 lines.append(
-                    f"{team_name} have lost {abs(streak)} straight."
+                    f"{team_name} have now dropped "
+                    f"{abs(streak)} in a row."
                 )
 
-        # Mention rule changes from narrative context
+        # Rules narrative (only if no rule changes from round data)
         if narrative.rules_narrative and not rule_changes:
             lines.append(
                 f"Current rules: {narrative.rules_narrative}."
             )
 
-        # Season arc note
+        # Season arc — no generic "every game is elimination" filler
         if narrative.season_arc == "late" and narrative.total_rounds > 0:
             lines.append(
                 f"Round {narrative.round_number} of {narrative.total_rounds} — "
                 f"the regular season is winding down."
             )
-        elif narrative.season_arc == "playoff":
-            lines.append("Every game from here on out is elimination basketball.")
         elif narrative.season_arc == "championship":
             lines.append("The championship celebration has begun.")
 
-        # Hot players
+        # Hot players — connected to the game they played in
         if narrative.hot_players:
             for hp in narrative.hot_players[:2]:
                 hp_name = hp.get("name", "?")
                 hp_team = hp.get("team_name", "?")
                 hp_pts = hp.get("value", 0)
-                lines.append(
-                    f"{hp_name} ({hp_team}) is on fire with {hp_pts} points."
-                )
+
+                # Cross-reference with this round's games
+                player_game: dict[str, object] | None = None
+                on_winning_side = False
+                for e in entries:
+                    if hp_team in (e["winner"], e["loser"]):
+                        player_game = e
+                        on_winning_side = hp_team == e["winner"]
+                        break
+
+                if player_game and on_winning_side:
+                    lo = str(player_game["loser"])
+                    pws = int(player_game["w_score"])  # type: ignore[arg-type]
+                    pls = int(player_game["l_score"])  # type: ignore[arg-type]
+                    pm = int(player_game["margin"])  # type: ignore[arg-type]
+                    if is_playoff and pm >= 10:
+                        lines.append(
+                            f"{hp_name} poured in {hp_pts} to power "
+                            f"{hp_team}'s {phase_label} rout of {lo}."
+                        )
+                    else:
+                        lines.append(
+                            f"{hp_name} led {hp_team}'s {pws}-{pls} "
+                            f"win with {hp_pts} points."
+                        )
+                elif player_game:
+                    lines.append(
+                        f"{hp_name} put up {hp_pts} for {hp_team} "
+                        f"in a losing effort."
+                    )
+                else:
+                    lines.append(
+                        f"{hp_name} ({hp_team}) scored {hp_pts} points."
+                    )
 
     return Report(
         id=f"r-sim-{round_number}-mock",
