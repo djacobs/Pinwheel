@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Safety Workbench — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Safety Workbench</h1>
+<p class="text-muted" style="margin-bottom: 1.5rem;">
+  Test the injection classifier, review the defense stack, and run ad-hoc safety checks.
+</p>
+
+<!-- Defense Stack Overview -->
+<div class="workbench-section">
+  <h2>Defense Stack</h2>
+  <p class="text-muted" style="margin-bottom: 1rem;">
+    Six-layer defense pipeline protecting the AI interpreter from prompt injection.
+  </p>
+  <div class="defense-stack">
+    {% for layer in defense_layers %}
+    <div class="defense-layer">
+      <div class="defense-layer-header">
+        <span class="defense-layer-number">{{ loop.index }}</span>
+        <div class="defense-layer-info">
+          <span class="defense-layer-name">{{ layer.name }}</span>
+          <span class="defense-layer-status defense-status-{{ 'active' if 'active' in layer.status else 'inactive' }}">{{ layer.status }}</span>
+        </div>
+      </div>
+      <p class="defense-layer-desc">{{ layer.description }}</p>
+      <code class="defense-layer-module">{{ layer.module }}</code>
+    </div>
+    {% if not loop.last %}
+    <div class="defense-arrow">&#8595;</div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Injection Classifier Test Bench -->
+<div class="workbench-section">
+  <h2>Injection Classifier Test Bench</h2>
+  <p class="text-muted" style="margin-bottom: 1rem;">
+    Test the pre-flight injection classifier with any text. The classifier runs sanitize_text() first,
+    then sends the cleaned text to {{ classifier_config.model }} for classification.
+  </p>
+
+  {% if not classifier_config.api_key_set %}
+  <div class="workbench-warning">
+    No ANTHROPIC_API_KEY set. The classifier will return mock results.
+    Set the API key to test real classification.
+  </div>
+  {% endif %}
+
+  <!-- Test Form -->
+  <div class="workbench-test-form">
+    <div>
+      <div class="workbench-input-group">
+        <label for="test-text" class="workbench-label">Proposal Text</label>
+        <textarea id="test-text" rows="3" maxlength="500"
+                  placeholder="Enter proposal text to classify..."
+                  class="workbench-textarea"></textarea>
+      </div>
+      <div class="workbench-form-actions">
+        <button class="workbench-btn workbench-btn-primary"
+                hx-post="/admin/workbench/test-classifier"
+                hx-target="#classifier-result"
+                hx-swap="innerHTML"
+                hx-headers='{"Content-Type": "application/json"}'
+                hx-vals='js:{text: document.getElementById("test-text").value}'
+                hx-indicator="#classifier-spinner">
+          <span id="classifier-spinner" class="htmx-indicator" style="display:none;">Testing...</span>
+          <span>Test Classifier</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Result target -->
+    <div id="classifier-result" style="margin-top: 1rem;"></div>
+  </div>
+
+  <!-- Sample Proposals -->
+  <div class="workbench-samples">
+    <h3>Sample Proposals</h3>
+    <p class="text-muted" style="margin-bottom: 0.75rem; font-size: 0.85rem;">
+      Click a sample to load it into the test form.
+    </p>
+    <div class="workbench-sample-grid">
+      {% for sample in sample_proposals %}
+      <button class="workbench-sample"
+              onclick="document.getElementById('test-text').value = '{{ sample.text|replace("'", "\\'") }}';">
+        <span class="workbench-sample-label">{{ sample.label }}</span>
+        <span class="workbench-sample-text">{{ sample.text }}</span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Classifier Configuration -->
+<div class="workbench-section">
+  <h2>Classifier Configuration</h2>
+  <div class="workbench-config">
+    <div class="workbench-config-row">
+      <span class="workbench-config-label">Model</span>
+      <span class="workbench-config-value mono">{{ classifier_config.model }}</span>
+    </div>
+    <div class="workbench-config-row">
+      <span class="workbench-config-label">API Key</span>
+      <span class="workbench-config-value">
+        {% if classifier_config.api_key_set %}
+        <span style="color: var(--accent-score);">Configured</span>
+        {% else %}
+        <span style="color: var(--accent-game);">Not set (mock mode)</span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="workbench-config-row">
+      <span class="workbench-config-label">System Prompt</span>
+      <span class="workbench-config-value">
+        <details>
+          <summary style="cursor: pointer; color: var(--accent-highlight);">Show prompt preview</summary>
+          <pre class="workbench-prompt-preview">{{ classifier_config.prompt_preview }}</pre>
+        </details>
+      </span>
+    </div>
+  </div>
+</div>
+
+<style>
+/* Workbench layout */
+.workbench-section { margin-bottom: 2.5rem; }
+.workbench-section h2 { border-bottom: 1px solid var(--border, #333); padding-bottom: 0.5rem; margin-bottom: 0.75rem; }
+.workbench-section h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 1rem; }
+
+/* Defense Stack */
+.defense-stack { display: flex; flex-direction: column; align-items: stretch; max-width: 600px; }
+.defense-layer { background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 8px; padding: 0.75rem 1rem; }
+.defense-layer-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; }
+.defense-layer-number { width: 28px; height: 28px; background: var(--accent-highlight, #64b5f6); color: var(--bg-primary, #0a0a1a); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.defense-layer-info { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.defense-layer-name { font-weight: 700; font-size: 0.95rem; }
+.defense-layer-status { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.defense-status-active { background: rgba(76,175,80,0.15); color: #66bb6a; }
+.defense-status-inactive { background: rgba(255,152,0,0.15); color: #ffb74d; }
+.defense-layer-desc { font-size: 0.85rem; color: var(--text-secondary, #aaa); margin: 0.25rem 0; }
+.defense-layer-module { font-size: 0.75rem; color: var(--text-secondary, #666); }
+.defense-arrow { text-align: center; font-size: 1.2rem; color: var(--text-secondary, #555); padding: 0.15rem 0; }
+
+/* Test Form */
+.workbench-test-form { background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 8px; padding: 1.25rem; }
+.workbench-input-group { margin-bottom: 1rem; }
+.workbench-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary, #aaa); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.workbench-textarea { width: 100%; background: var(--bg-primary, #0a0a1a); color: var(--text-primary, #eee); border: 1px solid var(--border, #444); border-radius: 6px; padding: 0.75rem; font-family: inherit; font-size: 0.9rem; resize: vertical; line-height: 1.5; box-sizing: border-box; }
+.workbench-textarea:focus { outline: none; border-color: var(--accent-highlight, #64b5f6); }
+.workbench-form-actions { display: flex; gap: 0.75rem; }
+.workbench-btn { padding: 0.5rem 1.25rem; border: none; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer; font-family: 'JetBrains Mono', monospace; transition: background 0.2s; }
+.workbench-btn-primary { background: var(--accent-highlight, #64b5f6); color: var(--bg-primary, #0a0a1a); }
+.workbench-btn-primary:hover { background: #90caf9; }
+
+/* Warning box */
+.workbench-warning { background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #ffb74d; }
+
+/* Sample proposals */
+.workbench-sample-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; }
+.workbench-sample { background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 6px; padding: 0.75rem; text-align: left; cursor: pointer; color: var(--text-primary, #eee); transition: border-color 0.2s, background 0.2s; display: flex; flex-direction: column; gap: 0.25rem; }
+.workbench-sample:hover { border-color: var(--accent-highlight, #64b5f6); background: rgba(100,181,246,0.05); }
+.workbench-sample-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #888); font-weight: 600; }
+.workbench-sample-text { font-size: 0.85rem; line-height: 1.4; }
+
+/* Classifier result (HTMX response) */
+.workbench-result { border-radius: 8px; padding: 1rem; border: 1px solid; }
+.workbench-result-legitimate { border-color: rgba(76,175,80,0.4); background: rgba(76,175,80,0.05); }
+.workbench-result-suspicious { border-color: rgba(255,152,0,0.4); background: rgba(255,152,0,0.05); }
+.workbench-result-injection { border-color: rgba(244,67,54,0.4); background: rgba(244,67,54,0.05); }
+.workbench-result-error { border-color: rgba(158,158,158,0.4); background: rgba(158,158,158,0.05); }
+.workbench-result-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
+.workbench-classification { font-size: 1.1rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+.workbench-confidence { font-size: 0.85rem; color: var(--text-secondary, #aaa); font-family: 'JetBrains Mono', monospace; }
+.workbench-badge { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; }
+.workbench-badge-blocked { background: rgba(244,67,54,0.2); color: #ef5350; }
+.workbench-badge-suspicious { background: rgba(255,152,0,0.2); color: #ffb74d; }
+.workbench-badge-pass { background: rgba(76,175,80,0.2); color: #66bb6a; }
+.workbench-result-body { display: flex; flex-direction: column; gap: 0.5rem; }
+.workbench-field { display: flex; gap: 0.75rem; font-size: 0.85rem; }
+.workbench-field-label { color: var(--text-secondary, #888); min-width: 80px; flex-shrink: 0; font-weight: 600; }
+.workbench-field-value { color: var(--text-primary, #ccc); }
+
+/* Config section */
+.workbench-config { background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 8px; overflow: hidden; }
+.workbench-config-row { display: flex; align-items: flex-start; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.workbench-config-row:last-child { border-bottom: none; }
+.workbench-config-label { min-width: 120px; font-size: 0.85rem; color: var(--text-secondary, #888); font-weight: 600; flex-shrink: 0; }
+.workbench-config-value { font-size: 0.85rem; }
+.workbench-prompt-preview { font-size: 0.75rem; line-height: 1.5; color: var(--text-secondary, #999); margin-top: 0.5rem; white-space: pre-wrap; word-break: break-word; background: var(--bg-primary, #0a0a1a); padding: 0.5rem; border-radius: 4px; max-height: 200px; overflow-y: auto; }
+</style>
+{% endblock %}

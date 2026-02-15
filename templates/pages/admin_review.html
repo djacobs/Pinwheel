@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Proposal Review — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Proposal Review Queue</h1>
+<p class="text-muted" style="margin-bottom: 1.5rem;">
+  Proposals flagged for admin review: Tier 5+ (wild/uninterpretable) or low AI confidence (&lt;50%).
+  All flagged proposals proceed to vote by default — veto before tally if needed.
+</p>
+
+<!-- Summary Bar -->
+<div class="review-summary">
+  <div class="review-summary-stat">
+    <span class="review-summary-value {% if pending_count > 0 %}review-pending{% endif %}">{{ pending_count }}</span>
+    <span class="review-summary-label">Pending Review</span>
+  </div>
+  <div class="review-summary-stat">
+    <span class="review-summary-value">{{ total_flagged }}</span>
+    <span class="review-summary-label">Total Flagged</span>
+  </div>
+  <div class="review-summary-stat">
+    <span class="review-summary-value">{{ injection_classifications|length }}</span>
+    <span class="review-summary-label">Injection Alerts</span>
+  </div>
+</div>
+
+{% if queue %}
+<!-- Review Queue -->
+<div class="review-queue">
+  {% for proposal in queue %}
+  <div class="review-card review-status-{{ proposal.status }}">
+    <div class="review-card-header">
+      <div class="review-card-badges">
+        <span class="review-badge review-badge-tier">Tier {{ proposal.tier }}</span>
+        <span class="review-badge review-badge-{{ proposal.status }}">{{ proposal.status|upper }}</span>
+        {% if proposal.injection_flagged %}
+        <span class="review-badge review-badge-injection">INJECTION FLAGGED</span>
+        {% endif %}
+        {% if proposal.confidence < 0.5 %}
+        <span class="review-badge review-badge-lowconf">LOW CONFIDENCE</span>
+        {% endif %}
+      </div>
+      <span class="review-card-time">{{ proposal.created_at.strftime('%b %d, %H:%M') if proposal.created_at else '' }}</span>
+    </div>
+
+    <div class="review-card-body">
+      <div class="review-proposal-text">
+        <strong>Proposal:</strong> "{{ proposal.raw_text }}"
+      </div>
+
+      <div class="review-interpretation">
+        <div class="review-field">
+          <span class="review-field-label">Parameter:</span>
+          <span class="review-field-value mono">{{ proposal.parameter or 'None (uninterpretable)' }}</span>
+        </div>
+        {% if proposal.new_value is not none %}
+        <div class="review-field">
+          <span class="review-field-label">New Value:</span>
+          <span class="review-field-value mono">{{ proposal.new_value }}</span>
+        </div>
+        {% endif %}
+        <div class="review-field">
+          <span class="review-field-label">AI Confidence:</span>
+          <span class="review-field-value">
+            <span class="review-confidence-bar">
+              <span class="review-confidence-fill" style="width: {{ (proposal.confidence * 100)|int }}%; background: {% if proposal.confidence >= 0.7 %}var(--accent-score){% elif proposal.confidence >= 0.4 %}var(--accent-governance){% else %}var(--accent-game){% endif %};"></span>
+            </span>
+            <span class="mono">{{ "%.0f"|format(proposal.confidence * 100) }}%</span>
+          </span>
+        </div>
+        {% if proposal.impact_analysis %}
+        <div class="review-field">
+          <span class="review-field-label">Impact:</span>
+          <span class="review-field-value">{{ proposal.impact_analysis }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="review-card-footer">
+      <span class="review-governor">Governor: <span class="mono">{{ proposal.governor_id[:8] }}...</span></span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="review-empty">
+  <h3>No Flagged Proposals</h3>
+  <p class="text-muted">All proposals are within normal parameters. No admin review needed.</p>
+</div>
+{% endif %}
+
+{% if injection_classifications %}
+<!-- Injection Alerts -->
+<div class="review-section">
+  <h2>Recent Injection Alerts</h2>
+  <p class="text-muted" style="margin-bottom: 1rem;">Proposals classified as injection or suspicious by the pre-flight classifier.</p>
+  <table class="review-table">
+    <thead>
+      <tr>
+        <th>Proposal Preview</th>
+        <th>Classification</th>
+        <th>Confidence</th>
+        <th>Reason</th>
+        <th>Blocked</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cls in injection_classifications %}
+      <tr class="{% if cls.classification == 'injection' %}review-row-injection{% elif cls.classification == 'suspicious' %}review-row-suspicious{% endif %}">
+        <td class="review-preview">{{ cls.preview }}</td>
+        <td>
+          <span class="review-badge review-badge-{{ cls.classification }}">{{ cls.classification|upper }}</span>
+        </td>
+        <td class="mono">{{ "%.0f"|format(cls.confidence * 100) }}%</td>
+        <td class="review-reason">{{ cls.reason }}</td>
+        <td>{% if cls.blocked %}<span style="color: var(--accent-game);">Yes</span>{% else %}No{% endif %}</td>
+        <td class="mono" style="font-size: 0.8rem;">{{ cls.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<style>
+/* Review Summary */
+.review-summary { display: flex; gap: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap; }
+.review-summary-stat { display: flex; flex-direction: column; background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 8px; padding: 1rem 1.5rem; min-width: 140px; }
+.review-summary-value { font-size: 2rem; font-weight: 800; color: var(--text-primary, #eee); font-family: 'JetBrains Mono', monospace; }
+.review-summary-value.review-pending { color: var(--accent-game, #f44336); }
+.review-summary-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #888); }
+
+/* Review Queue */
+.review-queue { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem; }
+.review-card { background: var(--bg-card, #1a1a2e); border: 1px solid var(--border, #333); border-radius: 8px; overflow: hidden; }
+.review-card.review-status-pending { border-left: 4px solid var(--accent-game, #f44336); }
+.review-card.review-status-resolved { border-left: 4px solid var(--accent-score, #4caf50); opacity: 0.7; }
+.review-card.review-status-passed { border-left: 4px solid var(--accent-score, #4caf50); opacity: 0.7; }
+.review-card.review-status-failed { border-left: 4px solid var(--text-secondary, #888); opacity: 0.7; }
+
+.review-card-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.review-card-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.review-card-time { font-size: 0.8rem; color: var(--text-secondary, #888); font-family: 'JetBrains Mono', monospace; }
+
+.review-badge { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; }
+.review-badge-tier { background: rgba(100,181,246,0.15); color: #64b5f6; }
+.review-badge-pending { background: rgba(244,67,54,0.15); color: #ef5350; }
+.review-badge-resolved { background: rgba(76,175,80,0.15); color: #66bb6a; }
+.review-badge-passed { background: rgba(76,175,80,0.15); color: #66bb6a; }
+.review-badge-failed { background: rgba(158,158,158,0.15); color: #9e9e9e; }
+.review-badge-injection { background: rgba(244,67,54,0.2); color: #ef5350; }
+.review-badge-suspicious { background: rgba(255,152,0,0.2); color: #ffb74d; }
+.review-badge-lowconf { background: rgba(255,152,0,0.15); color: #ffb74d; }
+
+.review-card-body { padding: 1rem; }
+.review-proposal-text { margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.5; color: var(--text-primary, #eee); }
+.review-interpretation { display: flex; flex-direction: column; gap: 0.5rem; }
+.review-field { display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem; }
+.review-field-label { color: var(--text-secondary, #888); min-width: 110px; flex-shrink: 0; }
+.review-field-value { color: var(--text-primary, #eee); display: flex; align-items: center; gap: 0.5rem; }
+
+.review-confidence-bar { width: 80px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; display: inline-block; }
+.review-confidence-fill { height: 100%; border-radius: 3px; display: block; transition: width 0.3s; }
+
+.review-card-footer { padding: 0.5rem 1rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; }
+.review-governor { font-size: 0.8rem; color: var(--text-secondary, #888); }
+
+/* Empty state */
+.review-empty { text-align: center; padding: 3rem 1rem; color: var(--text-secondary, #888); }
+.review-empty h3 { color: var(--text-primary, #eee); margin-bottom: 0.5rem; }
+
+/* Injection alerts section */
+.review-section { margin-top: 2rem; }
+.review-section h2 { border-bottom: 1px solid var(--border, #333); padding-bottom: 0.5rem; margin-bottom: 1rem; }
+.review-table { width: 100%; border-collapse: collapse; }
+.review-table th, .review-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.review-table th { color: var(--text-secondary, #888); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.review-preview { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.review-reason { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: var(--text-secondary, #aaa); }
+.review-row-injection { background: rgba(244,67,54,0.03); }
+.review-row-suspicious { background: rgba(255,152,0,0.03); }
+</style>
+{% endblock %}
