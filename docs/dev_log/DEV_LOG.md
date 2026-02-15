@@ -43,7 +43,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 ### P1 — Thin UX (works but feels empty)
 - [x] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Session 65)*
 - [x] **Game Richness audit** — Audit all player-facing outputs against `GAME_MOMENTS.md`. Playoff games should feel different from regular season. Championship finals should feel epic. *(Session 66)*
-- [ ] **Multi-parameter interpretation + expanded RuleSet** — Currently proposals map to ~6 parameters. Expand to cover court size, foul rules, substitution patterns, Elam threshold. AI interpretation handles compound proposals. *(Medium — `plans/2026-02-11-simulation-extensibility-plan.md`)*
+- [x] **Multi-parameter interpretation + expanded RuleSet** — 5 new RuleSet params (turnover/foul rate modifiers, offensive rebound weight, stamina drain, dead ball time), compound proposals, multi-parameter tally. *(Session 66)*
 
 ### P0.5 — Critical pre-hackathon
 - [ ] **End-to-end workflow verification** — Verify the full player journey works: `/join` → `/propose` → `/vote` → games simulate → standings update → reports generate → season completes → playoffs → championship. Every step, in production, no dead ends.
@@ -58,7 +58,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 
 ### P3 — Infrastructure (quality of life)
 - [ ] **Workbench + safety layer** — Admin eval dashboard with injection classifier. *(Large — `plans/WORKBENCH_AND_SAFETY_LAYER.md`)*
-- [ ] **GameEffect hooks** — Rule changes trigger visual/mechanical effects in simulation. *(Medium — part of simulation extensibility plan)*
+- [x] **GameEffect hooks** — Wired effect lifecycle into game loop: load→fire→tick→flush. Governance tally uses effects-aware path. *(Session 66)*
 - [x] **Cleanup** — Remove dead `GovernanceWindow` model, rebounds in narration. *(Session 65)*
 
 ### Wave execution plan (Session 62+)
@@ -74,8 +74,8 @@ Remaining work structured into four waves optimized for parallelism and dependen
 
 **Wave 2 — Build on foundations (parallel, each depends on a Wave 1 item)**
 - [x] **Game Richness audit** (P1, medium) — Audit all player-facing outputs against `GAME_MOMENTS.md`. *Depends on NarrativeContext* — that module provides the dramatic context data this audit wires into outputs. *(Session 66)*
-- [ ] **GameEffect hooks** (P3, medium) — Rule changes trigger visual/mechanical effects in simulation. *Depends on Proposal Effects* — effects need the hook points and execution engine from the effects system.
-- [ ] **Multi-parameter interpretation + expanded RuleSet** (P1, medium) — Compound proposals, more tunable parameters. *Depends on Proposal Effects* — expands the target space proposals can hit, needs the broader effects architecture in place first.
+- [x] **GameEffect hooks** (P3, medium) — Rule changes trigger visual/mechanical effects in simulation. *Depends on Proposal Effects* — effects need the hook points and execution engine from the effects system. *(Session 66)*
+- [x] **Multi-parameter interpretation + expanded RuleSet** (P1, medium) — Compound proposals, more tunable parameters. *Depends on Proposal Effects* — expands the target space proposals can hit, needs the broader effects architecture in place first. *(Session 66)*
 
 *Why parallel:* All three depend on Wave 1 items but are independent of each other. Game Richness touches output templates. GameEffect hooks touch simulation. Multi-parameter interpretation touches the AI interpreter. No conflicts.
 
