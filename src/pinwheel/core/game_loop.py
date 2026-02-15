@@ -33,8 +33,12 @@ from pinwheel.ai.report import (
     generate_simulation_report,
     generate_simulation_report_mock,
 )
+from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import tally_governance
+from pinwheel.core.hooks import HookContext, fire_effects
+from pinwheel.core.meta import MetaStore
+from pinwheel.core.narrative import NarrativeContext, compute_narrative_context
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.core.simulation import simulate_game
 from pinwheel.core.tokens import regenerate_tokens
@@ -850,7 +854,29 @@ async def _phase_simulate_and_govern(
                 if row:
                     teams_cache[tid] = _row_to_team(row)
 
-    # 3b. Load team strategies
+    # 3b. Load effect registry and meta store
+    effect_registry: EffectRegistry | None = None
+    meta_store: MetaStore | None = None
+    try:
+        effect_registry = await load_effect_registry(repo, season_id)
+        if effect_registry.count > 0:
+            meta_store = MetaStore()
+            # Load team meta from DB
+            for tid in teams_cache:
+                team_meta = await repo.load_team_meta(tid)
+                if team_meta:
+                    meta_store.load_entity("team", tid, team_meta)
+            logger.info(
+                "effects_loaded season=%s effects=%d",
+                season_id,
+                effect_registry.count,
+            )
+    except Exception:
+        logger.exception("effect_registry_load_failed season=%s", season_id)
+        effect_registry = None
+        meta_store = None
+
+    # 3c. Load team strategies
     from pinwheel.models.team import TeamStrategy
 
     strategies: dict[str, TeamStrategy] = {}
@@ -893,6 +919,19 @@ async def _phase_simulate_and_govern(
         else:
             playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
 
+    # Fire round.pre effects
+    _round_effects = (
+        effect_registry.get_effects_for_hook("round.pre") if effect_registry else []
+    )
+    if _round_effects and meta_store:
+        round_ctx = HookContext(
+            round_number=round_number,
+            season_id=season_id,
+            meta_store=meta_store,
+            teams={tid: t for tid, t in teams_cache.items()},
+        )
+        fire_effects("round.pre", round_ctx, _round_effects)
+
     game_summaries: list[dict] = []
     game_results: list[GameResult] = []
     game_row_ids: list[str] = []
@@ -909,6 +948,29 @@ async def _phase_simulate_and_govern(
 
         seed = int(uuid.uuid4().int % (2**31))
         game_id = f"g-{round_number}-{entry.matchup_index}"
+
+        # Fire round.game.pre effects
+        _game_pre_effects = (
+            effect_registry.get_effects_for_hook("round.game.pre")
+            if effect_registry
+            else []
+        )
+        if _game_pre_effects and meta_store:
+            game_pre_ctx = HookContext(
+                round_number=round_number,
+                season_id=season_id,
+                meta_store=meta_store,
+                home_team_id=home.id,
+                away_team_id=away.id,
+                teams=teams_cache,
+            )
+            fire_effects("round.game.pre", game_pre_ctx, _game_pre_effects)
+
+        # Get sim-level effects for the effect_registry
+        _sim_effects = (
+            effect_registry.get_all_active() if effect_registry else None
+        )
+
         result = simulate_game(
             home,
             away,
@@ -917,6 +979,8 @@ async def _phase_simulate_and_govern(
             game_id=game_id,
             home_strategy=strategies.get(home.id),
             away_strategy=strategies.get(away.id),
+            effect_registry=_sim_effects,
+            meta_store=meta_store,
         )
 
         # Store result
@@ -959,6 +1023,26 @@ async def _phase_simulate_and_govern(
 
         game_results.append(result)
 
+        # Fire round.game.post effects
+        _game_post_effects = (
+            effect_registry.get_effects_for_hook("round.game.post")
+            if effect_registry
+            else []
+        )
+        if _game_post_effects and meta_store:
+            margin = abs(result.home_score - result.away_score)
+            game_post_ctx = HookContext(
+                round_number=round_number,
+                season_id=season_id,
+                meta_store=meta_store,
+                home_team_id=home.id,
+                away_team_id=away.id,
+                winner_team_id=result.winner_team_id,
+                margin=margin,
+                teams=teams_cache,
+            )
+            fire_effects("round.game.post", game_post_ctx, _game_post_effects)
+
         summary = {
             "game_id": game_id,
             "home_team": home.name,
@@ -977,6 +1061,50 @@ async def _phase_simulate_and_govern(
         # Publish game.completed without commentary (commentary added in AI phase)
         if event_bus and not suppress_spoiler_events:
             await event_bus.publish("game.completed", summary)
+
+    # Fire round.post effects (after all games, before governance)
+    _round_post_effects = (
+        effect_registry.get_effects_for_hook("round.post") if effect_registry else []
+    )
+    if _round_post_effects and meta_store:
+        round_post_ctx = HookContext(
+            round_number=round_number,
+            season_id=season_id,
+            meta_store=meta_store,
+            game_results=game_results,
+            teams=teams_cache,
+        )
+        fire_effects("round.post", round_post_ctx, _round_post_effects)
+
+    # Flush meta store changes to DB
+    if meta_store:
+        try:
+            dirty = meta_store.get_dirty_entities()
+            if dirty:
+                await repo.flush_meta_store(dirty)
+                logger.info(
+                    "meta_flushed season=%s round=%d entities=%d",
+                    season_id,
+                    round_number,
+                    len(dirty),
+                )
+        except Exception:
+            logger.exception(
+                "meta_flush_failed season=%s round=%d", season_id, round_number
+            )
+
+    # Tick effect lifetimes and persist expirations
+    if effect_registry:
+        expired_ids = effect_registry.tick_round(round_number)
+        if expired_ids:
+            try:
+                await persist_expired_effects(repo, season_id, expired_ids)
+            except Exception:
+                logger.exception(
+                    "effect_expiration_persist_failed season=%s round=%d",
+                    season_id,
+                    round_number,
+                )
 
     # 5. Governance — tally every Nth round (interval-based)
     tallies: list[VoteTally] = []
@@ -1051,6 +1179,22 @@ async def _phase_simulate_and_govern(
             "tokens_spent": len(gov_proposals),
         }
 
+    # Compute narrative context for output systems
+    narrative_ctx: NarrativeContext | None = None
+    try:
+        narrative_ctx = await compute_narrative_context(
+            repo, season_id, round_number, governance_interval
+        )
+    except Exception:
+        logger.exception(
+            "narrative_context_failed season=%s round=%d", season_id, round_number
+        )
+
+    # Build effects summary for report context
+    effects_summary = ""
+    if effect_registry and effect_registry.count > 0:
+        effects_summary = effect_registry.build_effects_summary()
+
     return _SimPhaseResult(
         season_id=season_id,
         round_number=round_number,
@@ -1065,6 +1209,8 @@ async def _phase_simulate_and_govern(
         governance_summary=governance_summary,
         governor_activity=governor_activity,
         active_governor_ids=active_governor_ids,
+        narrative_context=narrative_ctx,
+        effects_summary=effects_summary,
     )
 
 
@@ -1079,6 +1225,7 @@ async def _phase_ai(
     """
     commentaries: dict[str, str] = {}
     round_data = {"round_number": sim.round_number, "games": sim.game_summaries}
+    narrative = sim.narrative_context
 
     # Commentary per game
     for i, result in enumerate(sim.game_results):
@@ -1101,10 +1248,13 @@ async def _phase_ai(
                     sim.ruleset,
                     api_key,
                     playoff_context=sim.playoff_context,
+                    narrative=narrative,
                 )
             else:
                 commentary = generate_game_commentary_mock(
-                    result, home, away, playoff_context=sim.playoff_context
+                    result, home, away,
+                    playoff_context=sim.playoff_context,
+                    narrative=narrative,
                 )
             commentaries[game_id] = commentary
         except Exception:
@@ -1125,12 +1275,14 @@ async def _phase_ai(
                     sim.round_number,
                     api_key,
                     playoff_context=sim.playoff_context,
+                    narrative=narrative,
                 )
             else:
                 highlight_reel = generate_highlight_reel_mock(
                     sim.game_summaries,
                     sim.round_number,
                     playoff_context=sim.playoff_context,
+                    narrative=narrative,
                 )
         except Exception:
             logger.exception(
@@ -1142,21 +1294,25 @@ async def _phase_ai(
     # Simulation report
     if api_key:
         sim_report = await generate_simulation_report(
-            round_data, sim.season_id, sim.round_number, api_key
+            round_data, sim.season_id, sim.round_number, api_key,
+            narrative=narrative,
         )
     else:
         sim_report = generate_simulation_report_mock(
-            round_data, sim.season_id, sim.round_number
+            round_data, sim.season_id, sim.round_number,
+            narrative=narrative,
         )
 
     # Governance report
     if api_key:
         gov_report = await generate_governance_report(
-            sim.governance_data, sim.season_id, sim.round_number, api_key
+            sim.governance_data, sim.season_id, sim.round_number, api_key,
+            narrative=narrative,
         )
     else:
         gov_report = generate_governance_report_mock(
-            sim.governance_data, sim.season_id, sim.round_number
+            sim.governance_data, sim.season_id, sim.round_number,
+            narrative=narrative,
         )
 
     # Private reports for active governors
@@ -1623,6 +1779,8 @@ class _SimPhaseResult:
     governance_summary: dict | None
     governor_activity: dict[str, dict]  # gov_id -> {proposals, votes, etc.}
     active_governor_ids: set[str]
+    narrative_context: NarrativeContext | None = None
+    effects_summary: str = ""
 
 
 @dataclasses.dataclass

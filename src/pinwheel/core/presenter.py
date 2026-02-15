@@ -358,6 +358,11 @@ async def _present_game(
                 if possession.defender_id
                 else ""
             )
+            rebounder_name = (
+                names.get(possession.rebound_id, possession.rebound_id)
+                if possession.rebound_id
+                else ""
+            )
 
             narration = narrate_play(
                 player=player_name,
@@ -366,6 +371,8 @@ async def _present_game(
                 result=possession.result,
                 points=possession.points_scored,
                 move=possession.move_activated,
+                rebounder=rebounder_name,
+                is_offensive_rebound=possession.is_offensive_rebound,
                 seed=possession.possession_number,
             )
 

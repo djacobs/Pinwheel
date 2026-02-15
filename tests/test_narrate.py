@@ -91,6 +91,109 @@ class TestNarratePlay:
         t2 = narrate_play("A", "B", "mid_range", "made", 2, seed=99)
         assert t1 == t2
 
+    def test_defensive_rebound_on_missed_three(self) -> None:
+        """Missed three with a defensive rebounder should mention the rebounder."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="three_point",
+            result="missed",
+            points=0,
+            rebounder="Brick",
+            is_offensive_rebound=False,
+            seed=7,
+        )
+        assert "Flash" in text
+        assert "Brick" in text
+
+    def test_offensive_rebound_on_missed_rim(self) -> None:
+        """Missed at_rim with an offensive rebounder should mention the rebounder."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="at_rim",
+            result="missed",
+            points=0,
+            rebounder="Hustle",
+            is_offensive_rebound=True,
+            seed=3,
+        )
+        assert "Flash" in text
+        assert "Hustle" in text
+        assert "offensive" in text.lower()
+
+    def test_defensive_rebound_mentions_defensive(self) -> None:
+        """Defensive rebound narration should include 'defensive' or 'board' or 'glass'."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="mid_range",
+            result="missed",
+            points=0,
+            rebounder="Glass",
+            is_offensive_rebound=False,
+            seed=5,
+        )
+        assert "Glass" in text
+        # Should contain some rebound-related language
+        lower = text.lower()
+        assert any(word in lower for word in ["rebound", "board", "glass"])
+
+    def test_no_rebound_on_made_shot(self) -> None:
+        """Made shots should not include rebound narration even if rebounder passed."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="mid_range",
+            result="made",
+            points=2,
+            rebounder="Brick",
+            is_offensive_rebound=False,
+            seed=1,
+        )
+        assert "Brick" not in text
+
+    def test_no_rebound_when_rebounder_empty(self) -> None:
+        """Missed shots with no rebounder should not include rebound narration."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="three_point",
+            result="missed",
+            points=0,
+            rebounder="",
+            is_offensive_rebound=False,
+            seed=1,
+        )
+        assert "rebound" not in text.lower()
+        assert "board" not in text.lower()
+
+    def test_rebound_deterministic_with_same_seed(self) -> None:
+        """Rebound narration should be deterministic for the same seed."""
+        t1 = narrate_play(
+            "A", "B", "mid_range", "missed", 0,
+            rebounder="R", is_offensive_rebound=True, seed=42,
+        )
+        t2 = narrate_play(
+            "A", "B", "mid_range", "missed", 0,
+            rebounder="R", is_offensive_rebound=True, seed=42,
+        )
+        assert t1 == t2
+
+    def test_no_rebound_on_foul(self) -> None:
+        """Foul results should not include rebound narration."""
+        text = narrate_play(
+            player="Flash",
+            defender="Thunder",
+            action="at_rim",
+            result="foul",
+            points=2,
+            rebounder="Brick",
+            is_offensive_rebound=False,
+            seed=1,
+        )
+        assert "Brick" not in text
+
 
 class TestNarrateWinner:
     def test_three_point_winner(self) -> None:

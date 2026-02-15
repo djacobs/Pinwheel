@@ -948,10 +948,11 @@ class TestSetupServer:
     async def test_setup_creates_channels(self, bot: PinwheelBot) -> None:
         """Setup creates category and channels when they don't exist."""
         guild = MagicMock(spec=discord.Guild)
-        guild.categories = []
-        guild.text_channels = []
         guild.roles = []
         guild.me = MagicMock()
+
+        # fetch_channels returns empty list — nothing exists yet
+        guild.fetch_channels = AsyncMock(return_value=[])
 
         category = MagicMock(spec=discord.CategoryChannel)
         guild.create_category = AsyncMock(return_value=category)
@@ -984,7 +985,6 @@ class TestSetupServer:
 
         category = MagicMock(spec=discord.CategoryChannel)
         category.name = "PINWHEEL FATES"
-        guild.categories = [category]
 
         def make_existing_channel(name: str, channel_id: int) -> MagicMock:
             ch = MagicMock(spec=discord.TextChannel)
@@ -998,7 +998,11 @@ class TestSetupServer:
             make_existing_channel("play-by-play", 202),
             make_existing_channel("big-plays", 203),
         ]
-        guild.text_channels = existing_channels
+
+        # fetch_channels returns both the category and existing text channels
+        guild.fetch_channels = AsyncMock(
+            return_value=[category, *existing_channels]
+        )
         guild.roles = []
         guild.me = MagicMock()
 
@@ -2550,7 +2554,9 @@ class TestBotStatePersistence:
             return {201: ch_how, 202: ch_play, 203: ch_big}.get(cid)
 
         guild.get_channel = MagicMock(side_effect=get_channel_side_effect)
-        guild.text_channels = [ch_how, ch_play, ch_big]
+        guild.fetch_channels = AsyncMock(
+            return_value=[category, ch_how, ch_play, ch_big]
+        )
         guild.roles = []
         guild.me = MagicMock()
         guild.default_role = MagicMock()
@@ -2607,15 +2613,12 @@ class TestBotStatePersistence:
         guild = MagicMock(spec=discord.Guild)
         category = MagicMock(spec=discord.CategoryChannel)
         category.name = "PINWHEEL FATES"
-        guild.categories = [category]
-        guild.text_channels = []  # No existing channels
+        # fetch_channels returns category only — no text channels exist
+        guild.fetch_channels = AsyncMock(return_value=[category])
         guild.roles = []
         guild.me = MagicMock()
         guild.default_role = MagicMock()
         guild.create_category = AsyncMock()
-
-        # guild.get_channel returns None for stale IDs
-        guild.get_channel = MagicMock(return_value=None)
 
         counter = {"id": 300}
 
@@ -2670,18 +2673,16 @@ class TestSetupIdempotencyWithDB:
         )
 
         guild = MagicMock(spec=discord.Guild)
-        guild.categories = []
-        guild.text_channels = []
         guild.roles = []
         guild.me = MagicMock()
         guild.default_role = MagicMock()
 
         category = MagicMock(spec=discord.CategoryChannel)
-        guild.create_category = AsyncMock(return_value=category)
-
-        category = MagicMock(spec=discord.CategoryChannel)
         category.name = "PINWHEEL FATES"
         guild.create_category = AsyncMock(return_value=category)
+
+        # First setup: nothing exists yet
+        guild.fetch_channels = AsyncMock(return_value=[])
 
         created_channels: dict[str, MagicMock] = {}
         counter = {"id": 100}
@@ -2705,16 +2706,10 @@ class TestSetupIdempotencyWithDB:
         assert first_call_count == 3
         first_ids = dict(bot.channel_ids)
 
-        # --- Second setup: mock guild now has channels; persisted IDs resolve ---
-        def get_channel_side_effect(cid: int) -> MagicMock | None:
-            for ch in created_channels.values():
-                if ch.id == cid:
-                    return ch
-            return None
-
-        guild.get_channel = MagicMock(side_effect=get_channel_side_effect)
-        guild.text_channels = list(created_channels.values())
-        guild.categories = [category]
+        # --- Second setup: fetch_channels now returns existing channels ---
+        guild.fetch_channels = AsyncMock(
+            return_value=[category, *created_channels.values()]
+        )
         guild.create_category.reset_mock()
         guild.create_text_channel.reset_mock()
 
@@ -2779,8 +2774,7 @@ class TestSetupIdempotencyWithDB:
         )
 
         guild = MagicMock(spec=discord.Guild)
-        guild.categories = []
-        guild.text_channels = []
+        guild.fetch_channels = AsyncMock(return_value=[])
         guild.roles = []
         guild.me = MagicMock()
         guild.default_role = MagicMock()

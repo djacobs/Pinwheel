@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # Scheduling & pacing
     pinwheel_game_cron: str = _DEFAULT_GAME_CRON
     pinwheel_auto_advance: bool = True
-    pinwheel_gov_window: int = 900
+    pinwheel_gov_window: int = 900  # DEPRECATED — unused, kept for backward compat
     pinwheel_presentation_pace: str = "slow"
     pinwheel_presentation_mode: str = "replay"  # "instant" or "replay"
     pinwheel_game_interval_seconds: int = 1800  # 30 min between games in replay mode

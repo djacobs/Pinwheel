@@ -312,7 +312,6 @@ PINWHEEL_PRESENTATION_MODE=instant # instant | replay
 PINWHEEL_GAME_CRON="0 * * * *" # Explicit cron override (optional, pace derives it)
 PINWHEEL_AUTO_ADVANCE=true      # APScheduler auto-advance toggle
 PINWHEEL_GOVERNANCE_INTERVAL=1  # Tally governance every N rounds (1 = every round)
-PINWHEEL_GOV_WINDOW=900         # Governance window duration (for GQI vote deliberation)
 PINWHEEL_EVALS_ENABLED=true     # Run evals after each round
 PINWHEEL_ADMIN_DISCORD_ID=      # Discord user ID for admin notifications (veto flow)
 SESSION_SECRET_KEY=             # ⚠️ MUST set in production (P1 issue)

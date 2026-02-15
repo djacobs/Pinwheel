@@ -14,6 +14,7 @@ import contextlib
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import discord
@@ -353,26 +354,49 @@ class PinwheelBot(commands.Bot):
                     logger.exception("discord_event_dispatch_error event=%s", event.get("type"))
 
     async def _try_acquire_setup_lock(self) -> bool:
-        """Try to acquire the Discord setup lock via DB. Returns True if acquired."""
+        """Try to acquire the Discord setup lock via DB. Returns True if acquired.
+
+        Uses an atomic INSERT OR IGNORE to avoid the TOCTOU race where two
+        instances both read "no lock" before either writes. The insert
+        succeeds (rowcount=1) for exactly one writer; the other gets
+        rowcount=0 and backs off. Expired locks (older than the timeout)
+        are deleted first so a crashed instance doesn't hold the lock forever.
+        """
         if not self.engine:
             return True  # No DB — single-instance, proceed
         try:
+            from sqlalchemy import text as sa_text
+
             from pinwheel.db.engine import get_session
-            from pinwheel.db.repository import Repository
 
             async with get_session(self.engine) as session:
-                repo = Repository(session)
-                existing = await repo.get_bot_state(DISCORD_SETUP_LOCK_KEY)
-                if existing:
-                    data = json.loads(existing)
-                    age = time.time() - data.get("acquired_at", 0)
-                    if age < DISCORD_SETUP_LOCK_TIMEOUT_SECONDS:
-                        return False  # Lock held by another instance
-                await repo.set_bot_state(
-                    DISCORD_SETUP_LOCK_KEY,
-                    json.dumps({"acquired_at": time.time()}),
+                # Expire stale locks (e.g. from a crashed prior instance)
+                cutoff = time.time() - DISCORD_SETUP_LOCK_TIMEOUT_SECONDS
+                await session.execute(
+                    sa_text(
+                        "DELETE FROM bot_state "
+                        "WHERE key = :key AND json_extract(value, '$.acquired_at') < :cutoff"
+                    ),
+                    {"key": DISCORD_SETUP_LOCK_KEY, "cutoff": cutoff},
                 )
-                return True
+                # Atomic insert — only one writer succeeds.
+                # Must include updated_at (NOT NULL, no SQL-level default).
+                now = time.time()
+                result = await session.execute(
+                    sa_text(
+                        "INSERT OR IGNORE INTO bot_state (key, value, updated_at) "
+                        "VALUES (:key, :value, :updated_at)"
+                    ),
+                    {
+                        "key": DISCORD_SETUP_LOCK_KEY,
+                        "value": json.dumps({"acquired_at": now}),
+                        "updated_at": datetime.fromtimestamp(now, tz=UTC).isoformat(),
+                    },
+                )
+                # Capture rowcount before commit (cursor may be invalidated after)
+                acquired = result.rowcount > 0  # type: ignore[union-attr]
+                await session.commit()
+                return acquired
         except Exception:
             logger.exception("discord_setup_lock_acquire_failed")
             return True  # On error, proceed (better than deadlocking)
@@ -402,6 +426,10 @@ class PinwheelBot(commands.Bot):
 
         Uses a DB-level lock to prevent multiple Fly.io machines from
         racing to create channels concurrently.
+
+        Uses guild.fetch_channels() (API call) instead of the local cache
+        to avoid duplicates when on_ready fires before the cache is fully
+        populated.
         """
         if not self.settings.discord_guild_id:
             return
@@ -422,12 +450,22 @@ class PinwheelBot(commands.Bot):
                 )
                 return
 
+            # Fetch the real channel list from the Discord API.
+            # The local cache (guild.text_channels / guild.categories) may be
+            # incomplete when on_ready fires — Discord sends guild data in
+            # chunks and the cache can lag behind. Fetching from the API
+            # guarantees a complete picture and prevents duplicate creation.
+            all_channels = await guild.fetch_channels()
+
             # --- Load persisted channel IDs from DB ---
             await self._load_persisted_channel_ids()
 
             # --- Get or create category ---
             category_name = "PINWHEEL FATES"
-            category = discord.utils.get(guild.categories, name=category_name)
+            category = discord.utils.get(
+                [c for c in all_channels if isinstance(c, discord.CategoryChannel)],
+                name=category_name,
+            )
             if category is None:
                 try:
                     category = await guild.create_category(category_name)
@@ -435,6 +473,11 @@ class PinwheelBot(commands.Bot):
                 except Exception:
                     logger.exception("discord_setup_category_failed name=%s", category_name)
                     return
+
+            # Build a list of text channels from the fetched data for lookups
+            text_channels = [
+                c for c in all_channels if isinstance(c, discord.TextChannel)
+            ]
 
             # --- Get or create shared channels ---
             channel_defs = [
@@ -450,6 +493,7 @@ class PinwheelBot(commands.Bot):
                     ch_name,
                     ch_topic,
                     key,
+                    text_channels,
                 )
                 if channel is not None:
                     self.channel_ids[key] = channel.id
@@ -473,6 +517,7 @@ class PinwheelBot(commands.Bot):
                                     guild,
                                     category,
                                     team,
+                                    text_channels,
                                 )
                 except Exception:
                     logger.exception("discord_setup_team_channels_failed")
@@ -537,24 +582,29 @@ class PinwheelBot(commands.Bot):
         ch_name: str,
         ch_topic: str,
         key: str,
+        text_channels: list[discord.TextChannel],
     ) -> discord.TextChannel | None:
         """Find or create a shared (public) text channel.
 
-        Checks: persisted ID -> guild lookup by name -> create new.
+        Checks: persisted ID -> API-fetched channel list by name -> create new.
         Shared channels grant @everyone read access.
+
+        Uses the pre-fetched ``text_channels`` list (from guild.fetch_channels)
+        instead of the local guild cache, which may be incomplete when on_ready
+        fires before Discord has finished populating it.
         """
         # 1. Check if persisted ID still valid in guild
         persisted_id = self.channel_ids.get(key)
         if persisted_id:
-            existing = guild.get_channel(persisted_id)
-            if isinstance(existing, discord.TextChannel):
+            existing = discord.utils.get(text_channels, id=persisted_id)
+            if existing is not None:
                 logger.info("discord_setup_reused channel=%s id=%d", ch_name, persisted_id)
                 return existing
 
-        # 2. Look up by name in guild (prefer same category, fall back to any)
-        existing = discord.utils.get(guild.text_channels, name=ch_name, category=category)
+        # 2. Look up by name in fetched channels (prefer same category, fall back to any)
+        existing = discord.utils.get(text_channels, name=ch_name, category=category)
         if existing is None:
-            existing = discord.utils.get(guild.text_channels, name=ch_name)
+            existing = discord.utils.get(text_channels, name=ch_name)
         if existing is not None:
             logger.info("discord_setup_found_by_name channel=%s id=%d", ch_name, existing.id)
             return existing
@@ -580,12 +630,17 @@ class PinwheelBot(commands.Bot):
         guild: discord.Guild,
         category: discord.CategoryChannel,
         team: object,
+        text_channels: list[discord.TextChannel],
     ) -> None:
         """Set up a single team's role and private channel.
 
         Team channels deny @everyone read and grant the team role
         read + send. Each operation is individually wrapped for
         graceful degradation.
+
+        Uses the pre-fetched ``text_channels`` list (from guild.fetch_channels)
+        instead of the local guild cache, which may be incomplete when on_ready
+        fires before Discord has finished populating it.
         """
         slug = team.name.lower().replace(" ", "-")  # type: ignore[union-attr]
         team_key = f"team_{team.id}"  # type: ignore[union-attr]
@@ -608,21 +663,21 @@ class PinwheelBot(commands.Bot):
         persisted_id = self.channel_ids.get(team_key)
         team_ch: discord.TextChannel | None = None
         if persisted_id:
-            found = guild.get_channel(persisted_id)
-            if isinstance(found, discord.TextChannel):
+            found = discord.utils.get(text_channels, id=persisted_id)
+            if found is not None:
                 team_ch = found
                 logger.info("discord_setup_reused team_channel=%s id=%d", slug, persisted_id)
 
-        # 2. Look up by name (prefer same category, fall back to any)
+        # 2. Look up by name in fetched channels (prefer same category, fall back to any)
         if team_ch is None:
             team_ch = discord.utils.get(
-                guild.text_channels,
+                text_channels,
                 name=slug,
                 category=category,
             )
             if team_ch is None:
                 # Channel may exist outside the category (from older setup)
-                team_ch = discord.utils.get(guild.text_channels, name=slug)
+                team_ch = discord.utils.get(text_channels, name=slug)
             if team_ch is not None:
                 logger.info("discord_setup_found_by_name team_channel=%s id=%d", slug, team_ch.id)
 

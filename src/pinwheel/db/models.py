@@ -54,6 +54,7 @@ class SeasonRow(Base):
     starting_ruleset: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     current_ruleset: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -72,6 +73,8 @@ class TeamRow(Base):
     motto: Mapped[str] = mapped_column(Text, default="")
     venue: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
 
     season: Mapped[SeasonRow] = relationship(back_populates="teams")
     hoopers: Mapped[list[HooperRow]] = relationship(back_populates="team")
@@ -100,6 +103,8 @@ class HooperRow(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
     team: Mapped[TeamRow] = relationship(back_populates="hoopers")
 
     __table_args__ = (Index("ix_hoopers_team_id", "team_id"),)
@@ -126,6 +131,7 @@ class GameResultRow(Base):
     elam_target: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_possessions: Mapped[int] = mapped_column(Integer, nullable=False)
     play_by_play: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     presented: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
@@ -155,6 +161,7 @@ class BoxScoreRow(Base):
     steals: Mapped[int] = mapped_column(Integer, default=0)
     turnovers: Mapped[int] = mapped_column(Integer, default=0)
     minutes: Mapped[float] = mapped_column(Float, default=0.0)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     game: Mapped[GameResultRow] = relationship(back_populates="box_scores")
@@ -228,6 +235,7 @@ class PlayerRow(Base):
     team_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     enrolled_season_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     last_login: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     __table_args__ = (Index("ix_players_discord_id", "discord_id"),)
@@ -245,6 +253,7 @@ class ScheduleRow(Base):
     phase: Mapped[str] = mapped_column(String(20), default="regular")
     status: Mapped[str] = mapped_column(String(20), default="scheduled")
     game_result_id: Mapped[str | None] = mapped_column(ForeignKey("game_results.id"), nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     __table_args__ = (

@@ -17,6 +17,7 @@ import uuid
 
 import anthropic
 
+from pinwheel.core.narrative import NarrativeContext, format_narrative_for_prompt
 from pinwheel.models.report import Report
 
 logger = logging.getLogger(__name__)
@@ -164,10 +165,15 @@ async def generate_simulation_report(
     season_id: str,
     round_number: int,
     api_key: str,
+    narrative: NarrativeContext | None = None,
 ) -> Report:
     """Generate a simulation report using Claude."""
+    data_str = json.dumps(round_data, indent=2)
+    if narrative:
+        narrative_block = format_narrative_for_prompt(narrative)
+        data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
     content = await _call_claude(
-        system=SIMULATION_REPORT_PROMPT.format(round_data=json.dumps(round_data, indent=2)),
+        system=SIMULATION_REPORT_PROMPT.format(round_data=data_str),
         user_message="Generate a simulation report for this round.",
         api_key=api_key,
     )
@@ -184,12 +190,15 @@ async def generate_governance_report(
     season_id: str,
     round_number: int,
     api_key: str,
+    narrative: NarrativeContext | None = None,
 ) -> Report:
     """Generate a governance report using Claude."""
+    data_str = json.dumps(governance_data, indent=2)
+    if narrative:
+        narrative_block = format_narrative_for_prompt(narrative)
+        data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
     content = await _call_claude(
-        system=GOVERNANCE_REPORT_PROMPT.format(
-            governance_data=json.dumps(governance_data, indent=2)
-        ),
+        system=GOVERNANCE_REPORT_PROMPT.format(governance_data=data_str),
         user_message="Generate a governance report for this round.",
         api_key=api_key,
     )
@@ -249,6 +258,7 @@ def generate_simulation_report_mock(
     round_data: dict,
     season_id: str,
     round_number: int,
+    narrative: NarrativeContext | None = None,
 ) -> Report:
     """Mock simulation report — narrative, specific, never generic."""
     import random as _rng
@@ -403,6 +413,42 @@ def generate_simulation_report_mock(
                 f"adjusted heading into the round. The effects are starting to show."
             )
 
+    # Narrative context enrichment
+    if narrative:
+        # Mention notable streaks
+        for team_id, streak in narrative.streaks.items():
+            if streak >= 3:
+                team_name = team_id
+                for s in narrative.standings:
+                    if s.get("team_id") == team_id:
+                        team_name = str(s.get("team_name", team_id))
+                        break
+                lines.append(
+                    f"{team_name} are riding a {streak}-game win streak."
+                )
+            elif streak <= -3:
+                team_name = team_id
+                for s in narrative.standings:
+                    if s.get("team_id") == team_id:
+                        team_name = str(s.get("team_name", team_id))
+                        break
+                lines.append(
+                    f"{team_name} have lost {abs(streak)} straight."
+                )
+
+        # Mention rule changes from narrative context
+        if narrative.rules_narrative and not rule_changes:
+            lines.append(
+                f"Current rules: {narrative.rules_narrative}."
+            )
+
+        # Season arc note
+        if narrative.season_arc == "late" and narrative.total_rounds > 0:
+            lines.append(
+                f"Round {narrative.round_number} of {narrative.total_rounds} — "
+                f"the regular season is winding down."
+            )
+
     return Report(
         id=f"r-sim-{round_number}-mock",
         report_type="simulation",
@@ -415,6 +461,7 @@ def generate_governance_report_mock(
     governance_data: dict,
     season_id: str,
     round_number: int,
+    narrative: NarrativeContext | None = None,
 ) -> Report:
     """Mock governance report for testing."""
     proposals = governance_data.get("proposals", [])
@@ -448,6 +495,17 @@ def generate_governance_report_mock(
             else:
                 lines.append(f"  A rule was changed (proposal {rc.get('proposal_id', '?')}).")
         lines.append("The next round plays under these new conditions.")
+
+    # Narrative context enrichment
+    if narrative:
+        if narrative.pending_proposals > 0 and not proposals:
+            lines.append(
+                f"{narrative.pending_proposals} proposal(s) remain pending from prior rounds."
+            )
+        if narrative.next_tally_round is not None and not narrative.governance_window_open:
+            lines.append(
+                f"Next governance tally: Round {narrative.next_tally_round}."
+            )
 
     return Report(
         id=f"r-gov-{round_number}-mock",

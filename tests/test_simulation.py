@@ -768,3 +768,61 @@ class TestSubstitutionFullGame:
 
         # Warn but don't fail — substitution depends on game dynamics
         raise AssertionError("No substitution found in 30 games at threshold 0.6")
+
+
+# --- Rebounds ---
+
+
+class TestRebounds:
+    def test_rebounds_tracked_in_box_scores(self) -> None:
+        """Box scores should have nonzero rebounds across a game."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        total_rebounds = sum(bs.rebounds for bs in result.box_scores)
+        assert total_rebounds > 0, "Expected some rebounds in box scores"
+
+    def test_rebound_id_in_possession_log(self) -> None:
+        """Missed shots should have a rebound_id in the possession log."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        missed = [p for p in result.possession_log if p.result == "missed"]
+        assert len(missed) > 0, "Expected some missed shots"
+        with_rebound = [p for p in missed if p.rebound_id]
+        assert len(with_rebound) > 0, "Expected rebound_id on missed shots"
+
+    def test_is_offensive_rebound_in_possession_log(self) -> None:
+        """Some missed shots should have is_offensive_rebound set.
+
+        Offensive rebounds are less frequent than defensive, but across
+        many possessions some should appear.
+        """
+        home = _make_team("home")
+        away = _make_team("away")
+        # Run several games to find at least one offensive rebound
+        found_offensive = False
+        found_defensive = False
+        for seed in range(20):
+            result = simulate_game(home, away, DEFAULT_RULESET, seed=seed)
+            for p in result.possession_log:
+                if p.rebound_id and p.is_offensive_rebound:
+                    found_offensive = True
+                if p.rebound_id and not p.is_offensive_rebound:
+                    found_defensive = True
+            if found_offensive and found_defensive:
+                break
+        assert found_offensive, "Expected at least one offensive rebound across 20 games"
+        assert found_defensive, "Expected at least one defensive rebound across 20 games"
+
+    def test_rebound_id_matches_valid_hooper(self) -> None:
+        """Rebound IDs should be from hoopers actually in the game."""
+        home = _make_team("home")
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        all_hooper_ids = {bs.hooper_id for bs in result.box_scores}
+        for p in result.possession_log:
+            if p.rebound_id:
+                assert p.rebound_id in all_hooper_ids, (
+                    f"Rebound ID {p.rebound_id} not in game hoopers"
+                )

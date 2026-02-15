@@ -39,6 +39,7 @@ class PossessionResult:
     shooter_id: str = ""
     assist_id: str = ""
     rebound_id: str = ""
+    is_offensive_rebound: bool = False
     shot_type: str = ""
     shot_made: bool = False
     move_activated: str = ""
@@ -358,9 +359,10 @@ def resolve_possession(
 
     # 10. Rebound on miss
     rebound_id = ""
+    is_offensive_rebound = False
     assist_id = ""
     if not made and not foul_on_defender:
-        rebounder, is_offensive = attempt_rebound(offense, defense, rng)
+        rebounder, is_offensive_rebound = attempt_rebound(offense, defense, rng)
         rebounder.rebounds += 1
         rebound_id = rebounder.hooper.id
 
@@ -400,6 +402,7 @@ def resolve_possession(
         defender_id=primary_defender.hooper.id,
         assist_id=assist_id,
         rebound_id=rebound_id,
+        is_offensive_rebound=is_offensive_rebound,
         move_activated=move_name,
         defensive_scheme=scheme,
         home_score=game_state.home_score,
@@ -415,6 +418,7 @@ def resolve_possession(
         shooter_id=handler.hooper.id,
         assist_id=assist_id,
         rebound_id=rebound_id,
+        is_offensive_rebound=is_offensive_rebound,
         shot_type=shot_type,
         shot_made=made,
         move_activated=move_name,

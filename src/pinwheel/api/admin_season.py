@@ -105,7 +105,6 @@ async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUs
         "auto_advance": settings.pinwheel_auto_advance,
         "presentation_mode": settings.pinwheel_presentation_mode,
         "governance_interval": settings.pinwheel_governance_interval,
-        "gov_window": settings.pinwheel_gov_window,
         "evals_enabled": settings.pinwheel_evals_enabled,
         "env": settings.pinwheel_env,
         "quarter_replay_seconds": settings.pinwheel_quarter_replay_seconds,

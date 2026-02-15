@@ -276,7 +276,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "manual": "when the commissioner advances them",
     }.get(pace, f"on a {pace} schedule")
 
-    gov_window_minutes = settings.pinwheel_gov_window // 60
+    gov_interval = settings.pinwheel_governance_interval
 
     # Load current ruleset for key game parameters
     ruleset = DEFAULT_RULESET
@@ -344,7 +344,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             "total_hoopers": total_hoopers,
             "total_games": total_games,
             "pace_desc": pace_desc,
-            "gov_window_minutes": gov_window_minutes,
+            "gov_interval": gov_interval,
             "key_params": key_params,
             "community_changes": community_changes,
             **_auth_context(request, current_user),
@@ -624,6 +624,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
     for play in raw_plays:
         handler_id = play.get("ball_handler_id", "")
         def_id = play.get("defender_id", "")
+        reb_id = play.get("rebound_id", "")
         enriched = {**play}
         enriched["handler_id"] = handler_id
         enriched["handler_name"] = hooper_names.get(handler_id, handler_id)
@@ -634,6 +635,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             result=play.get("result", ""),
             points=play.get("points_scored", 0),
             move=play.get("move_activated", ""),
+            rebounder=hooper_names.get(reb_id, reb_id) if reb_id else "",
+            is_offensive_rebound=play.get("is_offensive_rebound", False),
             seed=play.get("possession_number", 0),
         )
         play_by_play.append(enriched)

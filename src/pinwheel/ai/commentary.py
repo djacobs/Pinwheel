@@ -14,6 +14,7 @@ import logging
 
 import anthropic
 
+from pinwheel.core.narrative import NarrativeContext, format_narrative_for_prompt
 from pinwheel.models.game import GameResult
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team
@@ -78,8 +79,13 @@ def _build_game_context(
     away_team: Team,
     ruleset: RuleSet,
     playoff_context: str | None = None,
+    narrative: NarrativeContext | None = None,
 ) -> str:
-    """Build a concise context string for the AI from game data."""
+    """Build a concise context string for the AI from game data.
+
+    When a NarrativeContext is provided, includes standings, streaks,
+    head-to-head history, rule changes, and other dramatic context.
+    """
     lines = []
 
     if playoff_context:
@@ -104,7 +110,7 @@ def _build_game_context(
         team_name = home_team.name if bs.team_id == home_team.id else away_team.name
         lines.append(
             f"  {bs.agent_name} ({team_name}): "
-            f"{bs.points}pts {bs.assists}ast {bs.steals}stl {bs.turnovers}to"
+            f"{bs.points}pts {bs.rebounds}reb {bs.assists}ast {bs.steals}stl {bs.turnovers}to"
         )
 
     # Key moments from possession log (sample up to 8 notable plays)
@@ -121,6 +127,12 @@ def _build_game_context(
                 f" ({p.points_scored}pts)"
             )
 
+    # Narrative context — standings, streaks, head-to-head, rule changes
+    if narrative:
+        narrative_block = format_narrative_for_prompt(narrative)
+        if narrative_block:
+            lines.append(f"\n--- Dramatic Context ---\n{narrative_block}")
+
     return "\n".join(lines)
 
 
@@ -131,6 +143,7 @@ async def generate_game_commentary(
     ruleset: RuleSet,
     api_key: str,
     playoff_context: str | None = None,
+    narrative: NarrativeContext | None = None,
 ) -> str:
     """Generate AI-powered broadcaster commentary for a completed game.
 
@@ -138,7 +151,8 @@ async def generate_game_commentary(
     Falls back to a bracketed error message on API failure.
     """
     context = _build_game_context(
-        game_result, home_team, away_team, ruleset, playoff_context
+        game_result, home_team, away_team, ruleset, playoff_context,
+        narrative=narrative,
     )
     playoff_instructions = _PLAYOFF_COMMENTARY_INSTRUCTIONS.get(
         playoff_context or "", ""
@@ -164,10 +178,12 @@ def generate_game_commentary_mock(
     home_team: Team,
     away_team: Team,
     playoff_context: str | None = None,
+    narrative: NarrativeContext | None = None,
 ) -> str:
     """Template-based fallback commentary when no API key is set.
 
     References real team/agent names and scores for demo-quality output.
+    Includes streak and rule change context when narrative is provided.
     """
     winner_name = home_team.name if game_result.winner_team_id == home_team.id else away_team.name
     loser_name = away_team.name if game_result.winner_team_id == home_team.id else home_team.name
@@ -265,6 +281,31 @@ def generate_game_commentary_mock(
         star_line += "."
         paragraphs.append(star_line)
 
+    # Narrative enrichment — streaks and rule changes
+    if narrative:
+        winner_id = game_result.winner_team_id
+        winner_streak = narrative.streaks.get(winner_id, 0)
+        if winner_streak >= 3:
+            paragraphs.append(
+                f"That's {winner_streak} straight wins for the {winner_name}. "
+                f"The streak is real."
+            )
+
+        loser_id = (
+            home_team.id if winner_id == away_team.id else away_team.id
+        )
+        loser_streak = narrative.streaks.get(loser_id, 0)
+        if loser_streak <= -3:
+            paragraphs.append(
+                f"The {loser_name} have now dropped {abs(loser_streak)} in a row. "
+                f"The skid continues."
+            )
+
+        if narrative.rules_narrative:
+            paragraphs.append(
+                f"Rules in effect: {narrative.rules_narrative}."
+            )
+
     # Playoff closing
     if playoff_context == "finals":
         paragraphs.append(
@@ -294,6 +335,7 @@ async def generate_highlight_reel(
     round_number: int,
     api_key: str,
     playoff_context: str | None = None,
+    narrative: NarrativeContext | None = None,
 ) -> str:
     """Generate an AI-powered highlights summary for all games in a round.
 
@@ -319,6 +361,13 @@ async def generate_highlight_reel(
         lines.append(f"  {home} {hs} - {aws} {away}{elam}")
 
     context = "\n".join(lines)
+
+    # Add narrative context if available
+    if narrative:
+        narrative_block = format_narrative_for_prompt(narrative)
+        if narrative_block:
+            context += f"\n\n--- Dramatic Context ---\n{narrative_block}"
+
     playoff_instructions = _PLAYOFF_HIGHLIGHT_INSTRUCTIONS.get(
         playoff_context or "", ""
     )
@@ -344,10 +393,12 @@ def generate_highlight_reel_mock(
     game_summaries: list[dict],
     round_number: int,
     playoff_context: str | None = None,
+    narrative: NarrativeContext | None = None,
 ) -> str:
     """Template-based fallback highlight reel when no API key is set.
 
-    Still references real team names and scores.
+    Still references real team names and scores. Includes narrative
+    context (streaks, rule changes) when available.
     """
     if not game_summaries:
         return f"Round {round_number}: No games scheduled. The league rests."
@@ -457,5 +508,9 @@ def generate_highlight_reel_mock(
         )
 
     lines.append(summary)
+
+    # Narrative enrichment — rule changes context
+    if narrative and narrative.rules_narrative:
+        lines.append(f"Rules in effect: {narrative.rules_narrative}.")
 
     return " ".join(lines)

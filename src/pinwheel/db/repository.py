@@ -1052,3 +1052,86 @@ class Repository:
         stmt = select(SeasonArchiveRow).order_by(SeasonArchiveRow.created_at.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    # --- Meta Column Helpers ---
+
+    async def update_team_meta(self, team_id: str, meta: dict) -> None:
+        """Merge meta fields onto a team's meta JSON column."""
+        team = await self.session.get(TeamRow, team_id)
+        if team:
+            current = dict(team.meta or {})
+            current.update(meta)
+            team.meta = current
+            await self.session.flush()
+
+    async def update_hooper_meta(self, hooper_id: str, meta: dict) -> None:
+        """Merge meta fields onto a hooper's meta JSON column."""
+        hooper = await self.session.get(HooperRow, hooper_id)
+        if hooper:
+            current = dict(hooper.meta or {})
+            current.update(meta)
+            hooper.meta = current
+            await self.session.flush()
+
+    async def update_season_meta(self, season_id: str, meta: dict) -> None:
+        """Merge meta fields onto a season's meta JSON column."""
+        season = await self.session.get(SeasonRow, season_id)
+        if season:
+            current = dict(season.meta or {})
+            current.update(meta)
+            season.meta = current
+            await self.session.flush()
+
+    async def update_game_result_meta(self, game_id: str, meta: dict) -> None:
+        """Merge meta fields onto a game result's meta JSON column."""
+        game = await self.session.get(GameResultRow, game_id)
+        if game:
+            current = dict(game.meta or {})
+            current.update(meta)
+            game.meta = current
+            await self.session.flush()
+
+    async def update_player_meta(self, player_id: str, meta: dict) -> None:
+        """Merge meta fields onto a player's meta JSON column."""
+        player = await self.session.get(PlayerRow, player_id)
+        if player:
+            current = dict(player.meta or {})
+            current.update(meta)
+            player.meta = current
+            await self.session.flush()
+
+    async def flush_meta_store(
+        self,
+        dirty_entities: list[tuple[str, str, dict]],
+    ) -> None:
+        """Flush dirty MetaStore entries back to database meta columns.
+
+        Each entry is (entity_type, entity_id, meta_dict).
+        Routes to the appropriate update_*_meta method.
+        """
+        type_map = {
+            "team": self.update_team_meta,
+            "hooper": self.update_hooper_meta,
+            "season": self.update_season_meta,
+            "game": self.update_game_result_meta,
+            "player": self.update_player_meta,
+        }
+        for entity_type, entity_id, meta in dirty_entities:
+            updater = type_map.get(entity_type)
+            if updater and entity_id:
+                await updater(entity_id, meta)
+
+    async def load_team_meta(self, team_id: str) -> dict:
+        """Load meta dict for a team."""
+        team = await self.session.get(TeamRow, team_id)
+        if team and team.meta:
+            return dict(team.meta)
+        return {}
+
+    async def load_all_team_meta(self, season_id: str) -> dict[str, dict]:
+        """Load meta for all teams in a season. Returns {team_id: meta_dict}."""
+        teams = await self.get_teams_for_season(season_id)
+        result: dict[str, dict] = {}
+        for team in teams:
+            result[team.id] = dict(team.meta or {})
+        return result

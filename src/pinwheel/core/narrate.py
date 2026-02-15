@@ -139,6 +139,20 @@ _FOUL = [
     "{player} draws the foul on {defender} — heads to the stripe",
 ]
 
+_OFFENSIVE_REBOUND = [
+    "{rebounder} grabs the offensive board",
+    "{rebounder} fights for the offensive rebound",
+    "{rebounder} with the putback opportunity — offensive rebound",
+    "Second chance! {rebounder} snags the offensive rebound",
+]
+
+_DEFENSIVE_REBOUND = [
+    "{rebounder} pulls down the defensive rebound",
+    "{rebounder} clears the glass",
+    "{rebounder} grabs the board",
+    "{rebounder} corrals the defensive rebound",
+]
+
 
 def narrate_play(
     player: str,
@@ -147,11 +161,17 @@ def narrate_play(
     result: str,
     points: int,
     move: str = "",
+    rebounder: str = "",
+    is_offensive_rebound: bool = False,
     score_home: int = 0,
     score_away: int = 0,
     seed: int = 0,
 ) -> str:
-    """Generate a one-line play-by-play description from structured data."""
+    """Generate a one-line play-by-play description from structured data.
+
+    When a shot misses and a rebounder is specified, appends a rebound
+    narration indicating who grabbed the board (offensive or defensive).
+    """
     rng = random.Random(seed)
 
     if action == "shot_clock_violation":
@@ -188,6 +208,14 @@ def narrate_play(
             text = rng.choice(_RIM_MISSED).format(player=player, defender=defender)
         else:
             text = f"{player} misses"
+
+    # Append rebound narration on missed shots
+    if rebounder and result == "missed":
+        if is_offensive_rebound:
+            rebound_text = rng.choice(_OFFENSIVE_REBOUND).format(rebounder=rebounder)
+        else:
+            rebound_text = rng.choice(_DEFENSIVE_REBOUND).format(rebounder=rebounder)
+        text += f". {rebound_text}"
 
     if move and move in _MOVE_FLOURISHES:
         text = f"[{move}] {text}"

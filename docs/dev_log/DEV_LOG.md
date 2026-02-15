@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **902 tests**, zero lint errors (Session 62)
+- **1041 tests**, zero lint errors (Session 63)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 62 (Admin nav: auth-gated landing page)
+- **Latest commit:** Session 63 (Proposal Effects System — core implementation)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -36,7 +36,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 ### P0 — Broken UX (users hit dead ends)
 - [x] **Season Lifecycle (Phases 1 & 2)** — Phase enum (SETUP→ACTIVE→PLAYOFFS→CHAMPIONSHIP→OFFSEASON→COMPLETE), championship ceremony with awards. Phases 3 (offseason) and 4 (tiebreakers) deferred. *(Session 50)*
 - [x] **Admin visibility / governor roster** — `/roster` Discord command + `/admin/roster` web page. *(Session 50)*
-- [ ] **Proposal Effects System** — Proposals can do ANYTHING, not just tweak RuleSet parameters. Callbacks at every hook point in the system, meta JSON columns on all entities, effect execution engine. The game starts as basketball and finishes as ???. *(Plan: `plans/2026-02-14-proposal-effects-system.md`)*
+- [x] **Proposal Effects System** — Proposals can do ANYTHING, not just tweak RuleSet parameters. Callbacks at every hook point in the system, meta JSON columns on all entities, effect execution engine. The game starts as basketball and finishes as ???. *(Session 63)*
 - [x] **Season schedule fix** — Seasons stopping after 5 rounds / 7 games. Root cause: `num_cycles=1` default in `generate_round_robin()`. Fix: restructured so each round = 1 complete round-robin (6 games with 4 teams), renamed `num_cycles` → `num_rounds`, `governance_interval` default → 1. 725 tests pass.
 - [x] **Remove Alembic** — Removed from `pyproject.toml` (+ transitive dep `mako`). Never imported anywhere. 725 tests pass.
 
@@ -66,7 +66,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 Remaining work structured into four waves optimized for parallelism and dependency order.
 
 **Wave 1 — Foundation (parallel, no interdependencies)**
-- [ ] **Proposal Effects System** (P0, large) — Rewires how proposals execute. Callbacks at every hook point, meta JSON columns, effect execution engine. Independent of output systems.
+- [x] **Proposal Effects System** (P0, large) — Rewires how proposals execute. Callbacks at every hook point, meta JSON columns, effect execution engine. Independent of output systems. *(Session 63)*
 - [ ] **NarrativeContext module** (P1, medium) — Read-only data aggregation layer (streaks, rivalries, playoff implications) that feeds all output systems. Independent of proposal mechanics.
 - [ ] **Cleanup** (P3, small) — Remove dead `GovernanceWindow` model, rebounds in narration. Trivial, no dependencies.
 
@@ -625,3 +625,95 @@ Post-round session (~1s): mark games presented
 **902 tests (7 new, 2 updated), zero lint errors.**
 
 **What could have gone better:** The `admin_auth_client` test fixture initially didn't explicitly set `discord_client_id=""` and `discord_client_secret=""`, so the Settings class picked up values from the environment, causing the "403 without OAuth" test to get a 302 redirect instead. Fixed by explicitly clearing those values in the fixture.
+
+---
+
+## Session 63 — Proposal Effects System (Core Implementation)
+
+**What was asked:** Implement the Proposal Effects System plan (`docs/plans/2026-02-14-proposal-effects-system.md`). Key pieces: effect callback registry with hooks at every point in the system, meta JSON columns on relevant DB tables, effect execution engine, updated AI interpreter for structured effects, updated governance pipeline to execute effects when proposals pass.
+
+**What was built:**
+
+### New Pydantic Models (`models/governance.py`)
+- `EffectSpec` — structured effect with 5 types: `parameter_change`, `meta_mutation`, `hook_callback`, `narrative`, `composite`. Fields for meta operations, hook points, action code, conditions, lifetime.
+- `ProposalInterpretation` — AI interpretation as a list of EffectSpecs. Backward compatible via `to_rule_interpretation()` and `from_rule_interpretation()`.
+- New `GovernanceEventType` entries: `effect.registered`, `effect.expired`, `effect.repealed`.
+- `EffectType`, `EffectDuration`, `MetaValue` type aliases.
+
+### MetaStore (`core/meta.py`, new)
+- In-memory read/write cache keyed by `(entity_type, entity_id, field)`.
+- Operations: `get`, `set`, `increment`, `decrement`, `toggle`, `get_all`, `load_entity`, `snapshot`.
+- Dirty tracking for efficient DB flushing via `get_dirty_entities()`.
+
+### Hook System Rewrite (`core/hooks.py`)
+- Legacy system preserved: `HookPoint` enum, `GameEffect` protocol, `fire_hooks()`.
+- New system added: `HookContext` (unified context), `HookResult` (structured mutations), `Effect` protocol, `RegisteredEffect` (concrete implementation).
+- `RegisteredEffect` supports: structured condition evaluation (`gte`/`lte`/`eq` on meta fields), action primitives (`modify_score`, `modify_probability`, `modify_stamina`, `write_meta`, `add_narrative`), entity reference templates (`{winner_team_id}`, `{home_team_id}`), round ticking, serialization.
+- `fire_effects()` and `apply_hook_results()` functions.
+
+### Effect Registry (`core/effects.py`, new)
+- `EffectRegistry`: register/deregister, query by hook point, tick round lifetimes, build human-readable summary.
+- `effect_spec_to_registered()`: converts AI-produced EffectSpec to runtime RegisteredEffect.
+- `register_effects_for_proposal()`: registers effects and persists via `effect.registered` events.
+- `load_effect_registry()`: rebuilds from event store, skips expired/repealed.
+- `persist_expired_effects()`: writes `effect.expired` events.
+
+### AI Interpreter v2 (`ai/interpreter.py`)
+- `interpret_proposal_v2()`: AI-powered interpretation returning `ProposalInterpretation` with full hook point catalog and action primitive vocabulary.
+- `interpret_proposal_v2_mock()`: deterministic mock detecting swagger/morale, bonus/boost, rename/call patterns.
+- `INTERPRETER_V2_SYSTEM_PROMPT`: comprehensive prompt with all hook points, action primitives, condition checks.
+
+### Governance Pipeline Extension (`core/governance.py`)
+- `tally_governance_with_effects()`: extends `tally_governance` to register effects for passing proposals.
+- `_extract_effects_from_proposal()` and `get_proposal_effects_v2()`.
+
+### Meta JSON Columns (`db/models.py`)
+- Added `meta: JSON` column to 7 ORM models: `TeamRow`, `HooperRow`, `GameResultRow`, `BoxScoreRow`, `SeasonRow`, `ScheduleRow`, `PlayerRow`.
+
+### Repository Meta Methods (`db/repository.py`)
+- `update_team_meta()`, `update_hooper_meta()`, `update_season_meta()`, `update_game_result_meta()`, `update_player_meta()`.
+- `flush_meta_store()`: routes MetaStore dirty entries to appropriate update methods.
+- `load_team_meta()`, `load_all_team_meta()`.
+
+### Simulation Integration (`core/simulation.py`)
+- `simulate_game()` accepts `effect_registry` and `meta_store` parameters.
+- `_fire_sim_effects()` helper fires new-style effects at hook points.
+- Hook fire points: `sim.game.pre`, `sim.quarter.pre`, `sim.possession.pre`, `sim.quarter.end`, `sim.halftime`, `sim.elam.start`, `sim.game.end`.
+- Backward compatible: `None` registry/meta_store produces identical results.
+
+### Game Loop Integration (`core/game_loop.py`)
+- `_phase_simulate_and_govern()` loads `EffectRegistry` and creates `MetaStore` at round start.
+- Loads team meta from DB into MetaStore.
+- Fires `round.pre`, `round.game.pre`, `round.game.post`, `round.post` effects.
+- Passes effect_registry and meta_store to `simulate_game()`.
+- Flushes MetaStore dirty entries to DB after all games.
+- Ticks effect lifetimes and persists expirations.
+- Builds effects summary for report context.
+
+### Migration Script (`scripts/migrate_add_meta.py`, new)
+- Safe `ALTER TABLE ... ADD COLUMN meta TEXT` for each table.
+- Idempotent: skips tables that already have the column.
+
+### Tests (83 total, all new)
+- `TestMetaStore` (13): all MetaStore operations.
+- `TestEffectSpec` (5): model construction.
+- `TestProposalInterpretation` (4): conversion methods.
+- `TestRegisteredEffect` (14): should_fire, apply, conditions, action primitives, serialization, tick_round.
+- `TestFireEffects` (6): fire_effects and apply_hook_results.
+- `TestEffectRegistry` (8): registry operations.
+- `TestEffectSpecToRegistered` (5): spec-to-registered conversion.
+- `TestEffectPersistence` (4): event store persistence.
+- `TestTallyGovernanceWithEffects` (3): effects-aware tallying.
+- `TestInterpreterV2Mock` (7): mock v2 interpreter patterns.
+- `TestEffectsEndToEnd` (3): full swagger scenario, condition-not-met, expiration lifecycle.
+- `TestSimulationEffectsIntegration` (3): simulation with effects, meta modification during sim, backward compatibility.
+- `TestDBMetaColumns` (3): team meta column, flush_meta_store, load_all_team_meta.
+- `TestMigrationScript` (1): idempotent migration.
+
+**Files modified (8):** `src/pinwheel/models/governance.py`, `src/pinwheel/core/hooks.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/core/governance.py`, `src/pinwheel/core/simulation.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/db/models.py`, `src/pinwheel/db/repository.py`
+
+**New files (4):** `src/pinwheel/core/meta.py`, `src/pinwheel/core/effects.py`, `tests/test_effects.py`, `scripts/migrate_add_meta.py`
+
+**1041 tests (139 new), zero lint errors.**
+
+**What could have gone better:** The `PlayerAttributes` model gained three new fields (`ego`, `chaotic_alignment`, `fate`) since the effects plan was written. Test fixtures needed updating. Also, the `Venue` model requires a `capacity` field that was initially missed. Both caught immediately by test failures.

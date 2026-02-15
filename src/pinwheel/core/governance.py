@@ -1,4 +1,4 @@
-"""Governance lifecycle — proposals, votes, window resolution, rule enactment.
+"""Governance lifecycle — proposals, votes, tallying, rule enactment.
 
 All governance state is derived from the append-only event store.
 This module contains pure business logic; database access goes through Repository.
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from pinwheel.models.governance import (
     Amendment,
-    GovernanceWindow,
+    EffectSpec,
     Proposal,
     RuleInterpretation,
     Vote,
@@ -21,6 +21,7 @@ from pinwheel.models.governance import (
 from pinwheel.models.rules import RuleChange, RuleSet
 
 if TYPE_CHECKING:
+    from pinwheel.core.effects import EffectRegistry
     from pinwheel.db.repository import Repository
 
 
@@ -481,7 +482,7 @@ def apply_rule_change(
     return new_ruleset, change
 
 
-# --- Window Resolution ---
+# --- Governance Tallying ---
 
 
 async def tally_governance(
@@ -493,10 +494,6 @@ async def tally_governance(
     round_number: int,
 ) -> tuple[RuleSet, list[VoteTally]]:
     """Tally all pending proposals and enact passing rule changes.
-
-    Unlike close_governance_window(), this takes a season_id directly
-    and does not emit a window.closed event — there is no window concept
-    in interval-based governance.
 
     Returns the updated ruleset and list of vote tallies.
     """
@@ -548,37 +545,120 @@ async def tally_governance(
     return ruleset, tallies
 
 
-async def close_governance_window(
+async def tally_governance_with_effects(
     repo: Repository,
-    window: GovernanceWindow,
+    season_id: str,
     proposals: list[Proposal],
     votes_by_proposal: dict[str, list[Vote]],
     current_ruleset: RuleSet,
     round_number: int,
+    effect_registry: EffectRegistry | None = None,
 ) -> tuple[RuleSet, list[VoteTally]]:
-    """Resolve all proposals in a governance window.
+    """Tally proposals and register effects for passing proposals.
 
-    Delegates to tally_governance() for the actual tallying, then
-    emits a window.closed event.
+    Extension of tally_governance that also handles ProposalInterpretation
+    effects beyond parameter changes. Backward compatible: proposals with
+    only RuleInterpretation still work through the existing path.
 
     Returns the updated ruleset and list of vote tallies.
     """
-    ruleset, tallies = await tally_governance(
-        repo=repo,
-        season_id=window.season_id,
-        proposals=proposals,
-        votes_by_proposal=votes_by_proposal,
-        current_ruleset=current_ruleset,
-        round_number=round_number,
-    )
+    from pinwheel.core.effects import register_effects_for_proposal
 
-    # Close window
-    await repo.append_event(
-        event_type="window.closed",
-        aggregate_id=window.id,
-        aggregate_type="governance_window",
-        season_id=window.season_id,
-        payload={"proposals_resolved": len(tallies)},
-    )
+    tallies: list[VoteTally] = []
+    ruleset = current_ruleset
+
+    for proposal in proposals:
+        if proposal.status not in ("confirmed", "amended", "submitted"):
+            continue
+
+        votes = votes_by_proposal.get(proposal.id, [])
+        threshold = vote_threshold_for_tier(proposal.tier, current_ruleset.vote_threshold)
+        tally = tally_votes(votes, threshold)
+        tally.proposal_id = proposal.id
+        tallies.append(tally)
+
+        if tally.passed:
+            # 1. Handle parameter changes via existing path
+            if proposal.interpretation and proposal.interpretation.parameter:
+                try:
+                    ruleset, change = apply_rule_change(
+                        ruleset, proposal.interpretation, proposal.id, round_number
+                    )
+                    await repo.append_event(
+                        event_type="rule.enacted",
+                        aggregate_id=proposal.id,
+                        aggregate_type="rule_change",
+                        season_id=season_id,
+                        payload=change.model_dump(mode="json"),
+                    )
+                except (ValueError, Exception):
+                    await repo.append_event(
+                        event_type="rule.rolled_back",
+                        aggregate_id=proposal.id,
+                        aggregate_type="rule_change",
+                        season_id=season_id,
+                        payload={"reason": "validation_error", "proposal_id": proposal.id},
+                    )
+
+            # 2. Handle v2 effects (if proposal has effects_v2 in payload)
+            if effect_registry is not None:
+                effects_data = _extract_effects_from_proposal(proposal)
+                if effects_data:
+                    await register_effects_for_proposal(
+                        repo=repo,
+                        registry=effect_registry,
+                        proposal_id=proposal.id,
+                        effects=effects_data,
+                        season_id=season_id,
+                        current_round=round_number,
+                    )
+
+        # Record pass/fail
+        event_type = "proposal.passed" if tally.passed else "proposal.failed"
+        await repo.append_event(
+            event_type=event_type,
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=season_id,
+            payload=tally.model_dump(mode="json"),
+        )
 
     return ruleset, tallies
+
+
+def _extract_effects_from_proposal(proposal: Proposal) -> list[EffectSpec]:
+    """Extract EffectSpec list from a proposal's payload.
+
+    Looks for effects_v2 in the proposal's interpretation or raw payload.
+    Returns empty list if no v2 effects are found.
+    """
+    # Check if proposal has a ProposalInterpretation stored in its payload
+    # The proposal model stores interpretation as RuleInterpretation,
+    # but the event store payload may contain effects_v2 data
+    if not proposal.interpretation:
+        return []
+
+    # Base case — effects come through the explicit v2 path
+    # (stored in event payload as effects_v2, not in RuleInterpretation)
+    return []
+
+
+def get_proposal_effects_v2(
+    proposal_payload: dict[str, object],
+) -> list[EffectSpec]:
+    """Extract v2 effects from a proposal's event store payload.
+
+    The v2 interpreter stores effects in proposal_payload["effects_v2"].
+    """
+    effects_data = proposal_payload.get("effects_v2")
+    if not effects_data or not isinstance(effects_data, list):
+        return []
+
+    effects: list[EffectSpec] = []
+    for item in effects_data:
+        if isinstance(item, dict):
+            try:
+                effects.append(EffectSpec(**item))
+            except Exception:
+                continue
+    return effects

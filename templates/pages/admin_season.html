@@ -104,11 +104,6 @@
           <td style="text-align: left;" class="text-muted">How often governance tallies run</td>
         </tr>
         <tr>
-          <td style="text-align: left;">Gov Window</td>
-          <td style="text-align: left;"><span class="mono" style="font-weight: 700;">{{ runtime_config.gov_window }}s</span></td>
-          <td style="text-align: left;" class="text-muted">{{ (runtime_config.gov_window / 60)|int }} min vote deliberation window</td>
-        </tr>
-        <tr>
           <td style="text-align: left;">Evals</td>
           <td style="text-align: left;">
             {% if runtime_config.evals_enabled %}

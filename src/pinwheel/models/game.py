@@ -23,6 +23,7 @@ class PossessionLog(BaseModel):
     defender_id: str = ""
     assist_id: str = ""
     rebound_id: str = ""
+    is_offensive_rebound: bool = False
     move_activated: str = ""
     defensive_scheme: str = ""
     home_score: int = 0

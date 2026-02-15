@@ -11,7 +11,17 @@ import logging
 import random
 import time
 
-from pinwheel.core.hooks import GameEffect, HookPoint, fire_hooks
+from pinwheel.core.hooks import (
+    GameEffect,
+    HookContext,
+    HookPoint,
+    HookResult,
+    RegisteredEffect,
+    apply_hook_results,
+    fire_effects,
+    fire_hooks,
+)
+from pinwheel.core.meta import MetaStore
 from pinwheel.core.possession import resolve_possession
 from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
@@ -19,6 +29,33 @@ from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team, TeamStrategy
 
 logger = logging.getLogger(__name__)
+
+
+def _fire_sim_effects(
+    hook: str,
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    effect_registry: list[RegisteredEffect] | None,
+    meta_store: MetaStore | None,
+) -> list[HookResult]:
+    """Fire new-style effects at a simulation hook point.
+
+    Returns the list of HookResults. The caller decides whether to apply them.
+    """
+    if not effect_registry:
+        return []
+
+    ctx = HookContext(
+        game_state=game_state,
+        rules=rules,
+        rng=rng,
+        meta_store=meta_store,
+    )
+    results = fire_effects(hook, ctx, effect_registry)
+    if results:
+        apply_hook_results(results, ctx)
+    return results
 
 
 def _build_hooper_states(team: Team) -> list[HooperState]:
@@ -114,9 +151,15 @@ def _run_quarter(
     rng: random.Random,
     effects: list[GameEffect],
     possession_log: list[PossessionLog],
+    new_effects: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
 ) -> None:
     """Run one quarter using the game clock."""
     game_state.game_clock_seconds = rules.quarter_minutes * 60.0
+
+    # Fire sim.quarter.pre
+    _fire_sim_effects("sim.quarter.pre", game_state, rules, rng, new_effects, meta_store)
+
     last_three = False
     poss_num = 0
     while game_state.game_clock_seconds > 0:
@@ -128,6 +171,7 @@ def _run_quarter(
         game_state.total_possessions += 1
 
         fire_hooks(HookPoint.PRE_POSSESSION, game_state, effects)
+        _fire_sim_effects("sim.possession.pre", game_state, rules, rng, new_effects, meta_store)
 
         result = resolve_possession(game_state, rules, rng, last_three)
 
@@ -168,6 +212,8 @@ def _run_elam(
     rng: random.Random,
     effects: list[GameEffect],
     possession_log: list[PossessionLog],
+    new_effects: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
 ) -> None:
     """Run the Elam Ending period."""
     leading_score = max(game_state.home_score, game_state.away_score)
@@ -175,6 +221,7 @@ def _run_elam(
     game_state.elam_activated = True
 
     fire_hooks(HookPoint.ELAM_START, game_state, effects)
+    _fire_sim_effects("sim.elam.start", game_state, rules, rng, new_effects, meta_store)
 
     last_three = False
     poss = 0
@@ -269,11 +316,17 @@ def simulate_game(
     effects: list[GameEffect] | None = None,
     home_strategy: TeamStrategy | None = None,
     away_strategy: TeamStrategy | None = None,
+    effect_registry: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
 ) -> GameResult:
     """Simulate a complete 3v3 basketball game.
 
     Pure function: deterministic given inputs + seed.
     4 quarters + Elam Ending. Returns immutable GameResult.
+
+    Args:
+        effect_registry: New-style effects to fire at hook points.
+        meta_store: In-memory metadata store for effects to read/write.
     """
     start_time = time.monotonic()
     rng = random.Random(seed)
@@ -293,6 +346,9 @@ def simulate_game(
     quarter_scores: list[QuarterScore] = []
     possession_log: list[PossessionLog] = []
 
+    # Fire sim.game.pre for new-style effects
+    _fire_sim_effects("sim.game.pre", game_state, rules, rng, effect_registry, meta_store)
+
     # Quarters 1 through elam_trigger_quarter
     num_quarters = rules.elam_trigger_quarter + 1  # e.g., Q1-Q3 then Elam
     for q in range(1, num_quarters):
@@ -300,9 +356,13 @@ def simulate_game(
         home_before = game_state.home_score
         away_before = game_state.away_score
 
-        _run_quarter(game_state, rules, rng, _effects, possession_log)
+        _run_quarter(
+            game_state, rules, rng, _effects, possession_log,
+            new_effects=effect_registry, meta_store=meta_store,
+        )
 
         fire_hooks(HookPoint.QUARTER_END, game_state, _effects)
+        _fire_sim_effects("sim.quarter.end", game_state, rules, rng, effect_registry, meta_store)
 
         quarter_scores.append(
             QuarterScore(
@@ -315,6 +375,9 @@ def simulate_game(
         # Quarter breaks: halftime after Q2, shorter break after Q1/Q3
         if q == 2:
             _halftime_recovery(game_state, rules)
+            _fire_sim_effects(
+                "sim.halftime", game_state, rules, rng, effect_registry, meta_store,
+            )
         else:
             _quarter_break_recovery(game_state, rules)
 
@@ -327,7 +390,10 @@ def simulate_game(
         home_before = game_state.home_score
         away_before = game_state.away_score
 
-        _run_elam(game_state, rules, rng, _effects, possession_log)
+        _run_elam(
+            game_state, rules, rng, _effects, possession_log,
+            new_effects=effect_registry, meta_store=meta_store,
+        )
 
         quarter_scores.append(
             QuarterScore(
@@ -338,6 +404,7 @@ def simulate_game(
         )
 
     fire_hooks(HookPoint.GAME_END, game_state, _effects)
+    _fire_sim_effects("sim.game.end", game_state, rules, rng, effect_registry, meta_store)
 
     # Determine winner
     winner = home.id if game_state.home_score >= game_state.away_score else away.id
