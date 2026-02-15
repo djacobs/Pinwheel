@@ -443,9 +443,15 @@ class TestFullWorkflow:
                     weight=weight,
                 )
 
-            # Tally governance
+            # Tally 1: proposal deferred (minimum voting period)
             ruleset, tallies, gov_data = await tally_pending_governance(
                 repo, season_id, round_number=1, ruleset=DEFAULT_RULESET,
+            )
+            assert tallies == []
+
+            # Tally 2: proposal passes
+            ruleset, tallies, gov_data = await tally_pending_governance(
+                repo, season_id, round_number=2, ruleset=DEFAULT_RULESET,
             )
 
             assert len(tallies) == 1
@@ -989,6 +995,16 @@ class TestFullWorkflow:
                     weight=weight,
                 )
 
+            # Pre-emit first_tally_seen so the minimum voting period is satisfied
+            # (simulates the proposal being seen in a prior tally cycle)
+            await repo.append_event(
+                event_type="proposal.first_tally_seen",
+                aggregate_id=proposal.id,
+                aggregate_type="proposal",
+                season_id=season_id,
+                payload={"proposal_id": proposal.id, "round_number": 0},
+            )
+
         # Step round with governance_interval=1 (tally every round)
         async with get_session(engine) as session:
             repo = Repository(session)
@@ -1204,8 +1220,15 @@ class TestFullWorkflow:
                     weight=weight,
                 )
 
+            # Tally 1: deferred (minimum voting period)
             ruleset, tallies, _ = await tally_pending_governance(
                 repo, season_id, round_number=1, ruleset=DEFAULT_RULESET,
+            )
+            assert tallies == []
+
+            # Tally 2: proposal fails (all voted no)
+            ruleset, tallies, _ = await tally_pending_governance(
+                repo, season_id, round_number=2, ruleset=DEFAULT_RULESET,
             )
 
             assert len(tallies) == 1
@@ -1502,20 +1525,26 @@ class TestIntegrationBugs:
                     weight=weight,
                 )
 
-            # Tally round 1
+            # Tally round 1: deferred (minimum voting period)
             ruleset1, tallies1, _ = await tally_pending_governance(
                 repo, season_id, 1, DEFAULT_RULESET,
             )
-            assert len(tallies1) == 1
-            assert tallies1[0].passed is True
-            assert ruleset1.elam_margin == 25
+            assert len(tallies1) == 0
 
-            # Tally round 2 — should have nothing to tally
+            # Tally round 2: proposal passes
             ruleset2, tallies2, _ = await tally_pending_governance(
-                repo, season_id, 2, ruleset1,
+                repo, season_id, 2, DEFAULT_RULESET,
             )
-            assert len(tallies2) == 0
-            assert ruleset2.elam_margin == 25  # Still 25, not re-tallied
+            assert len(tallies2) == 1
+            assert tallies2[0].passed is True
+            assert ruleset2.elam_margin == 25
+
+            # Tally round 3 — should have nothing to tally
+            ruleset3, tallies3, _ = await tally_pending_governance(
+                repo, season_id, 3, ruleset2,
+            )
+            assert len(tallies3) == 0
+            assert ruleset3.elam_margin == 25  # Still 25, not re-tallied
 
     async def test_step_round_returns_empty_for_no_schedule(self, engine: object) -> None:
         """step_round returns empty result when no games are scheduled."""

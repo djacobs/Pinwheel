@@ -903,13 +903,14 @@ async def close_offseason(
     games = await repo.get_all_games(season_id)
     last_round = max((g.round_number for g in games), default=0) if games else 0
 
-    # Tally any pending governance proposals
+    # Tally any pending governance proposals (skip deferral — season-close cleanup)
     _new_ruleset, tallies, _gov_data = await tally_pending_governance(
         repo=repo,
         season_id=season_id,
         round_number=last_round,
         ruleset=ruleset,
         event_bus=event_bus,
+        skip_deferral=True,
     )
 
     logger.info(
@@ -1003,6 +1004,7 @@ async def start_new_season(
             last_round: int = max_round_result.scalar_one()
             updated_ruleset, tallies, _gov_data = await tally_pending_governance(
                 repo, source_season_id, last_round, prev_ruleset,
+                skip_deferral=True,
             )
             if tallies:
                 logger.info(

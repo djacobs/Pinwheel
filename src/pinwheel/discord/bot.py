@@ -2164,7 +2164,12 @@ class PinwheelBot(commands.Bot):
                 )
                 interpretation = interpretation_v2.to_rule_interpretation()
 
-            tier = detect_tier(interpretation, ruleset)
+            if interpretation_v2 is not None:
+                from pinwheel.core.governance import detect_tier_v2
+
+                tier = detect_tier_v2(interpretation_v2, ruleset)
+            else:
+                tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
 
             # Spend PROPOSE token NOW (before confirm UI) to prevent race conditions.

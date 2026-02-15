@@ -14,6 +14,7 @@ from pinwheel.models.governance import (
     Amendment,
     EffectSpec,
     Proposal,
+    ProposalInterpretation,
     RuleInterpretation,
     Vote,
     VoteTally,
@@ -122,6 +123,47 @@ def detect_tier(interpretation: RuleInterpretation, ruleset: RuleSet) -> int:
     return 5
 
 
+def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> int:
+    """Determine governance tier from a V2 ProposalInterpretation.
+
+    Examines the effects list directly instead of relying on the legacy
+    ``to_rule_interpretation()`` conversion (which loses non-parameter effects).
+
+    Tier rules:
+    - ``parameter_change`` → reuse per-parameter tier logic (1-4)
+    - ``hook_callback`` / ``meta_mutation`` / ``move_grant`` → Tier 3
+    - Only ``narrative`` effects → Tier 2
+    - No effects / ``injection_flagged`` / ``rejection_reason`` → Tier 5
+    - Compound proposals: highest tier wins
+    """
+    if interpretation.injection_flagged or interpretation.rejection_reason:
+        return 5
+
+    effects = interpretation.effects
+    if not effects:
+        return 5
+
+    tiers: list[int] = []
+    for effect in effects:
+        if effect.effect_type == "parameter_change" and effect.parameter:
+            # Reuse the legacy per-parameter tier lookup
+            legacy = RuleInterpretation(parameter=effect.parameter)
+            tiers.append(detect_tier(legacy, ruleset))
+        elif effect.effect_type in ("hook_callback", "meta_mutation", "move_grant"):
+            tiers.append(3)
+        elif effect.effect_type == "narrative":
+            tiers.append(2)
+        # composite effects: recurse into sub-effects if needed, but for now
+        # treat as Tier 3 (structural change)
+        elif effect.effect_type == "composite":
+            tiers.append(3)
+
+    if not tiers:
+        return 5
+
+    return max(tiers)
+
+
 def token_cost_for_tier(tier: int) -> int:
     """Higher tiers cost more PROPOSE tokens."""
     if tier <= 4:
@@ -156,15 +198,22 @@ async def submit_proposal(
     ruleset: RuleSet,
     *,
     token_already_spent: bool = False,
+    interpretation_v2: ProposalInterpretation | None = None,
 ) -> Proposal:
     """Submit a proposal. Deducts PROPOSE token(s) via event store.
 
     If ``token_already_spent`` is True, the token was deducted at propose-time
     (before the confirm UI) to prevent race conditions, so the token.spent
     event is skipped here.
+
+    When ``interpretation_v2`` is provided, tier detection uses the V2 effects
+    list instead of the legacy parameter-based tier lookup.
     """
     sanitized = sanitize_text(raw_text)
-    tier = detect_tier(interpretation, ruleset)
+    if interpretation_v2 is not None:
+        tier = detect_tier_v2(interpretation_v2, ruleset)
+    else:
+        tier = detect_tier(interpretation, ruleset)
     cost = token_cost_for_tier(tier)
     proposal_id = str(uuid.uuid4())
 
@@ -208,24 +257,53 @@ async def submit_proposal(
     return proposal
 
 
-def _needs_admin_review(proposal: Proposal) -> bool:
+def _needs_admin_review(
+    proposal: Proposal,
+    interpretation_v2: ProposalInterpretation | None = None,
+) -> bool:
     """Check if a proposal is "wild" and should be flagged for admin review.
 
     Tier 5+ proposals (uninterpretable, parameter=None, or unknown params)
     and proposals with low AI confidence (< 0.5) are flagged for admin veto.
     Wild proposals still go to vote immediately — the admin can veto before tally.
+
+    When ``interpretation_v2`` is provided, the V2 interpretation is checked:
+    - If V2 has real effects and is not injection-flagged → NOT wild
+    - If V2 has no effects or is injection-flagged → wild
+    - Low confidence (< 0.5) is still flagged regardless of V2
     """
-    if proposal.tier >= 5:
+    # Low confidence always triggers review, regardless of V2
+    if interpretation_v2 is not None and interpretation_v2.confidence < 0.5:
         return True
-    return bool(proposal.interpretation and proposal.interpretation.confidence < 0.5)
+    if (
+        interpretation_v2 is None
+        and proposal.interpretation
+        and proposal.interpretation.confidence < 0.5
+    ):
+        return True
+
+    # V2 path: real effects + not injection-flagged = not wild
+    if interpretation_v2 is not None:
+        if interpretation_v2.injection_flagged:
+            return True
+        return not interpretation_v2.effects
+
+    # Legacy path: tier 5+ = wild
+    return proposal.tier >= 5
 
 
-async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
+async def confirm_proposal(
+    repo: Repository,
+    proposal: Proposal,
+    interpretation_v2: ProposalInterpretation | None = None,
+) -> Proposal:
     """Governor confirms AI interpretation. Always moves to confirmed (voting open).
 
     All proposals go to vote immediately. Wild proposals (Tier 5+ or
     confidence < 0.5) are also flagged for admin review — the admin can
     veto before tally, but the democratic process proceeds by default.
+
+    When ``interpretation_v2`` is provided, V2-aware admin review logic is used.
     """
     # Always confirm — opens voting
     await repo.append_event(
@@ -239,7 +317,7 @@ async def confirm_proposal(repo: Repository, proposal: Proposal) -> Proposal:
     proposal.status = "confirmed"
 
     # Wild proposals also get flagged for admin review (audit trail)
-    if _needs_admin_review(proposal):
+    if _needs_admin_review(proposal, interpretation_v2=interpretation_v2):
         await repo.append_event(
             event_type="proposal.flagged_for_review",
             aggregate_id=proposal.id,

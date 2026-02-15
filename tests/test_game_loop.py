@@ -298,6 +298,17 @@ class TestGovernanceInterval:
             vote_choice="yes",
             weight=1.0,
         )
+
+        # Pre-emit first_tally_seen so the minimum voting period is satisfied.
+        # This simulates the proposal having been seen in a prior tally cycle.
+        await repo.append_event(
+            event_type="proposal.first_tally_seen",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=season_id,
+            payload={"proposal_id": proposal.id, "round_number": 0},
+        )
+
         return proposal.id
 
     async def test_tallies_on_interval_round(self, repo: Repository):
@@ -1108,6 +1119,15 @@ class TestPhaseSimulateAndGovern:
             weight=1.0,
         )
 
+        # Pre-emit first_tally_seen to satisfy minimum voting period
+        await repo.append_event(
+            event_type="proposal.first_tally_seen",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=season_id,
+            payload={"proposal_id": proposal.id, "round_number": 0},
+        )
+
         sim = await _phase_simulate_and_govern(
             repo, season_id, round_number=1, governance_interval=1,
         )
@@ -1337,6 +1357,15 @@ class TestStepRoundBackwardCompat:
             team_id=team_ids[0],
             vote_choice="yes",
             weight=1.0,
+        )
+
+        # Pre-emit first_tally_seen to satisfy minimum voting period
+        await repo.append_event(
+            event_type="proposal.first_tally_seen",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=season_id,
+            payload={"proposal_id": proposal.id, "round_number": 0},
         )
 
         result = await step_round(
@@ -1839,6 +1868,15 @@ class TestEffectsGameLoopIntegration:
             weight=1.0,
         )
 
+        # Pre-emit first_tally_seen to satisfy minimum voting period
+        await repo.append_event(
+            event_type="proposal.first_tally_seen",
+            aggregate_id=proposal.id,
+            aggregate_type="proposal",
+            season_id=season_id,
+            payload={"proposal_id": proposal.id, "round_number": 0},
+        )
+
         # Step the round — governance tally should use
         # tally_governance_with_effects when an effect_registry exists
         result = await step_round(
@@ -1889,10 +1927,22 @@ class TestEffectsGameLoopIntegration:
         from pinwheel.core.game_loop import tally_pending_governance
 
         registry = EffectRegistry()
+
+        # Tally 1: deferred (minimum voting period)
         ruleset, tallies, gov_data = await tally_pending_governance(
             repo=repo,
             season_id=season_id,
             round_number=1,
+            ruleset=RuleSet(),
+            effect_registry=registry,
+        )
+        assert tallies == []
+
+        # Tally 2: proposal passes
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=2,
             ruleset=RuleSet(),
             effect_registry=registry,
         )
@@ -1933,11 +1983,20 @@ class TestEffectsGameLoopIntegration:
 
         from pinwheel.core.game_loop import tally_pending_governance
 
-        # No effect_registry argument — backward compat
+        # Tally 1: deferred (minimum voting period)
         ruleset, tallies, gov_data = await tally_pending_governance(
             repo=repo,
             season_id=season_id,
             round_number=1,
+            ruleset=RuleSet(),
+        )
+        assert tallies == []
+
+        # Tally 2: proposal passes
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=2,
             ruleset=RuleSet(),
         )
 
@@ -2077,10 +2136,22 @@ class TestEffectsGameLoopIntegration:
 
         from pinwheel.core.game_loop import tally_pending_governance
 
+        # Tally 1: deferred (minimum voting period)
         ruleset, tallies, gov_data = await tally_pending_governance(
             repo=repo,
             season_id=season_id,
             round_number=1,
+            ruleset=RuleSet(),
+            effect_registry=registry,
+            meta_store=meta_store,
+        )
+        assert tallies == []
+
+        # Tally 2: proposal passes, gov.post hook fires
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=2,
             ruleset=RuleSet(),
             effect_registry=registry,
             meta_store=meta_store,
@@ -2203,11 +2274,22 @@ class TestEffectsGameLoopIntegration:
         from pinwheel.core.game_loop import tally_pending_governance
 
         registry = EffectRegistry()
-        # No meta_store argument — backward compat
+
+        # Tally 1: deferred (minimum voting period)
         ruleset, tallies, gov_data = await tally_pending_governance(
             repo=repo,
             season_id=season_id,
             round_number=1,
+            ruleset=RuleSet(),
+            effect_registry=registry,
+        )
+        assert tallies == []
+
+        # Tally 2: proposal passes (no meta_store — backward compat)
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=2,
             ruleset=RuleSet(),
             effect_registry=registry,
         )

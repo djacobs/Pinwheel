@@ -449,6 +449,14 @@ class TestGovernanceNotificationTiming:
                 vote_choice="yes",
                 weight=1.0,
             )
+            # Pre-emit first_tally_seen to satisfy minimum voting period
+            await repo.append_event(
+                event_type="proposal.first_tally_seen",
+                aggregate_id=proposal.id,
+                aggregate_type="proposal",
+                season_id=season_id,
+                payload={"proposal_id": proposal.id, "round_number": 0},
+            )
             # Mark season completed
             await repo.update_season_status(season_id, "completed")
 

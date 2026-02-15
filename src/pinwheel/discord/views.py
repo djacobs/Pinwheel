@@ -117,8 +117,11 @@ class ProposalConfirmView(discord.ui.View):
                     interpretation=self.interpretation,
                     ruleset=ruleset,
                     token_already_spent=self.token_already_spent,
+                    interpretation_v2=self.interpretation_v2,
                 )
-                await confirm_proposal(repo, proposal)
+                await confirm_proposal(
+                    repo, proposal, interpretation_v2=self.interpretation_v2,
+                )
                 await session.commit()
 
             self._disable_all()
@@ -128,7 +131,9 @@ class ProposalConfirmView(discord.ui.View):
                 vote_threshold_for_tier,
             )
 
-            is_wild = _needs_admin_review(proposal)
+            is_wild = _needs_admin_review(
+                proposal, interpretation_v2=self.interpretation_v2,
+            )
 
             # Always show green "Proposal Submitted" embed
             wild_note = " (Wild -- Admin may veto)" if is_wild else ""
@@ -282,7 +287,11 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             interpret_proposal_v2,
             interpret_proposal_v2_mock,
         )
-        from pinwheel.core.governance import detect_tier, token_cost_for_tier
+        from pinwheel.core.governance import (
+            detect_tier,
+            detect_tier_v2,
+            token_cost_for_tier,
+        )
         from pinwheel.db.engine import get_session
         from pinwheel.db.repository import Repository
         from pinwheel.models.rules import RuleSet
@@ -360,7 +369,10 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 )
                 interpretation = interpretation_v2.to_rule_interpretation()
 
-            tier = detect_tier(interpretation, ruleset)
+            if interpretation_v2 is not None:
+                tier = detect_tier_v2(interpretation_v2, ruleset)
+            else:
+                tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
 
             # Update parent view

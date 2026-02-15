@@ -773,6 +773,7 @@ async def tally_pending_governance(
     event_bus: EventBus | None = None,
     effect_registry: EffectRegistry | None = None,
     meta_store: MetaStore | None = None,
+    skip_deferral: bool = False,
 ) -> tuple[RuleSet, list[VoteTally], dict]:
     """Tally all pending proposals and enact passing rule changes.
 
@@ -782,6 +783,8 @@ async def tally_pending_governance(
     effects registered in the registry and persisted to the event store.
     When ``meta_store`` is provided, fires ``gov.pre`` and ``gov.post``
     hooks around the governance tally for any registered effects.
+    When ``skip_deferral`` is True, the minimum voting period is bypassed
+    (used for season-close catch-up tallies).
     Returns (updated_ruleset, tallies, governance_data).
     """
     governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
@@ -824,6 +827,46 @@ async def tally_pending_governance(
         if pid not in resolved_ids and pid not in seen_ids and pid not in vetoed_ids:
             pending_proposal_ids.append(pid)
             seen_ids.add(pid)
+
+    # --- Minimum voting period deferral ---
+    # Every proposal must sit for at least one full tally cycle before being
+    # tallied. On a proposal's first tally encounter we emit a
+    # ``proposal.first_tally_seen`` event and defer it to the next cycle.
+    # Skipped when ``skip_deferral`` is True (season-close catch-up).
+    if pending_proposal_ids and not skip_deferral:
+        first_seen_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.first_tally_seen"],
+        )
+        already_seen_ids = {e.aggregate_id for e in first_seen_events}
+
+        deferred_ids: list[str] = []
+        ready_ids: list[str] = []
+        for pid in pending_proposal_ids:
+            if pid not in already_seen_ids:
+                deferred_ids.append(pid)
+            else:
+                ready_ids.append(pid)
+
+        # Emit first_tally_seen for newly encountered proposals
+        for pid in deferred_ids:
+            await repo.append_event(
+                event_type="proposal.first_tally_seen",
+                aggregate_id=pid,
+                aggregate_type="proposal",
+                season_id=season_id,
+                payload={"proposal_id": pid, "round_number": round_number},
+            )
+            logger.info(
+                "proposal_deferred pid=%s round=%d season=%s",
+                pid,
+                round_number,
+                season_id,
+            )
+
+        # Only tally proposals that have been seen in a prior cycle
+        pending_proposal_ids = ready_ids
+        seen_ids = set(ready_ids)
 
     tallies: list[VoteTally] = []
     proposals: list[Proposal] = []
