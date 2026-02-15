@@ -62,11 +62,11 @@
               <span class="mono" style="font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;
                 {% if p.status == 'passed' %}background: rgba(46,204,113,0.2); color: var(--accent-score);
                 {% elif p.status == 'failed' %}background: rgba(231,76,60,0.2); color: var(--accent-game);
-                {% elif p.status in ['confirmed', 'pending'] %}background: rgba(155,89,182,0.2); color: var(--accent-gov);
+                {% elif p.status in ['confirmed', 'pending', 'pending_review'] %}background: rgba(155,89,182,0.2); color: var(--accent-gov);
                 {% elif p.status in ['vetoed', 'rejected'] %}background: rgba(231,76,60,0.15); color: var(--accent-game);
                 {% else %}background: rgba(255,255,255,0.1); color: var(--text-secondary);
-                {% endif %}">{{ p.status|upper }}</span>
-              <span style="color: var(--text-secondary);">{{ p.season_name }} R{{ p.round_number }}</span>
+                {% endif %}">{% if p.status == 'confirmed' %}AWAITING VOTE{% elif p.status == 'pending_review' %}ADMIN REVIEW{% else %}{{ p.status|upper }}{% endif %}</span>
+              <span style="color: var(--text-secondary);">{{ p.season_name }}{% if p.round_number %} R{{ p.round_number }}{% endif %}</span>
               {{ p.raw_text|truncate(80) }}
             </div>
             {% endfor %}
