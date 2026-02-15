@@ -681,3 +681,19 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 102. [DONE] Time-slot grouping within rounds (replaces single-time-per-round from #101)
 **Problem:** UX note #101 showed one time per DB round, but a "round" contains all matchups for a round-robin (e.g. 6 games for 4 teams). With 4 teams, only 2 games can play simultaneously (no team plays twice). All 6 games showed the same start time (e.g. "1:30 PM ET"), which was wrong — they should be staggered into 3 time slots of 2 games each.
 **Fix:** `group_into_slots()` in `schedule_times.py` uses greedy first-fit to split games within a round into non-overlapping time slots. Each slot gets a successive cron fire time. For 4 teams with `*/30 * * * *` cron: Slot 1 (A vs B, C vs D) at 1:00 PM, Slot 2 (A vs C, B vs D) at 1:30 PM, Slot 3 (A vs D, B vs C) at 2:00 PM. Templates show just the time per slot (no round number). Discord `/schedule` embed uses the same grouping.
+
+### 103. [DONE] SSE EventSource dedup on HTMX page swap
+**Problem:** Navigating away from and back to the arena page via `hx-boost` caused duplicate play-by-play messages. HTMX swaps page content but doesn't close JavaScript objects — the old `EventSource` persisted, creating a second SSE connection on return.
+**Fix:** Store the `EventSource` on `window._pinwheelSSE` and close any prior connection before creating a new one in `arena.html`.
+
+### 104. [DONE] Team name links on game detail pages
+**Problem:** Team names in the scoreboard header and box score sections on game detail pages were plain text. No way to navigate to a team's page from a game.
+**Fix:** Wrapped team names in `<a>` tags linking to `/teams/<id>` in `game.html` — scoreboard header and both box score section headers. Styled with `text-decoration:none; color:inherit` to preserve the existing look.
+
+### 105. [DONE] Blank team pages when viewing cross-season teams
+**Problem:** Team pages showed a blank/empty layout when viewing a team from a previous season. The `team_page()` handler used `_get_active_season_id()` for all data lookups (standings, governors, strategy, league averages), so when the current season differed from the team's season, all queries returned empty.
+**Fix:** Changed `team_page()` to use `team.season_id` instead of the active season ID. The team's own season is always correct for its contextual data. Added `test_team_page_cross_season` test to catch regressions.
+
+### 106. [DONE] Playoff series context banners on arena game board
+**Problem:** Playoff games on the arena page looked identical to regular-season games. No indication of series context (which round, series score, elimination status).
+**Fix:** Added series context banners to game panels on the arena page showing the playoff round, series score, and elimination game markers.

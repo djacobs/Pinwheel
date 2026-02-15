@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1479 tests**, zero lint errors (Session 79)
+- **1491 tests**, zero lint errors (Session 80)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -22,7 +22,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Round-based start times — games grouped by cron cadence, not per-game stagger
 - **Day 15 (cont):** Time-slot grouping — games within a round split into non-overlapping slots, series reports + collaborative editing
 - **Day 15 (cont):** Tick-based scheduling — no team plays twice per tick; No-Look Pass narration fix
-- **Latest commit:** `22c37f0` — fix: suppress [No-Look Pass] tag when no assist on the play
+- **Day 15 (cont):** Post-commit skill relocation, SSE dedup, team name links, blank team page fix, playoff series banners
+- **Latest commit:** `56573c5` — fix: blank team pages when viewing cross-season teams
 
 ## Today's Agenda
 
@@ -297,3 +298,24 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1479 tests, zero lint errors.**
 
 **What could have gone better:** The move system conflates "ball handler who shoots" with "ball handler who passes" — No-Look Pass conceptually sets up a *teammate's* shot, but the simulation doesn't model pass-then-shoot sequences. The narration fix is correct but the mechanical +10% still applies to the handler's own shot probability. A deeper refactor of the possession system would make moves like this more authentic.
+
+---
+
+## Session 80 — Post-Commit Skill, SSE Dedup, Team Page Fixes
+
+**What was asked:** Several fixes across different surfaces: (1) improve post-commit skill to always shut down the server and only archive Pinwheel-related plans, (2) move the skill from gitignored `.claude/skills/` to tracked `docs/skills/`, (3) fix duplicate play-by-play messages in the live arena view, (4) fix blank team pages when viewing cross-season teams, (5) add clickable team name links on game detail pages.
+
+**What was built:**
+- Post-commit skill: added `PYTHONPATH=src` to server start, step 2.4 to always shut down server/Rodney after demo, plan filtering to skip non-Pinwheel plans
+- Moved `SKILL.md` from `.claude/skills/post-commit/` to `docs/skills/post-commit/`, created symlink from old location
+- SSE dedup: stored `EventSource` on `window._pinwheelSSE` and close prior connection before creating new one — prevents duplicate events on HTMX page swap
+- Blank team pages: `team_page()` was using `_get_active_season_id()` for all lookups — when viewing a team from a previous season, everything returned empty. Fixed by using `team.season_id` instead. Added `test_team_page_cross_season` test
+- Team name links: wrapped team names in `<a>` tags on game detail scoreboard and box score headers, linking to `/teams/<id>`
+- Playoff series context banners on arena game board (parallel agent)
+- Mock sim report rewrite to eliminate generic platitudes (parallel agent)
+
+**Files modified (7):** `docs/skills/post-commit/SKILL.md`, `templates/pages/arena.html`, `templates/pages/game.html`, `src/pinwheel/api/pages.py`, `tests/test_pages.py`, `src/pinwheel/ai/report.py`, `tests/test_reports.py`
+
+**1491 tests, zero lint errors.**
+
+**What could have gone better:** The blank team page bug was subtle — tests pass because tests use the active season, but production had teams from a previous season accessible via game page links (added in this same session). The cross-season scenario was only exposed by the combination of the team links feature and having run multiple seasons in production. The SSE duplicate issue was a regression from earlier HTMX boost work — should have been caught when `hx-boost` was first added.
