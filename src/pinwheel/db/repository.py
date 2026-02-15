@@ -302,6 +302,70 @@ class Repository:
             game.presented = True
             await self.session.flush()
 
+    async def get_game_stats_for_rounds(
+        self,
+        season_id: str,
+        round_start: int,
+        round_end: int,
+    ) -> dict:
+        """Compute aggregate game stats for a range of rounds.
+
+        Returns a dict with: game_count, avg_score, avg_margin,
+        three_point_pct, two_point_pct, avg_possessions, elam_activation_rate.
+        """
+        stmt = select(GameResultRow).where(
+            GameResultRow.season_id == season_id,
+            GameResultRow.round_number >= round_start,
+            GameResultRow.round_number <= round_end,
+        )
+        result = await self.session.execute(stmt)
+        games = list(result.scalars().all())
+
+        if not games:
+            return {"game_count": 0}
+
+        total_scores: list[int] = []
+        margins: list[int] = []
+        possessions: list[int] = []
+        elam_count = 0
+
+        for g in games:
+            total_scores.append(g.home_score)
+            total_scores.append(g.away_score)
+            margins.append(abs(g.home_score - g.away_score))
+            possessions.append(g.total_possessions)
+            if g.elam_target is not None:
+                elam_count += 1
+
+        # Box score aggregates for shooting percentages
+        box_stmt = (
+            select(BoxScoreRow)
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(
+                GameResultRow.season_id == season_id,
+                GameResultRow.round_number >= round_start,
+                GameResultRow.round_number <= round_end,
+            )
+        )
+        box_result = await self.session.execute(box_stmt)
+        box_scores = list(box_result.scalars().all())
+
+        total_3pa = sum(getattr(bs, "three_pointers_attempted", 0) or 0 for bs in box_scores)
+        total_3pm = sum(getattr(bs, "three_pointers_made", 0) or 0 for bs in box_scores)
+        total_fga = sum(getattr(bs, "field_goals_attempted", 0) or 0 for bs in box_scores)
+        total_fgm = sum(getattr(bs, "field_goals_made", 0) or 0 for bs in box_scores)
+
+        game_count = len(games)
+        return {
+            "game_count": game_count,
+            "avg_score": sum(total_scores) / len(total_scores) if total_scores else 0,
+            "avg_margin": sum(margins) / len(margins) if margins else 0,
+            "three_point_pct": (total_3pm / total_3pa * 100) if total_3pa > 0 else 0,
+            "field_goal_pct": (total_fgm / total_fga * 100) if total_fga > 0 else 0,
+            "avg_possessions": sum(possessions) / len(possessions) if possessions else 0,
+            "elam_activation_rate": elam_count / game_count if game_count > 0 else 0,
+        }
+
     # --- Governance Events (append-only) ---
 
     async def append_event(

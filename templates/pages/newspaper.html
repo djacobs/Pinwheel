@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}The Pinwheel Post — Round {{ round_number }}{% endblock %}
+
+{% block content %}
+<div class="newspaper">
+  <div class="newspaper-masthead">
+    <div class="newspaper-title">THE PINWHEEL POST</div>
+    <div class="newspaper-date">
+      {% if season_name %}{{ season_name }} &mdash; {% endif %}Round {{ round_number }}
+    </div>
+  </div>
+
+  {% if headline %}
+  <div class="newspaper-headline">{{ headline }}</div>
+  {% endif %}
+  {% if subhead %}
+  <div class="newspaper-subhead">{{ subhead }}</div>
+  {% endif %}
+
+  <div class="newspaper-columns">
+    <div class="newspaper-col newspaper-col-left">
+      <div class="newspaper-section-header">GAME REPORTS</div>
+      {% if sim_report %}
+      <div class="newspaper-article">{{ sim_report }}</div>
+      {% else %}
+      <div class="newspaper-article text-muted">No simulation report this round.</div>
+      {% endif %}
+    </div>
+
+    <div class="newspaper-col newspaper-col-right">
+      <div class="newspaper-section-header">THE FLOOR</div>
+      {% if gov_report %}
+      <div class="newspaper-article">{{ gov_report }}</div>
+      {% else %}
+      <div class="newspaper-article text-muted">No governance activity this round.</div>
+      {% endif %}
+
+      {% if impact_report %}
+      <div class="newspaper-section-header" style="margin-top: 1.5rem;">IMPACT VALIDATION</div>
+      <div class="newspaper-article">{{ impact_report }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if highlight_reel %}
+  <div class="newspaper-full-width">
+    <div class="newspaper-section-header">HIGHLIGHT REEL</div>
+    <div class="newspaper-article">{{ highlight_reel }}</div>
+  </div>
+  {% endif %}
+
+  <div class="newspaper-columns">
+    <div class="newspaper-col newspaper-col-left">
+      <div class="newspaper-section-header">STANDINGS</div>
+      {% if standings %}
+      <table class="newspaper-standings">
+        <thead>
+          <tr><th>#</th><th>Team</th><th>W</th><th>L</th></tr>
+        </thead>
+        <tbody>
+        {% for s in standings %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><span class="team-dot" style="background:{{ s.color|default('#888') }}"></span> {{ s.team_name }}</td>
+            <td>{{ s.wins }}</td>
+            <td>{{ s.losses }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted">No standings yet.</p>
+      {% endif %}
+    </div>
+
+    <div class="newspaper-col newspaper-col-right">
+      <div class="newspaper-section-header">HOT PLAYERS</div>
+      {% if hot_players %}
+      {% for hp in hot_players %}
+      <div class="newspaper-stat-line">
+        <strong>{{ hp.name }}</strong> ({{ hp.team }}) &mdash; {{ hp.stat }}
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="text-muted">Season leaders will appear after more games.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="newspaper-footer">
+    <em>"The AI observes. Humans decide."</em>
+  </div>
+</div>
+
+<style>
+.newspaper {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem 0;
+}
+.newspaper-masthead {
+  text-align: center;
+  border-bottom: 3px double var(--border);
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+}
+.newspaper-title {
+  font-family: var(--font-heading, var(--font-body));
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.newspaper-date {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  letter-spacing: 0.05em;
+}
+.newspaper-headline {
+  font-size: 1.8rem;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.15;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+.newspaper-subhead {
+  font-size: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+  font-style: italic;
+}
+.newspaper-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+@media (max-width: 700px) {
+  .newspaper-columns { grid-template-columns: 1fr; }
+}
+.newspaper-section-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-highlight, var(--text-muted));
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+.newspaper-article {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text-secondary, var(--text-primary));
+  white-space: pre-line;
+}
+.newspaper-full-width {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 1.25rem 0;
+  margin-bottom: 2rem;
+}
+.newspaper-standings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.newspaper-standings th,
+.newspaper-standings td {
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+}
+.newspaper-standings th {
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.newspaper-stat-line {
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+}
+.newspaper-footer {
+  text-align: center;
+  padding-top: 1.5rem;
+  border-top: 3px double var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.team-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+</style>
+{% endblock %}

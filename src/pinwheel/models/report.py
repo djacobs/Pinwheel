@@ -19,6 +19,9 @@ ReportType = Literal[
     "season",
     "offseason",
     "state_of_the_league",
+    "impact_validation",
+    "leverage",
+    "behavioral",
 ]
 
 

@@ -25,6 +25,17 @@ from pinwheel.ai.commentary import (
     generate_highlight_reel,
     generate_highlight_reel_mock,
 )
+from pinwheel.ai.insights import (
+    compute_behavioral_profile,
+    compute_governor_leverage,
+    compute_impact_validation,
+    generate_behavioral_report,
+    generate_behavioral_report_mock,
+    generate_impact_validation,
+    generate_impact_validation_mock,
+    generate_leverage_report,
+    generate_leverage_report_mock,
+)
 from pinwheel.ai.report import (
     generate_governance_report,
     generate_governance_report_mock,
@@ -1452,6 +1463,41 @@ async def _phase_simulate_and_govern(
             drama_counts.get("peak", 0),
         )
 
+    # Pre-compute insight data for Phase 2 AI generation
+    impact_validation_data: list[dict] = []
+    governor_leverage_data: dict[str, dict] = {}
+    governor_behavioral_data: dict[str, dict] = {}
+    insight_interval = 3  # generate leverage/behavioral every N rounds
+
+    try:
+        impact_validation_data = await compute_impact_validation(
+            repo, season_id, round_number, governance_data,
+        )
+    except Exception:
+        logger.exception(
+            "insight_compute_impact_failed season=%s round=%d", season_id, round_number,
+        )
+
+    # Leverage + behavioral only every N rounds and when governors exist
+    if round_number % insight_interval == 0 and active_governor_ids:
+        for gov_id in active_governor_ids:
+            try:
+                governor_leverage_data[gov_id] = await compute_governor_leverage(
+                    repo, gov_id, season_id,
+                )
+            except Exception:
+                logger.exception(
+                    "insight_compute_leverage_failed gov=%s season=%s", gov_id, season_id,
+                )
+            try:
+                governor_behavioral_data[gov_id] = await compute_behavioral_profile(
+                    repo, gov_id, season_id,
+                )
+            except Exception:
+                logger.exception(
+                    "insight_compute_behavioral_failed gov=%s season=%s", gov_id, season_id,
+                )
+
     return _SimPhaseResult(
         season_id=season_id,
         round_number=round_number,
@@ -1472,6 +1518,10 @@ async def _phase_simulate_and_govern(
         effect_registry=effect_registry,
         meta_store_snapshot=meta_store_snapshot,
         drama_annotations=drama_map,
+        impact_validation_data=impact_validation_data,
+        governor_leverage_data=governor_leverage_data,
+        governor_behavioral_data=governor_behavioral_data,
+        insight_interval=insight_interval,
     )
 
 
@@ -1648,12 +1698,71 @@ async def _phase_ai(
             )
         private_reports.append((gov_id, priv_report))
 
+    # Impact validation report — only when rules changed
+    impact_report: Report | None = None
+    if sim.impact_validation_data:
+        try:
+            if api_key:
+                impact_report = await generate_impact_validation(
+                    sim.impact_validation_data, sim.season_id, sim.round_number, api_key,
+                )
+            else:
+                impact_report = generate_impact_validation_mock(
+                    sim.impact_validation_data, sim.season_id, sim.round_number,
+                )
+        except Exception:
+            logger.exception(
+                "impact_validation_failed season=%s round=%d",
+                sim.season_id, sim.round_number,
+            )
+
+    # Leverage reports — private, every N rounds
+    leverage_reports: list[tuple[str, Report]] = []
+    for gov_id, lev_data in sim.governor_leverage_data.items():
+        try:
+            if api_key:
+                lev_report = await generate_leverage_report(
+                    lev_data, gov_id, sim.season_id, sim.round_number, api_key,
+                )
+            else:
+                lev_report = generate_leverage_report_mock(
+                    lev_data, gov_id, sim.season_id, sim.round_number,
+                )
+            leverage_reports.append((gov_id, lev_report))
+        except Exception:
+            logger.exception(
+                "leverage_report_failed gov=%s season=%s round=%d",
+                gov_id, sim.season_id, sim.round_number,
+            )
+
+    # Behavioral reports — private, every N rounds
+    behavioral_reports: list[tuple[str, Report]] = []
+    for gov_id, beh_data in sim.governor_behavioral_data.items():
+        try:
+            if api_key:
+                beh_report = await generate_behavioral_report(
+                    beh_data, gov_id, sim.season_id, sim.round_number, api_key,
+                )
+            else:
+                beh_report = generate_behavioral_report_mock(
+                    beh_data, gov_id, sim.season_id, sim.round_number,
+                )
+            behavioral_reports.append((gov_id, beh_report))
+        except Exception:
+            logger.exception(
+                "behavioral_report_failed gov=%s season=%s round=%d",
+                gov_id, sim.season_id, sim.round_number,
+            )
+
     return _AIPhaseResult(
         commentaries=commentaries,
         highlight_reel=highlight_reel,
         sim_report=sim_report,
         gov_report=gov_report,
         private_reports=private_reports,
+        impact_report=impact_report,
+        leverage_reports=leverage_reports,
+        behavioral_reports=behavioral_reports,
     )
 
 
@@ -1960,6 +2069,61 @@ async def _phase_persist_and_finalize(
                 "governor_id": gov_id,
                 "report_id": report_row.id,
                 "excerpt": priv_report.content[:200],
+            },
+        )
+
+    # Store impact validation report
+    if ai.impact_report:
+        await repo.store_report(
+            season_id=sim.season_id,
+            report_type="impact_validation",
+            round_number=sim.round_number,
+            content=ai.impact_report.content,
+        )
+        reports.append(ai.impact_report)
+        deferred_report_events.append(
+            {
+                "report_type": "impact_validation",
+                "round": sim.round_number,
+                "excerpt": ai.impact_report.content[:200],
+            },
+        )
+
+    # Store leverage reports (private)
+    for gov_id, lev_report in ai.leverage_reports:
+        await repo.store_report(
+            season_id=sim.season_id,
+            report_type="leverage",
+            round_number=sim.round_number,
+            content=lev_report.content,
+            governor_id=gov_id,
+        )
+        reports.append(lev_report)
+        deferred_report_events.append(
+            {
+                "report_type": "leverage",
+                "round": sim.round_number,
+                "governor_id": gov_id,
+                "excerpt": lev_report.content[:200],
+            },
+        )
+
+    # Store behavioral reports (private)
+    for gov_id, beh_report in ai.behavioral_reports:
+        await repo.store_report(
+            season_id=sim.season_id,
+            report_type="behavioral",
+            round_number=sim.round_number,
+            content=beh_report.content,
+            governor_id=gov_id,
+        )
+        reports.append(beh_report)
+        deferred_report_events.append(
+            {
+                "report_type": "behavioral",
+                "round": sim.round_number,
+                "governor_id": gov_id,
+                "excerpt": beh_report.content[:200],
             },
         )
 
@@ -2370,6 +2534,15 @@ class _SimPhaseResult:
     drama_annotations: dict[str, list[DramaAnnotation]] = dataclasses.field(
         default_factory=dict
     )  # game_id -> annotations
+    # Pre-computed insight data (assembled in Phase 1 for Phase 2 AI calls)
+    impact_validation_data: list[dict] = dataclasses.field(default_factory=list)
+    governor_leverage_data: dict[str, dict] = dataclasses.field(
+        default_factory=dict
+    )  # gov_id -> leverage dict
+    governor_behavioral_data: dict[str, dict] = dataclasses.field(
+        default_factory=dict
+    )  # gov_id -> profile dict
+    insight_interval: int = 3  # generate leverage/behavioral every N rounds
 
 
 @dataclasses.dataclass
@@ -2381,3 +2554,10 @@ class _AIPhaseResult:
     sim_report: Report
     gov_report: Report
     private_reports: list[tuple[str, Report]]  # (governor_id, report)
+    impact_report: Report | None = None
+    leverage_reports: list[tuple[str, Report]] = dataclasses.field(
+        default_factory=list
+    )  # (governor_id, report)
+    behavioral_reports: list[tuple[str, Report]] = dataclasses.field(
+        default_factory=list
+    )  # (governor_id, report)

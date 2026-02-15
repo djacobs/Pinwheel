@@ -276,6 +276,9 @@ def build_report_embed(report: Report) -> discord.Embed:
         "series": "Series Report",
         "season": "Season Report",
         "state_of_the_league": "State of the League",
+        "impact_validation": "Impact Validation",
+        "leverage": "Your Influence",
+        "behavioral": "Your Governance Pattern",
     }
     title = type_labels.get(report.report_type, f"Report: {report.report_type}")
 

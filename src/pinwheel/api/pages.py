@@ -1642,6 +1642,102 @@ async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUs
     )
 
 
+@router.get("/post", response_class=HTMLResponse)
+async def newspaper_page(request: Request, repo: RepoDep, current_user: OptionalUser):
+    """The Pinwheel Post — newspaper-style round summary page."""
+    from pinwheel.ai.insights import generate_newspaper_headlines_mock
+
+    season_id, season_name = await _get_active_season(repo)
+    headline = ""
+    subhead = ""
+    sim_report = ""
+    gov_report = ""
+    impact_report = ""
+    highlight_reel = ""
+    standings: list[dict] = []
+    hot_players: list[dict] = []
+    current_round = 0
+
+    if season_id:
+        # Find latest round
+        for rn in range(1, 100):
+            games = await repo.get_games_for_round(season_id, rn)
+            if games:
+                current_round = rn
+            else:
+                break
+
+        if current_round > 0:
+            # Fetch reports for the latest round
+            sim_reports = await repo.get_reports_for_round(
+                season_id, current_round, "simulation",
+            )
+            if sim_reports:
+                sim_report = sim_reports[0].content
+
+            gov_reports = await repo.get_reports_for_round(
+                season_id, current_round, "governance",
+            )
+            if gov_reports:
+                gov_report = gov_reports[0].content
+
+            impact_reports = await repo.get_reports_for_round(
+                season_id, current_round, "impact_validation",
+            )
+            if impact_reports:
+                impact_report = impact_reports[0].content
+
+            # Build standings
+            standings = await _get_standings(repo, season_id)
+
+            # Build round data for headline generation
+            round_games = await repo.get_games_for_round(season_id, current_round)
+            team_names: dict[str, str] = {}
+            game_summaries: list[dict] = []
+            for g in round_games:
+                for tid in (g.home_team_id, g.away_team_id):
+                    if tid not in team_names:
+                        t = await repo.get_team(tid)
+                        team_names[tid] = t.name if t else tid
+                game_summaries.append({
+                    "home_team_name": team_names.get(g.home_team_id, "?"),
+                    "away_team_name": team_names.get(g.away_team_id, "?"),
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                    "winner_team_name": team_names.get(g.winner_team_id, "?"),
+                })
+
+            round_data = {
+                "round_number": current_round,
+                "games": game_summaries,
+                "governance": {},
+            }
+
+            headlines = generate_newspaper_headlines_mock(round_data, current_round)
+            headline = headlines.get("headline", "")
+            subhead = headlines.get("subhead", "")
+
+    ctx = {
+        "active_page": "post",
+        "season_name": season_name or "",
+        "round_number": current_round,
+        "headline": headline,
+        "subhead": subhead,
+        "sim_report": sim_report,
+        "gov_report": gov_report,
+        "impact_report": impact_report,
+        "highlight_reel": highlight_reel,
+        "standings": standings,
+        "hot_players": hot_players,
+    }
+    return templates.TemplateResponse(
+        request,
+        "pages/newspaper.html",
+        {**ctx, **_auth_context(request, current_user)},
+    )
+
+
 @router.get("/playoffs", response_class=HTMLResponse)
 async def playoffs_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Playoff bracket visualization page."""
