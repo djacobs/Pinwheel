@@ -1645,7 +1645,10 @@ async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUs
 @router.get("/post", response_class=HTMLResponse)
 async def newspaper_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """The Pinwheel Post — newspaper-style round summary page."""
+    from sqlalchemy import func, select
+
     from pinwheel.ai.insights import generate_newspaper_headlines_mock
+    from pinwheel.db.models import BoxScoreRow, GameResultRow, HooperRow, TeamRow
 
     season_id, season_name = await _get_active_season(repo)
     headline = ""
@@ -1657,8 +1660,17 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
     standings: list[dict] = []
     hot_players: list[dict] = []
     current_round = 0
+    season_complete = False
+    champion_name = ""
 
     if season_id:
+        # Check season status
+        season_row = await repo.get_season(season_id)
+        if season_row:
+            terminal = {"completed", "complete", "archived"}
+            season_complete = season_row.status in terminal
+            champion_name = season_row.champion_team_name or ""
+
         # Find latest round
         for rn in range(1, 100):
             games = await repo.get_games_for_round(season_id, rn)
@@ -1690,6 +1702,34 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
             # Build standings
             standings = await _get_standings(repo, season_id)
 
+            # Season leaders (top 5 scorers, top assist leader, top steals leader)
+            stmt = (
+                select(
+                    HooperRow.name,
+                    TeamRow.name.label("team_name"),
+                    func.sum(BoxScoreRow.points).label("total_pts"),
+                    func.sum(BoxScoreRow.assists).label("total_ast"),
+                    func.sum(BoxScoreRow.steals).label("total_stl"),
+                    func.count(BoxScoreRow.id).label("games"),
+                )
+                .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+                .join(HooperRow, BoxScoreRow.hooper_id == HooperRow.id)
+                .join(TeamRow, BoxScoreRow.team_id == TeamRow.id)
+                .where(GameResultRow.season_id == season_id)
+                .group_by(BoxScoreRow.hooper_id)
+                .order_by(func.sum(BoxScoreRow.points).desc())
+                .limit(5)
+            )
+            result = await repo.session.execute(stmt)
+            for row in result.all():
+                ppg = round(row.total_pts / max(row.games, 1), 1)
+                apg = round(row.total_ast / max(row.games, 1), 1)
+                hot_players.append({
+                    "name": row.name,
+                    "team": row.team_name,
+                    "stat": f"{ppg} PPG, {apg} APG",
+                })
+
             # Build round data for headline generation
             round_games = await repo.get_games_for_round(season_id, current_round)
             team_names: dict[str, str] = {}
@@ -1714,7 +1754,11 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
                 "governance": {},
             }
 
-            headlines = generate_newspaper_headlines_mock(round_data, current_round)
+            headlines = generate_newspaper_headlines_mock(
+                round_data, current_round,
+                season_complete=season_complete,
+                champion_name=champion_name,
+            )
             headline = headlines.get("headline", "")
             subhead = headlines.get("subhead", "")
 

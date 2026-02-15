@@ -711,9 +711,20 @@ async def generate_newspaper_headlines(
 def generate_newspaper_headlines_mock(
     round_data: dict,
     round_number: int,
+    *,
+    season_complete: bool = False,
+    champion_name: str = "",
 ) -> dict[str, str]:
     """Mock newspaper headlines — uses game data for deterministic output."""
     games = round_data.get("games", [])
+
+    # Season is over — champion crowned
+    if season_complete and champion_name:
+        return {
+            "headline": f"{champion_name.upper()} ARE YOUR CHAMPIONS",
+            "subhead": "The season is over. The dynasty begins.",
+        }
+
     if not games:
         return {
             "headline": f"SILENCE ON THE COURTS — ROUND {round_number}",
