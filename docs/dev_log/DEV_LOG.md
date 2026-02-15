@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **880 tests**, zero lint errors (Session 58)
+- **880 tests**, zero lint errors (Session 59)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 58 (resilient test assertions, scheduler vocabulary cleanup)
+- **Latest commit:** Session 59 (fix duplicate Discord channel creation on reconnect)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -44,6 +44,10 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 - [ ] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Medium — `plans/2026-02-13-narrative-physics-making-pinwheel-alive-at-runtime.md`)*
 - [ ] **Game Richness audit** — Audit all player-facing outputs against `GAME_MOMENTS.md`. Playoff games should feel different from regular season. Championship finals should feel epic. *(Medium — per CLAUDE.md Game Richness principle)*
 - [ ] **Multi-parameter interpretation + expanded RuleSet** — Currently proposals map to ~6 parameters. Expand to cover court size, foul rules, substitution patterns, Elam threshold. AI interpretation handles compound proposals. *(Medium — `plans/2026-02-11-simulation-extensibility-plan.md`)*
+
+### P0.5 — Critical pre-hackathon
+- [ ] **End-to-end workflow verification** — Verify the full player journey works: `/join` → `/propose` → `/vote` → games simulate → standings update → reports generate → season completes → playoffs → championship. Every step, in production, no dead ends.
+- [ ] **Reset season history to 0** — Clear all season/game data but retain user and team associations (player enrollments, team names/colors/mottos). Fresh start for hackathon demo with real players still enrolled.
 
 ### P2 — Missing features (complete the arc)
 - [ ] **Playoff progression fixes** — Three bugs preventing playoffs from completing. *(Small — `plans/2026-02-13-fix-playoff-progression-pipeline.md`)*
@@ -486,3 +490,26 @@ Post-round session (~1s): mark games presented
 **880 tests, zero lint errors.**
 
 **What could have gone better:** Went through two iterations on the scheduler fix — first made each circle-method slot its own round (wrong), then corrected to one round = complete round-robin. The user's clear vocabulary definition ("round = set of 6 games where each team plays 3 total") resolved the ambiguity immediately.
+
+---
+
+## Session 59 — Fix Duplicate Discord Channel Creation
+
+**What was asked:** Why are there so many duplicate Discord channels (especially `st-johns-herons` appearing ~8 times)?
+
+**What was built:**
+
+### `on_ready` guard (`bot.py`)
+- `on_ready` fires on every Discord reconnect, not just the first connection. Each reconnect re-ran `_setup_server()` and attempted to create all channels again.
+- Added `_setup_done: bool` flag — setup only runs once per bot lifecycle.
+- Also guarded `_event_listener_task` to only start if not already running.
+
+### Category-free fallback name lookup (`bot.py`)
+- `_get_or_create_shared_channel()` and `_setup_team_channel_and_role()` both filtered by `category=category` when looking up channels by name. If a channel existed outside the "PINWHEEL FATES" category (from an older setup or Discord reorder), the lookup missed it and created a duplicate.
+- Added fallback: if no match in the expected category, search guild-wide by name before creating.
+
+**Files modified (1):** `src/pinwheel/discord/bot.py`
+
+**880 tests, zero lint errors.**
+
+**What could have gone better:** This bug existed since the bot was first deployed. The `on_ready` reconnect behavior is well-documented in discord.py but easy to overlook. Should have added the guard from Day 1.
