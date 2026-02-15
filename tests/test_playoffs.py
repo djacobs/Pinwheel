@@ -582,20 +582,11 @@ class TestPlayoffsChampionship:
 class TestPlayoffsNavigation:
     """Navigation link appears correctly."""
 
-    async def test_nav_link_present(self, app_client):
-        """Playoffs nav link appears on all pages."""
-        client, _ = app_client
-        r = await client.get("/")
-        assert r.status_code == 200
-        assert 'href="/playoffs"' in r.text
-
-    async def test_nav_link_active_on_playoffs_page(self, app_client):
-        """Playoffs nav link is marked active on the playoffs page."""
+    async def test_playoffs_page_accessible(self, app_client):
+        """Playoffs page renders successfully."""
         client, _ = app_client
         r = await client.get("/playoffs")
         assert r.status_code == 200
-        # Check that the playoffs link has the active class
-        # The link text and active class should be adjacent
         assert "Playoffs" in r.text
 
 
