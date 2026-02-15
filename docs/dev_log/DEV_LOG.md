@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1456 tests**, zero lint errors (Session 76)
+- **1476 tests**, zero lint errors (Session 77)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -20,7 +20,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** /schedule nudge in new-season Discord embeds
 - **Day 15 (cont):** Staggered game start times, "played" language fix, playoffs nav test fix
 - **Day 15 (cont):** Round-based start times — games grouped by cron cadence, not per-game stagger
-- **Latest commit:** `137a649` — fix: round-based start times — group by cron cadence, not per-game stagger
+- **Day 15 (cont):** Time-slot grouping — games within a round split into non-overlapping slots, series reports + collaborative editing
+- **Latest commit:** `cf87597` — feat: series reports + collaborative editing for playoff matchups
 
 ## Today's Agenda
 
@@ -238,3 +239,25 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1456 tests, zero lint errors.**
 
 **What could have gone better:** Session 75's implementation reflected a fundamental misunderstanding of the timing model. The user had to correct the approach twice — first about the interval (60s vs 1800s in production), then about the entire per-game stagger concept being wrong. The correct mental model was always: rounds are the scheduling unit (one cron tick = one round), and games within a round are simultaneous because no team plays twice. Should have asked clarifying questions before implementing.
+
+---
+
+## Session 77 — Time-Slot Grouping + Series Reports
+
+**What was asked:** Session 76 grouped all 6 games in a round under one time, but with 4 teams only 2 games can play simultaneously. Games should be split into non-overlapping time slots (no team plays twice per slot), each getting a separate cron fire time. Also committed series reports feature from earlier context.
+
+**What was built:**
+- `group_into_slots()` in `schedule_times.py` — greedy first-fit algorithm that groups games into slots where no team appears twice (4 teams, 6 matchups → 3 slots of 2 games)
+- Updated `pages.py` `home_page()` and `arena_page()` — group remaining games by round, then `group_into_slots()` within each round, compute one cron fire time per slot
+- Updated `arena.html` and `home.html` — removed `round.round_number` references, show just the start time per slot
+- Updated Discord `_handle_schedule()` — groups round games into slots with `group_into_slots()`, computes per-slot times, passes slot data to embed
+- Updated `build_schedule_embed()` — accepts slot-based data (`start_time` + `games`) instead of round-based
+- 6 new tests for `group_into_slots()`: 4 teams/6 games, 2 teams, empty, 3 teams, custom keys, objects
+- Updated schedule embed tests in `test_discord.py` and `test_commentary.py` for new slot-based API
+- Committed series reports feature (from earlier context): `generate_series_report()`, `EditSeriesModal`, collaborative editing, repository helpers
+
+**Files modified (20):** `src/pinwheel/api/pages.py`, `src/pinwheel/core/schedule_times.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/embeds.py`, `templates/pages/arena.html`, `templates/pages/home.html`, `tests/test_schedule_times.py`, `tests/test_discord.py`, `tests/test_commentary.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/scheduler_runner.py`, `src/pinwheel/core/season.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/discord/helpers.py`, `src/pinwheel/discord/views.py`, `src/pinwheel/models/rules.py`, `templates/pages/reports.html`, `tests/test_game_loop.py`, `demo/pinwheel_demo.md`
+
+**1476 tests, zero lint errors.**
+
+**What could have gone better:** This was the third attempt at getting game times right. Session 75: per-game stagger (wrong model). Session 76: per-round grouping (missed that rounds contain more games than can play simultaneously). Session 77: per-slot grouping (correct — greedy first-fit by team non-overlap). The circle method scheduler already generates matchups in slot order, so the greedy algorithm produces optimal groupings. Should have understood the full data model before the first attempt.
