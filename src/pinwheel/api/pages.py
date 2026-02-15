@@ -290,6 +290,93 @@ def _compute_streaks_from_games(games: list[object]) -> dict[str, int]:
     return streaks
 
 
+def _compute_what_changed(
+    standings: list[dict],
+    prev_standings: list[dict],
+    streaks: dict[str, int],
+    prev_streaks: dict[str, int],
+    rule_changes: list[dict],
+    season_phase: str,
+) -> list[str]:
+    """Compute 1-3 "what changed" signals for the home page.
+
+    Returns a list of short, punchy change signals in lede priority order:
+    champion > elimination > standings shift > streak change > rule change.
+    """
+    signals: list[str] = []
+
+    # Champion signal — overrides all else
+    if season_phase in ("championship", "offseason", "completed"):
+        if standings:
+            champion = standings[0]["team_name"]
+            signals.append(f"{champion} are your champions.")
+        return signals[:1]
+
+    # Standings movement — compare current to previous
+    if standings and prev_standings:
+        # Build position maps
+        prev_positions = {s["team_id"]: idx for idx, s in enumerate(prev_standings)}
+        curr_positions = {s["team_id"]: idx for idx, s in enumerate(standings)}
+
+        # Find biggest climber and biggest faller
+        biggest_climb = 0
+        biggest_fall = 0
+        climber_name = ""
+        faller_name = ""
+
+        for team_id in curr_positions:
+            if team_id not in prev_positions:
+                continue
+            delta = prev_positions[team_id] - curr_positions[team_id]
+            if delta > biggest_climb:
+                biggest_climb = delta
+                climber_name = next(s["team_name"] for s in standings if s["team_id"] == team_id)
+            if delta < biggest_fall:
+                biggest_fall = delta
+                faller_name = next(s["team_name"] for s in standings if s["team_id"] == team_id)
+
+        if biggest_climb >= 2:
+            climber_id = next(
+                s["team_id"] for s in standings if s["team_name"] == climber_name
+            )
+            new_pos = curr_positions[climber_id]
+            suffix = _ordinal_suffix(new_pos + 1)
+            signals.append(f"{climber_name} climbed to {new_pos + 1}{suffix} place.")
+        if biggest_fall <= -2:
+            faller_id = next(
+                s["team_id"] for s in standings if s["team_name"] == faller_name
+            )
+            new_pos = curr_positions[faller_id]
+            suffix = _ordinal_suffix(new_pos + 1)
+            signals.append(f"{faller_name} dropped to {new_pos + 1}{suffix} place.")
+
+    # Streak changes — new 3+ streaks or broken 3+ streaks
+    for team_id, streak in streaks.items():
+        prev_streak = prev_streaks.get(team_id, 0)
+        team_name = next((s["team_name"] for s in standings if s["team_id"] == team_id), "Unknown")
+
+        # New streak (crossed threshold)
+        if abs(streak) >= 3 and abs(prev_streak) < 3:
+            if streak > 0:
+                signals.append(f"{team_name} on a {streak}-game win streak.")
+            else:
+                signals.append(f"{team_name} on a {abs(streak)}-game losing streak.")
+        # Broken streak
+        elif abs(prev_streak) >= 3 and abs(streak) < 3:
+            if prev_streak > 0:
+                signals.append(f"{team_name} snapped their {prev_streak}-game win streak.")
+            else:
+                signals.append(f"{team_name} snapped their {abs(prev_streak)}-game losing streak.")
+
+    # Rule changes
+    for rc in rule_changes:
+        param = rc.get("parameter", "a rule")
+        new_val = rc.get("new_value")
+        signals.append(f"{param.replace('_', ' ').title()} changed to {new_val}.")
+
+    return signals[:3]
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Home page — living dashboard for the league."""
@@ -301,6 +388,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     total_games = 0
     upcoming_rounds: list[dict] = []
     team_colors: dict[str, str] = {}
+    what_changed_signals: list[str] = []
 
     if season_id:
         # Build standings
@@ -434,6 +522,55 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         if all_games:
             streaks = _compute_streaks_from_games(all_games)
 
+        # Compute "What Changed" signals
+        if current_round > 0:
+            # Previous round's standings (exclude latest round)
+            prev_standings: list[dict] = []
+            if current_round > 1:
+                prev_results: list[dict] = []
+                for rn in range(1, current_round):
+                    rg = await repo.get_games_for_round(season_id, rn)
+                    for g in rg:
+                        prev_results.append({
+                            "home_team_id": g.home_team_id,
+                            "away_team_id": g.away_team_id,
+                            "home_score": g.home_score,
+                            "away_score": g.away_score,
+                            "winner_team_id": g.winner_team_id,
+                        })
+                prev_standings = compute_standings(prev_results)
+                for s in prev_standings:
+                    team = await repo.get_team(s["team_id"])
+                    if team:
+                        s["team_name"] = team.name
+
+            # Previous streaks
+            prev_streaks: dict[str, int] = {}
+            if current_round > 1:
+                prev_games = [g for g in all_games if g.round_number < current_round]
+                if prev_games:
+                    prev_streaks = _compute_streaks_from_games(prev_games)
+
+            # Rule changes in latest round
+            rule_change_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["rule.enacted"],
+            )
+            latest_rule_changes = [
+                e.payload for e in rule_change_events
+                if e.round_number == current_round
+            ]
+
+            # Compute signals
+            what_changed_signals = _compute_what_changed(
+                standings=standings,
+                prev_standings=prev_standings,
+                streaks=streaks,
+                prev_streaks=prev_streaks,
+                rule_changes=latest_rule_changes,
+                season_phase=season_phase,
+            )
+
     # --- Pinwheel Post data (newspaper inlined on home page) ---
     post_headline = ""
     post_subhead = ""
@@ -548,6 +685,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "post_gov_report": post_gov_report,
         "post_highlight_reel": post_highlight_reel,
         "post_hot_players": post_hot_players,
+        "what_changed_signals": what_changed_signals,
     }
     return templates.TemplateResponse(
         request,
@@ -958,6 +1096,90 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
     )
 
 
+def _compute_standings_callouts(
+    standings: list[dict],
+    streaks: dict[str, int],
+    current_round: int,
+    total_rounds: int,
+) -> list[str]:
+    """Compute 2-4 narrative callouts from standings data.
+
+    Returns a list of short, punchy observations about the standings.
+    """
+    if not standings:
+        return []
+
+    callouts: list[str] = []
+
+    # Tightest race — smallest gap in wins between adjacent teams
+    if len(standings) >= 2:
+        min_gap = float('inf')
+        tight_pair = None
+        for i in range(len(standings) - 1):
+            gap = standings[i]["wins"] - standings[i + 1]["wins"]
+            if gap < min_gap:
+                min_gap = gap
+                tight_pair = (standings[i], standings[i + 1], i + 1)
+
+        if tight_pair and min_gap <= 1:
+            team_a, team_b, seed = tight_pair
+            if min_gap == 0:
+                callouts.append(
+                    f"{team_a['team_name']} and {team_b['team_name']} "
+                    f"tied for {seed}{_ordinal_suffix(seed)} place."
+                )
+            else:
+                callouts.append(
+                    f"Only {int(min_gap)} game separates {team_a['team_name']} "
+                    f"and {team_b['team_name']} for the {seed}{_ordinal_suffix(seed)} seed."
+                )
+
+    # Dominant team — top team leads by 3+ games
+    if len(standings) >= 2:
+        leader = standings[0]
+        second = standings[1]
+        lead = leader["wins"] - second["wins"]
+        if lead >= 3:
+            callouts.append(
+                f"{leader['team_name']} has a commanding {int(lead)}-game lead."
+            )
+
+    # Longest active streak
+    if streaks:
+        longest_streak_team_id = max(streaks, key=lambda tid: abs(streaks[tid]))
+        streak_value = streaks[longest_streak_team_id]
+        if abs(streak_value) >= 3:
+            team_name = next(
+                (s["team_name"] for s in standings if s["team_id"] == longest_streak_team_id),
+                "Unknown"
+            )
+            if streak_value > 0:
+                callouts.append(
+                    f"{team_name} riding a {streak_value}-game win streak."
+                )
+            else:
+                callouts.append(
+                    f"{team_name} on a {abs(streak_value)}-game losing streak."
+                )
+
+    # Late season context
+    if total_rounds > 0 and current_round / total_rounds > 0.7:
+        remaining = total_rounds - current_round
+        if remaining == 1:
+            callouts.append("1 round remaining in the regular season.")
+        elif remaining > 1:
+            callouts.append(f"{remaining} rounds remaining in the regular season.")
+
+    return callouts[:4]
+
+
+def _ordinal_suffix(n: int) -> str:
+    """Return ordinal suffix for a number (1st, 2nd, 3rd, 4th, etc.)."""
+    if 11 <= n % 100 <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
 @router.get("/standings", response_class=HTMLResponse)
 async def standings_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Standings page."""
@@ -965,6 +1187,7 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
     standings = []
     season_phase = ""
     streaks: dict[str, int] = {}
+    callouts: list[str] = []
 
     if season_id:
         standings = await _get_standings(repo, season_id)
@@ -972,6 +1195,25 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
         all_games = await repo.get_all_games(season_id)
         if all_games:
             streaks = _compute_streaks_from_games(all_games)
+
+        # Compute current round and total rounds
+        current_round = 0
+        for rn in range(1, 100):
+            games = await repo.get_games_for_round(season_id, rn)
+            if games:
+                current_round = rn
+            else:
+                break
+
+        # Get total scheduled rounds
+        full_schedule = await repo.get_full_schedule(season_id)
+        total_rounds = max((s.round_number for s in full_schedule), default=0)
+
+        # Generate narrative callouts
+        if standings and current_round > 0:
+            callouts = _compute_standings_callouts(
+                standings, streaks, current_round, total_rounds
+            )
 
     return templates.TemplateResponse(
         request,
@@ -981,6 +1223,7 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
             "standings": standings,
             "season_phase": season_phase,
             "streaks": streaks,
+            "callouts": callouts,
             **_auth_context(request, current_user),
         },
     )
@@ -1066,7 +1309,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         play_by_play.append(enriched)
 
     # Report for this round + game phase
-    season_id = await _get_active_season_id(repo)
+    # Use the game's own season, not the active season (game may be from archived season)
+    season_id = game.season_id
     report = None
     game_phase: str | None = None
     if season_id:
@@ -1074,6 +1318,59 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         if round_reports:
             report = {"content": round_reports[0].content}
         game_phase = await _get_game_phase(repo, season_id, game.round_number)
+
+    # Compute historical context
+    game_context: list[str] = []
+    if season_id:
+        all_games = await repo.get_all_games(season_id)
+        if all_games:
+            # Head-to-head record
+            h2h_games = [
+                g for g in all_games
+                if {g.home_team_id, g.away_team_id} == {game.home_team_id, game.away_team_id}
+            ]
+            if len(h2h_games) > 1:
+                home_wins = sum(1 for g in h2h_games if g.winner_team_id == game.home_team_id)
+                away_wins = sum(1 for g in h2h_games if g.winner_team_id == game.away_team_id)
+                if home_wins == away_wins:
+                    game_context.append(f"Season series tied {home_wins}-{away_wins}")
+                elif home_wins > away_wins:
+                    game_context.append(f"Season series: {home_name} leads {home_wins}-{away_wins}")
+                else:
+                    game_context.append(f"Season series: {away_name} leads {away_wins}-{home_wins}")
+
+            # Margin context
+            margin = abs(game.home_score - game.away_score)
+            margins = [abs(g.home_score - g.away_score) for g in all_games]
+            avg_margin = sum(margins) / len(margins) if margins else 0
+            if margin == min(margins):
+                game_context.append(f"Closest game of the season — {margin}-point margin")
+            elif margin == max(margins):
+                game_context.append(f"Biggest blowout of the season — {margin}-point margin")
+            elif margin < avg_margin * 0.7:
+                avg_str = round(avg_margin, 1)
+                game_context.append(
+                    f"A tight {margin}-point game (season avg: {avg_str})"
+                )
+            elif margin > avg_margin * 1.5:
+                game_context.append(f"A decisive {margin}-point victory")
+
+            # Scoring context
+            total_pts = game.home_score + game.away_score
+            all_totals = [g.home_score + g.away_score for g in all_games]
+            avg_total = sum(all_totals) / len(all_totals) if all_totals else 0
+            if total_pts > avg_total * 1.15:
+                avg_total_str = round(avg_total, 1)
+                game_context.append(
+                    f"High-scoring affair — {total_pts} combined points "
+                    f"(season avg: {avg_total_str})"
+                )
+            elif total_pts < avg_total * 0.85:
+                avg_total_str = round(avg_total, 1)
+                game_context.append(
+                    f"Defensive battle — {total_pts} combined points "
+                    f"(season avg: {avg_total_str})"
+                )
 
     return templates.TemplateResponse(
         request,
@@ -1091,6 +1388,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             "play_by_play": play_by_play,
             "report": report,
             "game_phase": game_phase,
+            "game_context": game_context,
             **_auth_context(request, current_user),
         },
     )
@@ -1177,6 +1475,104 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
                 }
             )
 
+    # Compute trajectory data (recent form, trends, streaks)
+    trajectory = {}
+    if season_id:
+        game_results = await repo.get_team_game_results(team_id, season_id)
+
+        if game_results:
+            # Recent form (last 5 games)
+            recent = game_results[-5:]
+            recent_form = "".join("W" if g["won"] else "L" for g in recent)
+
+            # Best/worst streaks
+            longest_win_streak = 0
+            longest_loss_streak = 0
+            current_streak = 0
+            current_streak_type = None
+
+            for g in game_results:
+                if g["won"]:
+                    if current_streak_type == "win":
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                        current_streak_type = "win"
+                    longest_win_streak = max(longest_win_streak, current_streak)
+                else:
+                    if current_streak_type == "loss":
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                        current_streak_type = "loss"
+                    longest_loss_streak = max(longest_loss_streak, current_streak)
+
+            # First-half vs second-half trend
+            total_games = len(game_results)
+            midpoint = total_games // 2
+            first_half = game_results[:midpoint] if midpoint > 0 else []
+            second_half = game_results[midpoint:] if midpoint > 0 else game_results
+
+            first_half_wins = sum(1 for g in first_half if g["won"])
+            first_half_losses = len(first_half) - first_half_wins
+            second_half_wins = sum(1 for g in second_half if g["won"])
+            second_half_losses = len(second_half) - second_half_wins
+
+            # Trend description
+            trend_desc = ""
+            first_total = first_half_wins + first_half_losses
+            second_total = second_half_wins + second_half_losses
+            if first_half and second_half and first_total > 0 and second_total > 0:
+                first_pct = first_half_wins / first_total
+                second_pct = second_half_wins / second_total
+                if second_pct > first_pct + 0.2:
+                    trend_desc = (
+                        f"Strong finish — {first_half_wins}-{first_half_losses} early, "
+                        f"{second_half_wins}-{second_half_losses} recently"
+                    )
+                elif first_pct > second_pct + 0.2:
+                    trend_desc = (
+                        f"Started {first_half_wins}-{first_half_losses}, "
+                        f"cooled to {second_half_wins}-{second_half_losses}"
+                    )
+                else:
+                    trend_desc = (
+                        f"Consistent — {first_half_wins}-{first_half_losses} first half, "
+                        f"{second_half_wins}-{second_half_losses} second half"
+                    )
+
+            # Rule change segments (check for rule.enacted events)
+            rule_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["rule.enacted"],
+            )
+            rule_change_rounds = sorted({e.round_number for e in rule_events if e.round_number})
+
+            segments = []
+            for idx, change_round in enumerate(rule_change_rounds):
+                before = [g for g in game_results if g["round_number"] < change_round]
+                after = [g for g in game_results if g["round_number"] >= change_round]
+                if before and after:
+                    before_wins = sum(1 for g in before if g["won"])
+                    before_losses = len(before) - before_wins
+                    after_wins = sum(1 for g in after if g["won"])
+                    after_losses = len(after) - after_wins
+                    # Only report first rule change impact for brevity
+                    if idx == 0:
+                        segments.append(
+                            f"{before_wins}-{before_losses} before Round {change_round}, "
+                            f"{after_wins}-{after_losses} after"
+                        )
+                    break  # Only show first rule change segment to avoid clutter
+
+            trajectory = {
+                "recent_form": recent_form,
+                "longest_win_streak": longest_win_streak,
+                "longest_loss_streak": longest_loss_streak,
+                "trend_desc": trend_desc,
+                "rule_change_segment": segments[0] if segments else "",
+            }
+
     return templates.TemplateResponse(
         request,
         "pages/team.html",
@@ -1193,6 +1589,7 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
             "axis_lines": axes,
             "avg_points": avg_points,
             "avg_poly": avg_poly,
+            "trajectory": trajectory,
             **_auth_context(request, current_user),
         },
     )
@@ -1618,6 +2015,7 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
     ruleset = RuleSet()
     changes_from_default: dict = {}
     rule_history = []
+    rule_change_timeline: dict[str, list[dict]] = {}
 
     if season_id:
         season = await repo.get_season(season_id)
@@ -1639,6 +2037,14 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
             event_types=["rule.enacted"],
         )
         rule_history = [e.payload for e in rc_events]
+
+        # Get rule change timeline and map by parameter
+        timeline = await repo.get_rule_change_timeline(season_id)
+        for change in timeline:
+            param = change["parameter"]
+            if param not in rule_change_timeline:
+                rule_change_timeline[param] = []
+            rule_change_timeline[param].append(change)
 
     # Build tiered display data
     ruleset_dict = ruleset.model_dump()
@@ -1668,6 +2074,7 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "value": value,
                     "range": range_str,
                     "changed": changed,
+                    "history": rule_change_timeline.get(param, []),
                 }
             )
         tiers.append(
@@ -1682,6 +2089,24 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
 
     community_changes = len(changes_from_default)
 
+    # Compute most-changed tier for governance fingerprint
+    tier_change_counts: dict[str, int] = {tier["key"]: 0 for tier in RULE_TIERS}
+    for param in changes_from_default:
+        for tier in RULE_TIERS:
+            if any(p == param for p, _, _ in tier["rules"]):
+                tier_change_counts[tier["key"]] += 1
+                break
+    most_changed_tier_key = (
+        max(tier_change_counts, key=tier_change_counts.get, default="")
+        if any(tier_change_counts.values())
+        else ""
+    )
+    most_changed_tier_name = ""
+    for tier in RULE_TIERS:
+        if tier["key"] == most_changed_tier_key:
+            most_changed_tier_name = tier["title"]
+            break
+
     return templates.TemplateResponse(
         request,
         "pages/rules.html",
@@ -1691,6 +2116,7 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
             "community_changes": community_changes,
             "changes_from_default": changes_from_default,
             "rule_history": rule_history,
+            "most_changed_tier": most_changed_tier_name,
             **_auth_context(request, current_user),
         },
     )

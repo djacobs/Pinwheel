@@ -99,6 +99,8 @@ class TestGovernanceReportMock:
         assert "3 votes" in report.content
         assert "2 yes" in report.content
         assert "1 no" in report.content
+        # New pattern detection: split vote
+        assert "split" in report.content.lower() or "coalitions" in report.content.lower()
 
     def test_no_activity(self):
         data = {"proposals": [], "votes": [], "rules_changed": []}
@@ -122,11 +124,64 @@ class TestGovernanceReportMock:
         assert "Three Point Value" in report.content
         assert "3" in report.content
         assert "4" in report.content
+        # New: game impact analysis
+        assert "shooting" in report.content.lower() or "perimeter" in report.content.lower()
+        # New: "what the Floor is building" closing
+        content_lower = report.content.lower()
+        has_trajectory = "floor" in content_lower and (
+            "meta" in content_lower or "reshaping" in content_lower
+        )
+        assert has_trajectory
 
     def test_id_format(self):
         data = {"proposals": [], "votes": [], "rules_changed": []}
         report = generate_governance_report_mock(data, "s-1", 7)
         assert report.id.startswith("r-gov-7-")
+
+    def test_unanimous_vote_detection(self):
+        data = {
+            "proposals": [{"id": "p-1"}],
+            "votes": [
+                {"vote": "yes"},
+                {"vote": "yes"},
+                {"vote": "yes"},
+            ],
+            "rules_changed": [],
+        }
+        report = generate_governance_report_mock(data, "s-1", 3)
+        assert "unanimous" in report.content.lower()
+        assert "consensus" in report.content.lower()
+
+    def test_proposal_clustering_detection(self):
+        data = {
+            "proposals": [
+                {"id": "p-1", "parameter": "three_point_value"},
+                {"id": "p-2", "parameter": "three_point_bonus"},
+            ],
+            "votes": [],
+            "rules_changed": [],
+        }
+        report = generate_governance_report_mock(data, "s-1", 4)
+        assert "2 proposals" in report.content
+        assert "three" in report.content.lower()
+        assert "focused" in report.content.lower()
+
+    def test_governance_trajectory_with_pending(self):
+        from pinwheel.core.narrative import NarrativeContext
+        data = {
+            "proposals": [{"id": "p-1"}],
+            "votes": [],
+            "rules_changed": [],
+        }
+        narrative = NarrativeContext(
+            round_number=5,
+            pending_proposals=2,
+            governance_window_open=False,
+            next_tally_round=6,
+        )
+        report = generate_governance_report_mock(data, "s-1", 5, narrative)
+        # Should mention trajectory for pending proposals
+        assert "not yet enacted" in report.content or "gain traction" in report.content
 
 
 class TestPrivateReportMock:
@@ -135,18 +190,49 @@ class TestPrivateReportMock:
         report = generate_private_report_mock(data, "gov-1", "s-1", 4)
         assert report.report_type == "private"
         assert report.governor_id == "gov-1"
+        # Mock now provides context — check for activity framing
         assert "2 proposal" in report.content
         assert "3 vote" in report.content
+        # Should include blind spot context or league comparison
+        assert len(report.content) > 50  # Richer content now
 
     def test_inactive_governor(self):
         data = {"proposals_submitted": 0, "votes_cast": 0, "tokens_spent": 0}
         report = generate_private_report_mock(data, "gov-2", "s-1", 4)
+        # Should note absence AND contextualize what was missed
         assert "quiet" in report.content.lower() or "absence" in report.content.lower()
+        # Should mention league activity they missed
+        assert "proposal" in report.content.lower() or "floor" in report.content.lower()
 
     def test_private_report_id(self):
         data = {"proposals_submitted": 1, "votes_cast": 0, "tokens_spent": 1}
         report = generate_private_report_mock(data, "gov-abc123", "s-1", 3)
         assert "gov-abc1" in report.id
+
+    def test_blind_spot_surfacing(self):
+        # Active governor with proposals should get blind spot context
+        data = {"proposals_submitted": 2, "votes_cast": 1, "tokens_spent": 1}
+        report = generate_private_report_mock(data, "gov-focused", "s-1", 5)
+        # Should mention both what they focused on AND what the league focused on
+        content_lower = report.content.lower()
+        # Check for comparative language
+        has_comparison = any(
+            phrase in content_lower
+            for phrase in ["meanwhile", "area you haven't", "league has seen", "focused on"]
+        )
+        assert has_comparison
+
+    def test_engagement_trajectory(self):
+        # Active governor should get trajectory note
+        data = {"proposals_submitted": 1, "votes_cast": 2, "tokens_spent": 0}
+        report = generate_private_report_mock(data, "gov-trajectory", "s-1", 6)
+        # Should mention engagement trend
+        content_lower = report.content.lower()
+        has_trajectory = any(
+            phrase in content_lower
+            for phrase in ["trending", "consistent", "tapered", "engagement", "participation"]
+        )
+        assert has_trajectory
 
 
 class TestReportModels:

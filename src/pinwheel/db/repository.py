@@ -1075,6 +1075,44 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_team_game_results(
+        self,
+        team_id: str,
+        season_id: str,
+    ) -> list[dict]:
+        """Get round-by-round game results for a team.
+
+        Returns a list of dicts with: round_number, opponent_team_id,
+        opponent_team_name, team_score, opponent_score, won (bool), margin.
+        Used for trajectory analysis on team pages.
+        """
+        games = await self.get_games_for_team(season_id, team_id)
+        results: list[dict] = []
+
+        for game in games:
+            is_home = game.home_team_id == team_id
+            team_score = game.home_score if is_home else game.away_score
+            opponent_team_id = game.away_team_id if is_home else game.home_team_id
+            opponent_score = game.away_score if is_home else game.home_score
+            won = game.winner_team_id == team_id
+            margin = team_score - opponent_score
+
+            # Get opponent team name
+            opponent_team = await self.get_team(opponent_team_id)
+            opponent_team_name = opponent_team.name if opponent_team else opponent_team_id
+
+            results.append({
+                "round_number": game.round_number,
+                "opponent_team_id": opponent_team_id,
+                "opponent_team_name": opponent_team_name,
+                "team_score": team_score,
+                "opponent_score": opponent_score,
+                "won": won,
+                "margin": margin,
+            })
+
+        return results
+
     # --- Hooper Box Scores & League Averages ---
 
     async def get_box_scores_for_hooper(
@@ -1363,6 +1401,52 @@ class Repository:
             updater = type_map.get(entity_type)
             if updater and entity_id:
                 await updater(entity_id, meta)
+
+    async def get_rule_change_timeline(self, season_id: str) -> list[dict]:
+        """Get the timeline of rule changes for a season.
+
+        Returns a list of dicts, each with:
+        - parameter: str
+        - old_value: int | float | bool
+        - new_value: int | float | bool
+        - round_enacted: int
+        - proposal_id: str
+        - governor_id: str | None (from linked proposal.submitted event if available)
+
+        Ordered by round_enacted, then sequence_number.
+        """
+        rule_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["rule.enacted"],
+        )
+
+        # Build a map of proposal_id -> governor_id from submitted events
+        submitted_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        proposal_governors: dict[str, str | None] = {}
+        for e in submitted_events:
+            pid = e.payload.get("id", "")
+            if pid:
+                proposal_governors[pid] = e.governor_id
+
+        timeline: list[dict] = []
+        for evt in rule_events:
+            payload = evt.payload
+            proposal_id = payload.get("source_proposal_id", "")
+            timeline.append({
+                "parameter": payload.get("parameter", ""),
+                "old_value": payload.get("old_value"),
+                "new_value": payload.get("new_value"),
+                "round_enacted": payload.get("round_enacted", 0),
+                "proposal_id": proposal_id,
+                "governor_id": proposal_governors.get(proposal_id),
+            })
+
+        # Sort by round_enacted ascending
+        timeline.sort(key=lambda x: x["round_enacted"])
+        return timeline
 
     async def load_team_meta(self, team_id: str) -> dict:
         """Load meta dict for a team."""

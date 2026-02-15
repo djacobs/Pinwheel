@@ -49,20 +49,12 @@
   <div class="home-post-subhead">{{ post_subhead }}</div>
   {% endif %}
 
-  <div class="home-post-columns">
-    {% if post_sim_report %}
-    <div class="home-post-col">
-      <div class="home-post-section-header">GAME REPORTS</div>
-      <div class="home-post-article">{{ post_sim_report }}</div>
-    </div>
-    {% endif %}
-    {% if post_gov_report %}
-    <div class="home-post-col">
-      <div class="home-post-section-header">THE FLOOR</div>
-      <div class="home-post-article">{{ post_gov_report }}</div>
-    </div>
-    {% endif %}
+  {% if post_sim_report %}
+  <div class="home-post-section">
+    <div class="home-post-section-header">GAME REPORTS</div>
+    <div class="home-post-article">{{ post_sim_report }}</div>
   </div>
+  {% endif %}
 
   {% if post_highlight_reel %}
   <div class="home-post-full-width">
@@ -81,6 +73,16 @@
     {% endfor %}
   </div>
   {% endif %}
+
+</div>
+{% endif %}
+
+{# ===== WHAT CHANGED ===== #}
+{% if what_changed_signals %}
+<div class="what-changed">
+  {% for signal in what_changed_signals %}
+  <div class="what-changed-item">{{ signal }}</div>
+  {% endfor %}
 </div>
 {% endif %}
 
@@ -121,8 +123,8 @@
 </div>
 {% endif %}
 
-{# ===== STANDINGS + REPORT (Two columns) ===== #}
-{% if standings or latest_report %}
+{# ===== STANDINGS + THE FLOOR (Two columns) ===== #}
+{% if standings or post_gov_report %}
 <div class="home-columns">
   {# Standings #}
   {% if standings %}
@@ -158,18 +160,18 @@
   </div>
   {% endif %}
 
-  {# AI Report #}
-  {% if latest_report %}
+  {# The Floor #}
+  {% if post_gov_report %}
   <div class="home-section">
     <div class="section-title-bar">
-      <span class="section-title-text">Reports</span>
-      <span class="section-title-badge report-badge">Round {{ latest_report.round_number }}</span>
+      <span class="section-title-text">The Floor</span>
+      <span class="section-title-badge">Round {{ current_round }}</span>
     </div>
     <div class="home-report">
-      <div class="home-report-content">{{ latest_report.content }}</div>
+      <div class="home-report-content">{{ post_gov_report }}</div>
     </div>
     <div class="section-more">
-      <a href="/reports" class="more-link">All reports &rarr;</a>
+      <a href="/governance" class="more-link">Proposals &amp; votes &rarr;</a>
     </div>
   </div>
   {% endif %}

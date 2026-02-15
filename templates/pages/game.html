@@ -64,6 +64,17 @@
   {% endif %}
 </div>
 
+{% if game_context %}
+<div class="card mb-2" style="padding: 0.75rem 1rem; background: var(--bg-secondary); border-left: 3px solid var(--accent-score);">
+  <h4 style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem;">Game Context</h4>
+  <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+    {% for ctx in game_context %}
+    <p style="margin: 0.25rem 0;">{{ ctx }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="game-detail-grid">
   <!-- Box Score -->
   <div class="card">

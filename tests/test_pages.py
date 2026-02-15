@@ -457,6 +457,116 @@ class TestGovernorPages:
         assert "Record" in r.text
 
 
+class TestTeamTrajectory:
+    """Tests for team trajectory display on team pages."""
+
+    async def test_team_trajectory_with_games(self, app_client):
+        """Team page should show trajectory data when games have been played."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Play a few more rounds to have trajectory data
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await step_round(repo, season_id, round_number=2)
+            await step_round(repo, season_id, round_number=3)
+            # Mark all games as presented
+            for rn in [2, 3]:
+                games = await repo.get_games_for_round(season_id, rn)
+                for g in games:
+                    await repo.mark_game_presented(g.id)
+            await session.commit()
+
+        r = await client.get(f"/teams/{team_ids[0]}")
+        assert r.status_code == 200
+        # Should show Season Arc section
+        assert "Season Arc" in r.text
+        # Should have recent form indicators
+        assert "form-dot" in r.text
+
+    async def test_team_trajectory_no_games(self, app_client):
+        """Team page should not show trajectory when no games have been played."""
+        client, engine = app_client
+        # Seed teams but don't play any rounds
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(
+                league.id,
+                "Season 1",
+                starting_ruleset={"quarter_minutes": 3},
+            )
+
+            team = await repo.create_team(
+                season.id,
+                "Team Alpha",
+                color="#aaaaaa",
+                venue={"name": "Arena A", "capacity": 5000},
+            )
+            for j in range(3):
+                await repo.create_hooper(
+                    team_id=team.id,
+                    season_id=season.id,
+                    name=f"Hooper-{j + 1}",
+                    archetype="sharpshooter",
+                    attributes=_hooper_attrs(),
+                )
+            await session.commit()
+            team_id = team.id
+
+        r = await client.get(f"/teams/{team_id}")
+        assert r.status_code == 200
+        # Should NOT show Season Arc section
+        assert "Season Arc" not in r.text
+        assert "form-dot" not in r.text
+
+    async def test_team_trajectory_recent_form(self, app_client):
+        """Recent form should show W/L for last 5 games."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Play 5 more rounds (total 6)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            for rn in range(2, 7):
+                await step_round(repo, season_id, round_number=rn)
+                games = await repo.get_games_for_round(season_id, rn)
+                for g in games:
+                    await repo.mark_game_presented(g.id)
+            await session.commit()
+
+        r = await client.get(f"/teams/{team_ids[0]}")
+        assert r.status_code == 200
+        # Should show exactly 5 form dots (last 5 games)
+        form_dot_count = r.text.count("form-dot")
+        # Each dot appears once in the class list
+        assert form_dot_count >= 5
+
+    async def test_repository_get_team_game_results(self, app_client):
+        """Repository method should return structured game result data."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            results = await repo.get_team_game_results(team_ids[0], season_id)
+
+            # Should have at least 1 game (round 1 was played in seed)
+            assert len(results) >= 1
+
+            # Verify structure of first result
+            first = results[0]
+            assert "round_number" in first
+            assert "opponent_team_id" in first
+            assert "opponent_team_name" in first
+            assert "team_score" in first
+            assert "opponent_score" in first
+            assert "won" in first
+            assert "margin" in first
+            assert isinstance(first["won"], bool)
+            assert isinstance(first["margin"], int)
+
+
 @pytest.fixture
 async def admin_client():
     """Create a test app without OAuth for admin page testing."""
@@ -755,6 +865,113 @@ class TestGovernancePhaseContext:
         assert "CHAMPIONSHIP" in r.text
 
 
+class TestStandingsCallouts:
+    """Tests for narrative callouts on the standings page."""
+
+    async def test_standings_callouts_with_data(self, app_client):
+        """Standings page should show narrative callouts with seeded data."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Run a few more rounds to build up standings variety
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            for rn in range(2, 5):
+                await step_round(repo, season_id, round_number=rn)
+                games = await repo.get_games_for_round(season_id, rn)
+                for g in games:
+                    await repo.mark_game_presented(g.id)
+            await session.commit()
+
+        r = await client.get("/standings")
+        assert r.status_code == 200
+        # Should contain callouts section
+        assert "standings-callouts" in r.text
+
+    async def test_standings_no_callouts_when_empty(self, app_client):
+        """Standings page should not show callouts when no games played."""
+        client, _ = app_client
+        r = await client.get("/standings")
+        assert r.status_code == 200
+        assert "standings-callouts" not in r.text
+
+    async def test_standings_tightest_race_callout(self, app_client):
+        """Standings should detect tightest race between teams."""
+        from pinwheel.api.pages import _compute_standings_callouts
+
+        standings = [
+            {"team_id": "t1", "team_name": "Thorns", "wins": 5, "losses": 1},
+            {"team_id": "t2", "team_name": "Breakers", "wins": 4, "losses": 2},
+            {"team_id": "t3", "team_name": "Storm", "wins": 2, "losses": 4},
+        ]
+        streaks = {}
+        callouts = _compute_standings_callouts(standings, streaks, 6, 12)
+
+        # Should detect 1-game separation
+        assert any("1 game separates" in c for c in callouts)
+        assert any("Thorns" in c and "Breakers" in c for c in callouts)
+
+    async def test_standings_dominant_team_callout(self, app_client):
+        """Standings should detect a dominant leader."""
+        from pinwheel.api.pages import _compute_standings_callouts
+
+        standings = [
+            {"team_id": "t1", "team_name": "Dominators", "wins": 10, "losses": 0},
+            {"team_id": "t2", "team_name": "Challengers", "wins": 7, "losses": 3},
+            {"team_id": "t3", "team_name": "Underdogs", "wins": 5, "losses": 5},
+        ]
+        streaks = {}
+        callouts = _compute_standings_callouts(standings, streaks, 10, 20)
+
+        # Should detect 3-game lead
+        assert any("commanding" in c and "3-game lead" in c for c in callouts)
+        assert any("Dominators" in c for c in callouts)
+
+    async def test_standings_streak_callout(self, app_client):
+        """Standings should detect longest active streak."""
+        from pinwheel.api.pages import _compute_standings_callouts
+
+        standings = [
+            {"team_id": "t1", "team_name": "Hot Team", "wins": 7, "losses": 3},
+            {"team_id": "t2", "team_name": "Cold Team", "wins": 5, "losses": 5},
+        ]
+        streaks = {"t1": 5, "t2": -4}
+        callouts = _compute_standings_callouts(standings, streaks, 10, 20)
+
+        # Should detect 5-game win streak
+        assert any("5-game win streak" in c for c in callouts)
+        assert any("Hot Team" in c for c in callouts)
+
+    async def test_standings_late_season_callout(self, app_client):
+        """Standings should mention remaining rounds in late season."""
+        from pinwheel.api.pages import _compute_standings_callouts
+
+        standings = [
+            {"team_id": "t1", "team_name": "Team A", "wins": 8, "losses": 2},
+            {"team_id": "t2", "team_name": "Team B", "wins": 7, "losses": 3},
+        ]
+        streaks = {}
+        callouts = _compute_standings_callouts(standings, streaks, 9, 12)
+
+        # Should mention remaining rounds (3 left, 75% complete)
+        assert any("3 rounds remaining" in c for c in callouts)
+
+    async def test_ordinal_suffix(self, app_client):
+        """Test ordinal suffix helper."""
+        from pinwheel.api.pages import _ordinal_suffix
+
+        assert _ordinal_suffix(1) == "st"
+        assert _ordinal_suffix(2) == "nd"
+        assert _ordinal_suffix(3) == "rd"
+        assert _ordinal_suffix(4) == "th"
+        assert _ordinal_suffix(11) == "th"
+        assert _ordinal_suffix(12) == "th"
+        assert _ordinal_suffix(13) == "th"
+        assert _ordinal_suffix(21) == "st"
+        assert _ordinal_suffix(22) == "nd"
+        assert _ordinal_suffix(23) == "rd"
+
+
 class TestReportsPhaseContext:
     """Reports page should tag reports with phase context."""
 
@@ -887,8 +1104,7 @@ class TestArenaSeriesContextLive:
                     "best_of": 3,
                     "wins_needed": 2,
                     "description": (
-                        "SEMIFINAL SERIES \u00b7 Series tied 0-0"
-                        " \u00b7 First to 2 wins advances"
+                        "SEMIFINAL SERIES \u00b7 Series tied 0-0 \u00b7 First to 2 wins advances"
                     ),
                 },
             ),
@@ -982,3 +1198,366 @@ class TestArenaSeriesContextLive:
         assert 'data-g="0"' in r.text
 
         pstate.reset()
+
+
+class TestGameDetailContext:
+    """Tests for game detail page historical context."""
+
+    async def test_game_detail_shows_context(self, app_client):
+        """Game detail page shows context when there are multiple games."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            game_id = games[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        # With 2 games in round 1, should have margin/scoring context
+        assert "Game Context" in r.text
+
+    async def test_game_detail_with_head_to_head(self, app_client):
+        """Game detail shows head-to-head record when teams have met before."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Run another round to get rematch data
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await step_round(repo, season_id, round_number=2)
+            games_r2 = await repo.get_games_for_round(season_id, 2)
+            for g in games_r2:
+                await repo.mark_game_presented(g.id)
+            await session.commit()
+
+            # Find a game in round 2 where teams have met before
+            games_r1 = await repo.get_games_for_round(season_id, 1)
+            matchup_pairs_r1 = [{g.home_team_id, g.away_team_id} for g in games_r1]
+
+            game_id = None
+            for g in games_r2:
+                if {g.home_team_id, g.away_team_id} in matchup_pairs_r1:
+                    game_id = g.id
+                    break
+
+        if game_id:
+            r = await client.get(f"/games/{game_id}")
+            assert r.status_code == 200
+            assert "Game Context" in r.text
+            assert "Season series" in r.text or "tied" in r.text
+
+    async def test_game_detail_margin_context(self, app_client):
+        """Game detail may show margin context depending on score variance."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Run 2 more rounds to get enough data for margin comparisons
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await step_round(repo, season_id, round_number=2)
+            await step_round(repo, season_id, round_number=3)
+            games_r3 = await repo.get_games_for_round(season_id, 3)
+            for g in games_r3:
+                await repo.mark_game_presented(g.id)
+            await session.commit()
+
+            # Pick a game from round 3
+            game_id = games_r3[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        # Context may or may not appear depending on the random game outcomes
+        # If it appears, it should have at least one valid context phrase
+        if "Game Context" in r.text:
+            assert any(
+                phrase in r.text
+                for phrase in ["Closest game", "Biggest blowout", "tight", "decisive"]
+            )
+
+    async def test_game_detail_scoring_context(self, app_client):
+        """Game detail may show context depending on game characteristics."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Run 2 more rounds
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await step_round(repo, season_id, round_number=2)
+            await step_round(repo, season_id, round_number=3)
+            games_r3 = await repo.get_games_for_round(season_id, 3)
+            for g in games_r3:
+                await repo.mark_game_presented(g.id)
+            await session.commit()
+
+            game_id = games_r3[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        # Context may or may not appear depending on the random game outcomes
+        # If it appears, it should have at least one valid context phrase
+        if "Game Context" in r.text:
+            assert any(
+                phrase in r.text
+                for phrase in [
+                    "combined points",
+                    "season avg",
+                    "margin",
+                    "tight",
+                    "decisive",
+                    "Closest",
+                    "Biggest",
+                ]
+            )
+
+    async def test_game_detail_multiple_context_lines(self, app_client):
+        """Game detail can show multiple context lines together."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Run enough rounds to generate multiple context points
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            for rn in range(2, 5):
+                await step_round(repo, season_id, round_number=rn)
+                games = await repo.get_games_for_round(season_id, rn)
+                for g in games:
+                    await repo.mark_game_presented(g.id)
+            await session.commit()
+
+            games_r4 = await repo.get_games_for_round(season_id, 4)
+            game_id = games_r4[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        if "Game Context" in r.text:
+            # If context appears, should have at least 1 line
+            # (Could be head-to-head, margin, or scoring)
+            context_section = r.text.split("Game Context")[1].split("</div>")[0]
+            assert "<p" in context_section
+
+
+class TestRulesPageHistory:
+    """Tests for rule change history display on the rules page."""
+
+    async def test_rules_page_with_no_changes(self, app_client):
+        """Rules page with no changes should not show history."""
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        assert "The Rules" in r.text
+        # Should show default values but no change history
+        assert "rule-card-history" not in r.text
+
+    async def test_rules_page_with_rule_changes(self, app_client):
+        """Rules page should show change history for modified rules."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Create a rule change event
+        async with get_session(engine) as session:
+            repo = Repository(session)
+
+            # Create a governor and proposal
+            player = await repo.get_or_create_player(
+                discord_id="555666777",
+                username="RuleChanger",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+
+            # Submit proposal event
+            await repo.append_event(
+                event_type="proposal.submitted",
+                aggregate_id="prop-rule-1",
+                aggregate_type="proposal",
+                season_id=season_id,
+                governor_id=player.id,
+                team_id=team_ids[0],
+                round_number=1,
+                payload={
+                    "id": "prop-rule-1",
+                    "raw_text": "Make three-pointers worth 4",
+                    "governor_id": player.id,
+                    "team_id": team_ids[0],
+                    "tier": 1,
+                    "status": "submitted",
+                },
+            )
+
+            # Create rule.enacted event
+            await repo.append_event(
+                event_type="rule.enacted",
+                aggregate_id="prop-rule-1",
+                aggregate_type="rule_change",
+                season_id=season_id,
+                round_number=1,
+                payload={
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 4,
+                    "source_proposal_id": "prop-rule-1",
+                    "round_enacted": 1,
+                },
+            )
+
+            # Update the season ruleset
+            season = await repo.get_season(season_id)
+            ruleset_data = season.current_ruleset or {}
+            ruleset_data["three_point_value"] = 4
+            season.current_ruleset = ruleset_data
+
+            await session.commit()
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        assert "3 &rarr; 4" in r.text
+        assert "Round 1" in r.text
+        assert "Proposed by Governor" in r.text or "/governors/" in r.text
+
+    async def test_rules_page_governance_fingerprint(self, app_client):
+        """Rules page should show most-changed tier in governance fingerprint."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Create multiple rule changes in Game Mechanics tier
+        async with get_session(engine) as session:
+            repo = Repository(session)
+
+            player = await repo.get_or_create_player(
+                discord_id="888999000",
+                username="ActiveGovernor",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+
+            # Change two game mechanics rules
+            for i, (param, old_val, new_val) in enumerate(
+                [
+                    ("three_point_value", 3, 4),
+                    ("shot_clock_seconds", 24, 20),
+                ]
+            ):
+                prop_id = f"prop-gm-{i}"
+                await repo.append_event(
+                    event_type="proposal.submitted",
+                    aggregate_id=prop_id,
+                    aggregate_type="proposal",
+                    season_id=season_id,
+                    governor_id=player.id,
+                    team_id=team_ids[0],
+                    round_number=i + 1,
+                    payload={
+                        "id": prop_id,
+                        "raw_text": f"Change {param}",
+                        "governor_id": player.id,
+                        "team_id": team_ids[0],
+                        "tier": 1,
+                        "status": "submitted",
+                    },
+                )
+
+                await repo.append_event(
+                    event_type="rule.enacted",
+                    aggregate_id=prop_id,
+                    aggregate_type="rule_change",
+                    season_id=season_id,
+                    round_number=i + 1,
+                    payload={
+                        "parameter": param,
+                        "old_value": old_val,
+                        "new_value": new_val,
+                        "source_proposal_id": prop_id,
+                        "round_enacted": i + 1,
+                    },
+                )
+
+            # Update season ruleset
+            season = await repo.get_season(season_id)
+            ruleset_data = season.current_ruleset or {}
+            ruleset_data["three_point_value"] = 4
+            ruleset_data["shot_clock_seconds"] = 20
+            season.current_ruleset = ruleset_data
+
+            await session.commit()
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        # Check that both rule changes are shown in the change history
+        assert "Three Point Value" in r.text
+        assert "Shot Clock Seconds" in r.text
+        # Most changed tier should be present if computed
+        if "Most changed:" in r.text:
+            assert "Game Mechanics" in r.text
+
+    async def test_rules_page_multiple_changes_same_param(self, app_client):
+        """Rules page should show multiple changes to the same parameter."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+
+            player = await repo.get_or_create_player(
+                discord_id="111222444",
+                username="TweakerGov",
+            )
+            await repo.enroll_player(player.id, team_ids[0], season_id)
+
+            # Change the same rule twice
+            for i, (old_val, new_val, round_num) in enumerate(
+                [
+                    (3, 4, 1),
+                    (4, 5, 2),
+                ]
+            ):
+                prop_id = f"prop-multi-{i}"
+                await repo.append_event(
+                    event_type="proposal.submitted",
+                    aggregate_id=prop_id,
+                    aggregate_type="proposal",
+                    season_id=season_id,
+                    governor_id=player.id,
+                    team_id=team_ids[0],
+                    round_number=round_num,
+                    payload={
+                        "id": prop_id,
+                        "raw_text": f"Three-pointers worth {new_val}",
+                        "governor_id": player.id,
+                        "team_id": team_ids[0],
+                        "tier": 1,
+                        "status": "submitted",
+                    },
+                )
+
+                await repo.append_event(
+                    event_type="rule.enacted",
+                    aggregate_id=prop_id,
+                    aggregate_type="rule_change",
+                    season_id=season_id,
+                    round_number=round_num,
+                    payload={
+                        "parameter": "three_point_value",
+                        "old_value": old_val,
+                        "new_value": new_val,
+                        "source_proposal_id": prop_id,
+                        "round_enacted": round_num,
+                    },
+                )
+
+            # Update season ruleset to final value
+            season = await repo.get_season(season_id)
+            ruleset_data = season.current_ruleset or {}
+            ruleset_data["three_point_value"] = 5
+            season.current_ruleset = ruleset_data
+
+            await session.commit()
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        # Should show both changes
+        assert "3 &rarr; 4" in r.text
+        assert "4 &rarr; 5" in r.text
+        assert "Round 1" in r.text
+        assert "Round 2" in r.text

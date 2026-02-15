@@ -13,6 +13,14 @@
   {% endif %}
 </div>
 
+{% if callouts %}
+<div class="standings-callouts">
+  {% for callout in callouts %}
+  <p>{{ callout }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if standings %}
 <div class="card">
   <table class="standings-table">

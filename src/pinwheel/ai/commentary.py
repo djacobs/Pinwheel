@@ -33,7 +33,16 @@ Write 2-3 short paragraphs of play-by-play commentary for this game. Your style:
 
 {playoff_instructions}
 
-Be concise. No headers. No bullet points. Just vivid prose."""
+System-level awareness:
+- If rule changes are recent, mention this is "the first game under [new rule]" or note its impact
+- If a team is on a win/loss streak (3+), weave that into the narrative naturally
+- For playoff/championship games, treat every possession with elevated stakes
+- If this is late in the season, reference playoff positioning or championship implications
+- End with ONE sentence connecting this game to the broader league context — standings impact, \
+streak continuation, rule evolution, or what it means for the playoff race
+
+Be concise. No headers. No bullet points. Just vivid prose that shows you know the league \
+inside out."""
 
 _PLAYOFF_COMMENTARY_INSTRUCTIONS = {
     "semifinal": (
@@ -58,7 +67,13 @@ of overall round narrative — trends, surprises, the vibe. Keep it brisk and en
 
 {playoff_instructions}
 
-No headers. No bullet points. Just vivid, concise prose."""
+System-level awareness:
+- Reference rule changes if they affected gameplay this round
+- Note win/loss streaks when relevant (3+ games)
+- For late-season rounds, frame action in terms of playoff positioning
+- Connect individual games to the broader season arc
+
+No headers. No bullet points. Just vivid, concise prose that shows you know the league."""
 
 _PLAYOFF_HIGHLIGHT_INSTRUCTIONS = {
     "semifinal": (
@@ -313,7 +328,7 @@ def generate_game_commentary_mock(
         star_line += "."
         paragraphs.append(star_line)
 
-    # Narrative enrichment — streaks and rule changes
+    # Narrative enrichment — streaks, rule changes, and system-level context
     if narrative:
         winner_id = game_result.winner_team_id
         winner_streak = narrative.streaks.get(winner_id, 0)
@@ -333,9 +348,36 @@ def generate_game_commentary_mock(
                 f"The skid continues."
             )
 
-        if narrative.rules_narrative:
+        # Rule change context — "first game under new X"
+        if narrative.active_rule_changes:
+            recent_changes = [
+                rc for rc in narrative.active_rule_changes
+                if rc.get("round_enacted") == narrative.round_number
+            ]
+            if recent_changes:
+                change = recent_changes[0]
+                param = str(change.get("parameter", "")).replace("_", " ")
+                new_val = change.get("new_value")
+                paragraphs.append(
+                    f"This is the first game under the new {param} ({new_val}). "
+                    f"The governors have spoken, and the court has changed."
+                )
+            elif narrative.rules_narrative:
+                paragraphs.append(
+                    f"Rules in effect: {narrative.rules_narrative}."
+                )
+        elif narrative.rules_narrative:
+            # No active_rule_changes list, but rules_narrative is set
             paragraphs.append(
                 f"Rules in effect: {narrative.rules_narrative}."
+            )
+
+        # Season arc awareness — late season urgency
+        if narrative.season_arc == "late" and not playoff_context:
+            paragraphs.append(
+                f"Round {narrative.round_number} of {narrative.total_rounds} — "
+                f"the regular season is winding down, and every game matters for "
+                f"playoff positioning."
             )
 
     # Playoff closing
@@ -349,6 +391,50 @@ def generate_game_commentary_mock(
             f"The {winner_name} punch their ticket to the finals. "
             f"The {loser_name}'s season is over."
         )
+    else:
+        # System-level closing — connect to league context
+        if narrative and narrative.standings:
+            # Find winner and loser in standings
+            winner_standing = next(
+                (s for s in narrative.standings if s.get("team_id") == winner_id),
+                None,
+            )
+            loser_standing = next(
+                (s for s in narrative.standings if s.get("team_id") == loser_id),
+                None,
+            )
+
+            if winner_standing and loser_standing:
+                winner_record = (
+                    f"{winner_standing.get('wins', 0)}-"
+                    f"{winner_standing.get('losses', 0)}"
+                )
+
+                # Choose closing based on context
+                if narrative.season_arc == "late":
+                    paragraphs.append(
+                        f"With this win, the {winner_name} improve to "
+                        f"{winner_record} — crucial positioning as playoff seeding "
+                        f"comes into focus."
+                    )
+                elif winner_streak >= 5:
+                    paragraphs.append(
+                        f"The {winner_name} ({winner_record}) continue their "
+                        f"remarkable run, climbing the standings and making a "
+                        f"statement to the rest of the league."
+                    )
+                elif loser_streak <= -3:
+                    paragraphs.append(
+                        f"The {loser_name}'s rough patch continues — they'll need "
+                        f"to turn things around quickly or risk falling out of "
+                        f"playoff contention."
+                    )
+                else:
+                    paragraphs.append(
+                        f"The {winner_name} move to {winner_record}, maintaining "
+                        f"their position in the standings while the {loser_name} "
+                        f"look to regroup."
+                    )
 
     return "\n\n".join(paragraphs)
 
@@ -563,8 +649,56 @@ def generate_highlight_reel_mock(
 
     lines.append(summary)
 
-    # Narrative enrichment — rule changes context
-    if narrative and narrative.rules_narrative:
-        lines.append(f"Rules in effect: {narrative.rules_narrative}.")
+    # Narrative enrichment — rule changes, streaks, season arc
+    if narrative:
+        # First-round-under-new-rule callout
+        if narrative.active_rule_changes:
+            recent_changes = [
+                rc for rc in narrative.active_rule_changes
+                if rc.get("round_enacted") == round_number
+            ]
+            if recent_changes:
+                change = recent_changes[0]
+                param = str(change.get("parameter", "")).replace("_", " ")
+                new_val = change.get("new_value")
+                lines.append(
+                    f"The new {param} ({new_val}) made its debut — "
+                    f"the governors' will is now law on the court."
+                )
+            elif narrative.rules_narrative:
+                lines.append(f"Rules in effect: {narrative.rules_narrative}.")
+        elif narrative.rules_narrative:
+            # No active_rule_changes list, but rules_narrative is set
+            lines.append(f"Rules in effect: {narrative.rules_narrative}.")
+
+        # Late season arc awareness
+        if narrative.season_arc == "late" and not playoff_context:
+            lines.append(
+                f"Round {round_number} of {narrative.total_rounds} — "
+                f"the playoff race is heating up as the regular season winds down."
+            )
+
+        # Notable streaks across the league
+        if narrative.streaks:
+            long_streaks = [
+                (tid, s) for tid, s in narrative.streaks.items()
+                if abs(s) >= 5
+            ]
+            if long_streaks:
+                # Find team name from standings
+                streak_notes = []
+                for tid, streak_val in long_streaks[:2]:  # max 2 streak mentions
+                    team_standing = next(
+                        (st for st in narrative.standings if st.get("team_id") == tid),
+                        None,
+                    )
+                    if team_standing:
+                        team_name = team_standing.get("team_name", tid)
+                        if streak_val > 0:
+                            streak_notes.append(f"{team_name} ({streak_val} straight)")
+                        else:
+                            streak_notes.append(f"{team_name} ({abs(streak_val)}-game skid)")
+                if streak_notes:
+                    lines.append(f"Streak watch: {', '.join(streak_notes)}.")
 
     return " ".join(lines)

@@ -24,20 +24,50 @@ logger = logging.getLogger(__name__)
 
 
 SIMULATION_REPORT_PROMPT = """\
-You are the Social Mirror for Pinwheel Fates, a 3v3 basketball governance game.
+You are the beat writer for Pinwheel Fates. You've watched every game. You know the standings, \
+the streaks, the rule changes, the drama. After each round, you write one report — 3 to 5 \
+paragraphs — that tells the story of what just happened.
 
-Your job: reflect on the round's game results. Describe patterns, surprises, and emergent behavior.
+Your job is to find the story, not fill in a template.
 
-## Rules
-1. You DESCRIBE. You never PRESCRIBE. Never say "players should" or "the league needs to."
-2. You are observing a simulated basketball league. The games are auto-simulated; no humans play.
-3. Human "governors" control the RULES of the game. Your job is to make patterns visible.
-4. Be vivid and thorough (3-5 paragraphs). Channel a sports journalist who sees the deeper story.
-5. Note any statistical anomalies, streaks, or effects of recent rule changes.
-6. If the Elam Ending activated, comment on how it shaped the game's outcome.
-7. If rules changed recently, analyze how the new parameters affected this round's outcomes. \
-Reference specific changes (e.g., "With three-pointers now worth 4, perimeter shooting dominated").
-8. Mention the next governance window — what patterns should governors pay attention to?
+## Finding the Lede
+Every round has one story. Find it. The hierarchy:
+1. A champion was crowned — everything else is context for that moment.
+2. A team was eliminated — a sweep, a series loss, a season ending.
+3. An upset — the last-place team beat the first-place team.
+4. A streak lives or dies — seven straight wins means something.
+5. A blowout or a classic — a 20-point demolition or 2-point thriller.
+6. The standings shifted — two teams swapped positions, a playoff berth clinched.
+7. The rules changed — governance reshaped the game, first round under new parameters.
+
+Only ONE leads the piece. The rest are supporting details.
+
+## Composing the Story
+- Open with the lede — vivid, specific. Not "Round 8 saw some exciting games." Instead: \
+"Rose City Thorns are your champions."
+- Highlight what changed — the NEWS. What is different after this round than before?
+- Surface what humans can't see from inside — scoring variance dropped 40% since a rule passed, \
+a win streak correlates with the new three-point value, the margin between first and last \
+narrowed from 6 to 2.
+- Name the players — connect stats to their games. "Rosa Vex poured in 27 to close out the Hammers."
+- Read the standings — a 10-4 team winning is expected, a 4-10 team winning is an upset.
+- Detect the sweep — 3-0 in a series is a sweep, say so.
+- Know where you are — regular season vs championship are different universes.
+- Close with what the round reveals — not prescriptions, but patterns newly visible.
+
+## What You Never Do
+- Never prescribe — describe only. "The Thorns have won seven straight" not "Teams need to adjust."
+- Never be generic — name a team, a score, a streak, or a player.
+- Never contradict the data.
+- Never lead with the loser.
+- Never pad.
+
+This is AI that amplifies human judgment. Governors control the rules but can't see the \
+whole system. This report IS the whole. It surfaces patterns and dynamics no single governor \
+can see. It doesn't tell them what to do — it makes them dramatically more capable of \
+deciding for themselves.
+
+The AI observes. Humans decide.
 
 ## Current Round Data
 
@@ -47,18 +77,26 @@ Reference specific changes (e.g., "With three-pointers now worth 4, perimeter sh
 GOVERNANCE_REPORT_PROMPT = """\
 You are the Governance Mirror for Pinwheel Fates, a 3v3 basketball governance game.
 
-Your job: reflect on governance activity this round. Describe voting patterns, proposal themes, \
-and how the rule space is evolving.
+Your job: reflect on governance activity this round. Surface voting coalitions, proposal patterns, \
+and how the rule space is evolving. Show governors what they can't see from inside the system.
 
 ## Rules
 1. You DESCRIBE. You never PRESCRIBE. Never say "governors should" or "the league needs to."
-2. Be thorough (3-5 paragraphs). Note trends — are proposals getting bolder? Is consensus forming?
-3. If rules changed this round, reflect on what the change reveals about the community's values.
-4. If proposals failed, note what that tells us about disagreement or shared priorities.
-5. For each rule that changed, state the parameter name, old value, and new value \
-explicitly (e.g., "three_point_value changed from 3 to 4").
-6. Summarize the governance window outcome: how many proposals filed, passed, and failed.
-7. If governance window timing is available, mention when the next window opens.
+2. Be thorough (3-5 paragraphs). Look for patterns that individual governors might miss:
+   - Voting coalitions: which governors consistently vote together?
+   - Proposal themes: are multiple proposals targeting the same parameter category?
+   - The gap between what passes and what helps teams win
+3. If rules changed this round, connect them to game impact. State parameter name, old value, \
+new value explicitly (e.g., "three_point_value changed from 3 to 4"), then describe the \
+expected effect on gameplay.
+4. If proposals failed, analyze what that reveals. Is it disagreement, or shared priority \
+to keep things as they are?
+5. Note governance velocity: is this the most active window of the season? Unusual silence?
+6. Surface what's NOT being proposed — if defense stats are declining but no proposals \
+target defense, that's a story.
+7. Close with governance window status: next tally round, pending proposals, window state.
+8. End with a "what the Floor is building" summary — describe the trajectory of governance \
+decisions, not just the count.
 
 ## Governance Activity
 
@@ -69,14 +107,25 @@ PRIVATE_REPORT_PROMPT = """\
 You are generating a Private Mirror for governor "{governor_id}" in Pinwheel Fates.
 
 A private mirror reflects a governor's OWN behavior back to them. Only they see this.
-It helps them understand their patterns without telling them what to do.
+It helps them understand their patterns and blind spots without telling them what to do.
 
 ## Rules
 1. You DESCRIBE their behavior patterns. You never PRESCRIBE actions.
-2. Write 2-3 paragraphs. Be specific to THIS governor's actions.
-3. Note: voting patterns, proposal themes, token usage, consistency of philosophy.
-4. Never compare them to other specific governors. Reflect, don't rank.
-5. If they haven't been active, note the absence without judgment.
+2. Write 2-3 paragraphs. Be specific to THIS governor's actions and context.
+3. Compare their focus to league-wide patterns:
+   - What categories are they proposing changes for vs. what others are focused on?
+   - Are they concentrated in one area while missing another?
+4. Surface blind spots:
+   - "You haven't proposed anything about [category] despite it being the most-changed area."
+   - "Your proposals focus on offense, but the league's biggest shifts have been in defense."
+5. Show their voting record relative to outcomes:
+   - "You voted yes on 3 rules that passed — scoring has risen 15% since."
+   - "You've opposed every defensive rule change — all passed anyway."
+6. Note their engagement trajectory:
+   - Are they increasing participation, stable, or fading?
+   - Frame activity relative to opportunity: "You voted on 2 of 5 proposals — selective engagement."
+7. Never compare them to other specific governors by name. Reflect, don't rank.
+8. If they haven't been active, contextualize what they missed — but without judgment.
 
 ## Governor Activity
 
@@ -313,8 +362,17 @@ def generate_simulation_report_mock(
     round_number: int,
     narrative: NarrativeContext | None = None,
 ) -> Report:
-    """Mock simulation report — narrative, specific, never generic."""
-    import random as _rng
+    """Mock simulation report — follows The Pinwheel Post editorial prompt.
+
+    Implements the lede hierarchy:
+    1. Champion crowned
+    2. Team eliminated/swept
+    3. Upset (standings-aware)
+    4. Streak lives or dies
+    5. Blowout or classic
+    6. Standings shifted
+    7. Rules changed
+    """
 
     games = round_data.get("games", [])
     if not games:
@@ -324,8 +382,6 @@ def generate_simulation_report_mock(
             round_number=round_number,
             content="Silence from the courts. No games this round.",
         )
-
-    rng = _rng.Random(round_number * 1000 + len(games))
 
     phase = narrative.phase if narrative else "regular"
     phase_label = ""
@@ -358,18 +414,7 @@ def generate_simulation_report_mock(
             "home_id": home_id, "away_id": away_id,
         })
 
-    # Sort by drama: close games first, then blowouts, then mid-range
-    def _drama(e: dict[str, object]) -> tuple[int, int]:
-        m = int(e["margin"])  # type: ignore[arg-type]
-        if m <= 4:
-            return (0, m)
-        if m >= 10:
-            return (1, -m)
-        return (2, m)
-
-    entries.sort(key=_drama)
-
-    # Collect team IDs that played this round (for streak filtering)
+    # Collect team IDs and names
     played_ids: set[str] = set()
     team_id_to_name: dict[str, str] = {}
     for e in entries:
@@ -383,219 +428,252 @@ def generate_simulation_report_mock(
         if lid:
             team_id_to_name[lid] = str(e["loser"])
 
-    # --- Build per-game descriptions (phase context is inline, not a
-    #     separate opener paragraph) ---
-    lines: list[str] = []
+    # Build standings lookup (rank by team_id)
+    standings_by_team: dict[str, dict[str, object]] = {}
+    if narrative and narrative.standings:
+        for s in narrative.standings:
+            tid = str(s.get("team_id", ""))
+            if tid:
+                standings_by_team[tid] = s
 
-    for e in entries:
-        w, lo = str(e["winner"]), str(e["loser"])
-        ws, ls, m = int(e["w_score"]), int(e["l_score"]), int(e["margin"])  # type: ignore[arg-type]
+    # --- LEDE HIERARCHY ---
+    lede: str = ""
+    lede_type: str = ""
+    supporting: list[str] = []
 
-        if m <= 4:
-            # Close game
-            if phase_label:
-                lines.append(
-                    f"{w} survived {lo} {ws}-{ls} in a {phase_label} "
-                    f"classic — just {m} points between them."
-                )
-            else:
-                templates = [
-                    (
-                        f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
-                        "that went down to the final Elam possession."
-                    ),
-                    (
-                        f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
-                        "until the Elam target came into view."
-                    ),
-                ]
-                lines.append(rng.choice(templates))
-        elif m >= 10:
-            # Blowout — no claims about elimination or season ending
-            if phase_label:
-                lines.append(
-                    f"{w} rolled through {lo} in the {phase_label} — "
-                    f"{ws}-{ls}. The {m}-point margin tells you everything."
-                )
-            else:
-                templates = [
-                    (
-                        f"{w} dismantled {lo} by {m}. "
-                        "It wasn't close after the first quarter."
-                    ),
-                    (
-                        f"A {m}-point demolition: {w} {ws}, {lo} {ls}. "
-                        "The Elam target was a formality."
-                    ),
-                ]
-                lines.append(rng.choice(templates))
-        else:
-            # Mid-range — one specific sentence with phase context
-            if phase_label:
-                lines.append(
-                    f"In the {phase_label}, {w} beat {lo} {ws}-{ls}."
-                )
-            else:
-                lines.append(f"{w} beat {lo} {ws}-{ls}.")
+    # 1. Champion crowned
+    if (
+        narrative and
+        narrative.season_arc == "championship" and
+        phase in ("finals", "championship") and
+        entries
+    ):
+        # Find the champion from the games (winner in finals phase)
+            champion = str(entries[0]["winner"])
+            lede = f"{champion} are your champions."
+            lede_type = "championship"
 
-    # --- Scoring pace (regular season only, raised thresholds) ---
-    if not is_playoff and len(entries) > 1:
-        avg_total = sum(int(e["total"]) for e in entries) // len(entries)  # type: ignore[arg-type]
-        highest = max(entries, key=lambda e: int(e["total"]))  # type: ignore[arg-type]
-        lowest = min(entries, key=lambda e: int(e["total"]))  # type: ignore[arg-type]
-        if avg_total >= 80:
-            lines.append(
-                f"Scoring surged to {avg_total} per game — "
-                f"{highest['winner']} and {highest['loser']} "
-                f"combined for {highest['total']} alone."
-            )
-        elif avg_total <= 35:
-            lines.append(
-                f"Defense locked in at {avg_total} PPG. "
-                f"{lowest['winner']} and {lowest['loser']} "
-                f"ground out a {lowest['total']}-point affair."
-            )
+    # 2. Team eliminated/swept (playoff only)
+    if not lede and is_playoff and narrative and narrative.streaks:
+        for team_id, streak in narrative.streaks.items():
+            if team_id in played_ids and streak <= -3:
+                team_name = team_id_to_name.get(team_id, team_id)
+                if abs(streak) >= 3:
+                    lede = (
+                        f"{team_name} were swept — {abs(streak)} straight "
+                        f"losses end their season in the {phase_label}."
+                    )
+                    lede_type = "elimination"
+                    break
 
-    # Blowout + close contrast
-    has_blowout = any(int(e["margin"]) >= 10 for e in entries)  # type: ignore[arg-type]
-    has_close = any(int(e["margin"]) <= 4 for e in entries)  # type: ignore[arg-type]
-    if has_blowout and has_close:
-        lines.append(
-            "A round of extremes: blowouts and nail-biters "
-            "sharing the same scorecard."
-        )
+    # 3. Upset (standings-aware)
+    if not lede and narrative and narrative.standings and len(entries) > 0:
+        for e in entries:
+            winner_id = str(e["winner_id"])
+            loser_id = str(e["loser_id"])
+            winner_rank = standings_by_team.get(winner_id, {}).get("rank", 99)
+            loser_rank = standings_by_team.get(loser_id, {}).get("rank", 99)
 
-    # --- Rule changes from round data ---
+            # Upset = lower-ranked team beats higher-ranked team by 2+ positions
+            if (
+                isinstance(winner_rank, int) and
+                isinstance(loser_rank, int) and
+                winner_rank - loser_rank >= 2
+            ):
+                    w = str(e["winner"])
+                    lo = str(e["loser"])
+                    ws = int(e["w_score"])  # type: ignore[arg-type]
+                    ls = int(e["l_score"])  # type: ignore[arg-type]
+                    lede = f"{w} shocked {lo} {ws}-{ls}. The standings didn't predict this one."
+                    lede_type = "upset"
+                    break
+
+    # 4. Streak lives or dies (5+ games)
+    if not lede and narrative and narrative.streaks:
+        for team_id, streak in narrative.streaks.items():
+            if team_id in played_ids and abs(streak) >= 5:
+                team_name = team_id_to_name.get(team_id, team_id)
+                won = any(str(e["winner_id"]) == team_id for e in entries)
+                if streak > 0 and won:
+                    lede = f"{team_name} extended their {streak}-game win streak."
+                    lede_type = "streak"
+                    break
+                elif streak < 0 and not won:
+                    lede = f"{team_name} have now lost {abs(streak)} straight."
+                    lede_type = "streak"
+                    break
+
+    # 5. Blowout or classic
+    if not lede and entries:
+        biggest_blowout = max(entries, key=lambda e: int(e["margin"]))  # type: ignore[arg-type]
+        closest_game = min(entries, key=lambda e: int(e["margin"]))  # type: ignore[arg-type]
+
+        if int(biggest_blowout["margin"]) >= 15:  # type: ignore[arg-type]
+            w = str(biggest_blowout["winner"])
+            lo = str(biggest_blowout["loser"])
+            ws = int(biggest_blowout["w_score"])  # type: ignore[arg-type]
+            ls = int(biggest_blowout["l_score"])  # type: ignore[arg-type]
+            m = int(biggest_blowout["margin"])  # type: ignore[arg-type]
+            lede = f"{w} demolished {lo} {ws}-{ls}. The {m}-point margin speaks for itself."
+            lede_type = "blowout"
+        elif int(closest_game["margin"]) <= 3:  # type: ignore[arg-type]
+            w = str(closest_game["winner"])
+            lo = str(closest_game["loser"])
+            ws = int(closest_game["w_score"])  # type: ignore[arg-type]
+            ls = int(closest_game["l_score"])  # type: ignore[arg-type]
+            m = int(closest_game["margin"])  # type: ignore[arg-type]
+            lede = f"{w} survived {lo} {ws}-{ls} in a thriller — just {m} points separated them."
+            lede_type = "classic"
+
+    # 6. Standings shifted (check for rank swaps)
+    # (We don't have pre-round standings in mock, so skip this for now)
+
+    # 7. Rules changed
     rule_changes = round_data.get("rule_changes", [])
-    if rule_changes:
+    if not lede and rule_changes:
         change_notes = [
             rc["parameter"].replace("_", " ")
             for rc in rule_changes
             if rc.get("parameter")
         ]
         if change_notes:
-            verb = "was" if len(change_notes) == 1 else "were"
-            lines.append(
-                f"This round marked the first games under new rules — "
-                f"{', '.join(change_notes)} {verb} "
-                f"adjusted heading into the round. "
-                f"The effects are starting to show."
+            lede = (
+                f"The rules changed. First games under new parameters: "
+                f"{', '.join(change_notes)} adjusted."
             )
+            lede_type = "rules"
 
-    # --- Narrative context enrichment ---
-    if narrative:
-        # Streaks — only for teams that played THIS round, woven into
-        # the game context rather than floating disconnected.
-        sweep_noted = False
-        for team_id, streak in narrative.streaks.items():
-            if team_id not in played_ids and played_ids:
-                continue
-            team_name = team_id_to_name.get(team_id, team_id)
-            for s in narrative.standings:
-                if s.get("team_id") == team_id:
-                    team_name = str(s.get("team_name", team_id))
+    # Default lede if nothing else hits
+    if not lede:
+        first_game = entries[0]
+        w = str(first_game["winner"])
+        lo = str(first_game["loser"])
+        ws = int(first_game["w_score"])  # type: ignore[arg-type]
+        ls = int(first_game["l_score"])  # type: ignore[arg-type]
+        if phase_label:
+            lede = f"The {phase_label} continued. {w} beat {lo} {ws}-{ls}."
+        else:
+            lede = f"Round {round_number}. {w} beat {lo} {ws}-{ls}."
+        lede_type = "default"
+
+    # --- SUPPORTING DETAILS ---
+    # Include other significant games not covered by the lede
+    for e in entries:
+        w = str(e["winner"])
+        lo = str(e["loser"])
+        ws = int(e["w_score"])  # type: ignore[arg-type]
+        ls = int(e["l_score"])  # type: ignore[arg-type]
+        m = int(e["margin"])  # type: ignore[arg-type]
+
+        # Skip the game that became the lede
+        if lede_type in ("blowout", "classic", "upset") and (
+            (lede_type == "blowout" and m >= 15 and w in lede) or
+            (lede_type == "classic" and m <= 3 and w in lede) or
+            (lede_type == "upset" and w in lede)
+        ):
+            continue
+
+        # Add other notable games
+        if phase_label:
+            supporting.append(f"{w} beat {lo} {ws}-{ls} in the {phase_label}.")
+        elif m >= 10:
+            supporting.append(f"{w} rolled past {lo} {ws}-{ls}.")
+        elif m <= 4:
+            supporting.append(f"{w} edged {lo} {ws}-{ls}.")
+        else:
+            supporting.append(f"{w} beat {lo} {ws}-{ls}.")
+
+    # --- WHAT CHANGED (system-level observation) ---
+    what_changed: str = ""
+    if narrative and len(entries) > 1:
+        # Check for scoring variance
+        totals = [int(e["total"]) for e in entries]  # type: ignore[arg-type]
+        avg_total = sum(totals) // len(totals)
+        if avg_total >= 80:
+            what_changed = f"Scoring surged to {avg_total} per game across the slate."
+        elif avg_total <= 35:
+            what_changed = f"Defense dominated — just {avg_total} points per game."
+
+        # Check for margin compression
+        if not what_changed:
+            margins = [int(e["margin"]) for e in entries]  # type: ignore[arg-type]
+            avg_margin = sum(margins) // len(margins)
+            if avg_margin <= 5:
+                what_changed = f"Every game was close — average margin just {avg_margin} points."
+
+        # Streaks context
+        if not what_changed and narrative.streaks:
+            active_streaks = [
+                (team_id_to_name.get(tid, tid), s)
+                for tid, s in narrative.streaks.items()
+                if tid in played_ids and abs(s) >= 3
+            ]
+            if active_streaks:
+                streak_team, streak_val = active_streaks[0]
+                if streak_val > 0:
+                    what_changed = f"{streak_team} are riding a {streak_val}-game win streak."
+                else:
+                    what_changed = f"{streak_team} have lost {abs(streak_val)} straight."
+
+    # --- HOT PLAYERS ---
+    hot_player_lines: list[str] = []
+    if narrative and narrative.hot_players:
+        for hp in narrative.hot_players[:2]:
+            hp_name = hp.get("name", "?")
+            hp_team = hp.get("team_name", "?")
+            hp_pts = hp.get("value", 0)
+
+            # Find their game
+            player_game: dict[str, object] | None = None
+            for e in entries:
+                if hp_team in (e["winner"], e["loser"]):
+                    player_game = e
                     break
 
-            if streak >= 3:
-                won = any(str(e["winner_id"]) == team_id for e in entries)
-                # Detect sweep: in playoffs, a win streak matching the
-                # series best-of means they never lost a game.
-                if is_playoff and won and not sweep_noted:
-                    lines.append(
-                        f"That's a {streak}-game win streak "
-                        f"for {team_name} — a clean sweep "
-                        f"of the {phase_label} series."
-                    )
-                    sweep_noted = True
-                elif won:
-                    lines.append(
-                        f"That's a {streak}-game win streak "
-                        f"for {team_name}."
+            if player_game:
+                if hp_team == player_game["winner"]:
+                    hot_player_lines.append(
+                        f"{hp_name} poured in {hp_pts} to lead {hp_team}'s win."
                     )
                 else:
-                    lines.append(
-                        f"{team_name} are riding a "
-                        f"{streak}-game win streak."
-                    )
-            elif streak <= -3:
-                if is_playoff and not sweep_noted:
-                    lines.append(
-                        f"{team_name} were swept — "
-                        f"{abs(streak)} straight losses "
-                        f"in the {phase_label}."
-                    )
-                    sweep_noted = True
-                else:
-                    lines.append(
-                        f"{team_name} have now dropped "
-                        f"{abs(streak)} in a row."
+                    hot_player_lines.append(
+                        f"{hp_name} scored {hp_pts} for {hp_team} in a losing effort."
                     )
 
-        # Rules narrative (only if no rule changes from round data)
-        if narrative.rules_narrative and not rule_changes:
-            lines.append(
-                f"Current rules: {narrative.rules_narrative}."
+    # --- SURFACE THE INVISIBLE (closing observation) ---
+    closing: str = ""
+    if narrative:
+        # Phase context
+        if phase in ("semifinals", "finals") and not is_playoff:
+            closing = "Playoff seeding is coming into focus."
+        elif narrative.season_arc == "late" and narrative.total_rounds > 0:
+            closing = (
+                f"Round {narrative.round_number} of {narrative.total_rounds}. "
+                f"The regular season is winding down."
             )
 
-        # Season arc — no generic "every game is elimination" filler
-        if narrative.season_arc == "late" and narrative.total_rounds > 0:
-            lines.append(
-                f"Round {narrative.round_number} of {narrative.total_rounds} — "
-                f"the regular season is winding down."
-            )
-        elif narrative.season_arc == "championship":
-            lines.append("The championship celebration has begun.")
+        # Governance context
+        if not closing and narrative.pending_proposals > 0:
+            plural = 's' if narrative.pending_proposals != 1 else ''
+            verb = 'awaits' if narrative.pending_proposals == 1 else 'await'
+            closing = f"{narrative.pending_proposals} proposal{plural} {verb} the governors' vote."
 
-        # Hot players — connected to the game they played in.
-        # Sort so winners come before losers.
-        if narrative.hot_players:
-            sorted_hp = sorted(
-                narrative.hot_players[:4],
-                key=lambda hp: (
-                    0 if any(
-                        hp.get("team_name") == e["winner"]
-                        for e in entries
-                    ) else 1
-                ),
-            )
-            for hp in sorted_hp[:2]:
-                hp_name = hp.get("name", "?")
-                hp_team = hp.get("team_name", "?")
-                hp_pts = hp.get("value", 0)
+    # --- COMPOSE THE REPORT ---
+    lines = [lede]
 
-                # Cross-reference with this round's games
-                player_game: dict[str, object] | None = None
-                on_winning_side = False
-                for e in entries:
-                    if hp_team in (e["winner"], e["loser"]):
-                        player_game = e
-                        on_winning_side = hp_team == e["winner"]
-                        break
+    # Add supporting games (max 2)
+    lines.extend(supporting[:2])
 
-                if player_game and on_winning_side:
-                    lo = str(player_game["loser"])
-                    pws = int(player_game["w_score"])  # type: ignore[arg-type]
-                    pls = int(player_game["l_score"])  # type: ignore[arg-type]
-                    pm = int(player_game["margin"])  # type: ignore[arg-type]
-                    if is_playoff and pm >= 10:
-                        lines.append(
-                            f"{hp_name} poured in {hp_pts} to power "
-                            f"{hp_team}'s {phase_label} rout of {lo}."
-                        )
-                    else:
-                        lines.append(
-                            f"{hp_name} led {hp_team}'s {pws}-{pls} "
-                            f"win with {hp_pts} points."
-                        )
-                elif player_game:
-                    lines.append(
-                        f"{hp_name} put up {hp_pts} for {hp_team} "
-                        f"in a losing effort."
-                    )
-                else:
-                    lines.append(
-                        f"{hp_name} ({hp_team}) scored {hp_pts} points."
-                    )
+    # Add what changed
+    if what_changed:
+        lines.append(what_changed)
+
+    # Add hot players
+    lines.extend(hot_player_lines)
+
+    # Add closing
+    if closing:
+        lines.append(closing)
 
     return Report(
         id=f"r-sim-{round_number}-mock",
@@ -605,13 +683,14 @@ def generate_simulation_report_mock(
     )
 
 
+
 def generate_governance_report_mock(
     governance_data: dict,
     season_id: str,
     round_number: int,
     narrative: NarrativeContext | None = None,
 ) -> Report:
-    """Mock governance report for testing."""
+    """Mock governance report — surfaces coalitions, patterns, trajectory."""
     proposals = governance_data.get("proposals", [])
     votes = governance_data.get("votes", [])
     rules_changed = governance_data.get("rules_changed", [])
@@ -631,17 +710,37 @@ def generate_governance_report_mock(
                 "Rule changes enacted now land on elimination games."
             )
 
+    # Proposal activity — count + velocity analysis
     if proposals:
         lines.append(
             f"Round {round_number} saw {len(proposals)} proposal(s) "
             "enter the governance arena."
         )
+        # Detect proposal clustering by parameter category
+        params = [p.get("parameter", "") for p in proposals if p.get("parameter")]
+        if len(params) > 1:
+            # Group by category prefix (e.g., "three_point_" or "elam_")
+            categories: dict[str, int] = {}
+            for p in params:
+                # Extract category from parameter name
+                parts = p.split("_")
+                category = parts[0] if parts else p
+                categories[category] = categories.get(category, 0) + 1
+            # If multiple proposals target the same category, note it
+            for cat, count in categories.items():
+                if count > 1:
+                    lines.append(
+                        f"{count} proposals targeted {cat.replace('_', ' ')} parameters — "
+                        "the Floor is focused on this dimension of the game."
+                    )
+                    break
     else:
         lines.append(
             f"Round {round_number} was quiet on the governance front "
             "— no proposals filed."
         )
 
+    # Voting analysis — add alignment patterns
     if votes:
         yes_count = sum(1 for v in votes if v.get("vote") == "yes")
         no_count = sum(1 for v in votes if v.get("vote") == "no")
@@ -649,7 +748,15 @@ def generate_governance_report_mock(
             f"Governors cast {len(votes)} votes "
             f"({yes_count} yes, {no_count} no)."
         )
+        # Detect voting coalitions
+        if yes_count == len(votes):
+            lines.append("The vote was unanimous — consensus is forming.")
+        elif no_count == len(votes):
+            lines.append("The vote was unanimously against — the Floor is aligned in resistance.")
+        elif yes_count > 0 and no_count > 0:
+            lines.append("The Floor was split on this decision — voting coalitions are emerging.")
 
+    # Rule changes — connect to game impact
     if rules_changed:
         lines.append(f"{len(rules_changed)} rule(s) changed this round:")
         for rc in rules_changed:
@@ -661,6 +768,16 @@ def generate_governance_report_mock(
                 lines.append(
                     f"  {param_label} moved from {old_val} to {new_val}."
                 )
+                # Add expected gameplay impact
+                if "three_point" in param.lower():
+                    if new_val > old_val:  # type: ignore[operator]
+                        lines.append("    Perimeter shooting is now more valuable.")
+                    else:
+                        lines.append("    Inside scoring gains relative value.")
+                elif "elam" in param.lower():
+                    lines.append("    Endgame dynamics will shift.")
+                elif "steal" in param.lower() or "defense" in param.lower():
+                    lines.append("    Defensive intensity should change accordingly.")
             else:
                 lines.append(
                     f"  A rule was changed "
@@ -683,6 +800,30 @@ def generate_governance_report_mock(
                 f"Next governance tally: Round {narrative.next_tally_round}."
             )
 
+    # "What the Floor is building" closing — governance trajectory
+    if rules_changed:
+        params_changed = [rc.get("parameter", "") for rc in rules_changed]
+        if any("three_point" in p for p in params_changed):
+            lines.append(
+                "The Floor is reshaping the offensive meta — "
+                "the next round will reveal what the new parameters unlock."
+            )
+        elif any("elam" in p for p in params_changed):
+            lines.append(
+                "The Floor is tuning endgame mechanics — "
+                "close games will play differently from here forward."
+            )
+        else:
+            lines.append(
+                "The Floor is experimenting with the game's foundational parameters — "
+                "governance is active and the ruleset is evolving."
+            )
+    elif proposals and not rules_changed:
+        lines.append(
+            "Proposals were submitted but not yet enacted — "
+            "the next governance window will show whether they gain traction."
+        )
+
     return Report(
         id=f"r-gov-{round_number}-mock",
         report_type="governance",
@@ -697,25 +838,104 @@ def generate_private_report_mock(
     season_id: str,
     round_number: int,
 ) -> Report:
-    """Mock private report for testing."""
+    """Mock private report — shows governor behavior relative to the system."""
+    import random as _rng
+
     proposals = governor_data.get("proposals_submitted", 0)
     votes = governor_data.get("votes_cast", 0)
-    tokens_spent = governor_data.get("tokens_spent", 0)
 
+    # Seed for deterministic mock content based on governor and round
+    rng = _rng.Random(hash((governor_id, round_number)))
+
+    # Simulated league context (in production, this would be real data)
+    total_proposals_this_round = rng.randint(3, 8)
+    league_focus_areas = ["offense", "defense", "pace", "three-point"]
+    governor_focus = rng.choice(league_focus_areas)
+    league_focus = rng.choice(
+        [a for a in league_focus_areas if a != governor_focus]
+    )
+
+    lines = []
+
+    # --- Activity summary with context ---
     if proposals == 0 and votes == 0:
-        content = (
-            f"Governor {governor_id} was quiet this round. "
-            "Sometimes the most revealing pattern is the absence of action."
+        # Inactive governor — contextualize what they missed
+        lines.append(
+            f"You were quiet this round. "
+            f"The Floor saw {total_proposals_this_round} "
+            f"proposals debated — most focused on {league_focus} adjustments. "
+            "Your absence is noted, not judged."
         )
     else:
-        parts = []
-        if proposals:
-            parts.append(f"submitted {proposals} proposal(s)")
-        if votes:
-            parts.append(f"cast {votes} vote(s)")
-        if tokens_spent:
-            parts.append(f"spent {tokens_spent} token(s)")
-        content = f"Governor {governor_id} {', '.join(parts)} this round."
+        # Active governor — frame activity level
+        total_activity = proposals + votes
+        if total_activity <= 2:
+            activity_level = "light"
+        elif total_activity <= 4:
+            activity_level = "active"
+        else:
+            activity_level = "busy"
+
+        lines.append(f"This was a {activity_level} round for you. ")
+
+        if proposals > 0:
+            if proposals >= 2:
+                activity_descriptor = "one of the more active governors"
+            else:
+                activity_descriptor = "contributing to the debate"
+            plural = "s" if proposals != 1 else ""
+            lines[-1] += (
+                f"You submitted {proposals} proposal{plural} — "
+                f"{activity_descriptor}. "
+            )
+
+        if votes > 0:
+            vote_context = (
+                "selective"
+                if votes < total_proposals_this_round // 2
+                else "engaged"
+            )
+            plural = "s" if votes != 1 else ""
+            lines[-1] += (
+                f"You cast {votes} vote{plural} out of "
+                f"{total_proposals_this_round} proposals — "
+                f"{vote_context} participation."
+            )
+
+    # --- Blind spot surfacing ---
+    if proposals > 0:
+        lines.append(
+            f"Your proposals have focused on {governor_focus}. "
+            f"Meanwhile, the league has seen more changes in {league_focus} — "
+            f"an area you haven't addressed yet."
+        )
+    elif votes > 0:
+        lines.append(
+            f"You voted but didn't propose. "
+            f"The league's biggest debates this round "
+            f"centered on {league_focus} — "
+            f"an area where your voice hasn't shaped the agenda."
+        )
+
+    # --- Engagement trajectory ---
+    if proposals + votes > 0:
+        trajectory = rng.choice(["increasing", "steady", "declining"])
+        if trajectory == "increasing":
+            lines.append(
+                "Your participation is trending up — "
+                "you're more engaged than in earlier rounds."
+            )
+        elif trajectory == "steady":
+            lines.append(
+                "Your engagement has been consistent across the season."
+            )
+        else:
+            lines.append(
+                "Your activity has tapered off from earlier rounds. "
+                "The system continues to evolve without you."
+            )
+
+    content = " ".join(lines)
 
     return Report(
         id=f"r-priv-{round_number}-{governor_id[:8]}-mock",

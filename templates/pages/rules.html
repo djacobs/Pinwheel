@@ -14,6 +14,11 @@
   <div class="rules-hero-stat">
     <span style="color:var(--accent-highlight); font-weight:800;">{{ community_changes }}</span>
     rule{{ 's' if community_changes != 1 else '' }} changed by the community
+    {% if most_changed_tier %}
+    <span style="color:var(--text-muted); font-weight:400; margin-left:1rem;">
+      &middot; Most changed: {{ most_changed_tier }}
+    </span>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -114,6 +119,21 @@
       <div class="rule-card-desc">{{ rule.desc }}</div>
       {% if rule.range %}
       <div class="rule-card-range">Range: {{ rule.range }}</div>
+      {% endif %}
+      {% if rule.history %}
+      <div class="rule-card-history">
+        {% for change in rule.history %}
+        <div class="rule-change-entry">
+          <span class="rule-change-arrow">{{ change.old_value }} &rarr; {{ change.new_value }}</span>
+          <span class="rule-change-round">Round {{ change.round_enacted }}</span>
+          {% if change.governor_id %}
+          <span class="rule-change-proposer">
+            <a href="/governors/{{ change.governor_id }}" class="text-muted">Proposed by Governor</a>
+          </span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
       {% endif %}
     </div>
     {% endfor %}

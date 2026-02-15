@@ -297,14 +297,8 @@ h3 { font-size: 1.05rem; }
   margin-bottom: 1.5rem;
   font-style: italic;
 }
-.home-post-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
+.home-post-section {
   margin-bottom: 1.25rem;
-}
-@media (max-width: 700px) {
-  .home-post-columns { grid-template-columns: 1fr; }
 }
 .home-post-section-header {
   font-size: 0.7rem;
@@ -334,6 +328,28 @@ h3 { font-size: 1.05rem; }
 .home-post-stat-line {
   font-size: 0.8rem;
   padding: 0.2rem 0;
+}
+
+/* --- Home Page: What Changed Widget --- */
+.what-changed {
+  max-width: 900px;
+  margin: 0 auto 2rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, var(--accent-highlight, #ff5a5f) 0%, var(--accent-score, #00d9ff) 100%);
+  border-left: 5px solid var(--accent-elam, #ffdd00);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.what-changed-item {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--bg-primary, #1a1a2e);
+  line-height: 1.6;
+  text-align: center;
+  padding: 0.4rem 0;
+}
+.what-changed-item:not(:last-child) {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .section-title {
@@ -503,6 +519,31 @@ h3 { font-size: 1.05rem; }
   transition: width 0.3s ease;
 }
 
+/* ===== Standings Callouts ===== */
+.standings-callouts {
+  margin-bottom: 1.25rem;
+  padding: 0.875rem 1.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 3px solid var(--accent-highlight);
+  border-radius: var(--radius);
+}
+
+.standings-callouts p {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.standings-callouts p:first-child {
+  margin-top: 0;
+}
+
+.standings-callouts p:last-child {
+  margin-bottom: 0;
+}
+
 /* ===== Standings Table ===== */
 .standings-table {
   width: 100%;
@@ -565,6 +606,35 @@ h3 { font-size: 1.05rem; }
 
 .diff-positive { color: var(--accent-success); }
 .diff-negative { color: var(--accent-danger); }
+
+/* ===== Recent Form Display ===== */
+.recent-form-display {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.form-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+}
+
+.form-dot--win {
+  background-color: var(--accent-success);
+  color: var(--bg-primary);
+}
+
+.form-dot--loss {
+  background-color: var(--accent-danger);
+  color: var(--bg-primary);
+}
 
 /* ===== Game Detail ===== */
 .game-header {
@@ -1798,6 +1868,50 @@ h3 { font-size: 1.05rem; }
   font-family: var(--font-mono);
   color: var(--text-muted);
   opacity: 0.7;
+}
+
+.rule-card-history {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.rule-change-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
+}
+
+.rule-change-entry:last-child {
+  margin-bottom: 0;
+}
+
+.rule-change-arrow {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-highlight);
+  font-size: 0.8rem;
+}
+
+.rule-change-round {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.rule-change-proposer {
+  font-size: 0.7rem;
+}
+
+.rule-change-proposer a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.rule-change-proposer a:hover {
+  color: var(--accent-highlight);
+  text-decoration: underline;
 }
 
 /* Changed rules strip */

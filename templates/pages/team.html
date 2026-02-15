@@ -99,6 +99,47 @@
 </div>
 {% endif %}
 
+{% if trajectory and trajectory.recent_form %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Season Arc</h3>
+  </div>
+  <div class="card-body">
+    <div class="mb-1">
+      <span class="text-muted text-xs">RECENT FORM</span><br>
+      <div class="recent-form-display">
+        {% for char in trajectory.recent_form %}
+          <span class="form-dot {% if char == 'W' %}form-dot--win{% else %}form-dot--loss{% endif %}">{{ char }}</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if trajectory.trend_desc or trajectory.rule_change_segment %}
+    <div style="margin-top:1rem; line-height:1.6;">
+      {% if trajectory.trend_desc %}
+      <p style="margin-bottom:0.5rem;">{{ trajectory.trend_desc }}</p>
+      {% endif %}
+      {% if trajectory.longest_win_streak >= 3 or trajectory.longest_loss_streak >= 3 %}
+      <p style="margin-bottom:0.5rem;">
+        {% if trajectory.longest_win_streak >= 3 %}
+        Longest win streak: <strong>{{ trajectory.longest_win_streak }}</strong> games.
+        {% endif %}
+        {% if trajectory.longest_loss_streak >= 3 %}
+        Longest loss streak: <strong>{{ trajectory.longest_loss_streak }}</strong> games.
+        {% endif %}
+      </p>
+      {% endif %}
+      {% if trajectory.rule_change_segment %}
+      <p class="text-muted" style="font-size:0.9rem; margin-bottom:0;">
+        {{ trajectory.rule_change_segment }}
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if governors %}
 <div class="section-title">Governors</div>
 <div class="card mb-2">

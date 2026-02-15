@@ -1221,6 +1221,215 @@ class TestCommentaryNarrativeContext:
 
         assert "Shot clock reduced to 20 seconds" in reel
 
+    def test_first_game_under_new_rule_mentioned(self) -> None:
+        """Commentary should call out first game under a new rule."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=5,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,  # Same round — first game
+                    "narrative": "",
+                }
+            ],
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert "first game under" in commentary.lower()
+        assert "three point value" in commentary.lower()
+
+    def test_late_season_arc_mentioned(self) -> None:
+        """Late season games should reference playoff positioning."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            season_arc="late",
+            round_number=8,
+            total_rounds=9,
+            phase="regular",
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert "winding down" in commentary.lower() or "playoff positioning" in commentary.lower()
+
+    def test_system_level_closing_with_standings(self) -> None:
+        """Commentary should end with league-context closing when standings available."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=5,
+            total_rounds=9,
+            season_arc="mid",
+            streaks={"team-home": 2, "team-away": -1},
+            standings=[
+                {
+                    "team_id": "team-home",
+                    "team_name": "Rose City Thorns",
+                    "wins": 3,
+                    "losses": 1,
+                    "rank": 1,
+                },
+                {
+                    "team_id": "team-away",
+                    "team_name": "Burnside Breakers",
+                    "wins": 1,
+                    "losses": 3,
+                    "rank": 4,
+                },
+            ],
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        # Should mention standings or record
+        assert "4-1" in commentary or "standings" in commentary.lower()
+
+    def test_long_streak_gets_closing_callout(self) -> None:
+        """A 5+ game streak should get special mention in closing."""
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            season_arc="mid",
+            streaks={"team-home": 5, "team-away": 0},
+            standings=[
+                {
+                    "team_id": "team-home",
+                    "team_name": "Rose City Thorns",
+                    "wins": 5,
+                    "losses": 0,
+                    "rank": 1,
+                },
+                {
+                    "team_id": "team-away",
+                    "team_name": "Burnside Breakers",
+                    "wins": 2,
+                    "losses": 3,
+                    "rank": 3,
+                },
+            ],
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert (
+            "remarkable run" in commentary.lower()
+            or "climbing the standings" in commentary.lower()
+        )
+
+    def test_highlight_reel_first_round_under_new_rule(self) -> None:
+        """Highlight reel should call out rule debuts."""
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            }
+        ]
+        narrative = NarrativeContext(
+            round_number=4,
+            total_rounds=9,
+            active_rule_changes=[
+                {
+                    "parameter": "shot_clock_seconds",
+                    "old_value": 24,
+                    "new_value": 20,
+                    "round_enacted": 4,
+                    "narrative": "",
+                }
+            ],
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=4, narrative=narrative
+        )
+
+        assert "debut" in reel.lower() or "first" in reel.lower()
+        assert "shot clock seconds" in reel.lower()
+
+    def test_highlight_reel_late_season_awareness(self) -> None:
+        """Late-season highlight reels should mention playoff race."""
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 50,
+                "away_score": 45,
+                "elam_activated": False,
+            }
+        ]
+        narrative = NarrativeContext(
+            round_number=8,
+            total_rounds=9,
+            season_arc="late",
+            phase="regular",
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=8, narrative=narrative
+        )
+
+        assert "playoff race" in reel.lower() or "winding down" in reel.lower()
+
+    def test_highlight_reel_streak_watch(self) -> None:
+        """Highlight reel should note notable streaks (5+)."""
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            }
+        ]
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            streaks={
+                "team-home": 6,
+                "team-away": -5,
+            },
+            standings=[
+                {
+                    "team_id": "team-home",
+                    "team_name": "Thorns",
+                    "wins": 6,
+                    "losses": 0,
+                },
+                {
+                    "team_id": "team-away",
+                    "team_name": "Breakers",
+                    "wins": 0,
+                    "losses": 6,
+                },
+            ],
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=6, narrative=narrative
+        )
+
+        assert "streak watch" in reel.lower()
+        assert "straight" in reel.lower() or "skid" in reel.lower()
+
 
 # ---------------------------------------------------------------------------
 # Game Richness — Mock governance report playoff awareness tests
