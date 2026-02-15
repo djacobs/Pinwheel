@@ -32,6 +32,58 @@
   {% endif %}
 </div>
 
+{# ===== THE PINWHEEL POST ===== #}
+{% if post_headline or post_sim_report or post_gov_report %}
+<div class="home-post">
+  <div class="home-post-masthead">
+    <div class="home-post-title">THE PINWHEEL POST</div>
+    <div class="home-post-date">
+      {% if season_name %}{{ season_name }} &mdash; {% endif %}Round {{ current_round }}
+    </div>
+  </div>
+
+  {% if post_headline %}
+  <div class="home-post-headline">{{ post_headline }}</div>
+  {% endif %}
+  {% if post_subhead %}
+  <div class="home-post-subhead">{{ post_subhead }}</div>
+  {% endif %}
+
+  <div class="home-post-columns">
+    {% if post_sim_report %}
+    <div class="home-post-col">
+      <div class="home-post-section-header">GAME REPORTS</div>
+      <div class="home-post-article">{{ post_sim_report }}</div>
+    </div>
+    {% endif %}
+    {% if post_gov_report %}
+    <div class="home-post-col">
+      <div class="home-post-section-header">THE FLOOR</div>
+      <div class="home-post-article">{{ post_gov_report }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if post_highlight_reel %}
+  <div class="home-post-full-width">
+    <div class="home-post-section-header">HIGHLIGHT REEL</div>
+    <div class="home-post-article">{{ post_highlight_reel }}</div>
+  </div>
+  {% endif %}
+
+  {% if post_hot_players %}
+  <div class="home-post-hot-players">
+    <div class="home-post-section-header">HOT PLAYERS</div>
+    {% for hp in post_hot_players %}
+    <div class="home-post-stat-line">
+      <strong>{{ hp.name }}</strong> ({{ hp.team }}) &mdash; {{ hp.stat }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ===== LATEST SCORES ===== #}
 {% if latest_round_games %}
 <div class="home-section">

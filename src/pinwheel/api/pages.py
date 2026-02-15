@@ -434,6 +434,102 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         if all_games:
             streaks = _compute_streaks_from_games(all_games)
 
+    # --- Pinwheel Post data (newspaper inlined on home page) ---
+    post_headline = ""
+    post_subhead = ""
+    post_sim_report = ""
+    post_gov_report = ""
+    post_highlight_reel = ""
+    post_hot_players: list[dict] = []
+
+    if season_id and current_round > 0:
+        from sqlalchemy import func, select
+
+        from pinwheel.ai.insights import generate_newspaper_headlines_mock
+        from pinwheel.db.models import BoxScoreRow, GameResultRow, HooperRow, TeamRow
+
+        round_phase = await _get_game_phase(repo, season_id, current_round)
+        is_championship_round = round_phase in ("finals", "championship")
+
+        # Simulation report
+        sim_reports = await repo.get_reports_for_round(
+            season_id, current_round, "simulation",
+        )
+        if sim_reports:
+            post_sim_report = sim_reports[0].content
+
+        # Governance report
+        if is_championship_round:
+            post_gov_report = (
+                "The season has concluded. The Floor is adjourned "
+                "until a new season begins."
+            )
+        else:
+            gov_reports = await repo.get_reports_for_round(
+                season_id, current_round, "governance",
+            )
+            if gov_reports:
+                post_gov_report = gov_reports[0].content
+
+        # Hot players (top 5 scorers)
+        stmt = (
+            select(
+                HooperRow.name,
+                TeamRow.name.label("team_name"),
+                func.sum(BoxScoreRow.points).label("total_pts"),
+                func.sum(BoxScoreRow.assists).label("total_ast"),
+                func.count(BoxScoreRow.id).label("games"),
+            )
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .join(HooperRow, BoxScoreRow.hooper_id == HooperRow.id)
+            .join(TeamRow, BoxScoreRow.team_id == TeamRow.id)
+            .where(GameResultRow.season_id == season_id)
+            .group_by(BoxScoreRow.hooper_id)
+            .order_by(func.sum(BoxScoreRow.points).desc())
+            .limit(5)
+        )
+        result = await repo.session.execute(stmt)
+        for row in result.all():
+            ppg = round(row.total_pts / max(row.games, 1), 1)
+            apg = round(row.total_ast / max(row.games, 1), 1)
+            post_hot_players.append({
+                "name": row.name,
+                "team": row.team_name,
+                "stat": f"{ppg} PPG, {apg} APG",
+            })
+
+        # Headlines
+        post_team_names: dict[str, str] = {}
+        round_games_for_post = await repo.get_games_for_round(season_id, current_round)
+        game_summaries: list[dict] = []
+        for g in round_games_for_post:
+            for tid in (g.home_team_id, g.away_team_id):
+                if tid not in post_team_names:
+                    t = await repo.get_team(tid)
+                    post_team_names[tid] = t.name if t else tid
+            game_summaries.append({
+                "home_team_name": post_team_names.get(g.home_team_id, "?"),
+                "away_team_name": post_team_names.get(g.away_team_id, "?"),
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "winner_team_id": g.winner_team_id,
+                "winner_team_name": post_team_names.get(g.winner_team_id, "?"),
+            })
+
+        round_data = {
+            "round_number": current_round,
+            "games": game_summaries,
+            "governance": {},
+        }
+        total_season_games = sum(s.get("wins", 0) for s in standings)
+        headlines = generate_newspaper_headlines_mock(
+            round_data, current_round,
+            playoff_phase=round_phase or "",
+            total_games_played=total_season_games,
+        )
+        post_headline = headlines.get("headline", "")
+        post_subhead = headlines.get("subhead", "")
+
     ctx = {
         "active_page": "home",
         "season_name": season_name or "Season",
@@ -446,6 +542,12 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "team_colors": team_colors,
         "season_phase": season_phase,
         "streaks": streaks,
+        "post_headline": post_headline,
+        "post_subhead": post_subhead,
+        "post_sim_report": post_sim_report,
+        "post_gov_report": post_gov_report,
+        "post_highlight_reel": post_highlight_reel,
+        "post_hot_players": post_hot_players,
     }
     return templates.TemplateResponse(
         request,
