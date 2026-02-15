@@ -194,7 +194,10 @@
 
 <script>
 (function() {
+  // Close any prior EventSource left by HTMX page swap to prevent duplicates.
+  if (window._pinwheelSSE) { window._pinwheelSSE.close(); }
   var es = new EventSource('/api/events/stream');
+  window._pinwheelSSE = es;
   var container = document.getElementById('live-container');
   var maxPlays = 30;
 
