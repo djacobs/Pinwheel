@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **880 tests**, zero lint errors (Session 57)
+- **880 tests**, zero lint errors (Session 58)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 57 (admin visibility, enrollment fix, test alignment)
+- **Latest commit:** Session 58 (resilient test assertions, scheduler vocabulary cleanup)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -459,3 +459,30 @@ Post-round session (~1s): mark games presented
 **880 tests, zero lint errors.**
 
 **What could have gone better:** The 18 test failures from the circle method mismatch were pre-existing — introduced when the scheduler was restructured in Session 53 but the tests weren't updated. Should have been caught in that session's test run (the previous session reported 857 tests passing, suggesting these tests were somehow skipped or the failures were masked).
+
+---
+
+## Session 58 — Resilient Test Assertions + Scheduler Vocabulary Cleanup
+
+**What was asked:** Fix scheduler vocabulary ("matchday" → "round" = complete round-robin cycle), then make all test game-count assertions resilient to team count changes so they won't break when expanding from 4 to 8+ teams.
+
+**What was built:**
+
+### Scheduler vocabulary cleanup (`scheduler.py`)
+- "round" now consistently means a complete round-robin cycle: every team plays every other team once. With 4 teams, a round = C(4,2) = 6 games.
+- Games within a round are ordered by `matchup_index` and played consecutively — no team plays two games at once.
+- `num_rounds` controls how many complete round-robin cycles are generated.
+- Module docstring, function docstring, and inline comments all updated to reflect this vocabulary.
+
+### Resilient test assertions (6 test files)
+- Replaced 35 hardcoded magic numbers (`== 6`, `== 28`, `== 12`, `== 9`, `== 10`, `== 3`) with values computed from team count.
+- Each test file now has a `NUM_TEAMS` constant at the top. Changing it automatically updates all assertions.
+- Used `math.comb(n, 2)` or `n * (n - 1) // 2` to compute expected games per round.
+- `total_wins == 6` → `total_wins == comb(NUM_TEAMS, 2)`, `wins + losses == 3` → `wins + losses == NUM_TEAMS - 1`, etc.
+- Playoff bracket assertions (`== 3` for 2 semis + 1 final) left untouched — playoff format is a separate concern.
+
+**Files modified (7):** `src/pinwheel/core/scheduler.py`, `tests/test_api/test_e2e.py`, `tests/test_commentary.py`, `tests/test_game_loop.py`, `tests/test_memorial.py`, `tests/test_scheduler_runner.py`, `tests/test_season_archive.py`
+
+**880 tests, zero lint errors.**
+
+**What could have gone better:** Went through two iterations on the scheduler fix — first made each circle-method slot its own round (wrong), then corrected to one round = complete round-robin. The user's clear vocabulary definition ("round = set of 6 games where each team plays 3 total") resolved the ambiguity immediately.
