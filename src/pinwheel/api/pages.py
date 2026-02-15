@@ -1660,17 +1660,8 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
     standings: list[dict] = []
     hot_players: list[dict] = []
     current_round = 0
-    season_complete = False
-    champion_name = ""
 
     if season_id:
-        # Check season status
-        season_row = await repo.get_season(season_id)
-        if season_row:
-            terminal = {"completed", "complete", "archived"}
-            season_complete = season_row.status in terminal
-            champion_name = getattr(season_row, "champion_team_name", "") or ""
-
         # Find latest round
         for rn in range(1, 100):
             games = await repo.get_games_for_round(season_id, rn)
@@ -1680,6 +1671,11 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
                 break
 
         if current_round > 0:
+            # Detect playoff phase for this round (needed for headlines
+            # and to override stale governance reports)
+            round_phase = await _get_game_phase(repo, season_id, current_round)
+            is_championship_round = round_phase in ("finals", "championship")
+
             # Fetch reports for the latest round
             sim_reports = await repo.get_reports_for_round(
                 season_id, current_round, "simulation",
@@ -1687,11 +1683,19 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
             if sim_reports:
                 sim_report = sim_reports[0].content
 
-            gov_reports = await repo.get_reports_for_round(
-                season_id, current_round, "governance",
-            )
-            if gov_reports:
-                gov_report = gov_reports[0].content
+            # Governance report — override if this was the championship
+            # (stored report says "finals underway" but season is over)
+            if is_championship_round:
+                gov_report = (
+                    "The season has concluded. The Floor is adjourned "
+                    "until a new season begins."
+                )
+            else:
+                gov_reports = await repo.get_reports_for_round(
+                    season_id, current_round, "governance",
+                )
+                if gov_reports:
+                    gov_report = gov_reports[0].content
 
             impact_reports = await repo.get_reports_for_round(
                 season_id, current_round, "impact_validation",
@@ -1754,16 +1758,11 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
                 "governance": {},
             }
 
-            # Detect playoff phase for this round
-            round_phase = await _get_game_phase(repo, season_id, current_round)
-
             # Total games played this season
             total_season_games = sum(s.get("wins", 0) for s in standings)
 
             headlines = generate_newspaper_headlines_mock(
                 round_data, current_round,
-                season_complete=season_complete,
-                champion_name=champion_name,
                 playoff_phase=round_phase or "",
                 total_games_played=total_season_games,
             )

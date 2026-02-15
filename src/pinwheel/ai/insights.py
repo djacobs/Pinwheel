@@ -712,28 +712,23 @@ def generate_newspaper_headlines_mock(
     round_data: dict,
     round_number: int,
     *,
-    season_complete: bool = False,
-    champion_name: str = "",
     playoff_phase: str = "",
     total_games_played: int = 0,
 ) -> dict[str, str]:
-    """Mock newspaper headlines — uses game data for deterministic output."""
+    """Mock newspaper headlines — reads the context to figure out the story.
+
+    The data tells us everything: a championship game has a winner (that's
+    the champion), a blowout tells us who dominated, a close game tells us
+    about drama. We don't need external flags — just look at what happened.
+    """
     games = round_data.get("games", [])
-
-    # Season is over — champion crowned
-    if season_complete and champion_name:
-        return {
-            "headline": f"{champion_name.upper()} ARE YOUR CHAMPIONS",
-            "subhead": "The season is over. The dynasty begins.",
-        }
-
     if not games:
         return {
             "headline": f"SILENCE ON THE COURTS — ROUND {round_number}",
             "subhead": "No games played this round.",
         }
 
-    # Find the closest game and biggest blowout
+    # Analyze every game
     closest_margin = 999
     biggest_margin = 0
     closest_game: dict = {}
@@ -748,54 +743,70 @@ def generate_newspaper_headlines_mock(
             biggest_margin = margin
             biggest_game = g
 
-    # Use the most interesting game for the headline
-    feature_game = closest_game if closest_margin <= 5 else biggest_game
-    winner = feature_game.get(
-        "winner_team_name", feature_game.get("winner_team_id", "???")
+    # Pick the feature game — close games are more dramatic than blowouts
+    feature = closest_game if closest_margin <= 5 else biggest_game
+    winner = feature.get(
+        "winner_team_name", feature.get("winner_team_id", "???")
     )
-    loser_name = ""
-    for g in games:
-        if g.get("winner_team_name") != winner:
-            loser_name = g.get("home_team_name", "")
-            if loser_name == winner:
-                loser_name = g.get("away_team_name", "")
+    w_score = feature.get("home_score", 0)
+    l_score = feature.get("away_score", 0)
+    if feature.get("winner_team_name") != feature.get("home_team_name"):
+        w_score, l_score = l_score, w_score
+    margin = abs(w_score - l_score)
 
-    # Build headline — playoff-aware, always specific
+    # Figure out the loser
+    loser = ""
+    if feature.get("winner_team_name") == feature.get("home_team_name"):
+        loser = feature.get("away_team_name", "")
+    else:
+        loser = feature.get("home_team_name", "")
+
+    # Championship game — the winner IS the champion. Season is over.
     is_championship = playoff_phase in ("finals", "championship")
     is_playoff = is_championship or playoff_phase == "semifinal"
 
     if is_championship:
-        w_score = feature_game.get("home_score", 0)
-        a_score = feature_game.get("away_score", 0)
-        if feature_game.get("winner_team_name") != feature_game.get("home_team_name"):
-            w_score, a_score = a_score, w_score
         headline = (
-            f"{winner.upper()} WINS THE CHAMPIONSHIP "
-            f"{w_score}-{a_score}"
+            f"{winner.upper()} ARE YOUR CHAMPIONS"
         )
+        subhead = f"Defeated {loser} {w_score}-{l_score} to claim the title."
     elif closest_margin <= 3 and closest_game:
-        headline = f"DOWN TO THE WIRE! {winner} survives by {closest_margin}"
+        headline = f"DOWN TO THE WIRE! {winner} survives by {margin}"
+        subhead = _round_subhead(
+            round_data, is_playoff, total_games_played, len(games),
+        )
     elif biggest_margin >= 10 and biggest_game:
-        headline = f"DOMINANT! {winner} rolls by {biggest_margin}"
+        headline = f"DOMINANT! {winner} rolls {w_score}-{l_score}"
+        subhead = _round_subhead(
+            round_data, is_playoff, total_games_played, len(games),
+        )
     elif is_playoff:
-        headline = f"{winner.upper()} ADVANCES"
+        headline = f"{winner.upper()} TAKES THE SERIES LEAD"
+        subhead = f"Beat {loser} {w_score}-{l_score}."
     else:
         headline = f"{winner} wins Round {round_number}"
+        subhead = _round_subhead(
+            round_data, is_playoff, total_games_played, len(games),
+        )
 
-    # Subhead — contextual, never just counting games
+    return {"headline": headline, "subhead": subhead}
+
+
+def _round_subhead(
+    round_data: dict,
+    is_playoff: bool,
+    total_games_played: int,
+    games_this_round: int,
+) -> str:
+    """Build a contextual subhead for non-championship rounds."""
     governance_data = round_data.get("governance", {})
     rules_changed = governance_data.get("rules_changed", [])
     if rules_changed:
         param = rules_changed[0].get("parameter", "a rule")
-        subhead = f"The Floor rewrites {param} as governance reshapes the game."
-    elif is_championship and loser_name:
-        subhead = f"{loser_name} falls in the finals."
-    elif is_playoff:
-        subhead = "The postseason continues."
-    elif total_games_played > 0:
-        subhead = f"{total_games_played} games played this season."
-    else:
-        n = len(games)
-        subhead = f"{n} {'game' if n == 1 else 'games'} this round."
-
-    return {"headline": headline, "subhead": subhead}
+        return f"The Floor rewrites {param} as governance reshapes the game."
+    if is_playoff:
+        return "The postseason rolls on."
+    if total_games_played > 0:
+        return f"{total_games_played} games played this season."
+    n = games_this_round
+    return f"{n} {'game' if n == 1 else 'games'} this round."
