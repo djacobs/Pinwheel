@@ -304,34 +304,74 @@ def generate_simulation_report_mock(
     # Build narrative lines
     lines = []
 
+    # Playoff phase opener — a playoff sim report must FEEL different
+    if narrative and narrative.phase in ("semifinal", "finals", "championship"):
+        if narrative.phase == "finals":
+            lines.append(
+                "THE CHAMPIONSHIP FINALS. The biggest stage. "
+                "Everything this season built toward comes down to this."
+            )
+        elif narrative.phase == "semifinal":
+            lines.append(
+                "SEMIFINAL PLAYOFFS — win or go home. "
+                "The pressure of elimination hangs over every possession."
+            )
+
     # Lead with the most dramatic game
     if close_games:
         g = close_games[0]
         w, lo = g["winner"], g["loser"]
         ws, ls, m = g["w_score"], g["l_score"], g["margin"]
-        openers = [
-            (
-                f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
-                "that went down to the final Elam possession."
-            ),
-            (
-                f"A {m}-point margin was all that separated "
-                f"{w} from {lo}. The kind of game that turns a season."
-            ),
-            (
-                f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
-                "until the Elam target came into view."
-            ),
-        ]
+        if narrative and narrative.phase in ("semifinal", "finals"):
+            openers = [
+                (
+                    f"{w} survived {lo} by {m} — a {ws}-{ls} "
+                    f"{'championship' if narrative.phase == 'finals' else 'playoff'} "
+                    "classic that will echo for seasons."
+                ),
+                (
+                    f"A {m}-point margin was all that separated "
+                    f"{w} from {lo}. "
+                    + (
+                        "A title decided by inches."
+                        if narrative.phase == "finals"
+                        else "Elimination avoided by the thinnest margin."
+                    )
+                ),
+            ]
+        else:
+            openers = [
+                (
+                    f"{w} survived {lo} by {m} — a {ws}-{ls} grinder "
+                    "that went down to the final Elam possession."
+                ),
+                (
+                    f"A {m}-point margin was all that separated "
+                    f"{w} from {lo}. The kind of game that turns a season."
+                ),
+                (
+                    f"{w} edged {lo} {ws}-{ls}. Neither team blinked "
+                    "until the Elam target came into view."
+                ),
+            ]
         lines.append(rng.choice(openers))
     elif blowouts:
         g = blowouts[0]
         w, lo = g["winner"], g["loser"]
         ws, ls, m = g["w_score"], g["l_score"], g["margin"]
-        openers = [
-            (f"{w} dismantled {lo} by {m}. It wasn't close after the first quarter."),
-            (f"A {m}-point demolition: {w} {ws}, {lo} {ls}. The Elam target was a formality."),
-        ]
+        if narrative and narrative.phase in ("semifinal", "finals"):
+            openers = [
+                (
+                    f"{w} dominated {lo} by {m} in a "
+                    f"{'championship' if narrative.phase == 'finals' else 'semifinal'} "
+                    f"rout. {lo}'s season ends in decisive fashion."
+                ),
+            ]
+        else:
+            openers = [
+                (f"{w} dismantled {lo} by {m}. It wasn't close after the first quarter."),
+                (f"A {m}-point demolition: {w} {ws}, {lo} {ls}. The Elam target was a formality."),
+            ]
         lines.append(rng.choice(openers))
     else:
         g0 = games[0]
@@ -448,6 +488,20 @@ def generate_simulation_report_mock(
                 f"Round {narrative.round_number} of {narrative.total_rounds} — "
                 f"the regular season is winding down."
             )
+        elif narrative.season_arc == "playoff":
+            lines.append("Every game from here on out is elimination basketball.")
+        elif narrative.season_arc == "championship":
+            lines.append("The championship celebration has begun.")
+
+        # Hot players
+        if narrative.hot_players:
+            for hp in narrative.hot_players[:2]:
+                hp_name = hp.get("name", "?")
+                hp_team = hp.get("team_name", "?")
+                hp_pts = hp.get("value", 0)
+                lines.append(
+                    f"{hp_name} ({hp_team}) is on fire with {hp_pts} points."
+                )
 
     return Report(
         id=f"r-sim-{round_number}-mock",
@@ -469,19 +523,38 @@ def generate_governance_report_mock(
     rules_changed = governance_data.get("rules_changed", [])
 
     lines = []
+
+    # Playoff phase opener — governance during playoffs carries different weight
+    if narrative and narrative.phase in ("semifinal", "finals", "championship"):
+        if narrative.phase == "finals":
+            lines.append(
+                "CHAMPIONSHIP GOVERNANCE. With the finals underway, "
+                "every rule decision now shapes how the title is won."
+            )
+        elif narrative.phase == "semifinal":
+            lines.append(
+                "PLAYOFF GOVERNANCE — the stakes are higher. "
+                "Rule changes enacted now land on elimination games."
+            )
+
     if proposals:
         lines.append(
-            f"Round {round_number} saw {len(proposals)} proposal(s) enter the governance arena."
+            f"Round {round_number} saw {len(proposals)} proposal(s) "
+            "enter the governance arena."
         )
     else:
         lines.append(
-            f"Round {round_number} was quiet on the governance front — no proposals filed."
+            f"Round {round_number} was quiet on the governance front "
+            "— no proposals filed."
         )
 
     if votes:
         yes_count = sum(1 for v in votes if v.get("vote") == "yes")
         no_count = sum(1 for v in votes if v.get("vote") == "no")
-        lines.append(f"Governors cast {len(votes)} votes ({yes_count} yes, {no_count} no).")
+        lines.append(
+            f"Governors cast {len(votes)} votes "
+            f"({yes_count} yes, {no_count} no)."
+        )
 
     if rules_changed:
         lines.append(f"{len(rules_changed)} rule(s) changed this round:")
@@ -491,18 +564,27 @@ def generate_governance_report_mock(
             new_val = rc.get("new_value", "?")
             if param != "unknown" and old_val != "?" and new_val != "?":
                 param_label = param.replace("_", " ").title()
-                lines.append(f"  {param_label} moved from {old_val} to {new_val}.")
+                lines.append(
+                    f"  {param_label} moved from {old_val} to {new_val}."
+                )
             else:
-                lines.append(f"  A rule was changed (proposal {rc.get('proposal_id', '?')}).")
+                lines.append(
+                    f"  A rule was changed "
+                    f"(proposal {rc.get('proposal_id', '?')})."
+                )
         lines.append("The next round plays under these new conditions.")
 
     # Narrative context enrichment
     if narrative:
         if narrative.pending_proposals > 0 and not proposals:
             lines.append(
-                f"{narrative.pending_proposals} proposal(s) remain pending from prior rounds."
+                f"{narrative.pending_proposals} proposal(s) remain "
+                "pending from prior rounds."
             )
-        if narrative.next_tally_round is not None and not narrative.governance_window_open:
+        if (
+            narrative.next_tally_round is not None
+            and not narrative.governance_window_open
+        ):
             lines.append(
                 f"Next governance tally: Round {narrative.next_tally_round}."
             )

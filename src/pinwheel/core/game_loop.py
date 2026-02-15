@@ -35,7 +35,7 @@ from pinwheel.ai.report import (
 )
 from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.governance import tally_governance
+from pinwheel.core.governance import tally_governance, tally_governance_with_effects
 from pinwheel.core.hooks import HookContext, fire_effects
 from pinwheel.core.meta import MetaStore
 from pinwheel.core.narrative import NarrativeContext, compute_narrative_context
@@ -704,10 +704,14 @@ async def tally_pending_governance(
     round_number: int,
     ruleset: RuleSet,
     event_bus: EventBus | None = None,
+    effect_registry: EffectRegistry | None = None,
 ) -> tuple[RuleSet, list[VoteTally], dict]:
     """Tally all pending proposals and enact passing rule changes.
 
     Standalone function — can run with or without game simulation.
+    When ``effect_registry`` is provided, passing proposals that contain
+    v2 effects (meta_mutation, hook_callback, narrative) will have those
+    effects registered in the registry and persisted to the event store.
     Returns (updated_ruleset, tallies, governance_data).
     """
     governance_data: dict = {"proposals": [], "votes": [], "rules_changed": []}
@@ -770,14 +774,25 @@ async def tally_pending_governance(
             if pid in seen_ids:
                 votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
 
-        new_ruleset, round_tallies = await tally_governance(
-            repo=repo,
-            season_id=season_id,
-            proposals=proposals,
-            votes_by_proposal=votes_by_proposal,
-            current_ruleset=ruleset,
-            round_number=round_number,
-        )
+        if effect_registry is not None:
+            new_ruleset, round_tallies = await tally_governance_with_effects(
+                repo=repo,
+                season_id=season_id,
+                proposals=proposals,
+                votes_by_proposal=votes_by_proposal,
+                current_ruleset=ruleset,
+                round_number=round_number,
+                effect_registry=effect_registry,
+            )
+        else:
+            new_ruleset, round_tallies = await tally_governance(
+                repo=repo,
+                season_id=season_id,
+                proposals=proposals,
+                votes_by_proposal=votes_by_proposal,
+                current_ruleset=ruleset,
+                round_number=round_number,
+            )
         tallies = round_tallies
 
         if new_ruleset != ruleset:
@@ -1054,6 +1069,7 @@ async def _phase_simulate_and_govern(
             "winner_team_id": result.winner_team_id,
             "elam_activated": result.elam_activated,
             "total_possessions": result.total_possessions,
+            "playoff_context": playoff_context,
         }
 
         game_summaries.append(summary)
@@ -1118,6 +1134,7 @@ async def _phase_simulate_and_govern(
             round_number=round_number,
             ruleset=ruleset,
             event_bus=event_bus,
+            effect_registry=effect_registry,
         )
 
         # Build per-proposal tally data for Discord notifications
@@ -1190,10 +1207,12 @@ async def _phase_simulate_and_govern(
             "narrative_context_failed season=%s round=%d", season_id, round_number
         )
 
-    # Build effects summary for report context
+    # Build effects summary for report context and inject into narrative
     effects_summary = ""
     if effect_registry and effect_registry.count > 0:
         effects_summary = effect_registry.build_effects_summary()
+        if narrative_ctx is not None:
+            narrative_ctx.effects_narrative = effects_summary
 
     return _SimPhaseResult(
         season_id=season_id,

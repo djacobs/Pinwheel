@@ -9,13 +9,24 @@ from pinwheel.ai.commentary import (
     generate_game_commentary_mock,
     generate_highlight_reel_mock,
 )
+from pinwheel.ai.report import (
+    generate_simulation_report_mock,
+)
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import step_round
+from pinwheel.core.narrative import NarrativeContext
 from pinwheel.core.scheduler import generate_round_robin
 from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
-from pinwheel.discord.embeds import build_commentary_embed
+from pinwheel.discord.embeds import (
+    build_commentary_embed,
+    build_game_result_embed,
+    build_round_summary_embed,
+    build_schedule_embed,
+    build_standings_embed,
+    build_team_game_result_embed,
+)
 from pinwheel.models.game import GameResult, HooperBoxScore, QuarterScore
 
 # ---------------------------------------------------------------------------
@@ -739,3 +750,733 @@ class TestCommentaryGameLoopIntegration:
         assert len(round_events) == 1
         assert "highlight_reel" in round_events[0]["data"]
         assert len(round_events[0]["data"]["highlight_reel"]) > 20
+
+
+# ---------------------------------------------------------------------------
+# Game Richness — Discord embed playoff awareness tests
+# ---------------------------------------------------------------------------
+
+
+class TestGameResultEmbedPlayoff:
+    """Game result embeds should reflect playoff context."""
+
+    def test_regular_season_no_playoff_label(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        embed = build_game_result_embed(data)
+
+        assert "SEMIFINAL" not in embed.title
+        assert "CHAMPIONSHIP" not in embed.title
+        assert embed.title == "Thorns vs Breakers"
+
+    def test_semifinal_shows_label(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        embed = build_game_result_embed(data, playoff_context="semifinal")
+
+        assert "SEMIFINAL" in embed.title
+        # Should have a Stage field
+        stage_fields = [f for f in embed.fields if f.name == "Stage"]
+        assert len(stage_fields) == 1
+        assert "Semifinal" in stage_fields[0].value
+
+    def test_finals_shows_championship(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        embed = build_game_result_embed(data, playoff_context="finals")
+
+        assert "CHAMPIONSHIP" in embed.title
+        stage_fields = [f for f in embed.fields if f.name == "Stage"]
+        assert len(stage_fields) == 1
+        assert "Championship" in stage_fields[0].value
+
+
+class TestStandingsEmbedStreaks:
+    """Standings embeds should show streaks when provided."""
+
+    def test_shows_win_streak(self) -> None:
+        standings = [
+            {"team_name": "Thorns", "team_id": "t1", "wins": 5, "losses": 1},
+            {"team_name": "Breakers", "team_id": "t2", "wins": 3, "losses": 3},
+        ]
+        streaks = {"t1": 5, "t2": -3}
+        embed = build_standings_embed(standings, streaks=streaks)
+
+        assert "W5" in (embed.description or "")
+        assert "L3" in (embed.description or "")
+
+    def test_no_streak_below_threshold(self) -> None:
+        standings = [
+            {"team_name": "Thorns", "team_id": "t1", "wins": 2, "losses": 0},
+        ]
+        streaks = {"t1": 2}  # below 3 threshold
+        embed = build_standings_embed(standings, streaks=streaks)
+
+        assert "W2" not in (embed.description or "")
+
+    def test_playoff_title(self) -> None:
+        standings = [
+            {"team_name": "Thorns", "team_id": "t1", "wins": 5, "losses": 1},
+        ]
+        embed = build_standings_embed(
+            standings, season_phase="semifinal"
+        )
+
+        assert "Playoffs" in embed.title
+
+    def test_championship_title(self) -> None:
+        standings = [
+            {"team_name": "Thorns", "team_id": "t1", "wins": 5, "losses": 1},
+        ]
+        embed = build_standings_embed(
+            standings, season_phase="finals"
+        )
+
+        assert "Championship" in embed.title
+
+
+class TestScheduleEmbedPlayoff:
+    """Schedule embeds should show playoff context."""
+
+    def test_regular_season_title(self) -> None:
+        schedule = [
+            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+        ]
+        embed = build_schedule_embed(schedule, round_number=5)
+
+        assert embed.title == "Schedule -- Round 5"
+
+    def test_semifinal_title(self) -> None:
+        schedule = [
+            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+        ]
+        embed = build_schedule_embed(
+            schedule, round_number=10, playoff_context="semifinal"
+        )
+
+        assert "SEMIFINAL" in embed.title
+
+    def test_finals_title(self) -> None:
+        schedule = [
+            {"home_team_name": "Thorns", "away_team_name": "Breakers"},
+        ]
+        embed = build_schedule_embed(
+            schedule, round_number=11, playoff_context="finals"
+        )
+
+        assert "CHAMPIONSHIP" in embed.title
+
+
+class TestCommentaryEmbedPlayoff:
+    """Commentary embeds should reflect playoff context."""
+
+    def test_regular_no_label(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "commentary": "Great game.",
+        }
+        embed = build_commentary_embed(data)
+
+        assert "CHAMPIONSHIP" not in embed.title
+        assert "SEMIFINAL" not in embed.title
+
+    def test_finals_label(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "commentary": "What a game.",
+        }
+        embed = build_commentary_embed(data, playoff_context="finals")
+
+        assert "CHAMPIONSHIP" in embed.title
+        assert "CHAMPIONSHIP FINALS" in embed.footer.text
+
+    def test_semifinal_label(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "commentary": "What a game.",
+        }
+        embed = build_commentary_embed(data, playoff_context="semifinal")
+
+        assert "SEMIFINAL" in embed.title
+
+
+class TestRoundSummaryEmbedPlayoff:
+    """Round summary embeds should reflect playoff context."""
+
+    def test_regular_round(self) -> None:
+        data = {"round": 5, "games": 2, "reports": 3}
+        embed = build_round_summary_embed(data)
+
+        assert embed.title == "Round 5 Complete"
+
+    def test_semifinal_round(self) -> None:
+        data = {"round": 10, "games": 2, "reports": 3}
+        embed = build_round_summary_embed(
+            data, playoff_context="semifinal"
+        )
+
+        assert "SEMIFINAL" in embed.title
+
+    def test_finals_with_playoffs_complete(self) -> None:
+        data = {
+            "round": 11,
+            "games": 1,
+            "reports": 3,
+            "playoffs_complete": True,
+        }
+        embed = build_round_summary_embed(data, playoff_context="finals")
+
+        assert "CHAMPIONSHIP" in embed.title
+        assert "champion" in (embed.description or "").lower()
+
+
+class TestTeamGameResultEmbedPlayoff:
+    """Team-specific game results should reflect playoff context."""
+
+    def test_regular_win(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+            "home_team_id": "t1",
+        }
+        embed = build_team_game_result_embed(data, "t1")
+
+        assert "Victory" in embed.title
+
+    def test_championship_win(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+            "home_team_id": "t1",
+        }
+        embed = build_team_game_result_embed(
+            data, "t1", playoff_context="finals"
+        )
+
+        assert "CHAMPIONS" in embed.title
+
+    def test_semifinal_loss(self) -> None:
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 48,
+            "away_score": 55,
+            "winner_team_id": "t2",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+        }
+        embed = build_team_game_result_embed(
+            data, "t1", playoff_context="semifinal"
+        )
+
+        assert "Eliminated" in embed.title
+        assert "season is over" in embed.title
+
+
+# ---------------------------------------------------------------------------
+# Game Richness — Mock simulation report playoff awareness tests
+# ---------------------------------------------------------------------------
+
+
+class TestSimReportMockPlayoff:
+    """Mock simulation reports should reflect playoff context."""
+
+    def test_playoff_report_mentions_phase(self) -> None:
+        """A semifinal sim report should mention the playoffs."""
+        round_data = {
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 55,
+                    "away_score": 48,
+                },
+            ]
+        }
+        narrative = NarrativeContext(
+            phase="semifinal",
+            season_arc="playoff",
+            round_number=10,
+        )
+        report = generate_simulation_report_mock(
+            round_data, "s1", 10, narrative=narrative
+        )
+
+        content = report.content.lower()
+        assert "semifinal" in content or "playoff" in content
+
+    def test_championship_report_mentions_finals(self) -> None:
+        """A championship sim report should reference the finals."""
+        round_data = {
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 55,
+                    "away_score": 48,
+                },
+            ]
+        }
+        narrative = NarrativeContext(
+            phase="finals",
+            season_arc="championship",
+            round_number=11,
+        )
+        report = generate_simulation_report_mock(
+            round_data, "s1", 11, narrative=narrative
+        )
+
+        content = report.content.lower()
+        assert "championship" in content or "finals" in content
+
+    def test_regular_season_no_playoff_mention(self) -> None:
+        """A regular season sim report should NOT mention playoffs."""
+        round_data = {
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 55,
+                    "away_score": 48,
+                },
+            ]
+        }
+        narrative = NarrativeContext(
+            phase="regular",
+            season_arc="mid",
+            round_number=5,
+            total_rounds=9,
+        )
+        report = generate_simulation_report_mock(
+            round_data, "s1", 5, narrative=narrative
+        )
+
+        content = report.content.lower()
+        assert "semifinal" not in content
+        assert "championship" not in content
+
+    def test_hot_players_mentioned(self) -> None:
+        """Hot players from narrative should appear in mock report."""
+        round_data = {
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 55,
+                    "away_score": 48,
+                },
+            ]
+        }
+        narrative = NarrativeContext(
+            phase="regular",
+            season_arc="mid",
+            round_number=5,
+            hot_players=[
+                {
+                    "name": "Briar Ashwood",
+                    "team_name": "Thorns",
+                    "stat": "points",
+                    "value": 28,
+                    "games": 1,
+                }
+            ],
+        )
+        report = generate_simulation_report_mock(
+            round_data, "s1", 5, narrative=narrative
+        )
+
+        assert "Briar Ashwood" in report.content
+        assert "28" in report.content
+
+    def test_late_season_arc_mentioned(self) -> None:
+        """Late season arc should produce a winding-down note."""
+        round_data = {
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Breakers",
+                    "home_score": 50,
+                    "away_score": 45,
+                },
+            ]
+        }
+        narrative = NarrativeContext(
+            phase="regular",
+            season_arc="late",
+            round_number=8,
+            total_rounds=9,
+        )
+        report = generate_simulation_report_mock(
+            round_data, "s1", 8, narrative=narrative
+        )
+
+        assert "winding down" in report.content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Game Richness — NarrativeContext in mock commentary tests
+# ---------------------------------------------------------------------------
+
+
+class TestCommentaryNarrativeContext:
+    """Mock commentary should use NarrativeContext for richer output."""
+
+    def test_win_streak_mentioned(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            streaks={"team-home": 5, "team-away": -2},
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert "5 straight" in commentary or "streak" in commentary.lower()
+
+    def test_losing_streak_mentioned(self) -> None:
+        result = _make_game_result(home_score=38, away_score=45)
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            streaks={"team-home": -4, "team-away": 2},
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert "4" in commentary and (
+            "dropped" in commentary.lower() or "skid" in commentary.lower()
+        )
+
+    def test_rules_narrative_included(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            rules_narrative="Three-pointers worth 5 points",
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+
+        assert "Three-pointers worth 5" in commentary
+
+    def test_highlight_reel_with_narrative(self) -> None:
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            }
+        ]
+        narrative = NarrativeContext(
+            rules_narrative="Shot clock reduced to 20 seconds",
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=5, narrative=narrative
+        )
+
+        assert "Shot clock reduced to 20 seconds" in reel
+
+
+# ---------------------------------------------------------------------------
+# Game Richness — Mock governance report playoff awareness tests
+# ---------------------------------------------------------------------------
+
+
+class TestGovReportMockPlayoff:
+    """Mock governance reports should reflect playoff context."""
+
+    def test_playoff_gov_report_mentions_phase(self) -> None:
+        """A semifinal governance report should mention playoffs."""
+        from pinwheel.ai.report import generate_governance_report_mock
+
+        gov_data = {
+            "proposals": [{"id": "p1", "raw_text": "Change shot clock"}],
+            "votes": [{"vote": "yes"}],
+            "rules_changed": [],
+        }
+        narrative = NarrativeContext(
+            phase="semifinal",
+            season_arc="playoff",
+            round_number=10,
+        )
+        report = generate_governance_report_mock(
+            gov_data, "s1", 10, narrative=narrative,
+        )
+
+        content = report.content.lower()
+        assert "playoff" in content or "elimination" in content
+
+    def test_championship_gov_report_mentions_finals(self) -> None:
+        """A championship governance report should reference the finals."""
+        from pinwheel.ai.report import generate_governance_report_mock
+
+        gov_data = {
+            "proposals": [],
+            "votes": [],
+            "rules_changed": [],
+        }
+        narrative = NarrativeContext(
+            phase="finals",
+            season_arc="championship",
+            round_number=11,
+        )
+        report = generate_governance_report_mock(
+            gov_data, "s1", 11, narrative=narrative,
+        )
+
+        content = report.content.lower()
+        assert "championship" in content or "finals" in content
+
+    def test_regular_season_no_playoff_mention(self) -> None:
+        """Regular season governance report should NOT mention playoffs."""
+        from pinwheel.ai.report import generate_governance_report_mock
+
+        gov_data = {
+            "proposals": [{"id": "p1", "raw_text": "Test"}],
+            "votes": [],
+            "rules_changed": [],
+        }
+        narrative = NarrativeContext(
+            phase="regular",
+            season_arc="mid",
+            round_number=5,
+        )
+        report = generate_governance_report_mock(
+            gov_data, "s1", 5, narrative=narrative,
+        )
+
+        content = report.content.lower()
+        assert "playoff governance" not in content
+        assert "championship governance" not in content
+
+    def test_no_narrative_still_works(self) -> None:
+        """Governance report without narrative should still generate."""
+        from pinwheel.ai.report import generate_governance_report_mock
+
+        gov_data = {
+            "proposals": [],
+            "votes": [],
+            "rules_changed": [],
+        }
+        report = generate_governance_report_mock(
+            gov_data, "s1", 3,
+        )
+
+        assert report.content
+        assert report.round_number == 3
+
+
+# ---------------------------------------------------------------------------
+# Game Richness — Presenter playoff_context propagation tests
+# ---------------------------------------------------------------------------
+
+
+class TestPresenterPlayoffContext:
+    """Presenter should propagate playoff_context through events."""
+
+    async def test_game_starting_includes_playoff_context(self) -> None:
+        """game_starting event should include playoff_context from summaries."""
+        from pinwheel.core.presenter import PresentationState, _present_full_game
+
+        bus = EventBus()
+        state = PresentationState()
+        state.game_summaries = [
+            {"playoff_context": "semifinals", "home_team": "A", "away_team": "B"},
+        ]
+        state.is_active = True
+
+        result = _make_game_result()
+
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        starting_events = [
+            e for e in received
+            if e["type"] == "presentation.game_starting"
+        ]
+        assert len(starting_events) == 1
+        assert starting_events[0]["data"]["playoff_context"] == "semifinals"
+
+    async def test_game_finished_includes_playoff_context(self) -> None:
+        """game_finished event should include playoff_context from summaries."""
+        from pinwheel.core.presenter import PresentationState, _present_full_game
+
+        bus = EventBus()
+        state = PresentationState()
+        state.game_summaries = [
+            {
+                "playoff_context": "finals",
+                "home_team": "Home",
+                "away_team": "Away",
+                "winner_team_id": "team-home",
+                "elam_activated": False,
+                "total_possessions": 60,
+                "commentary": "Test",
+            },
+        ]
+        state.is_active = True
+
+        result = _make_game_result()
+
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        finished_events = [
+            e for e in received
+            if e["type"] == "presentation.game_finished"
+        ]
+        assert len(finished_events) == 1
+        assert finished_events[0]["data"]["playoff_context"] == "finals"
+
+    async def test_no_summaries_no_playoff_context(self) -> None:
+        """Without game_summaries, playoff_context should be None."""
+        from pinwheel.core.presenter import PresentationState, _present_full_game
+
+        bus = EventBus()
+        state = PresentationState()
+        state.game_summaries = []
+        state.is_active = True
+
+        result = _make_game_result()
+
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await _present_full_game(
+                game_idx=0,
+                game_result=result,
+                total_games=1,
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                names={"team-home": "Home", "team-away": "Away"},
+                colors={},
+                on_game_finished=None,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        starting_events = [
+            e for e in received
+            if e["type"] == "presentation.game_starting"
+        ]
+        assert len(starting_events) == 1
+        assert starting_events[0]["data"]["playoff_context"] is None
+
+    async def test_round_finished_includes_playoff_context(self) -> None:
+        """round_finished event should include playoff_context from summaries."""
+        from pinwheel.core.presenter import PresentationState, present_round
+
+        bus = EventBus()
+        state = PresentationState()
+
+        result = _make_game_result()
+        summaries = [
+            {
+                "playoff_context": "semifinal",
+                "home_team": "Home",
+                "away_team": "Away",
+                "winner_team_id": "team-home",
+                "elam_activated": False,
+                "total_possessions": 60,
+                "commentary": "Test",
+            },
+        ]
+
+        received: list[dict] = []
+
+        async with bus.subscribe(None) as sub:
+            await present_round(
+                game_results=[result],
+                event_bus=bus,
+                state=state,
+                quarter_replay_seconds=0,
+                game_summaries=summaries,
+            )
+            while True:
+                event = await sub.get(timeout=0.1)
+                if event is None:
+                    break
+                received.append(event)
+
+        round_events = [
+            e for e in received
+            if e["type"] == "presentation.round_finished"
+        ]
+        assert len(round_events) == 1
+        assert round_events[0]["data"]["playoff_context"] == "semifinal"

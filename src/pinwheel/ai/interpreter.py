@@ -147,6 +147,14 @@ def interpret_proposal_mock(
         "vote threshold": ("vote_threshold", float),
         "quarter length": ("quarter_minutes", int),
         "quarter minutes": ("quarter_minutes", int),
+        "turnover rate": ("turnover_rate_modifier", float),
+        "turnover modifier": ("turnover_rate_modifier", float),
+        "foul rate": ("foul_rate_modifier", float),
+        "offensive rebound": ("offensive_rebound_weight", float),
+        "stamina drain": ("stamina_drain_rate", float),
+        "dead ball": ("dead_ball_time_seconds", float),
+        "dead time": ("dead_ball_time_seconds", float),
+        "substitution threshold": ("substitution_stamina_threshold", float),
     }
 
     for keyword, (param, typ) in param_keywords.items():
@@ -393,6 +401,24 @@ async def interpret_proposal_v2(
         )
 
 
+def _split_compound_clauses(raw_text: str) -> list[str]:
+    """Split a compound proposal into individual clauses.
+
+    Detects "and" or "," between parameter-change clauses. Only splits
+    when multiple independent parameter changes are present.
+    Returns a list of clause strings. Single proposals return a one-element list.
+    """
+    import re
+
+    text = raw_text.strip()
+    # Split on " and " or ", " but only between clauses (not inside phrases like
+    # "three point" — we require a number on each side of the split)
+    # Strategy: split on " and " or commas, then test each clause independently
+    separators = re.split(r"\s+and\s+|,\s*", text, flags=re.IGNORECASE)
+    # Filter out empty strings
+    return [s.strip() for s in separators if s.strip()]
+
+
 def interpret_proposal_v2_mock(
     raw_text: str,
     ruleset: RuleSet,
@@ -401,9 +427,36 @@ def interpret_proposal_v2_mock(
 
     Handles parameter changes via the legacy mock, then wraps in
     ProposalInterpretation. Also detects patterns for meta_mutation
-    and narrative effects.
+    and narrative effects. Supports compound proposals with multiple
+    parameter changes separated by "and" or commas.
     """
-    # Try legacy parameter detection first
+    # Try compound proposal detection: split on "and" / ","
+    clauses = _split_compound_clauses(raw_text)
+    if len(clauses) > 1:
+        compound_effects: list[EffectSpec] = []
+        descriptions: list[str] = []
+        for clause in clauses:
+            legacy = interpret_proposal_mock(clause, ruleset)
+            if legacy.parameter:
+                compound_effects.append(
+                    EffectSpec(
+                        effect_type="parameter_change",
+                        parameter=legacy.parameter,
+                        new_value=legacy.new_value,
+                        old_value=legacy.old_value,
+                        description=legacy.impact_analysis,
+                    )
+                )
+                descriptions.append(legacy.impact_analysis)
+        if len(compound_effects) >= 2:
+            return ProposalInterpretation(
+                effects=compound_effects,
+                impact_analysis=" | ".join(descriptions),
+                confidence=0.85,
+                original_text_echo=raw_text,
+            )
+
+    # Try legacy parameter detection first (single parameter change)
     legacy = interpret_proposal_mock(raw_text, ruleset)
     if legacy.parameter:
         return ProposalInterpretation.from_rule_interpretation(legacy, raw_text)

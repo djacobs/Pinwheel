@@ -3,12 +3,27 @@
 
 {% block content %}
 <div class="rules-hero" style="padding-bottom:1.5rem;">
-  <h1>The Floor</h1>
+  <h1>The Floor
+    {% if season_phase == 'playoffs' %}
+    <span style="color: var(--accent-elam); font-size: 0.5em; vertical-align: middle; margin-left: 0.5rem;">PLAYOFFS</span>
+    {% elif season_phase == 'championship' %}
+    <span style="color: var(--accent-score); font-size: 0.5em; vertical-align: middle; margin-left: 0.5rem;">CHAMPIONSHIP</span>
+    {% endif %}
+  </h1>
   <p class="rules-hero-tagline">
     Every rule change starts with a proposal from a player. Write it in plain English.
     The AI translates it into a specific parameter change. Your team votes.
     Pass it, and you've rewritten the game.
   </p>
+  {% if season_phase == 'playoffs' %}
+  <p class="text-xs" style="color: var(--accent-elam); margin-top: 0.5rem;">
+    Playoff governance &mdash; rule changes enacted now apply to elimination games.
+  </p>
+  {% elif season_phase == 'championship' %}
+  <p class="text-xs" style="color: var(--accent-score); margin-top: 0.5rem;">
+    Championship governance &mdash; the final rules of the season are being written.
+  </p>
+  {% endif %}
 </div>
 
 {% if proposals %}

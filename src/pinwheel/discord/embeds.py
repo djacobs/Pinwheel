@@ -25,13 +25,17 @@ COLOR_STANDINGS = 0xF39C12  # Gold — standings
 COLOR_WARNING = 0xE67E22  # Orange — admin review / warnings
 
 
-def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
+def build_game_result_embed(
+    game_data: dict[str, object],
+    playoff_context: str | None = None,
+) -> discord.Embed:
     """Build an embed for a completed game result.
 
     Args:
         game_data: Dict with keys: home_team (or home_team_name), away_team
             (or away_team_name), home_score, away_score, winner_team_id,
             elam_activated, total_possessions.
+        playoff_context: 'semifinal', 'finals', or None for regular season.
     """
     home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
     away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
@@ -39,35 +43,67 @@ def build_game_result_embed(game_data: dict[str, object]) -> discord.Embed:
     away_score = game_data.get("away_score", 0)
     elam_target = game_data.get("elam_target_score")
 
-    title = f"{home} vs {away}"
+    # Playoff-aware title
+    if playoff_context == "finals":
+        title = f"CHAMPIONSHIP FINALS: {home} vs {away}"
+    elif playoff_context == "semifinal":
+        title = f"SEMIFINAL: {home} vs {away}"
+    else:
+        title = f"{home} vs {away}"
+
     description = f"**{home}** {home_score} - {away_score} **{away}**"
 
     if elam_target:
         description += f"\nElam Target: {elam_target}"
 
+    # Use gold for championship, different shade for semis
+    color = COLOR_GAME
+    if playoff_context == "finals":
+        color = COLOR_STANDINGS  # gold for championship
+    elif playoff_context == "semifinal":
+        color = 0xE91E63  # pink/magenta for semis — stands out from regular red
+
     embed = discord.Embed(
         title=title,
         description=description,
-        color=COLOR_GAME,
+        color=color,
     )
     embed.add_field(
         name="Possessions",
         value=str(game_data.get("total_possessions", "N/A")),
         inline=True,
     )
+    if playoff_context:
+        label = "Championship Finals" if playoff_context == "finals" else "Semifinal Playoffs"
+        embed.add_field(name="Stage", value=label, inline=True)
     embed.set_footer(text="Pinwheel Fates")
     return embed
 
 
-def build_standings_embed(standings: list[dict[str, object]]) -> discord.Embed:
+def build_standings_embed(
+    standings: list[dict[str, object]],
+    streaks: dict[str, int] | None = None,
+    season_phase: str | None = None,
+) -> discord.Embed:
     """Build an embed for current league standings.
 
     Args:
         standings: List of dicts with keys: team_name, team_id, wins,
             losses, points_for, points_against.
+        streaks: Optional dict mapping team_id to streak length
+            (positive=wins, negative=losses).
+        season_phase: Optional phase label like 'regular', 'semifinal',
+            'finals', 'championship'.
     """
+    phase_labels: dict[str, str] = {
+        "semifinal": "Standings -- Playoffs",
+        "finals": "Standings -- Championship Finals",
+        "championship": "Standings -- Championship",
+    }
+    title = phase_labels.get(season_phase or "", "League Standings")
+
     embed = discord.Embed(
-        title="League Standings",
+        title=title,
         color=COLOR_STANDINGS,
     )
 
@@ -75,12 +111,20 @@ def build_standings_embed(standings: list[dict[str, object]]) -> discord.Embed:
         embed.description = "No games played yet."
         return embed
 
+    streak_map = streaks or {}
     lines: list[str] = []
     for i, team in enumerate(standings, 1):
         name = team.get("team_name", team.get("team_id", "???"))
         wins = team.get("wins", 0)
         losses = team.get("losses", 0)
-        lines.append(f"**{i}.** {name} ({wins}W-{losses}L)")
+        team_id = str(team.get("team_id", ""))
+        streak = streak_map.get(team_id, 0)
+        streak_str = ""
+        if streak >= 3:
+            streak_str = f" W{streak}"
+        elif streak <= -3:
+            streak_str = f" L{abs(streak)}"
+        lines.append(f"**{i}.** {name} ({wins}W-{losses}L){streak_str}")
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Pinwheel Fates")
@@ -237,16 +281,28 @@ def build_report_embed(report: Report) -> discord.Embed:
     return embed
 
 
-def build_schedule_embed(schedule: list[dict[str, object]], round_number: int) -> discord.Embed:
+def build_schedule_embed(
+    schedule: list[dict[str, object]],
+    round_number: int,
+    playoff_context: str | None = None,
+) -> discord.Embed:
     """Build an embed for an upcoming round's schedule.
 
     Args:
         schedule: List of matchup dicts with home_team_name, away_team_name.
         round_number: The round number.
+        playoff_context: 'semifinal', 'finals', or None for regular season.
     """
+    if playoff_context == "finals":
+        title = f"CHAMPIONSHIP FINALS -- Round {round_number}"
+    elif playoff_context == "semifinal":
+        title = f"SEMIFINAL PLAYOFFS -- Round {round_number}"
+    else:
+        title = f"Schedule -- Round {round_number}"
+
     embed = discord.Embed(
-        title=f"Schedule -- Round {round_number}",
-        color=COLOR_SCHEDULE,
+        title=title,
+        color=COLOR_STANDINGS if playoff_context == "finals" else COLOR_SCHEDULE,
     )
 
     if not schedule:
@@ -393,12 +449,16 @@ def build_strategy_embed(
     return embed
 
 
-def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
+def build_commentary_embed(
+    game_data: dict[str, object],
+    playoff_context: str | None = None,
+) -> discord.Embed:
     """Build an embed showing AI commentary for a game.
 
     Args:
         game_data: Dict with keys: home_team (or home_team_name), away_team
             (or away_team_name), home_score, away_score, commentary.
+        playoff_context: 'semifinal', 'finals', or None for regular season.
     """
     home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
     away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
@@ -406,14 +466,30 @@ def build_commentary_embed(game_data: dict[str, object]) -> discord.Embed:
     away_score = game_data.get("away_score", 0)
     commentary = str(game_data.get("commentary", "No commentary available."))
 
-    title = f"{home} {home_score} - {away_score} {away}"
+    if playoff_context == "finals":
+        title = f"CHAMPIONSHIP: {home} {home_score} - {away_score} {away}"
+    elif playoff_context == "semifinal":
+        title = f"SEMIFINAL: {home} {home_score} - {away_score} {away}"
+    else:
+        title = f"{home} {home_score} - {away_score} {away}"
+
+    color = COLOR_GAME
+    if playoff_context == "finals":
+        color = COLOR_STANDINGS
+    elif playoff_context == "semifinal":
+        color = 0xE91E63
 
     embed = discord.Embed(
         title=title,
         description=commentary[:4096],
-        color=COLOR_GAME,
+        color=color,
     )
-    embed.set_footer(text="Pinwheel Fates -- AI Commentary")
+    footer = "Pinwheel Fates -- AI Commentary"
+    if playoff_context == "finals":
+        footer = "Pinwheel Fates -- CHAMPIONSHIP FINALS"
+    elif playoff_context == "semifinal":
+        footer = "Pinwheel Fates -- SEMIFINAL PLAYOFFS"
+    embed.set_footer(text=footer)
     return embed
 
 
@@ -652,6 +728,7 @@ def build_hooper_trade_embed(
 def build_team_game_result_embed(
     game_data: dict[str, object],
     team_id: str,
+    playoff_context: str | None = None,
 ) -> discord.Embed:
     """Build a team-specific game result embed (win/loss framing).
 
@@ -659,6 +736,7 @@ def build_team_game_result_embed(
         game_data: Dict with home_team (or home_team_name), away_team
             (or away_team_name), home_score, away_score, etc.
         team_id: The team to frame the result for.
+        playoff_context: 'semifinal', 'finals', or None for regular season.
     """
     home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
     away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
@@ -674,13 +752,28 @@ def build_team_game_result_embed(
     opp_score = away_score if is_home else home_score
     won = winner_id == team_id
 
+    # Playoff-specific titles
     if won:
-        title = f"Victory! {your_team} wins!"
-        color = 0x2ECC71  # green
+        if playoff_context == "finals":
+            title = f"CHAMPIONS! {your_team} wins the title!"
+            color = COLOR_STANDINGS  # gold
+        elif playoff_context == "semifinal":
+            title = f"ADVANCING! {your_team} wins the semifinal!"
+            color = 0x2ECC71  # green
+        else:
+            title = f"Victory! {your_team} wins!"
+            color = 0x2ECC71  # green
         description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
     else:
-        title = f"Defeat. {your_team} falls."
-        color = 0xE74C3C  # red
+        if playoff_context == "finals":
+            title = f"So close. {your_team} falls in the championship."
+            color = 0xE74C3C  # red
+        elif playoff_context == "semifinal":
+            title = f"Eliminated. {your_team}'s season is over."
+            color = 0xE74C3C  # red
+        else:
+            title = f"Defeat. {your_team} falls."
+            color = 0xE74C3C  # red
         description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
 
     embed = discord.Embed(title=title, description=description, color=color)
@@ -754,24 +847,37 @@ def build_governor_profile_embed(
     return embed
 
 
-def build_round_summary_embed(round_data: dict[str, object]) -> discord.Embed:
+def build_round_summary_embed(
+    round_data: dict[str, object],
+    playoff_context: str | None = None,
+) -> discord.Embed:
     """Build an embed summarizing a completed round.
 
     Args:
         round_data: Dict from round.completed event with round, games, reports, elapsed_ms.
+        playoff_context: 'semifinal', 'finals', or None for regular season.
     """
     round_num = round_data.get("round", "?")
     games_count = round_data.get("games_presented", round_data.get("games", 0))
     reports_count = round_data.get("reports", 0)
 
+    if playoff_context == "finals":
+        title = f"CHAMPIONSHIP FINALS -- Round {round_num} Complete"
+    elif playoff_context == "semifinal":
+        title = f"SEMIFINAL PLAYOFFS -- Round {round_num} Complete"
+    else:
+        title = f"Round {round_num} Complete"
+
     parts = [f"**{games_count}** games played"]
     if reports_count:
         parts.append(f"**{reports_count}** reports generated")
+    if round_data.get("playoffs_complete"):
+        parts.append("**A champion has been crowned!**")
 
     embed = discord.Embed(
-        title=f"Round {round_num} Complete",
+        title=title,
         description="\n".join(parts),
-        color=COLOR_GAME,
+        color=COLOR_STANDINGS if playoff_context == "finals" else COLOR_GAME,
     )
     embed.set_footer(text="Pinwheel Fates")
     return embed

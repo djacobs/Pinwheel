@@ -5,7 +5,11 @@
 <div class="page-header">
   <h2>Standings</h2>
   {% if standings %}
-  <p class="subtitle">{{ standings|length }} teams &middot; Portland Pinwheel League</p>
+  <p class="subtitle">
+    {{ standings|length }} teams &middot; Portland Pinwheel League
+    {% if season_phase == 'playoffs' %} &middot; <span style="color: var(--accent-elam); font-weight: 700;">PLAYOFFS</span>{% endif %}
+    {% if season_phase == 'championship' %} &middot; <span style="color: var(--accent-score); font-weight: 700;">CHAMPIONSHIP</span>{% endif %}
+  </p>
   {% endif %}
 </div>
 
@@ -22,6 +26,7 @@
         <th class="num">PF</th>
         <th class="num">PA</th>
         <th class="num">DIFF</th>
+        <th class="num">STRK</th>
       </tr>
     </thead>
     <tbody hx-get="/standings" hx-trigger="every 30s" hx-select="tbody" hx-swap="outerHTML">
@@ -45,6 +50,16 @@
         <td class="num">{{ team.points_against }}</td>
         <td class="num {% if team.point_diff > 0 %}diff-positive{% elif team.point_diff < 0 %}diff-negative{% endif %}">
           {% if team.point_diff > 0 %}+{% endif %}{{ team.point_diff }}
+        </td>
+        <td class="num">
+          {% set streak = streaks.get(team.team_id, 0) if streaks is defined else 0 %}
+          {% if streak > 0 %}
+            <span class="diff-positive">W{{ streak }}</span>
+          {% elif streak < 0 %}
+            <span class="diff-negative">L{{ streak|abs }}</span>
+          {% else %}
+            &mdash;
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

@@ -75,6 +75,10 @@ class NarrativeContext:
     next_tally_round: int | None = None
     """Next round when governance will be tallied (None if manual)."""
 
+    effects_narrative: str = ""
+    """Human-readable summary of active proposal effects (meta_mutation,
+    hook_callback, narrative). Built from EffectRegistry.build_effects_summary()."""
+
 
 async def compute_narrative_context(
     repo: Repository,
@@ -502,6 +506,10 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
     # Rule changes
     if ctx.rules_narrative:
         lines.append(f"\nRule changes in effect: {ctx.rules_narrative}")
+
+    # Active proposal effects (v2: meta mutations, hook callbacks, narratives)
+    if ctx.effects_narrative:
+        lines.append(f"\nActive proposal effects:\n{ctx.effects_narrative}")
 
     # Governance
     if ctx.pending_proposals > 0:

@@ -648,3 +648,79 @@ class TestAdminLandingPage:
         r = await client.get("/")
         assert r.status_code == 200
         assert 'href="/admin"' not in r.text
+
+
+class TestGovernancePhaseContext:
+    """Governance page should pass season_phase context to template."""
+
+    async def test_governance_renders_without_phase(self, app_client):
+        """Governance page renders when no season exists (no phase)."""
+        client, _ = app_client
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "The Floor" in r.text
+        # No phase badge should appear
+        assert "PLAYOFFS" not in r.text
+        assert "CHAMPIONSHIP" not in r.text
+
+    async def test_governance_with_data(self, app_client):
+        """Governance page renders normally with seeded data."""
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "The Floor" in r.text
+
+    async def test_governance_playoff_phase_badge(self, app_client):
+        """Governance page shows PLAYOFFS badge during playoff phase."""
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+
+        # Set season status to playoffs
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            season.status = "playoffs"
+            await session.commit()
+
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "PLAYOFFS" in r.text
+        assert "elimination" in r.text.lower()
+
+    async def test_governance_championship_phase_badge(self, app_client):
+        """Governance page shows CHAMPIONSHIP badge during championship."""
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+
+        # Set season status to championship
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            season.status = "championship"
+            await session.commit()
+
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "CHAMPIONSHIP" in r.text
+
+
+class TestReportsPhaseContext:
+    """Reports page should tag reports with phase context."""
+
+    async def test_reports_renders_without_phase(self, app_client):
+        """Reports page renders when no season exists."""
+        client, _ = app_client
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        assert "No Reports Yet" in r.text
+
+    async def test_reports_with_data(self, app_client):
+        """Reports page renders reports after seeding."""
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/reports")
+        assert r.status_code == 200
+        assert "Simulation" in r.text or "simulation" in r.text

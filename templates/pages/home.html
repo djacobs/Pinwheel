@@ -18,6 +18,13 @@
     <span class="pulse-dot"></span>
     <span class="pulse-label">{{ season_name }}</span>
     <span class="pulse-sep">&middot;</span>
+    {% if season_phase == 'playoffs' %}
+    <span class="pulse-label" style="color: var(--accent-elam); font-weight: 700;">PLAYOFFS</span>
+    <span class="pulse-sep">&middot;</span>
+    {% elif season_phase == 'championship' %}
+    <span class="pulse-label" style="color: var(--accent-score); font-weight: 700;">CHAMPIONSHIP</span>
+    <span class="pulse-sep">&middot;</span>
+    {% endif %}
     <span class="pulse-label">Round {{ current_round }}</span>
     <span class="pulse-sep">&middot;</span>
     <span class="pulse-label">{{ total_games }} game{{ 's' if total_games != 1 else '' }} played</span>
@@ -82,6 +89,14 @@
         <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
           {{ '+' if diff > 0 else '' }}{{ diff }}
         </span>
+        {% if streaks is defined %}
+        {% set streak = streaks.get(s.team_id, 0) %}
+        {% if streak >= 3 %}
+        <span class="mono diff-positive" style="font-size:0.75rem; min-width:2rem; text-align:right;">W{{ streak }}</span>
+        {% elif streak <= -3 %}
+        <span class="mono diff-negative" style="font-size:0.75rem; min-width:2rem; text-align:right;">L{{ streak|abs }}</span>
+        {% endif %}
+        {% endif %}
       </a>
       {% endfor %}
     </div>

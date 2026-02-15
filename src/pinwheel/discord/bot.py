@@ -1218,7 +1218,9 @@ class PinwheelBot(commands.Bot):
             return
 
         if event_type == "presentation.game_finished":
-            embed = build_game_result_embed(data)
+            # Extract playoff context from event data (propagated from game_summaries)
+            pc = str(data.get("playoff_context", "")) or None
+            embed = build_game_result_embed(data, playoff_context=pc)
             play_channel = self._get_channel_for("play_by_play")
             if play_channel:
                 await play_channel.send(embed=embed)
@@ -1240,16 +1242,21 @@ class PinwheelBot(commands.Bot):
             if home_id:
                 from pinwheel.discord.embeds import build_team_game_result_embed
 
-                home_embed = build_team_game_result_embed(data, home_id)
+                home_embed = build_team_game_result_embed(
+                    data, home_id, playoff_context=pc,
+                )
                 await self._send_to_team_channel(home_id, home_embed)
             if away_id:
                 from pinwheel.discord.embeds import build_team_game_result_embed
 
-                away_embed = build_team_game_result_embed(data, away_id)
+                away_embed = build_team_game_result_embed(
+                    data, away_id, playoff_context=pc,
+                )
                 await self._send_to_team_channel(away_id, away_embed)
 
         elif event_type == "presentation.round_finished":
-            embed = build_round_summary_embed(data)
+            pc = str(data.get("playoff_context", "")) or None
+            embed = build_round_summary_embed(data, playoff_context=pc)
             play_channel = self._get_channel_for("play_by_play")
             if play_channel:
                 await play_channel.send(embed=embed)

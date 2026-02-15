@@ -34,6 +34,11 @@ class RuleSet(BaseModel):
     quarter_break_stamina_recovery: float = Field(default=0.15, ge=0.0, le=0.3)
     safety_cap_possessions: int = Field(default=300, ge=50, le=500)
     substitution_stamina_threshold: float = Field(default=0.35, ge=0.1, le=0.8)
+    turnover_rate_modifier: float = Field(default=1.0, ge=0.2, le=3.0)
+    foul_rate_modifier: float = Field(default=1.0, ge=0.2, le=3.0)
+    offensive_rebound_weight: float = Field(default=5.0, ge=1.0, le=15.0)
+    stamina_drain_rate: float = Field(default=0.007, ge=0.001, le=0.03)
+    dead_ball_time_seconds: float = Field(default=9.0, ge=2.0, le=20.0)
 
     # Tier 2: Hooper Behavior
     max_shot_share: float = Field(default=1.0, ge=0.2, le=1.0)

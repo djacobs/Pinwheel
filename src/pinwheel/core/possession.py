@@ -24,7 +24,8 @@ from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.game import PossessionLog
 from pinwheel.models.rules import RuleSet
 
-DEAD_TIME_SECONDS = 9.0
+# Legacy constant — now governed by rules.dead_ball_time_seconds
+_DEFAULT_DEAD_TIME_SECONDS = 9.0
 
 
 @dataclass
@@ -97,13 +98,18 @@ def check_turnover(
     handler: HooperState,
     scheme: DefensiveScheme,
     rng: random.Random,
+    rules: RuleSet | None = None,
 ) -> bool:
-    """Check if the offense turns the ball over."""
+    """Check if the offense turns the ball over.
+
+    The base turnover rate is scaled by rules.turnover_rate_modifier (default 1.0).
+    """
     base_to_rate = 0.08
+    modifier = rules.turnover_rate_modifier if rules else 1.0
     iq_reduction = handler.current_attributes.iq / 1000.0
     scheme_bonus = SCHEME_TURNOVER_BONUS[scheme]
     stamina_penalty = (1.0 - handler.current_stamina) * 0.05
-    to_prob = base_to_rate - iq_reduction + scheme_bonus + stamina_penalty
+    to_prob = (base_to_rate * modifier) - iq_reduction + scheme_bonus + stamina_penalty
     return rng.random() < max(0.01, min(0.25, to_prob))
 
 
@@ -112,14 +118,19 @@ def check_foul(
     shot_type: ShotType,
     scheme: DefensiveScheme,
     rng: random.Random,
+    rules: RuleSet | None = None,
 ) -> bool:
-    """Check if the defender commits a foul."""
+    """Check if the defender commits a foul.
+
+    The base foul rate is scaled by rules.foul_rate_modifier (default 1.0).
+    """
     base_foul_rate = 0.08
+    modifier = rules.foul_rate_modifier if rules else 1.0
     # Aggressive schemes foul more
     scheme_add = {"man_tight": 0.03, "press": 0.04, "man_switch": 0.01, "zone": 0.0}
     # Low-IQ defenders foul more
     iq_penalty = max(0, (50 - defender.current_attributes.iq)) / 500.0
-    foul_prob = base_foul_rate + scheme_add[scheme] + iq_penalty
+    foul_prob = (base_foul_rate * modifier) + scheme_add[scheme] + iq_penalty
     return rng.random() < min(0.25, foul_prob)
 
 
@@ -127,17 +138,24 @@ def attempt_rebound(
     offense: list[HooperState],
     defense: list[HooperState],
     rng: random.Random,
+    rules: RuleSet | None = None,
 ) -> tuple[HooperState, bool]:
-    """Resolve a rebound after a missed shot. Returns (rebounder, is_offensive)."""
+    """Resolve a rebound after a missed shot. Returns (rebounder, is_offensive).
+
+    The offensive rebound base weight is governed by rules.offensive_rebound_weight
+    (default 5.0) while defensive is fixed at 10.0.
+    """
     all_players = [(a, True) for a in offense] + [(a, False) for a in defense]
     if not all_players:
         return offense[0], True
+
+    off_reb_weight = rules.offensive_rebound_weight if rules else 5.0
 
     # Weight by a combination of attributes
     weights = []
     for agent, is_off in all_players:
         # Defense gets natural rebound advantage
-        base = 10.0 if not is_off else 5.0
+        base = off_reb_weight if is_off else 10.0
         # Physical attributes matter
         base += agent.current_attributes.defense * 0.2
         base += agent.current_attributes.speed * 0.1
@@ -179,9 +197,13 @@ def drain_stamina(
     agents: list[HooperState],
     scheme: DefensiveScheme,
     is_defense: bool,
+    rules: RuleSet | None = None,
 ) -> None:
-    """Drain stamina for all agents after a possession."""
-    base_drain = 0.007
+    """Drain stamina for all agents after a possession.
+
+    Base drain rate is governed by rules.stamina_drain_rate (default 0.007).
+    """
+    base_drain = rules.stamina_drain_rate if rules else 0.007
     scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
     for agent in agents:
         recovery = agent.hooper.attributes.stamina / 3000.0
@@ -194,9 +216,13 @@ def compute_possession_duration(
     rng: random.Random,
     pace_modifier: float = 1.0,
 ) -> float:
-    """Compute clock time consumed by one possession (seconds)."""
+    """Compute clock time consumed by one possession (seconds).
+
+    Dead-ball time between possessions is governed by rules.dead_ball_time_seconds.
+    """
     play_time = rules.shot_clock_seconds * rng.uniform(0.4, 1.0)
-    return (play_time * pace_modifier) + DEAD_TIME_SECONDS
+    dead_time = rules.dead_ball_time_seconds
+    return (play_time * pace_modifier) + dead_time
 
 
 def resolve_possession(
@@ -230,12 +256,12 @@ def resolve_possession(
     handler = select_ball_handler(offense, rng)
 
     # 3. Check turnover (live-ball: steal)
-    if check_turnover(handler, scheme, rng):
+    if check_turnover(handler, scheme, rng, rules=rules):
         stealer = rng.choice(defense)
         stealer.steals += 1
         handler.turnovers += 1
-        drain_stamina(offense, scheme, is_defense=False)
-        drain_stamina(defense, scheme, is_defense=True)
+        drain_stamina(offense, scheme, is_defense=False, rules=rules)
+        drain_stamina(defense, scheme, is_defense=True, rules=rules)
 
         log = PossessionLog(
             quarter=game_state.quarter,
@@ -264,8 +290,8 @@ def resolve_possession(
     # 3b. Check shot clock violation (defense shuts down the offense)
     if check_shot_clock_violation(handler, scheme, rng):
         handler.turnovers += 1
-        drain_stamina(offense, scheme, is_defense=False)
-        drain_stamina(defense, scheme, is_defense=True)
+        drain_stamina(offense, scheme, is_defense=False, rules=rules)
+        drain_stamina(defense, scheme, is_defense=True, rules=rules)
 
         log = PossessionLog(
             quarter=game_state.quarter,
@@ -337,7 +363,7 @@ def resolve_possession(
     # 9. Check foul
     foul_on_defender = False
     fouling_id = ""
-    if check_foul(primary_defender, shot_type, scheme, rng):
+    if check_foul(primary_defender, shot_type, scheme, rng, rules=rules):
         foul_on_defender = True
         primary_defender.fouls += 1
         fouling_id = primary_defender.hooper.id
@@ -362,7 +388,7 @@ def resolve_possession(
     is_offensive_rebound = False
     assist_id = ""
     if not made and not foul_on_defender:
-        rebounder, is_offensive_rebound = attempt_rebound(offense, defense, rng)
+        rebounder, is_offensive_rebound = attempt_rebound(offense, defense, rng, rules=rules)
         rebounder.rebounds += 1
         rebound_id = rebounder.hooper.id
 
@@ -382,8 +408,8 @@ def resolve_possession(
             game_state.away_score += pts
 
     # 13. Drain stamina
-    drain_stamina(offense, scheme, is_defense=False)
-    drain_stamina(defense, scheme, is_defense=True)
+    drain_stamina(offense, scheme, is_defense=False, rules=rules)
+    drain_stamina(defense, scheme, is_defense=True, rules=rules)
 
     # Build log
     team_id = (

@@ -3,6 +3,11 @@
 
 {% block content %}
 <div class="game-header card mb-2">
+  {% if game_phase == 'finals' %}
+  <div style="text-align:center; padding: 0.5rem 0; color: var(--accent-score); font-weight: 800; font-size: 0.85rem; letter-spacing: 0.15em; text-transform: uppercase;">CHAMPIONSHIP FINALS</div>
+  {% elif game_phase == 'semifinal' %}
+  <div style="text-align:center; padding: 0.5rem 0; color: var(--accent-elam); font-weight: 800; font-size: 0.85rem; letter-spacing: 0.15em; text-transform: uppercase;">SEMIFINAL PLAYOFFS</div>
+  {% endif %}
   <div class="game-matchup">
     <div class="game-team" style="background: {{ home_color2 }}; border-left: 4px solid {{ home_color }}; padding: 1rem; border-radius: var(--radius);">
       <div class="game-team-name {% if game.winner_team_id == game.home_team_id %}score-winner{% endif %}" style="color: {{ home_color }};">

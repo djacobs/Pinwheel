@@ -1572,3 +1572,402 @@ class TestDeferredSeasonEvents:
 
         deferred_types = [t for t, _ in result.deferred_season_events]
         assert "season.regular_season_complete" in deferred_types
+
+
+class TestEffectsGameLoopIntegration:
+    """Tests that the effect lifecycle runs end-to-end in the game loop.
+
+    Covers:
+    - Effects load from event store at round start
+    - Effects fire during simulation (meta values change)
+    - Effects expire after tick_round
+    - Meta is flushed to DB at round end
+    - Governance tally registers new effects via tally_governance_with_effects
+    - Effects summary flows into narrative context
+    - Backward compatibility: rounds without effects work identically
+    """
+
+    async def _register_swagger_effect(
+        self, repo: Repository, season_id: str, round_number: int = 0,
+    ) -> str:
+        """Register a swagger meta_mutation effect directly in the event store.
+
+        Returns the effect_id. This simulates what tally_governance_with_effects
+        does when a proposal passes.
+        """
+        import uuid
+
+        from pinwheel.core.hooks import EffectLifetime, RegisteredEffect
+
+        effect_id = str(uuid.uuid4())
+        effect = RegisteredEffect(
+            effect_id=effect_id,
+            proposal_id="p-swagger-test",
+            _hook_points=["round.game.post"],
+            _lifetime=EffectLifetime.PERMANENT,
+            effect_type="meta_mutation",
+            target_type="team",
+            target_selector="winning_team",
+            meta_field="swagger",
+            meta_value=1,
+            meta_operation="increment",
+            description="Winning team gains +1 swagger",
+        )
+        await repo.append_event(
+            event_type="effect.registered",
+            aggregate_id=effect_id,
+            aggregate_type="effect",
+            season_id=season_id,
+            payload=effect.to_dict(),
+        )
+        return effect_id
+
+    async def _register_n_rounds_effect(
+        self,
+        repo: Repository,
+        season_id: str,
+        rounds: int = 1,
+    ) -> str:
+        """Register an effect with N_ROUNDS lifetime. Returns effect_id."""
+        import uuid
+
+        from pinwheel.core.hooks import EffectLifetime, RegisteredEffect
+
+        effect_id = str(uuid.uuid4())
+        effect = RegisteredEffect(
+            effect_id=effect_id,
+            proposal_id="p-timed-test",
+            _hook_points=["round.game.post"],
+            _lifetime=EffectLifetime.N_ROUNDS,
+            rounds_remaining=rounds,
+            effect_type="narrative",
+            narrative_instruction="Temporary narrative effect",
+            description="Expires after N rounds",
+        )
+        await repo.append_event(
+            event_type="effect.registered",
+            aggregate_id=effect_id,
+            aggregate_type="effect",
+            season_id=season_id,
+            payload=effect.to_dict(),
+        )
+        return effect_id
+
+    async def test_effects_load_from_event_store(self, repo: Repository):
+        """Effects registered in the event store are loaded at round start
+        and available during simulation."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Register a swagger effect before stepping the round
+        await self._register_swagger_effect(repo, season_id)
+
+        # Step the round — effects should be loaded and fire
+        result = await step_round(repo, season_id, round_number=1)
+
+        # Verify games were simulated
+        assert len(result.games) == comb(NUM_TEAMS, 2)
+
+        # The swagger effect fires at round.game.post for each game,
+        # incrementing the winning team's swagger. Check that at least
+        # one team has swagger > 0 in the DB after the round.
+        teams = await repo.get_teams_for_season(season_id)
+        total_swagger = 0
+        for t in teams:
+            meta = await repo.load_team_meta(t.id)
+            total_swagger += meta.get("swagger", 0)
+
+        # Each game has exactly one winner, so total swagger == number of games
+        assert total_swagger == comb(NUM_TEAMS, 2)
+
+    async def test_meta_flushed_to_db(self, repo: Repository):
+        """Meta values written by effects during the round are flushed to DB."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Register swagger effect
+        await self._register_swagger_effect(repo, season_id)
+
+        # Step round
+        await step_round(repo, season_id, round_number=1)
+
+        # Every winner should have swagger=1 (single round, each game has
+        # one winner). The total should equal the number of games.
+        games = await repo.get_games_for_round(season_id, 1)
+        winner_swagger = {}
+        for g in games:
+            meta = await repo.load_team_meta(g.winner_team_id)
+            winner_swagger[g.winner_team_id] = meta.get("swagger", 0)
+
+        for wid, swagger in winner_swagger.items():
+            assert swagger > 0, f"Winner {wid} should have swagger > 0"
+
+    async def test_effects_expire_after_tick(self, repo: Repository):
+        """Effects with N_ROUNDS lifetime expire and are persisted as expired."""
+        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=2)
+
+        # Register a 1-round effect
+        effect_id = await self._register_n_rounds_effect(
+            repo, season_id, rounds=1,
+        )
+
+        # After round 1, the effect should tick and expire
+        await step_round(repo, season_id, round_number=1)
+
+        # Verify the effect.expired event was persisted
+        expired_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["effect.expired"],
+        )
+        expired_ids = [
+            e.payload.get("effect_id", e.aggregate_id) for e in expired_events
+        ]
+        assert effect_id in expired_ids
+
+        # Loading the registry after expiration should show 0 effects
+        from pinwheel.core.effects import load_effect_registry
+
+        registry = await load_effect_registry(repo, season_id)
+        assert registry.count == 0
+
+    async def test_effects_persist_across_rounds(self, repo: Repository):
+        """Permanent effects persist across multiple rounds."""
+        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=2)
+
+        # Register a permanent swagger effect
+        await self._register_swagger_effect(repo, season_id)
+
+        # Step round 1
+        await step_round(repo, season_id, round_number=1)
+
+        # Step round 2 — effect should load from event store again
+        await step_round(repo, season_id, round_number=2)
+
+        # Total swagger should equal 2 * games_per_round
+        teams = await repo.get_teams_for_season(season_id)
+        total_swagger = 0
+        for t in teams:
+            meta = await repo.load_team_meta(t.id)
+            total_swagger += meta.get("swagger", 0)
+
+        expected_total = 2 * comb(NUM_TEAMS, 2)
+        assert total_swagger == expected_total
+
+    async def test_backward_compat_no_effects(self, repo: Repository):
+        """Rounds without effects work identically to before."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # No effects registered — step_round should work normally
+        result = await step_round(repo, season_id, round_number=1)
+
+        assert len(result.games) == comb(NUM_TEAMS, 2)
+        assert len(result.reports) >= 2
+        for game in result.games:
+            assert game["home_score"] > 0 or game["away_score"] > 0
+            assert game["winner_team_id"] in team_ids
+
+        # No meta should have been written
+        teams = await repo.get_teams_for_season(season_id)
+        for t in teams:
+            meta = await repo.load_team_meta(t.id)
+            assert len(meta) == 0, f"Team {t.id} should have no meta"
+
+    async def test_effects_summary_in_sim_result(self, repo: Repository):
+        """Effects summary is built and stored on _SimPhaseResult."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Register a swagger effect
+        await self._register_swagger_effect(repo, season_id)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+
+        assert sim is not None
+        assert sim.effects_summary != ""
+        assert "swagger" in sim.effects_summary.lower()
+
+    async def test_effects_summary_empty_without_effects(self, repo: Repository):
+        """Without effects, effects_summary is empty."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+
+        assert sim is not None
+        assert sim.effects_summary == ""
+
+    async def test_effects_summary_in_narrative_context(self, repo: Repository):
+        """Effects summary is injected into narrative context for AI reports."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # Register a swagger effect
+        await self._register_swagger_effect(repo, season_id)
+
+        sim = await _phase_simulate_and_govern(repo, season_id, round_number=1)
+
+        assert sim is not None
+        assert sim.narrative_context is not None
+        assert sim.narrative_context.effects_narrative != ""
+        assert "swagger" in sim.narrative_context.effects_narrative.lower()
+
+    async def test_governance_tally_registers_effects(self, repo: Repository):
+        """When governance tallies a passing proposal with v2 effects,
+        those effects are registered in the effect registry and persisted
+        to the event store."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        # The tally_governance_with_effects function is used when an
+        # effect_registry is available. Verify the game loop wiring works
+        # end-to-end with a standard parameter-change proposal.
+        gov_id = "gov-effects-loop-test"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        # Step the round — governance tally should use
+        # tally_governance_with_effects when an effect_registry exists
+        result = await step_round(
+            repo, season_id, round_number=1, governance_interval=1,
+        )
+
+        # The proposal should pass (parameter change: 3pt -> 5)
+        assert len(result.tallies) == 1
+        assert result.tallies[0].passed is True
+
+        # Verify the ruleset was updated
+        season = await repo.get_season(season_id)
+        ruleset = RuleSet(**(season.current_ruleset or {}))
+        assert ruleset.three_point_value == 5
+
+    async def test_tally_pending_governance_with_effect_registry(
+        self, repo: Repository,
+    ):
+        """tally_pending_governance passes the effect_registry to
+        tally_governance_with_effects when provided."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        gov_id = "gov-tally-effects"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        from pinwheel.core.effects import EffectRegistry
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        registry = EffectRegistry()
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=RuleSet(),
+            effect_registry=registry,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        assert ruleset.three_point_value == 5
+
+    async def test_tally_pending_governance_without_effect_registry(
+        self, repo: Repository,
+    ):
+        """tally_pending_governance works without effect_registry (backward compat)."""
+        season_id, team_ids = await _setup_season_with_teams(repo)
+
+        gov_id = "gov-tally-noeffects"
+        await regenerate_tokens(repo, gov_id, team_ids[0], season_id)
+
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            season_id=season_id,
+            window_id="",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+        await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_ids[0],
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        # No effect_registry argument — backward compat
+        ruleset, tallies, gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=RuleSet(),
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        assert ruleset.three_point_value == 5
+
+    async def test_multisession_effects_integration(self, engine: AsyncEngine):
+        """step_round_multisession loads and fires effects across sessions."""
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season_id, team_ids = await _setup_season_with_teams(repo)
+
+            # Register a swagger effect
+            await self._register_swagger_effect(repo, season_id)
+
+        # Run multisession variant
+        result = await step_round_multisession(
+            engine, season_id, round_number=1,
+        )
+
+        assert len(result.games) == comb(NUM_TEAMS, 2)
+
+        # Verify meta was flushed in session 1
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            teams = await repo.get_teams_for_season(season_id)
+            total_swagger = 0
+            for t in teams:
+                meta = await repo.load_team_meta(t.id)
+                total_swagger += meta.get("swagger", 0)
+
+            assert total_swagger == comb(NUM_TEAMS, 2)

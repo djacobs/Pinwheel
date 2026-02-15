@@ -13,6 +13,11 @@
   <div class="report-type">
     {{ m.report_type|title }} Report
     {% if m.round_number %}&mdash; Round {{ m.round_number }}{% endif %}
+    {% if m.phase == 'semifinal' %}
+    <span style="color: var(--accent-elam); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">SEMIFINAL PLAYOFFS</span>
+    {% elif m.phase == 'finals' %}
+    <span style="color: var(--accent-score); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">CHAMPIONSHIP FINALS</span>
+    {% endif %}
   </div>
   <div class="report-content">{{ m.content }}</div>
   <div class="report-meta">

@@ -146,11 +146,19 @@ async def present_round(
 
         await asyncio.gather(*tasks)
 
+        # Derive playoff_context from game summaries for the round event
+        _round_pc: str | None = None
+        if state.game_summaries:
+            _round_pc = state.game_summaries[0].get("playoff_context")
+            if _round_pc:
+                _round_pc = str(_round_pc)
+
         await event_bus.publish(
             "presentation.round_finished",
             {
                 "round": state.current_round,
                 "games_presented": len(game_results),
+                "playoff_context": _round_pc,
             },
         )
 
@@ -216,6 +224,13 @@ async def _present_full_game(
     live.elam_target = game_result.elam_target_score
     state.live_games[game_idx] = live
 
+    # Extract playoff_context from game_summaries if available
+    _playoff_context: str | None = None
+    if game_idx < len(state.game_summaries):
+        _pc = state.game_summaries[game_idx].get("playoff_context")
+        if _pc:
+            _playoff_context = str(_pc)
+
     await event_bus.publish(
         "presentation.game_starting",
         {
@@ -229,6 +244,7 @@ async def _present_full_game(
             "home_team_color2": home_colors[1],
             "away_team_color": away_colors[0],
             "away_team_color2": away_colors[1],
+            "playoff_context": _playoff_context,
         },
     )
 
@@ -275,6 +291,7 @@ async def _present_full_game(
                 "elam_activated": summary.get("elam_activated", False),
                 "total_possessions": summary.get("total_possessions", 0),
                 "commentary": summary.get("commentary", ""),
+                "playoff_context": summary.get("playoff_context"),
             }
         )
 

@@ -72,7 +72,13 @@
 <div>
   {% for round in rounds %}
   <div class="{% if not loop.first %}mt-2{% endif %}">
+    {% if round.phase == 'finals' %}
+    <div class="section-title" style="color: var(--accent-score);">CHAMPIONSHIP FINALS &mdash; Round {{ round.round_number }}</div>
+    {% elif round.phase == 'semifinal' %}
+    <div class="section-title" style="color: var(--accent-elam);">SEMIFINAL PLAYOFFS &mdash; Round {{ round.round_number }}</div>
+    {% else %}
     <div class="section-title">Round {{ round.round_number }}</div>
+    {% endif %}
     <div class="arena-grid">
       {% for game in round.games %}
       <a href="/games/{{ game.id }}" class="game-panel {% if game.elam_target %}elam{% endif %}" style="text-decoration:none; color:inherit;">

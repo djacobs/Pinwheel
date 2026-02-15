@@ -81,6 +81,11 @@ def detect_tier(interpretation: RuleInterpretation, ruleset: RuleSet) -> int:
         "elam_margin",
         "halftime_stamina_recovery",
         "safety_cap_possessions",
+        "turnover_rate_modifier",
+        "foul_rate_modifier",
+        "offensive_rebound_weight",
+        "stamina_drain_rate",
+        "dead_ball_time_seconds",
     }
     tier2 = {
         "max_shot_share",
@@ -553,6 +558,7 @@ async def tally_governance_with_effects(
     current_ruleset: RuleSet,
     round_number: int,
     effect_registry: EffectRegistry | None = None,
+    effects_v2_by_proposal: dict[str, list[EffectSpec]] | None = None,
 ) -> tuple[RuleSet, list[VoteTally]]:
     """Tally proposals and register effects for passing proposals.
 
@@ -560,12 +566,17 @@ async def tally_governance_with_effects(
     effects beyond parameter changes. Backward compatible: proposals with
     only RuleInterpretation still work through the existing path.
 
+    Supports compound proposals: when effects_v2_by_proposal contains
+    multiple parameter_change effects for a proposal, all are applied
+    to the RuleSet.
+
     Returns the updated ruleset and list of vote tallies.
     """
     from pinwheel.core.effects import register_effects_for_proposal
 
     tallies: list[VoteTally] = []
     ruleset = current_ruleset
+    _effects_v2_map = effects_v2_by_proposal or {}
 
     for proposal in proposals:
         if proposal.status not in ("confirmed", "amended", "submitted"):
@@ -578,8 +589,45 @@ async def tally_governance_with_effects(
         tallies.append(tally)
 
         if tally.passed:
-            # 1. Handle parameter changes via existing path
-            if proposal.interpretation and proposal.interpretation.parameter:
+            # Check for v2 effects first (compound proposals)
+            v2_effects = _effects_v2_map.get(proposal.id, [])
+            v2_param_effects = [
+                e for e in v2_effects if e.effect_type == "parameter_change" and e.parameter
+            ]
+
+            if v2_param_effects:
+                # Apply all parameter_change effects from v2 interpretation
+                for effect in v2_param_effects:
+                    interp = RuleInterpretation(
+                        parameter=effect.parameter,
+                        new_value=effect.new_value,
+                        old_value=effect.old_value,
+                    )
+                    try:
+                        ruleset, change = apply_rule_change(
+                            ruleset, interp, proposal.id, round_number
+                        )
+                        await repo.append_event(
+                            event_type="rule.enacted",
+                            aggregate_id=proposal.id,
+                            aggregate_type="rule_change",
+                            season_id=season_id,
+                            payload=change.model_dump(mode="json"),
+                        )
+                    except (ValueError, Exception):
+                        await repo.append_event(
+                            event_type="rule.rolled_back",
+                            aggregate_id=proposal.id,
+                            aggregate_type="rule_change",
+                            season_id=season_id,
+                            payload={
+                                "reason": "validation_error",
+                                "proposal_id": proposal.id,
+                                "parameter": effect.parameter,
+                            },
+                        )
+            elif proposal.interpretation and proposal.interpretation.parameter:
+                # 1. Fallback: handle single parameter change via existing path
                 try:
                     ruleset, change = apply_rule_change(
                         ruleset, proposal.interpretation, proposal.id, round_number
@@ -600,15 +648,20 @@ async def tally_governance_with_effects(
                         payload={"reason": "validation_error", "proposal_id": proposal.id},
                     )
 
-            # 2. Handle v2 effects (if proposal has effects_v2 in payload)
+            # 2. Handle non-parameter v2 effects (meta, hook, narrative)
             if effect_registry is not None:
-                effects_data = _extract_effects_from_proposal(proposal)
-                if effects_data:
+                non_param_effects = [
+                    e for e in v2_effects if e.effect_type != "parameter_change"
+                ]
+                # Also check the legacy extraction path
+                if not non_param_effects:
+                    non_param_effects = _extract_effects_from_proposal(proposal)
+                if non_param_effects:
                     await register_effects_for_proposal(
                         repo=repo,
                         registry=effect_registry,
                         proposal_id=proposal.id,
-                        effects=effects_data,
+                        effects=non_param_effects,
                         season_id=season_id,
                         current_round=round_number,
                     )

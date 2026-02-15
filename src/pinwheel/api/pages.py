@@ -87,6 +87,82 @@ async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
     return standings
 
 
+async def _get_season_phase(repo: RepoDep, season_id: str) -> str:
+    """Get the current season phase as a display label.
+
+    Returns one of: 'regular', 'tiebreakers', 'playoffs', 'championship',
+    'offseason'. Used to drive phase-aware badges in templates.
+    """
+    season = await repo.get_season(season_id)
+    if not season:
+        return "regular"
+    phase_map: dict[str, str] = {
+        "setup": "regular",
+        "active": "regular",
+        "tiebreaker_check": "regular",
+        "tiebreakers": "tiebreakers",
+        "regular_season_complete": "regular",
+        "playoffs": "playoffs",
+        "championship": "championship",
+        "offseason": "offseason",
+        "completed": "offseason",
+        "complete": "offseason",
+    }
+    return phase_map.get(season.status or "", "regular")
+
+
+async def _get_game_phase(repo: RepoDep, season_id: str, round_number: int) -> str | None:
+    """Return the phase for a specific round's games ('semifinal', 'finals', or None)."""
+    schedule = await repo.get_schedule_for_round(season_id, round_number)
+    if not schedule or schedule[0].phase != "playoff":
+        return None
+    full_playoff = await repo.get_full_schedule(season_id, phase="playoff")
+    if not full_playoff:
+        return "semifinal"
+    earliest_round = min(s.round_number for s in full_playoff)
+    initial_pairs = [
+        frozenset({s.home_team_id, s.away_team_id})
+        for s in full_playoff
+        if s.round_number == earliest_round
+    ]
+    current_pairs = [
+        frozenset({s.home_team_id, s.away_team_id})
+        for s in schedule
+    ]
+    if len(initial_pairs) >= 2 and all(p in initial_pairs for p in current_pairs):
+        return "semifinal"
+    return "finals"
+
+
+def _compute_streaks_from_games(games: list[object]) -> dict[str, int]:
+    """Compute current win/loss streaks per team from game result rows.
+
+    Positive = win streak, negative = loss streak. Resets on reversal.
+    """
+    sorted_games = sorted(games, key=lambda g: (g.round_number, g.matchup_index))
+    team_results: dict[str, list[bool]] = {}
+    for g in sorted_games:
+        for tid in (g.home_team_id, g.away_team_id):
+            if tid not in team_results:
+                team_results[tid] = []
+            team_results[tid].append(g.winner_team_id == tid)
+
+    streaks: dict[str, int] = {}
+    for tid, results in team_results.items():
+        if not results:
+            streaks[tid] = 0
+            continue
+        streak = 0
+        last_result = results[-1]
+        for r in reversed(results):
+            if r == last_result:
+                streak += 1
+            else:
+                break
+        streaks[tid] = streak if last_result else -streak
+    return streaks
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Home page — living dashboard for the league."""
@@ -198,6 +274,15 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 }
             )
 
+    # Phase and streaks for template enrichment
+    season_phase = ""
+    streaks: dict[str, int] = {}
+    if season_id:
+        season_phase = await _get_season_phase(repo, season_id)
+        all_games = await repo.get_all_games(season_id)
+        if all_games:
+            streaks = _compute_streaks_from_games(all_games)
+
     ctx = {
         "active_page": "home",
         "season_name": season_name or "Season",
@@ -208,6 +293,8 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "total_games": total_games,
         "upcoming_games": upcoming_games,
         "team_colors": team_colors,
+        "season_phase": season_phase,
+        "streaks": streaks,
     }
     return templates.TemplateResponse(
         request,
@@ -454,11 +541,15 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                     "round_number": round_reports[0].round_number,
                 }
 
+            # Determine the phase for this round
+            round_phase = await _get_game_phase(repo, season_id, round_num)
+
             rounds.append(
                 {
                     "round_number": round_num,
                     "games": games_for_round,
                     "report": report,
+                    "phase": round_phase,
                 }
             )
 
@@ -549,8 +640,15 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
     """Standings page."""
     season_id = await _get_active_season_id(repo)
     standings = []
+    season_phase = ""
+    streaks: dict[str, int] = {}
+
     if season_id:
         standings = await _get_standings(repo, season_id)
+        season_phase = await _get_season_phase(repo, season_id)
+        all_games = await repo.get_all_games(season_id)
+        if all_games:
+            streaks = _compute_streaks_from_games(all_games)
 
     return templates.TemplateResponse(
         request,
@@ -558,6 +656,8 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
         {
             "active_page": "standings",
             "standings": standings,
+            "season_phase": season_phase,
+            "streaks": streaks,
             **_auth_context(request, current_user),
         },
     )
@@ -641,13 +741,15 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
         )
         play_by_play.append(enriched)
 
-    # Report for this round
+    # Report for this round + game phase
     season_id = await _get_active_season_id(repo)
     report = None
+    game_phase: str | None = None
     if season_id:
         round_reports = await repo.get_reports_for_round(season_id, game.round_number, "simulation")
         if round_reports:
             report = {"content": round_reports[0].content}
+        game_phase = await _get_game_phase(repo, season_id, game.round_number)
 
     return templates.TemplateResponse(
         request,
@@ -664,6 +766,7 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             "box_score_groups": box_score_groups,
             "play_by_play": play_by_play,
             "report": report,
+            "game_phase": game_phase,
             **_auth_context(request, current_user),
         },
     )
@@ -1007,8 +1110,11 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
     season_id = await _get_active_season_id(repo)
     proposals = []
     rules_changed = []
+    season_phase = ""
 
     if season_id:
+        season_phase = await _get_season_phase(repo, season_id)
+
         # Gather all governance events we need
         submitted = await repo.get_events_by_type(
             season_id=season_id,
@@ -1093,6 +1199,7 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
             "active_page": "governance",
             "proposals": proposals,
             "rules_changed": rules_changed,
+            "season_phase": season_phase,
             **_auth_context(request, current_user),
         },
     )
@@ -1267,18 +1374,32 @@ async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUs
     """Reports archive page."""
     season_id = await _get_active_season_id(repo)
     reports = []
+    season_phase = ""
 
     if season_id:
+        season_phase = await _get_season_phase(repo, season_id)
+
+        # Build a map of round_number -> phase for playoff-aware labelling
+        round_phases: dict[int, str | None] = {}
+
         for rn in range(100, 0, -1):
             round_reports = await repo.get_reports_for_round(season_id, rn)
             for m in round_reports:
                 if m.report_type != "private":
+                    # Lazily compute phase for this round
+                    if rn not in round_phases:
+                        round_phases[rn] = await _get_game_phase(
+                            repo, season_id, rn,
+                        )
                     reports.append(
                         {
                             "report_type": m.report_type,
                             "round_number": m.round_number,
                             "content": m.content,
-                            "created_at": (m.created_at.isoformat() if m.created_at else ""),
+                            "created_at": (
+                                m.created_at.isoformat() if m.created_at else ""
+                            ),
+                            "phase": round_phases.get(rn),
                         }
                     )
             if reports and rn < 95 and len(reports) > 20:
@@ -1287,7 +1408,12 @@ async def reports_page(request: Request, repo: RepoDep, current_user: OptionalUs
     return templates.TemplateResponse(
         request,
         "pages/reports.html",
-        {"active_page": "reports", "reports": reports, **_auth_context(request, current_user)},
+        {
+            "active_page": "reports",
+            "reports": reports,
+            "season_phase": season_phase,
+            **_auth_context(request, current_user),
+        },
     )
 
 

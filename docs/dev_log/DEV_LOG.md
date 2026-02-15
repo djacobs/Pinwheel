@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **970 tests**, zero lint errors (Session 65)
+- **1085 tests**, zero lint errors (Session 66)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 65 (Wave 1 complete — effects doc + NarrativeContext + rebounds + cleanup)
+- **Latest commit:** Session 66 (Game Richness audit — playoff awareness across all output systems)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -42,7 +42,7 @@ Focus: a new user should be able to `/join`, govern, watch games, and experience
 
 ### P1 — Thin UX (works but feels empty)
 - [x] **NarrativeContext module** — Dataclass computed per round with standings, streaks, rivalries, playoff implications, rule changes. Passed to all output systems so commentary/reports/embeds reflect dramatic context. *(Session 65)*
-- [ ] **Game Richness audit** — Audit all player-facing outputs against `GAME_MOMENTS.md`. Playoff games should feel different from regular season. Championship finals should feel epic. *(Medium — per CLAUDE.md Game Richness principle)*
+- [x] **Game Richness audit** — Audit all player-facing outputs against `GAME_MOMENTS.md`. Playoff games should feel different from regular season. Championship finals should feel epic. *(Session 66)*
 - [ ] **Multi-parameter interpretation + expanded RuleSet** — Currently proposals map to ~6 parameters. Expand to cover court size, foul rules, substitution patterns, Elam threshold. AI interpretation handles compound proposals. *(Medium — `plans/2026-02-11-simulation-extensibility-plan.md`)*
 
 ### P0.5 — Critical pre-hackathon
@@ -73,7 +73,7 @@ Remaining work structured into four waves optimized for parallelism and dependen
 *Why parallel:* These three touch entirely different subsystems. Proposal Effects rewires governance execution. NarrativeContext is a read-only layer for output enrichment. Cleanup is dead code removal. No conflicts.
 
 **Wave 2 — Build on foundations (parallel, each depends on a Wave 1 item)**
-- [ ] **Game Richness audit** (P1, medium) — Audit all player-facing outputs against `GAME_MOMENTS.md`. *Depends on NarrativeContext* — that module provides the dramatic context data this audit wires into outputs.
+- [x] **Game Richness audit** (P1, medium) — Audit all player-facing outputs against `GAME_MOMENTS.md`. *Depends on NarrativeContext* — that module provides the dramatic context data this audit wires into outputs. *(Session 66)*
 - [ ] **GameEffect hooks** (P3, medium) — Rule changes trigger visual/mechanical effects in simulation. *Depends on Proposal Effects* — effects need the hook points and execution engine from the effects system.
 - [ ] **Multi-parameter interpretation + expanded RuleSet** (P1, medium) — Compound proposals, more tunable parameters. *Depends on Proposal Effects* — expands the target space proposals can hit, needs the broader effects architecture in place first.
 
@@ -780,3 +780,54 @@ Post-round session (~1s): mark games presented
 **970 tests (57 new, 2 removed), zero lint errors.**
 
 **What could have gone better:** All four Wave 1 tasks ran as parallel background agents. The Proposal Effects agent (Session 63) committed all changes together including NarrativeContext and rebounds, since those agents finished while it was still running. Test counts differed across agents (cleanup: 900, NarrativeContext: 1023, rebounds: 1034, effects: 1041) because each saw a different snapshot of the working tree. A subsequent pruning pass (Session 64) brought the count to 970. No merge conflicts.
+
+---
+
+## Session 66 — Game Richness Audit (Wave 2)
+
+**What was asked:** Comprehensive Game Richness audit of every player-facing output system against `GAME_MOMENTS.md`. The principle: "A playoff game that reads like a regular-season game is a bug." Audit and fix Discord embeds, HTML templates, mock report/commentary generators, presenter events, and bot event dispatch.
+
+**What was built:**
+
+### Discord embeds — playoff awareness (6 functions updated)
+- `build_game_result_embed` — "CHAMPIONSHIP FINALS:" / "SEMIFINAL:" in title, gold color for finals, Stage field.
+- `build_standings_embed` — win/loss streak indicators (W5, L3), phase-aware titles ("Playoffs", "Championship").
+- `build_schedule_embed` — playoff labels in title.
+- `build_commentary_embed` — phase in title and footer.
+- `build_round_summary_embed` — phase labels, champion mention when playoffs_complete.
+- `build_team_game_result_embed` — "CHAMPIONS!" for finals win, "Eliminated" for semifinal loss.
+
+### Mock report generators — playoff differentiation
+- `generate_simulation_report_mock` — playoff phase opener ("THE CHAMPIONSHIP FINALS" / "SEMIFINAL PLAYOFFS"), playoff-specific game descriptions, hot_players mention, season_arc notes.
+- `generate_governance_report_mock` — playoff opener ("CHAMPIONSHIP GOVERNANCE" / "PLAYOFF GOVERNANCE"), elimination context.
+
+### HTML templates — phase badges and streak indicators (6 templates)
+- `home.html` — phase label in hero pulse, streak indicators in mini-standings.
+- `standings.html` — STRK column, phase badge in subtitle.
+- `arena.html` — playoff round headers ("CHAMPIONSHIP FINALS", "SEMIFINAL PLAYOFFS").
+- `game.html` — phase badge above game header.
+- `governance.html` — phase badge ("PLAYOFFS" / "CHAMPIONSHIP") in title, contextual tagline for elimination/championship governance.
+- `reports.html` — phase tags on report type labels ("SEMIFINAL PLAYOFFS" / "CHAMPIONSHIP FINALS").
+
+### Pages API — phase context propagation
+- 3 new helper functions: `_get_season_phase()`, `_get_game_phase()`, `_compute_streaks_from_games()`.
+- `home_page`, `standings_page` — pass `season_phase` and `streaks`.
+- `arena_page` — compute `round_phase` per round.
+- `game_page` — pass `game_phase`.
+- `governance_page` — pass `season_phase`.
+- `reports_page` — pass per-report `phase` and `season_phase`.
+
+### Presenter — playoff_context in SSE events
+- `game_starting` event includes `playoff_context` from game_summaries.
+- `game_finished` event includes `playoff_context` from game_summaries.
+- `round_finished` event includes `playoff_context` derived from game_summaries.
+
+### Game loop + Discord bot wiring
+- `game_loop.py` — `playoff_context` added to game_summaries dict.
+- `bot.py` — `_dispatch_event` extracts `playoff_context` from event data, passes to all embed builders.
+
+**Files modified (11):** `src/pinwheel/discord/embeds.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/core/presenter.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/discord/bot.py`, `templates/pages/home.html`, `templates/pages/standings.html`, `templates/pages/arena.html`, `templates/pages/game.html`, `templates/pages/governance.html`, `templates/pages/reports.html`, `tests/test_commentary.py`, `tests/test_pages.py`
+
+**1085 tests (115 new), zero lint errors.**
+
+**What could have gone better:** The Showboat demo pipeline (`run_demo.sh`) has a fragile screenshot invocation that failed on argument parsing. Rodney screenshots were not captured automatically. Manual refresh would be needed for demo artifacts.

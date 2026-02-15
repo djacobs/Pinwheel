@@ -613,3 +613,23 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 88. [DONE] Admin nav — auth-gated single link + landing page hub
 **Problem:** Admin links (Evals, Season) were gated on `pinwheel_env in ['development', 'staging']`, making them invisible in production. Admins had to type URLs manually.
 **Fix:** Replaced env-gated nav block with auth-gated `{% if is_admin %}` check using `PINWHEEL_ADMIN_DISCORD_ID`. Single "Admin" nav link leads to `/admin` landing page with three cards (Season, Governors, Evals). Works in all environments. Non-admins never see the link; direct URL returns 403.
+
+---
+
+## Completed — Session 66 (Game Richness Audit)
+
+### 89. [DONE] Playoff phase badges across all HTML pages
+**Problem:** Playoff and championship games were visually indistinguishable from regular season games. The home page hero pulse, arena round headers, game detail header, standings subtitle, governance title, and report type labels all showed identical formatting regardless of season phase.
+**Fix:** Added phase-aware badges and labels to 6 templates: Home (hero pulse shows "PLAYOFFS"/"CHAMPIONSHIP"), Arena (round headers show "CHAMPIONSHIP FINALS"/"SEMIFINAL PLAYOFFS"), Game (phase badge above header), Standings (subtitle badge + STRK column), Governance (title badge + contextual tagline about elimination/championship governance), Reports (phase tags on report type labels). Colors use `--accent-elam` for playoffs and `--accent-score` for championship.
+
+### 90. [DONE] Streak indicators in standings and home mini-standings
+**Problem:** Win/loss streaks were computed by NarrativeContext and used in AI reports but never shown visually on the web dashboard. Players couldn't see at a glance which teams were hot or cold.
+**Fix:** Added STRK column to standings page table showing W3+/L3+ streaks in green/red. Home page mini-standings show streak indicators (W5, L3) for teams with 3+ game streaks. Streaks computed by `_compute_streaks_from_games()` helper in `pages.py`.
+
+### 91. [DONE] Discord embeds reflect playoff context
+**Problem:** All 6 Discord embed builders produced identical output for regular season and playoff games. A championship finals result looked exactly like a Round 1 game. No streak information in standings embeds.
+**Fix:** Updated `build_game_result_embed` (SEMIFINAL/CHAMPIONSHIP title + Stage field), `build_standings_embed` (streak indicators + phase title), `build_schedule_embed` (playoff labels), `build_commentary_embed` (phase in title/footer), `build_round_summary_embed` (phase labels + champion mention), `build_team_game_result_embed` (CHAMPIONS! for finals win, Eliminated for semifinal loss). All parameters optional for backward compatibility.
+
+### 92. [DONE] Mock governance report playoff awareness
+**Problem:** The mock governance report produced identical output regardless of season phase. Governance during elimination games should acknowledge the heightened stakes.
+**Fix:** Added playoff phase opener to `generate_governance_report_mock`: "CHAMPIONSHIP GOVERNANCE" for finals, "PLAYOFF GOVERNANCE" for semifinals. Includes contextual framing about elimination-game rule changes.
