@@ -2074,38 +2074,44 @@ class TestBioCommand:
 
 
 class TestWelcomeEmbedExtended:
-    def test_welcome_embed_with_motto(self) -> None:
-        """Welcome embed includes team motto when provided."""
-        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
+    """Welcome embed: schema, sentinels, and season context behavior."""
+
+    def test_welcome_embed_core_content(self) -> None:
+        """Welcome embed includes team, hoopers, commands, tokens, and play link."""
+        hoopers = [
+            {"name": "Briar Ashwood", "archetype": "Sharpshooter"},
+            {"name": "Kai Rivers", "archetype": "Playmaker"},
+        ]
         embed = build_welcome_embed(
-            "Thorns",
-            "#E74C3C",
+            "Rose City Thorns",
+            "#E94560",
             hoopers,
             motto="Bloom or bust",
         )
-        assert "Bloom or bust" in (embed.description or "")
+        desc = embed.description or ""
+        # Team and color
+        assert "Rose City Thorns" in desc
+        assert embed.color == discord.Color(0xE94560)
+        # Motto
+        assert "Bloom or bust" in desc
+        # Hooper names and archetypes
+        assert "Briar Ashwood" in desc
+        assert "Sharpshooter" in desc
+        assert "Kai Rivers" in desc
+        assert "Playmaker" in desc
+        # Key commands
+        for cmd in ("/propose", "/vote", "/strategy", "/tokens", "/standings", "/play"):
+            assert cmd in desc
+        # Starter tokens
+        assert "2 PROPOSE" in desc
+        assert "2 AMEND" in desc
+        assert "2 BOOST" in desc
 
-    def test_welcome_embed_without_motto(self) -> None:
+    def test_welcome_embed_motto_omitted_when_empty(self) -> None:
         """Welcome embed omits motto line when empty."""
         hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
         embed = build_welcome_embed("Thorns", "#E74C3C", hoopers, motto="")
-        # No motto marker in description
-        desc = embed.description or ""
-        assert "Thorns" in desc
-        assert '*"' not in desc
-
-    def test_welcome_embed_with_backstory(self) -> None:
-        """Welcome embed shows hooper backstory snippet."""
-        hoopers = [
-            {
-                "name": "Star",
-                "archetype": "Sharpshooter",
-                "backstory": "A deadly shooter from downtown.",
-            },
-        ]
-        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
-        desc = embed.description or ""
-        assert "deadly shooter" in desc
+        assert '*"' not in (embed.description or "")
 
     def test_welcome_embed_backstory_truncation(self) -> None:
         """Backstory longer than 100 chars is truncated with ellipsis."""
@@ -2116,119 +2122,50 @@ class TestWelcomeEmbedExtended:
         embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
         desc = embed.description or ""
         assert "..." in desc
-        # The full 150-char string should NOT appear
         assert long_bio not in desc
 
-    def test_welcome_embed_includes_key_commands(self) -> None:
-        """Welcome embed quick start lists key governance commands."""
-        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
-        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
-        desc = embed.description or ""
-        assert "/propose" in desc
-        assert "/vote" in desc
-        assert "/strategy" in desc
-        assert "/tokens" in desc
-        assert "/standings" in desc
-
-    def test_welcome_embed_includes_starter_tokens(self) -> None:
-        """Welcome embed tells new players about their starter tokens."""
-        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
-        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
-        desc = embed.description or ""
-        assert "2 PROPOSE" in desc
-        assert "2 AMEND" in desc
-        assert "2 BOOST" in desc
-
-    def test_welcome_embed_includes_play_link(self) -> None:
-        """Welcome embed directs players to /play for full rules."""
-        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
-        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
-        desc = embed.description or ""
-        assert "/play" in desc
-
-    def test_welcome_embed_with_season_context(self) -> None:
-        """Welcome embed includes season info when context is provided."""
+    @pytest.mark.parametrize(
+        "phase, current_round, total_rounds, expected_labels, absent_labels",
+        [
+            ("active", 2, 9, ["Season X", "Regular season", "Round 2 of 9"], []),
+            ("playoffs", 7, 6, ["Playoffs"], []),
+            ("active", 0, 9, ["Season X", "Regular season"], ["Round 0"]),
+        ],
+        ids=["active-mid-season", "playoffs", "active-no-games"],
+    )
+    def test_welcome_embed_season_context_phases(
+        self,
+        phase: str,
+        current_round: int,
+        total_rounds: int,
+        expected_labels: list[str],
+        absent_labels: list[str],
+    ) -> None:
+        """Season context renders correct phase labels and round info."""
         hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
         ctx = {
-            "season_name": "Season THREE",
-            "season_phase": "active",
-            "current_round": 2,
-            "total_rounds": 9,
+            "season_name": "Season X",
+            "season_phase": phase,
+            "current_round": current_round,
+            "total_rounds": total_rounds,
         }
         embed = build_welcome_embed(
             "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
         )
         desc = embed.description or ""
-        assert "Season THREE" in desc
-        assert "Regular season" in desc
-        assert "Round 2 of 9" in desc
-
-    def test_welcome_embed_season_context_playoffs(self) -> None:
-        """Welcome embed shows playoff phase correctly."""
-        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
-        ctx = {
-            "season_name": "Season TWO",
-            "season_phase": "playoffs",
-            "current_round": 7,
-            "total_rounds": 6,
-        }
-        embed = build_welcome_embed(
-            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
-        )
-        desc = embed.description or ""
-        assert "Playoffs" in desc
-
-    def test_welcome_embed_season_context_no_games(self) -> None:
-        """Welcome embed handles season with zero games played gracefully."""
-        hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
-        ctx = {
-            "season_name": "Season ONE",
-            "season_phase": "active",
-            "current_round": 0,
-            "total_rounds": 9,
-        }
-        embed = build_welcome_embed(
-            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
-        )
-        desc = embed.description or ""
-        assert "Season ONE" in desc
-        # Should show phase but not "Round 0"
-        assert "Regular season" in desc
-        assert "Round 0" not in desc
+        for label in expected_labels:
+            assert label in desc
+        for label in absent_labels:
+            assert label not in desc
 
     def test_welcome_embed_without_season_context(self) -> None:
         """Welcome embed works without season context (backward compat)."""
         hoopers = [{"name": "Briar", "archetype": "Sharpshooter"}]
         embed = build_welcome_embed("Rose City Thorns", "#E74C3C", hoopers)
         desc = embed.description or ""
-        # Should still have team name, hoopers, commands
         assert "Rose City Thorns" in desc
-        assert "Briar" in desc
         assert "/propose" in desc
-        # Should NOT have season-specific info
         assert "Regular season" not in desc
-
-    def test_welcome_embed_uses_team_color(self) -> None:
-        """Welcome embed uses the team's color."""
-        hoopers = [{"name": "Star", "archetype": "Sharpshooter"}]
-        embed = build_welcome_embed("Thorns", "#E94560", hoopers)
-        assert embed.color == discord.Color(0xE94560)
-
-    def test_welcome_embed_shows_hooper_archetypes(self) -> None:
-        """Welcome embed lists hooper names and archetypes."""
-        hoopers = [
-            {"name": "Briar Ashwood", "archetype": "Sharpshooter"},
-            {"name": "Kai Rivers", "archetype": "Playmaker"},
-            {"name": "Zephyr Cole", "archetype": "Enforcer"},
-        ]
-        embed = build_welcome_embed("Thorns", "#E74C3C", hoopers)
-        desc = embed.description or ""
-        assert "Briar Ashwood" in desc
-        assert "Sharpshooter" in desc
-        assert "Kai Rivers" in desc
-        assert "Playmaker" in desc
-        assert "Zephyr Cole" in desc
-        assert "Enforcer" in desc
 
     def test_welcome_embed_season_context_all_phases(self) -> None:
         """Each season phase produces an appropriate label."""

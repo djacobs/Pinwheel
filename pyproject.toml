@@ -54,3 +54,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["slow: large-sample stochastic tests (run with -m slow)"]
