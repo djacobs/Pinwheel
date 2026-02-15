@@ -165,10 +165,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ## Plan/Implementation Alignment Cleanup Checklist (Appended)
 
 ### Phase 1: Triage plan artifacts (highest impact)
-- [ ] Move non-Pinwheel plans out of active planning scope (archive to `docs/plans/external/` or delete if accidental imports).
-- [ ] Triage these clearly foreign files: `docs/plans/2026-02-15-tk-authorship-journey-implementation.md`, `docs/plans/2026-02-15-close-document-navigation-draftstage.md`, `docs/plans/2026-02-15-fix-three-revise-draft-ux-bugs.md`, `docs/plans/2026-02-15-token-counter-animation.md`, `docs/plans/2026-02-15-llm-call-optimization-advisor.md`.
-- [ ] Triage these non-Pinwheel project plans: `docs/plans/2026-02-15-linkblog-link-aggregation-syndication.md`, `docs/plans/2026-02-15-feedly-oauth-refresh-token.md`, `docs/plans/2026-02-15-newsletter-ring-implementation.md`.
-- [ ] Add a short note at top of each moved file: "Archived as out-of-repo scope."
+- [x] Move non-Pinwheel plans out of active planning scope — copied 8 files to ~/Desktop and removed from repo.
+- [x] Triage these clearly foreign files: `tk-authorship-journey-implementation`, `close-document-navigation-draftstage`, `fix-three-revise-draft-ux-bugs`, `token-counter-animation`, `llm-call-optimization-advisor`.
+- [x] Triage these non-Pinwheel project plans: `linkblog-link-aggregation-syndication`, `feedly-oauth-refresh-token`, `newsletter-ring-implementation`.
 
 ### Phase 2: Mark implemented plans as implemented
 - [ ] Update `docs/plans/2026-02-14-token-cost-tracking-dashboard.md` status from Draft to Implemented (except demo step if still pending).
