@@ -850,42 +850,18 @@ class PinwheelBot(commands.Bot):
     async def _autocomplete_teams(self, current: str) -> list[app_commands.Choice[str]]:
         """Return team name choices matching the current input.
 
-        Uses an in-memory cache populated at startup to avoid hitting the DB
-        on every keystroke (autocomplete has a <3s timeout).
+        Uses an in-memory cache populated at startup. Never hits the DB here —
+        DB queries in autocomplete can congest the event loop and cause the
+        subsequent /join command interaction to expire (3s Discord timeout).
         """
-        # Fast path: use cached team names (populated in _setup_server)
-        if self._team_names_cache:
-            lowered = current.lower()
-            return [
-                app_commands.Choice(name=name, value=name)
-                for name in self._team_names_cache
-                if lowered in name.lower()
-            ][:25]
-
-        # Fallback: query DB if cache not yet populated
-        if not self.engine:
+        if not self._team_names_cache:
             return []
-        try:
-
-            from pinwheel.db.engine import get_session
-            from pinwheel.db.repository import Repository
-
-            async with get_session(self.engine) as session:
-                repo = Repository(session)
-                season = await repo.get_active_season()
-                if not season:
-                    return []
-                teams = await repo.get_teams_for_season(season.id)
-                self._team_names_cache = [t.name for t in teams]
-                lowered = current.lower()
-                return [
-                    app_commands.Choice(name=t.name, value=t.name)
-                    for t in teams
-                    if lowered in t.name.lower()
-                ][:25]
-        except Exception:
-            logger.exception("discord_team_autocomplete_failed")
-            return []
+        lowered = current.lower()
+        return [
+            app_commands.Choice(name=name, value=name)
+            for name in self._team_names_cache
+            if lowered in name.lower()
+        ][:25]
 
     async def _autocomplete_proposals(
         self,
@@ -960,8 +936,19 @@ class PinwheelBot(commands.Bot):
             )
             return
 
-        # Defer immediately — DB + role ops can exceed 3s interaction timeout
-        await interaction.response.defer()
+        # Defer immediately — DB + role ops can exceed 3s interaction timeout.
+        # If the interaction already expired (e.g., event loop was congested),
+        # Discord returns 404 Unknown Interaction and we can't respond at all.
+        try:
+            await interaction.response.defer()
+        except (discord.NotFound, discord.HTTPException) as defer_err:
+            logger.warning(
+                "join_defer_expired user=%s team=%s err=%s",
+                interaction.user.display_name if interaction.user else "unknown",
+                team_name,
+                defer_err,
+            )
+            return
 
         try:
             from sqlalchemy.exc import OperationalError
