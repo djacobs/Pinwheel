@@ -665,3 +665,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 98. [DONE] Schedule nudge in /new-season response
 **Problem:** After an admin runs `/new-season`, the response confirms creation but doesn't mention the schedule. Governors have to know to run `/schedule` separately — no discoverability.
 **Fix:** Added "Run `/schedule` to see the matchups." to both the admin-facing ephemeral embed and the public #play-by-play announcement embed.
+
+### 99. [DONE] Staggered game start times in upcoming games
+**Problem:** Upcoming games on arena and home pages showed matchups but no start times. Players couldn't tell *when* each game tips off. All games in a round also launched simultaneously in the presenter despite `game_interval_seconds` being configured.
+**Fix:** New `schedule_times.py` module computes start times from APScheduler's `next_run_time` + the configured interval. Arena "Up Next" panels show times in the `game-panel-header`. Home "Coming Up" cards show times via a new `.uc-time` element (muted text, separated by a border). Discord `/schedule` appends `-- 1:00 PM ET` to each matchup line. Presenter now staggers game launches with `asyncio.sleep()` between starts.
+
+### 100. [DONE] "Simulated" → "played" language fix
+**Problem:** Empty-state text on arena and home pages said "once the first round is simulated" — engineering language, not player language.
+**Fix:** Changed to "once the first round is played" in both `arena.html` and `home.html`.

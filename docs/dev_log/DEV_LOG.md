@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1446 tests**, zero lint errors (Session 73)
+- **1455 tests**, zero lint errors (Session 75)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Dev-mode Discord guard, server welcome DM for new members
 - **Day 15 (cont):** V2 tier detection, minimum voting period, Discord channel slug fix
 - **Day 15 (cont):** /schedule nudge in new-season Discord embeds
-- **Latest commit:** `8b30441` — add /schedule nudge to new-season Discord embeds
+- **Day 15 (cont):** Staggered game start times, "played" language fix, playoffs nav test fix
+- **Latest commit:** `aba3fa2` — fix playoffs nav test after nav link moved to Play page
 
 ## Today's Agenda
 
@@ -192,3 +193,28 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [ ] Close or carry forward open agenda items in `docs/dev_log/DEV_LOG.md:27` and `docs/dev_log/DEV_LOG.md:28`.
 - [ ] If cost dashboard is now implemented, add demo capture step for `/admin/costs` in `scripts/run_demo.sh`.
 - [ ] Add one "Plan hygiene" entry to `docs/dev_log/DEV_LOG.md` documenting what was archived vs marked complete.
+
+---
+
+## Session 75 — Staggered Game Start Times + Language Fix
+
+**What was asked:** Implement staggered game start times so upcoming games show when each tips off, activate the existing `game_interval_seconds` plumbing in the presenter, fix "simulated" → "played" language, and fix a pre-existing test failure.
+
+**What was built:**
+- New utility module `core/schedule_times.py` — `compute_game_start_times()` and `format_game_time()` (pure functions, ET formatting via `zoneinfo`)
+- Activated `game_interval_seconds` stagger in `presenter.py` — games launch sequentially with `asyncio.sleep()` between starts when interval > 0; concurrent mode preserved when interval = 0
+- Injected computed start times into arena "Up Next" and home "Coming Up" sections via APScheduler job's `next_run_time`
+- Added `start_times` parameter to Discord `build_schedule_embed()` — `/schedule` now shows "Team A vs Team B -- 1:00 PM ET"
+- Fixed "simulated" → "played" in empty-state copy on arena and home pages
+- Added `.uc-time` CSS class for start time display in upcoming cards
+- Fixed pre-existing `test_playoffs.py::TestPlayoffsNavigation::test_nav_link_present` — the playoffs link was moved from top nav to the Play page in `4d78cf1` but the test wasn't updated
+
+**Files modified (7):** `src/pinwheel/api/pages.py`, `src/pinwheel/core/presenter.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/embeds.py`, `static/css/pinwheel.css`, `templates/pages/arena.html`, `templates/pages/home.html`
+
+**New files (2):** `src/pinwheel/core/schedule_times.py`, `tests/test_schedule_times.py`
+
+**Fixed tests (1):** `tests/test_playoffs.py`
+
+**1455 tests, zero lint errors.**
+
+**What could have gone better:** The pre-existing test failure was from a prior commit that moved nav links but didn't update the corresponding test. Should always run the full suite before pushing.
