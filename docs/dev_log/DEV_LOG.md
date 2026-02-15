@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **880 tests**, zero lint errors (Session 59)
+- **882 tests**, zero lint errors (Session 60)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 59 (fix duplicate Discord channel creation on reconnect)
+- **Latest commit:** Session 60 (remove PostgreSQL, go SQLite-only)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -513,3 +513,24 @@ Post-round session (~1s): mark games presented
 **880 tests, zero lint errors.**
 
 **What could have gone better:** This bug existed since the bot was first deployed. The `on_ready` reconnect behavior is well-documented in discord.py but easy to overlook. Should have added the guard from Day 1.
+
+---
+
+## Session 60 — Remove PostgreSQL, Go SQLite-Only
+
+**What was asked:** Production runs on Fly.io with a SQLite file on a persistent volume. There is no Postgres instance. Remove the `asyncpg` dependency and all PostgreSQL references — dead code and docs cleanup.
+
+**What was built:**
+- Removed `asyncpg>=0.30` from `pyproject.toml`, relocked with `uv lock`
+- Simplified `db/engine.py` — removed `if "sqlite"` guards, always sets timeout and PRAGMA listener, updated docstring to "SQLite-only"
+- Cleaned `db/repository.py` — removed `.with_for_update()` and PostgreSQL comment (SQLite is single-writer, no locking needed)
+- Added "SQLite only, no PostgreSQL support" comment in `config.py`
+- Removed "PostgreSQL MVCC" reference from `game_loop.py` isolation comment
+- Updated 7 docs: CLAUDE.md (tech stack + env vars), DEMO_MODE.md (environment table + env vars), OPS.md (rewrote architecture diagram, database section, deployment, backup, cost), ADMIN_GUIDE.md (backup, deploy, env vars), COLOPHON.md (stack table), README.md (removed `fly postgres` commands)
+- Did NOT touch `docs/dev_log/` or `docs/plans/` (historical records)
+
+**Files modified (12):** `pyproject.toml`, `uv.lock`, `src/pinwheel/db/engine.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/config.py`, `src/pinwheel/core/game_loop.py`, `CLAUDE.md`, `docs/DEMO_MODE.md`, `docs/OPS.md`, `docs/product/ADMIN_GUIDE.md`, `docs/product/COLOPHON.md`, `README.md`
+
+**882 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward cleanup. The `asyncpg` dependency and PostgreSQL docs were pure dead weight since production moved to SQLite on a Fly volume.
