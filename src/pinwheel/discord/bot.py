@@ -419,6 +419,26 @@ class PinwheelBot(commands.Bot):
         ) -> None:
             await self._handle_ask(interaction, question)
 
+        @self.tree.command(
+            name="edit-series",
+            description="Collaboratively edit a playoff series report",
+        )
+        @app_commands.describe(
+            report="Which series report to edit",
+        )
+        async def edit_series_command(
+            interaction: discord.Interaction,
+            report: str,
+        ) -> None:
+            await self._handle_edit_series(interaction, report)
+
+        @edit_series_command.autocomplete("report")
+        async def _series_report_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_series_reports(interaction, current)
+
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
         if self.settings.discord_guild_id:
@@ -2755,29 +2775,56 @@ class PinwheelBot(commands.Bot):
         await interaction.response.defer()
         upcoming_rounds = await self._query_schedule()
 
-        # Compute start times from the cron cadence (one per round)
-        start_times: list[str] | None = None
+        # Group each round's games into time slots (no team plays twice
+        # per slot) and compute one cron fire time per slot.
+        upcoming_slots: list[dict] = []
         if upcoming_rounds:
             try:
                 from pinwheel.core.schedule_times import (
                     compute_round_start_times,
                     format_game_time,
+                    group_into_slots,
                 )
 
+                all_slots: list[list[dict]] = []
+                for rd in upcoming_rounds:
+                    all_slots.extend(
+                        group_into_slots(
+                            rd["games"],
+                            home_key="home_team_name",
+                            away_key="away_team_name",
+                        )
+                    )
+
                 effective_cron = self.settings.effective_game_cron()
+                start_times: list[str] = []
                 if effective_cron:
                     times = compute_round_start_times(
                         effective_cron,
-                        len(upcoming_rounds),
+                        len(all_slots),
                     )
                     start_times = [format_game_time(t) for t in times]
-            except Exception:
-                logger.debug("discord_schedule_start_times_failed", exc_info=True)
 
-        embed = build_schedule_embed(
-            upcoming_rounds,
-            start_times=start_times,
-        )
+                for idx, slot_games in enumerate(all_slots):
+                    upcoming_slots.append(
+                        {
+                            "start_time": (
+                                start_times[idx]
+                                if idx < len(start_times)
+                                else None
+                            ),
+                            "games": slot_games,
+                        }
+                    )
+            except Exception:
+                logger.debug("discord_schedule_slots_failed", exc_info=True)
+                # Fallback: show rounds without slot grouping
+                for rd in upcoming_rounds:
+                    upcoming_slots.append(
+                        {"start_time": None, "games": rd["games"]}
+                    )
+
+        embed = build_schedule_embed(upcoming_slots)
         await interaction.followup.send(embed=embed)
 
     async def _query_schedule(self) -> list[dict]:
@@ -3840,6 +3887,129 @@ class PinwheelBot(commands.Bot):
                 "private_report_dm_failed governor=%s",
                 governor_id,
             )
+
+    async def _handle_edit_series(
+        self,
+        interaction: discord.Interaction,
+        report_id: str,
+    ) -> None:
+        """Handle /edit-series — open a modal to edit a series report.
+
+        Auth: only governors whose team_id matches winner_id or loser_id
+        in the report's metadata_json can edit.
+        """
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.helpers import get_governor_info
+        from pinwheel.discord.views import EditSeriesModal
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+
+                governor_info = await get_governor_info(repo, str(interaction.user.id))
+                if governor_info is None:
+                    await interaction.response.send_message(
+                        "You need to `/join` a team first.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Fetch the report
+                report_row = await session.get(
+                    __import__("pinwheel.db.models", fromlist=["ReportRow"]).ReportRow,
+                    report_id,
+                )
+                if report_row is None or report_row.report_type != "series":
+                    await interaction.response.send_message(
+                        "Series report not found.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Auth check: governor's team must be winner or loser
+                metadata = report_row.metadata_json or {}
+                winner_id = metadata.get("winner_id", "")
+                loser_id = metadata.get("loser_id", "")
+
+                if governor_info.team_id not in (winner_id, loser_id):
+                    await interaction.response.send_message(
+                        "Only governors on the participating teams can edit this report.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Resolve team names
+                winner_team = await repo.get_team(winner_id)
+                loser_team = await repo.get_team(loser_id)
+                winner_name = winner_team.name if winner_team else winner_id
+                loser_name = loser_team.name if loser_team else loser_id
+                series_type = metadata.get("series_type", "playoff")
+                current_content = report_row.content or ""
+
+            modal = EditSeriesModal(
+                report_id=report_id,
+                season_id=governor_info.season_id,
+                series_type=series_type,
+                winner_name=winner_name,
+                loser_name=loser_name,
+                current_content=current_content,
+                engine=self.engine,
+            )
+            await interaction.response.send_modal(modal)
+
+        except Exception:
+            logger.exception("edit_series_failed")
+            await interaction.response.send_message(
+                "Could not open the series report editor right now.",
+                ephemeral=True,
+            )
+
+    async def _autocomplete_series_reports(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete for /edit-series — show series reports the governor can edit."""
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.helpers import get_governor_info
+
+        choices: list[app_commands.Choice[str]] = []
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                governor_info = await get_governor_info(repo, str(interaction.user.id))
+                if governor_info is None:
+                    return choices
+
+                reports = await repo.get_series_reports(governor_info.season_id)
+                for r in reports:
+                    metadata = r.metadata_json or {}
+                    winner_id = metadata.get("winner_id", "")
+                    loser_id = metadata.get("loser_id", "")
+
+                    # Only show reports where the governor's team participated
+                    if governor_info.team_id not in (winner_id, loser_id):
+                        continue
+
+                    series_type = metadata.get("series_type", "series")
+                    record = metadata.get("record", "")
+                    label = f"{series_type.title()} Series"
+                    if record:
+                        label += f" ({record})"
+                    # Truncate to Discord's 100-char limit
+                    label = label[:100]
+
+                    if current.lower() in label.lower() or not current:
+                        choices.append(app_commands.Choice(name=label, value=r.id))
+
+                    if len(choices) >= 25:
+                        break
+        except Exception:
+            logger.exception("series_report_autocomplete_failed")
+
+        return choices
 
     async def close(self) -> None:
         """Clean shutdown: cancel event listener and close bot."""

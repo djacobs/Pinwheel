@@ -1,8 +1,12 @@
-"""Tests for schedule_times — round-based start time computation."""
+"""Tests for schedule_times — slot grouping and start time computation."""
 
 from datetime import UTC, datetime
 
-from pinwheel.core.schedule_times import compute_round_start_times, format_game_time
+from pinwheel.core.schedule_times import (
+    compute_round_start_times,
+    format_game_time,
+    group_into_slots,
+)
 
 
 class TestComputeRoundStartTimes:
@@ -105,3 +109,79 @@ class TestFormatGameTime:
         result = format_game_time(dt)
 
         assert result == "12:00 PM ET"
+
+
+class TestGroupIntoSlots:
+    """Tests for group_into_slots — greedy first-fit team-overlap grouping."""
+
+    def test_four_teams_six_games(self):
+        """4 teams, 6 matchups → 3 slots of 2 games each."""
+        entries = [
+            {"home_team_id": "A", "away_team_id": "B"},
+            {"home_team_id": "C", "away_team_id": "D"},
+            {"home_team_id": "A", "away_team_id": "C"},
+            {"home_team_id": "B", "away_team_id": "D"},
+            {"home_team_id": "A", "away_team_id": "D"},
+            {"home_team_id": "B", "away_team_id": "C"},
+        ]
+        slots = group_into_slots(entries)
+
+        assert len(slots) == 3
+        for slot in slots:
+            assert len(slot) == 2
+            # No team appears twice in a slot
+            teams = set()
+            for g in slot:
+                teams.add(g["home_team_id"])
+                teams.add(g["away_team_id"])
+            assert len(teams) == 4
+
+    def test_two_teams_one_game(self):
+        """2 teams, 1 game → 1 slot of 1 game."""
+        entries = [{"home_team_id": "A", "away_team_id": "B"}]
+        slots = group_into_slots(entries)
+
+        assert len(slots) == 1
+        assert len(slots[0]) == 1
+
+    def test_empty_entries(self):
+        """No entries → no slots."""
+        assert group_into_slots([]) == []
+
+    def test_three_teams_three_games(self):
+        """3 teams, 3 matchups → 3 slots of 1 game each (every game overlaps)."""
+        entries = [
+            {"home_team_id": "A", "away_team_id": "B"},
+            {"home_team_id": "A", "away_team_id": "C"},
+            {"home_team_id": "B", "away_team_id": "C"},
+        ]
+        slots = group_into_slots(entries)
+
+        assert len(slots) == 3
+        for slot in slots:
+            assert len(slot) == 1
+
+    def test_custom_keys(self):
+        """Custom home/away keys should work."""
+        entries = [
+            {"home": "X", "away": "Y"},
+            {"home": "X", "away": "Z"},
+        ]
+        slots = group_into_slots(entries, home_key="home", away_key="away")
+
+        assert len(slots) == 2
+
+    def test_works_with_objects(self):
+        """Should work with attribute-based objects, not just dicts."""
+
+        class Entry:
+            def __init__(self, home: str, away: str):
+                self.home_team_id = home
+                self.away_team_id = away
+
+        entries = [Entry("A", "B"), Entry("C", "D"), Entry("A", "C")]
+        slots = group_into_slots(entries)
+
+        assert len(slots) == 2
+        assert len(slots[0]) == 2  # A-B and C-D fit together
+        assert len(slots[1]) == 1  # A-C alone

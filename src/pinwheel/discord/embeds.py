@@ -289,35 +289,32 @@ def build_report_embed(report: Report) -> discord.Embed:
 
 
 def build_schedule_embed(
-    upcoming_rounds: list[dict],
-    start_times: list[str] | None = None,
+    upcoming_slots: list[dict],
 ) -> discord.Embed:
-    """Build an embed showing all upcoming rounds with start times.
+    """Build an embed showing upcoming time slots with start times.
 
     Args:
-        upcoming_rounds: List of round dicts, each with ``round_number``
-            and ``games`` (list of matchup dicts with team names).
-        start_times: Optional formatted start times (one per round).
+        upcoming_slots: List of slot dicts, each with ``start_time``
+            (formatted string or None) and ``games`` (list of matchup
+            dicts with ``home_team_name`` and ``away_team_name``).
     """
     embed = discord.Embed(
         title="Upcoming Schedule",
         color=COLOR_SCHEDULE,
     )
 
-    if not upcoming_rounds:
+    if not upcoming_slots:
         embed.description = "No games scheduled."
         embed.set_footer(text="Pinwheel Fates")
         return embed
 
     sections: list[str] = []
-    for idx, rd in enumerate(upcoming_rounds):
-        rn = rd.get("round_number", "?")
-        header = f"**Round {rn}**"
-        if start_times and idx < len(start_times):
-            header += f" -- {start_times[idx]}"
+    for slot in upcoming_slots:
+        start = slot.get("start_time")
+        header = f"**{start}**" if start else "**Upcoming**"
 
         matchup_lines: list[str] = []
-        for matchup in rd.get("games", []):
+        for matchup in slot.get("games", []):
             home = matchup.get("home_team_name", "TBD")
             away = matchup.get("away_team_name", "TBD")
             matchup_lines.append(f"{home} vs {away}")
@@ -1180,6 +1177,34 @@ def build_history_list_embed(
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Pinwheel Fates -- Hall of History")
+    return embed
+
+
+def build_series_edit_embed(
+    series_type: str,
+    winner_name: str,
+    loser_name: str,
+    editor_name: str,
+) -> discord.Embed:
+    """Build a confirmation embed after a series report is edited.
+
+    Args:
+        series_type: 'semifinal' or 'finals'.
+        winner_name: Name of the series winner.
+        loser_name: Name of the series loser.
+        editor_name: Discord display name of the editing governor.
+    """
+    label = "Championship Finals" if series_type == "finals" else "Semifinal"
+    embed = discord.Embed(
+        title=f"Series Report Updated -- {label}",
+        description=(
+            f"**{winner_name}** vs **{loser_name}**\n\n"
+            f"Edited by {editor_name}. "
+            "Governors on both teams can continue editing this report."
+        ),
+        color=COLOR_REPORT,
+    )
+    embed.set_footer(text="Pinwheel Fates -- Collaborative Series Report")
     return embed
 
 

@@ -129,15 +129,16 @@
 <div class="home-section">
   <div class="section-title-bar">
     <span class="section-title-text">Coming Up</span>
-    <span class="section-title-badge upcoming-badge">{{ upcoming_rounds|length }} round{{ 's' if upcoming_rounds|length != 1 else '' }}</span>
   </div>
-  {% for round in upcoming_rounds %}
+  {% for slot in upcoming_rounds %}
   <div class="{% if not loop.first %}mt-1{% endif %}">
+    {% if slot.start_time %}
     <div class="uc-round-header">
-      Round {{ round.round_number }}{% if round.start_time %} &mdash; {{ round.start_time }}{% endif %}
+      {{ slot.start_time }}
     </div>
+    {% endif %}
     <div class="upcoming-strip">
-      {% for game in round.games %}
+      {% for game in slot.games %}
       <div class="upcoming-card">
         <div class="uc-team">
           <span class="sc-dot" style="background:{{ game.home_color }};"></span>

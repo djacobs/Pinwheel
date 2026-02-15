@@ -1,17 +1,69 @@
-"""Compute and format game start times for upcoming rounds.
+"""Compute and format game start times for upcoming time slots.
 
-Uses the cron schedule to determine when each round tips off.  All games
-within a round start at the same time (no team plays twice in a round),
-and successive rounds are spaced by the cron cadence.
+Uses the cron schedule to determine when each time slot tips off.
+A "round" in the database may contain more games than can play
+simultaneously (e.g. 6 matchups for 4 teams).  This module groups
+games into *slots* — sets of games where no team appears twice —
+and assigns each slot a successive cron fire time.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # Eastern Time for display — the league's canonical time zone.
 _ET = ZoneInfo("America/New_York")
+
+
+def group_into_slots(
+    entries: Sequence[Any],
+    home_key: str = "home_team_id",
+    away_key: str = "away_team_id",
+) -> list[list[Any]]:
+    """Group schedule entries into simultaneous time slots.
+
+    A time slot is a set of games where no team appears twice —
+    i.e. all games in a slot can tip off at the same time.
+
+    Uses greedy first-fit: iterate entries in order and place each
+    in the first slot that has no team overlap.  The round-robin
+    scheduler already orders matchups so that consecutive pairs are
+    non-overlapping, so this produces the minimal number of slots.
+
+    Works with both objects (``getattr``) and dicts (``[]``).
+
+    Args:
+        entries: Schedule entries ordered by matchup_index.
+        home_key: Attribute/key for the home team identifier.
+        away_key: Attribute/key for the away team identifier.
+
+    Returns:
+        List of slots, each a list of entries.
+    """
+
+    def _get(entry: Any, key: str) -> str:
+        if isinstance(entry, dict):
+            return entry[key]  # type: ignore[return-value]
+        return getattr(entry, key)  # type: ignore[return-value]
+
+    slots: list[list[Any]] = []
+    slot_teams: list[set[str]] = []
+    for entry in entries:
+        teams = {_get(entry, home_key), _get(entry, away_key)}
+        placed = False
+        for i, st in enumerate(slot_teams):
+            if not teams & st:
+                slots[i].append(entry)
+                st.update(teams)
+                placed = True
+                break
+        if not placed:
+            slots.append([entry])
+            slot_teams.append(set(teams))
+    return slots
 
 
 def compute_round_start_times(

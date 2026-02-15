@@ -670,18 +670,18 @@ class TestBuildScheduleEmbed:
         assert "No games scheduled" in (embed.description or "")
 
     def test_with_matchups(self) -> None:
-        rounds = [
+        slots = [
             {
-                "round_number": 5,
+                "start_time": "1:00 PM ET",
                 "games": [
                     {"home_team_name": "Thorns", "away_team_name": "Breakers"},
                     {"home_team_name": "Hammers", "away_team_name": "Herons"},
                 ],
             },
         ]
-        embed = build_schedule_embed(rounds)
+        embed = build_schedule_embed(slots)
         desc = embed.description or ""
-        assert "Round 5" in desc
+        assert "1:00 PM ET" in desc
         assert "Thorns vs Breakers" in desc
 
 

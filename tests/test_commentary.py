@@ -851,38 +851,35 @@ class TestStandingsEmbedStreaks:
 
 
 class TestScheduleEmbed:
-    """Schedule embed tests for multi-round format."""
+    """Schedule embed tests for slot-based format."""
 
-    def test_single_round_with_time(self) -> None:
-        rounds = [
+    def test_single_slot_with_time(self) -> None:
+        slots = [
             {
-                "round_number": 5,
+                "start_time": "1:00 PM ET",
                 "games": [
                     {"home_team_name": "Thorns", "away_team_name": "Breakers"},
                 ],
             },
         ]
-        embed = build_schedule_embed(rounds, start_times=["1:00 PM ET"])
+        embed = build_schedule_embed(slots)
 
-        assert "Round 5" in embed.description
         assert "1:00 PM ET" in embed.description
         assert "Thorns vs Breakers" in embed.description
 
-    def test_multiple_rounds(self) -> None:
-        rounds = [
+    def test_multiple_slots(self) -> None:
+        slots = [
             {
-                "round_number": 5,
+                "start_time": "1:00 PM ET",
                 "games": [{"home_team_name": "A", "away_team_name": "B"}],
             },
             {
-                "round_number": 6,
+                "start_time": "1:30 PM ET",
                 "games": [{"home_team_name": "C", "away_team_name": "D"}],
             },
         ]
-        embed = build_schedule_embed(rounds, start_times=["1:00 PM ET", "1:30 PM ET"])
+        embed = build_schedule_embed(slots)
 
-        assert "Round 5" in embed.description
-        assert "Round 6" in embed.description
         assert "1:00 PM ET" in embed.description
         assert "1:30 PM ET" in embed.description
 
