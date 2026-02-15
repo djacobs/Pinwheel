@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1515 tests**, zero lint errors (Session 83)
+- **1570 tests**, zero lint errors (Session 85)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -25,7 +25,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Post-commit skill relocation, SSE dedup, team name links, blank team page fix, playoff series banners
 - **Day 16:** AI intelligence layer (impact validation, leverage detection, behavioral profiles, The Pinwheel Post), playoff series banner fix
 - **Day 16 (cont):** Interpreter fix for conditional mechanics, Amplify Human Judgment roadmap
-- **Latest commit:** `3443c3f` — feat: add custom_mechanic effect type for proposals beyond existing primitives
+- **Latest commit:** `88c0939` — feat: move Floor below game reports, what-changed widget, standings callouts
 
 ## Today's Agenda
 
@@ -462,6 +462,23 @@ See below: **Amplify Human Judgment Roadmap (P1/P2/P3)**
 **1515 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — clean cut-and-integrate.
+
+
+## Session 85 — Move Floor Below Game Reports
+
+**What was asked:** Rearrange the Post layout on the home page — game reports and hot players should be the most prominent content, with The Floor moved lower. The duplicate simulation report in the Standings+Report section should be replaced with The Floor.
+
+**What was built:**
+- Restructured Post card: game reports + hot players are primary; removed Floor from Post card
+- Replaced duplicate "Reports" block in the Standings two-column section with "The Floor" linking to /governance
+- Removed unused CSS (two-column post layout, floor separator)
+- Updated section condition from `latest_report` to `post_gov_report`
+
+**Files modified (3):** `templates/pages/home.html`, `static/css/pinwheel.css`, `src/pinwheel/api/pages.py`
+
+**1570 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — clean layout reorder.
 
 ---
 

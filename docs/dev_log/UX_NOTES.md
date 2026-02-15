@@ -709,3 +709,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 109. [DONE] Inline Pinwheel Post on home page, remove from top nav
 **Problem:** The Pinwheel Post was a separate page linked from the top navigation, adding clutter to the nav and requiring an extra click to see the round summary.
 **Fix:** Removed "The Post" from the top nav. Inlined the newspaper content (headline, subhead, game reports, governance report, highlight reel, hot players) directly on the home page above "Latest Scores". Cut duplicate content (standings already on home page, footer tagline). Added `.home-post-*` CSS for the inlined newspaper card with masthead, two-column layout, and responsive grid. The `/post` route still works for direct links.
+
+### 110. [DONE] Move The Floor below game reports on home page
+**Problem:** The Floor (governance report) was displayed side-by-side with game reports in the Post card, taking equal visual weight. Game reports and hot players are more interesting for most visitors.
+**Fix:** Moved game reports to single-column layout in the Post card with hot players directly below. The Floor now lives in the lower Standings+Floor two-column section, replacing the duplicate simulation report that was already shown in the Post above. Links to /governance for full proposals.
