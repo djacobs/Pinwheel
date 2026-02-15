@@ -309,6 +309,10 @@ class RegisteredEffect:
             result.narrative = self.narrative_instruction
             return result
 
+        if self.effect_type == "custom_mechanic":
+            result.narrative = f"[Pending mechanic] {self.description}"
+            return result
+
         return result
 
     def _apply_meta_mutation(

@@ -149,7 +149,9 @@ def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> 
             # Reuse the legacy per-parameter tier lookup
             legacy = RuleInterpretation(parameter=effect.parameter)
             tiers.append(detect_tier(legacy, ruleset))
-        elif effect.effect_type in ("hook_callback", "meta_mutation", "move_grant"):
+        elif effect.effect_type in (
+            "hook_callback", "meta_mutation", "move_grant", "custom_mechanic",
+        ):
             tiers.append(3)
         elif effect.effect_type == "narrative":
             tiers.append(2)
@@ -272,6 +274,14 @@ def _needs_admin_review(
     - If V2 has no effects or is injection-flagged → wild
     - Low confidence (< 0.5) is still flagged regardless of V2
     """
+    # custom_mechanic effects always need admin review — they require code
+    if interpretation_v2 is not None:
+        has_custom = any(
+            e.effect_type == "custom_mechanic" for e in interpretation_v2.effects
+        )
+        if has_custom:
+            return True
+
     # Low confidence always triggers review, regardless of V2
     if interpretation_v2 is not None and interpretation_v2.confidence < 0.5:
         return True

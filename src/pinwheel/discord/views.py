@@ -181,6 +181,7 @@ class ProposalConfirmView(discord.ui.View):
                     proposal,
                     self.settings,
                     governor_name=interaction.user.display_name,
+                    interpretation_v2=self.interpretation_v2,
                 )
         except Exception:
             logger.exception("proposal_confirm_failed")
@@ -1274,12 +1275,16 @@ async def _notify_admin_for_review(
     proposal: object,
     settings: Settings,
     governor_name: str = "",
+    interpretation_v2: ProposalInterpretation | None = None,
 ) -> None:
     """Send a DM to the admin with Veto/Clear buttons for a wild proposal.
 
     The proposal is already confirmed and open for voting. The admin can
     veto before tally if needed. Tries settings.pinwheel_admin_discord_id
     first, falls back to guild owner.
+
+    When ``interpretation_v2`` is provided, custom_mechanic effects are
+    highlighted in the admin embed.
     """
     import contextlib
 
@@ -1311,7 +1316,11 @@ async def _notify_admin_for_review(
         logger.warning("admin_review_no_admin_found proposal=%s", proposal.id)
         return
 
-    embed = build_admin_review_embed(proposal, governor_name=governor_name)
+    embed = build_admin_review_embed(
+        proposal,
+        governor_name=governor_name,
+        interpretation_v2=interpretation_v2,
+    )
     view = AdminReviewView(
         proposal=proposal,
         proposer_discord_id=interaction.user.id,

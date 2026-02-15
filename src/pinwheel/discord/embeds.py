@@ -387,6 +387,18 @@ def build_interpretation_embed(
                     value=effect.description[:1024],
                     inline=False,
                 )
+            elif effect.effect_type == "custom_mechanic":
+                mechanic_desc = effect.mechanic_description or effect.description
+                value_parts = [f"**{mechanic_desc[:500]}**"]
+                if effect.mechanic_implementation_spec:
+                    value_parts.append(
+                        f"\n*Needs dev work:* {effect.mechanic_implementation_spec[:400]}"
+                    )
+                embed.add_field(
+                    name="New Mechanic (needs dev work)",
+                    value="\n".join(value_parts)[:1024],
+                    inline=False,
+                )
             else:
                 embed.add_field(
                     name=effect.effect_type.replace("_", " ").title(),
@@ -1062,19 +1074,42 @@ def build_round_summary_embed(
     return embed
 
 
-def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> discord.Embed:
+def build_admin_review_embed(
+    proposal: Proposal,
+    governor_name: str = "",
+    interpretation_v2: ProposalInterpretation | None = None,
+) -> discord.Embed:
     """Build an embed for admin review of a wild proposal.
 
     Shown to the admin when a Tier 5+ or low-confidence proposal is submitted.
     The proposal is already confirmed and open for voting — the admin can
     veto before tally or clear to acknowledge review.
 
+    When ``interpretation_v2`` contains custom_mechanic effects, the title
+    changes to highlight that code implementation is needed.
+
     Args:
         proposal: The Proposal model instance needing review.
         governor_name: Display name of the proposing governor.
+        interpretation_v2: Optional V2 interpretation for rich effects display.
     """
+    # Detect custom_mechanic effects
+    has_custom = False
+    custom_effects: list[object] = []
+    if interpretation_v2 is not None:
+        custom_effects = [
+            e for e in interpretation_v2.effects if e.effect_type == "custom_mechanic"
+        ]
+        has_custom = bool(custom_effects)
+
+    title = (
+        "Custom Mechanic -- Implement or Veto"
+        if has_custom
+        else "Wild Proposal -- Veto or Clear"
+    )
+
     embed = discord.Embed(
-        title="Wild Proposal -- Veto or Clear",
+        title=title,
         description=(
             f"{proposal.raw_text[:2000]}\n\n"
             "This proposal is already open for voting. "
@@ -1088,7 +1123,9 @@ def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> dis
         param_value = f"`{proposal.interpretation.parameter}`"
 
     confidence_value = "N/A"
-    if proposal.interpretation:
+    if interpretation_v2 is not None:
+        confidence_value = f"{interpretation_v2.confidence:.0%}"
+    elif proposal.interpretation:
         confidence_value = f"{proposal.interpretation.confidence:.0%}"
 
     embed.add_field(name="Parameter", value=param_value, inline=True)
@@ -1096,6 +1133,21 @@ def build_admin_review_embed(proposal: Proposal, governor_name: str = "") -> dis
     embed.add_field(name="Tier", value=str(proposal.tier), inline=True)
     if governor_name:
         embed.add_field(name="Governor", value=governor_name, inline=True)
+
+    # Show custom mechanic details for admin
+    for effect in custom_effects:
+        mechanic_desc = effect.mechanic_description or effect.description
+        value_parts = [mechanic_desc[:500]]
+        if effect.mechanic_implementation_spec:
+            value_parts.append(
+                f"\n**Implementation:** {effect.mechanic_implementation_spec[:400]}"
+            )
+        embed.add_field(
+            name="Mechanic Details",
+            value="\n".join(value_parts)[:1024],
+            inline=False,
+        )
+
     embed.set_footer(text="Pinwheel Fates -- Veto or Clear")
     return embed
 

@@ -122,7 +122,12 @@ class EffectRegistry:
             lifetime_str = effect.lifetime.value
             if effect.rounds_remaining is not None:
                 lifetime_str = f"{effect.rounds_remaining} rounds remaining"
-            lines.append(f"- [{effect.effect_type}] {desc} ({lifetime_str})")
+            type_label = (
+                "PENDING MECHANIC"
+                if effect.effect_type == "custom_mechanic"
+                else effect.effect_type
+            )
+            lines.append(f"- [{type_label}] {desc} ({lifetime_str})")
 
         return "\n".join(lines)
 
@@ -153,7 +158,10 @@ def effect_spec_to_registered(
 
     # Determine hook points based on effect type
     hook_points: list[str] = []
-    if spec.hook_point:
+    if spec.effect_type == "custom_mechanic":
+        # Custom mechanics are descriptive only — they don't fire hooks
+        hook_points = []
+    elif spec.hook_point:
         hook_points = [spec.hook_point]
     elif spec.effect_type == "meta_mutation":
         # Meta mutations fire at round.game.post by default

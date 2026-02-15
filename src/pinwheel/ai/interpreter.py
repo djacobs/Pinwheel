@@ -312,7 +312,36 @@ language. Every proposal that has a clear gameplay intent deserves a confident i
 even if expressed as metaphor, slang, or humor. NEVER say "could not map to a parameter" when \
 the intent is clear.
 
-Examples of creative proposals and their interpretations:
+## Conditional Mechanics — "When X Happens, Do Y"
+
+Many of the best proposals create NEW game mechanics, not just tweak existing parameters. \
+When a governor says "when X happens, Y changes," that's a hook_callback — not a parameter \
+change. The math is usually simple. Read what they're asking, reason about the mechanic, and \
+build it from hook_callback + action primitives.
+
+Examples of conditional proposals → hook_callback effects:
+- "When the ball goes out of bounds, double the value of the next basket" → hook_callback at \
+sim.possession.pre, condition: "previous possession ended in dead ball or turnover", \
+action: {{"type": "modify_score", "modifier": 2}}. This is clear, mechanical, and buildable. \
+Confidence: 0.85.
+- "If a team scores 3 baskets in a row, the other team gets a free throw" → hook_callback at \
+sim.possession.pre, condition: "offense scoring run >= 3 consecutive", \
+action: {{"type": "modify_score", "modifier": 1}} for defensive team. Confidence: 0.8.
+- "After halftime, threes are worth 4" → hook_callback at sim.quarter.pre, condition: \
+"quarter >= 3", action: parameter override three_point_value=4. Confidence: 0.9.
+- "Losing team gets a shooting boost" → hook_callback at sim.possession.pre, condition: \
+"offense team is trailing on scoreboard", action: {{"type": "modify_probability", \
+"modifier": 0.05}}. Confidence: 0.85.
+- "Every 5th basket is worth double" → hook_callback at sim.possession.pre, condition: \
+"team total baskets mod 5 == 0", action: {{"type": "modify_score", "modifier": 2}}. \
+Confidence: 0.8.
+- "First basket of each quarter is worth 5 points" → hook_callback at sim.quarter.pre, \
+action: {{"type": "modify_score", "modifier": 5}} for first possession, with duration \
+reset each quarter. Confidence: 0.85.
+
+## Creative Language → Parameters
+
+Some proposals use colorful language for what amounts to a parameter change:
 - "The ball is lava" → parameter_change: stamina_drain_rate increase (holding the ball costs \
 more energy)
 - "Hot potato mode" → parameter_change: shot_clock_seconds decrease (forces faster passing)
@@ -325,9 +354,21 @@ hook_callback at sim.game.end
 - "Make it rain" → parameter_change: three_point_value increase (raining threes)
 - "Defense is illegal" → parameter_change: foul_rate_modifier large decrease (no fouls called)
 
+## Confidence Guidelines
+
+Confidence measures how well you UNDERSTAND THE PLAYER'S INTENT — not how well it fits \
+existing primitives. A custom_mechanic with clear intent = 0.8+. Low confidence (< 0.5) = \
+genuinely unclear what the player wants.
+
 When a proposal is clearly about gameplay but uses colorful language, set confidence >= 0.7. \
+When a proposal describes a clear conditional mechanic ("when X, do Y"), set confidence >= 0.8 \
+— the intent is unambiguous even if the implementation is novel. \
+When you use custom_mechanic because existing primitives can't express it, but you clearly \
+understand the intent, set confidence >= 0.75. \
 Reserve low confidence (< 0.5) for proposals that are genuinely ambiguous about WHAT they want, \
-not just HOW they say it.
+not just HOW they say it. \
+A proposal you haven't seen before is NOT low-confidence — it's creative. Read it, reason about \
+what it would do on the court, and build it from the primitives.
 
 ## Available Parameters (for backward-compatible parameter changes)
 
@@ -341,6 +382,12 @@ not just HOW they say it.
 4. **narrative** — instruct the AI reporter to adopt a narrative element
 5. **composite** — combine multiple effects
 6. **move_grant** — grant a special move to one or more hoopers
+7. **custom_mechanic** — describe a mechanic that doesn't fit existing primitives. Use ONLY \
+when types 1-6 genuinely cannot express the intent. Most conditional proposals CAN be \
+hook_callbacks. custom_mechanic requires admin approval for code generation. Include: \
+mechanic_description (what it does), mechanic_hook_point (where in the sim it fires), \
+mechanic_observable_behavior (what players would see), mechanic_implementation_spec \
+(what code needs to be written).
 
 ## Move Grants
 
@@ -413,7 +460,8 @@ Respond with ONLY a JSON object:
 {{
   "effects": [
     {{
-      "effect_type": "parameter_change|meta_mutation|hook_callback|narrative|composite|move_grant",
+      "effect_type": "parameter_change|meta_mutation|hook_callback|narrative|composite|\
+move_grant|custom_mechanic",
       "parameter": "param_name or null",
       "new_value": "<value or null>",
       "old_value": "<current value or null>",
@@ -426,6 +474,10 @@ Respond with ONLY a JSON object:
       "condition": "natural language condition or null",
       "action_code": {{...}} or null,
       "narrative_instruction": "instruction or null",
+      "mechanic_description": "what the mechanic does (custom_mechanic only) or null",
+      "mechanic_hook_point": "where in the sim it fires (custom_mechanic only) or null",
+      "mechanic_observable_behavior": "what players would see (custom_mechanic only) or null",
+      "mechanic_implementation_spec": "what code to write (custom_mechanic only) or null",
       "duration": "permanent|n_rounds|one_game|until_repealed",
       "duration_rounds": null or <int>,
       "description": "human-readable description of this effect"
@@ -471,7 +523,7 @@ async def interpret_proposal_v2(
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=model,
-                max_tokens=1500,
+                max_tokens=2000,
                 system=system,
                 messages=[{"role": "user", "content": user_msg}],
             )
@@ -572,6 +624,80 @@ def interpret_proposal_v2_mock(
     text = raw_text.lower().strip()
     effects: list[EffectSpec] = []
 
+    # Pattern: conditional mechanics — "when X happens, Y"
+    # Check FIRST — these are more specific than generic keyword patterns
+    import re as _re
+
+    conditional_patterns = [
+        (r"when.*(?:out of bounds|dead ball|turnover)", "sim.possession.pre",
+         "previous possession ended in dead ball or turnover",
+         {"type": "modify_score", "modifier": 2},
+         "Double the value of the next basket after a dead ball"),
+        (r"(?:if|when).*(?:scores?\s+\d+\s+(?:in a row|straight|consecutive))",
+         "sim.possession.pre",
+         "offense has a scoring run of 3+ consecutive baskets",
+         {"type": "modify_probability", "modifier": -0.05},
+         "Opponent gets a defensive boost after a scoring run"),
+        (r"(?:after|in)\s+(?:the\s+)?(?:second half|halftime|q[34]|third quarter|fourth quarter)",
+         "sim.quarter.pre", "quarter >= 3",
+         {"type": "modify_probability", "modifier": 0.05},
+         "Second-half shooting boost"),
+        (r"(?:losing|trailing|behind)\s+team.*(?:boost|bonus|extra|advantage)",
+         "sim.possession.pre", "offense team is trailing on scoreboard",
+         {"type": "modify_probability", "modifier": 0.05},
+         "Trailing team gets a shooting boost"),
+        (r"(?:every|each)\s+\d+(?:th|st|nd|rd)?\s+(?:basket|shot|score|point)",
+         "sim.possession.pre", "basket count milestone reached",
+         {"type": "modify_score", "modifier": 2},
+         "Milestone baskets are worth double"),
+        (r"first\s+(?:basket|shot|score).*(?:quarter|half|period)",
+         "sim.quarter.pre", "first possession of the quarter",
+         {"type": "modify_score", "modifier": 2},
+         "First basket of each quarter is worth double"),
+        (r"(?:when|if|after).*(?:foul|flagrant).*(?:bonus|boost|double|extra)",
+         "sim.possession.pre", "previous possession resulted in a foul",
+         {"type": "modify_score", "modifier": 2},
+         "Bonus scoring after fouls"),
+    ]
+
+    for pattern, hook_point, condition, action, desc in conditional_patterns:
+        if _re.search(pattern, text):
+            # Extract any explicit multiplier from the text
+            numbers = _re.findall(r"\d+\.?\d*", raw_text)
+            if numbers and "modifier" in action:
+                extracted = float(numbers[-1])
+                if action["type"] == "modify_score" and extracted >= 2:
+                    action = {**action, "modifier": int(extracted)}
+
+            effects.append(
+                EffectSpec(
+                    effect_type="hook_callback",
+                    hook_point=hook_point,
+                    condition=condition,
+                    action_code=action,
+                    description=desc,
+                )
+            )
+            effects.append(
+                EffectSpec(
+                    effect_type="narrative",
+                    narrative_instruction=(
+                        f"New conditional rule in effect: {desc}. "
+                        "Commentary should reference this mechanic when it triggers."
+                    ),
+                    description=f"Narrative: {desc}",
+                )
+            )
+            return ProposalInterpretation(
+                effects=effects,
+                impact_analysis=(
+                    f"Creates a new conditional game mechanic: {desc}. "
+                    "This adds strategic depth without changing base parameters."
+                ),
+                confidence=0.85,
+                original_text_echo=raw_text,
+            )
+
     # Pattern: "lava", "hot potato", "fire", "burn" — stamina drain increase
     if any(k in text for k in ("lava", "hot potato", "fire", "burn", "scorching")):
         import re
@@ -598,12 +724,44 @@ def interpret_proposal_v2_mock(
                 description="Narrative: the ball is dangerously hot",
             )
         )
+
+        # Detect defender-gain clause: "defenders gain/earn/recover stamina"
+        has_defender_gain = any(
+            d in text for d in ("defender", "defensive")
+        ) and any(
+            g in text for g in ("gain", "earn", "recover", "restore")
+        )
+        if has_defender_gain:
+            effects.append(
+                EffectSpec(
+                    effect_type="custom_mechanic",
+                    mechanic_description=(
+                        "Defenders gain stamina when they make great defensive plays "
+                        "(steals, blocks, contests). The ball drains offense but rewards defense."
+                    ),
+                    mechanic_hook_point="sim.possession.post",
+                    mechanic_observable_behavior=(
+                        "Defensive players recover stamina after steals and blocks."
+                    ),
+                    mechanic_implementation_spec=(
+                        "After a defensive event (steal, block, good contest), "
+                        "increment the defending hooper's stamina by 0.05-0.10. "
+                        "Hook at sim.possession.post, check play_result for defensive events."
+                    ),
+                    description="Defenders gain stamina from great defensive plays",
+                )
+            )
+
+        impact = (
+            f"Increases stamina drain from {old_drain} to {drain_value}. "
+            "Players tire faster, forcing more substitutions and faster play."
+        )
+        if has_defender_gain:
+            impact += " Defenders recover stamina from great defensive plays."
+
         return ProposalInterpretation(
             effects=effects,
-            impact_analysis=(
-                f"Increases stamina drain from {old_drain} to {drain_value}. "
-                "Players tire faster, forcing more substitutions and faster play."
-            ),
+            impact_analysis=impact,
             confidence=0.85,
             original_text_echo=raw_text,
         )
@@ -707,7 +865,50 @@ def interpret_proposal_v2_mock(
             original_text_echo=raw_text,
         )
 
-    # Fallback: low confidence narrative
+    # Fallback: detect gameplay intent signals for custom_mechanic vs narrative
+    import re as _re_fb
+
+    _intent_signals = [
+        # Game verbs
+        r"\b(?:score|shoot|block|steal|rebound|foul|dunk|pass|dribble|defend)\b",
+        # Conditions
+        r"\b(?:when|if|after|every|each|during|before|whenever)\b",
+        # Game entities
+        r"\b(?:ball|basket|court|hoop|team|player|hooper|quarter|half)\b",
+        # Modifiers
+        r"\b(?:double|triple|extra|bonus|worth|point|boost|penalty|drain)\b",
+    ]
+    signal_count = sum(
+        1 for pattern in _intent_signals if _re_fb.search(pattern, text)
+    )
+
+    if signal_count >= 2:
+        # Has gameplay intent but no existing primitive matches — custom_mechanic
+        effects.append(
+            EffectSpec(
+                effect_type="custom_mechanic",
+                mechanic_description=raw_text,
+                mechanic_observable_behavior=(
+                    "Players would see the described mechanic affecting gameplay."
+                ),
+                mechanic_implementation_spec=(
+                    "Requires new code to implement the described mechanic. "
+                    "Admin should review and approve implementation."
+                ),
+                description=f"Custom mechanic: {raw_text[:80]}",
+            )
+        )
+        return ProposalInterpretation(
+            effects=effects,
+            impact_analysis=(
+                "This proposal describes a new game mechanic that needs custom implementation. "
+                "The intent is clear but no existing primitive can express it."
+            ),
+            confidence=0.75,
+            original_text_echo=raw_text,
+        )
+
+    # True fallback: no gameplay intent detected — low confidence narrative
     effects.append(
         EffectSpec(
             effect_type="narrative",

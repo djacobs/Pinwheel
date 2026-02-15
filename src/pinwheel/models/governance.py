@@ -149,6 +149,7 @@ EffectType = Literal[
     "narrative",
     "composite",
     "move_grant",
+    "custom_mechanic",
 ]
 
 EffectDuration = Literal[
@@ -196,6 +197,12 @@ class EffectSpec(BaseModel):
     move_attribute_gate: dict[str, int] | None = None
     target_hooper_id: str | None = None  # specific hooper
     target_team_id: str | None = None  # all hoopers on a team
+
+    # custom_mechanic — describes a mechanic that needs code implementation
+    mechanic_description: str | None = None
+    mechanic_hook_point: str | None = None
+    mechanic_observable_behavior: str | None = None
+    mechanic_implementation_spec: str | None = None
 
     # lifetime
     duration: EffectDuration = "permanent"

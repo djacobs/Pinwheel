@@ -1155,6 +1155,48 @@ class TestInterpreterV2Mock:
         assert result_vague.clarification_needed is True
         assert result_vague.confidence < 0.5
 
+    def test_conditional_mechanics(self):
+        """V2 mock detects 'when X happens, do Y' conditional proposals."""
+        ruleset = RuleSet()
+
+        # "When the ball goes out of bounds, double the next basket"
+        result_oob = interpret_proposal_v2_mock(
+            "When the ball goes out of bounds, double the value of the next basket",
+            ruleset,
+        )
+        assert result_oob.confidence >= 0.8
+        assert not result_oob.clarification_needed
+        has_hook = any(e.effect_type == "hook_callback" for e in result_oob.effects)
+        assert has_hook, "Out-of-bounds conditional should produce a hook_callback"
+        hook_effect = next(e for e in result_oob.effects if e.effect_type == "hook_callback")
+        assert hook_effect.hook_point == "sim.possession.pre"
+        assert hook_effect.action_code is not None
+        assert hook_effect.action_code["type"] == "modify_score"
+
+        # "Losing team gets a shooting boost"
+        result_trailing = interpret_proposal_v2_mock(
+            "The losing team gets a shooting boost every possession", ruleset,
+        )
+        assert result_trailing.confidence >= 0.8
+        has_hook_t = any(e.effect_type == "hook_callback" for e in result_trailing.effects)
+        assert has_hook_t
+
+        # "After halftime threes are worth 4"
+        result_half = interpret_proposal_v2_mock(
+            "After halftime, threes should be worth 4 points", ruleset,
+        )
+        assert result_half.confidence >= 0.8
+        has_hook_h = any(e.effect_type == "hook_callback" for e in result_half.effects)
+        assert has_hook_h
+
+        # "First basket of each quarter is worth double"
+        result_first = interpret_proposal_v2_mock(
+            "The first basket of each quarter is worth double", ruleset,
+        )
+        assert result_first.confidence >= 0.8
+        has_hook_f = any(e.effect_type == "hook_callback" for e in result_first.effects)
+        assert has_hook_f
+
     def test_backward_compat_conversion(self):
         """V2 result can convert to legacy RuleInterpretation."""
         result = interpret_proposal_v2_mock("Make three pointers worth 5", RuleSet())
@@ -1513,3 +1555,237 @@ class TestMigrationScript:
         cols = [row[1] for row in cursor.fetchall()]
         assert "meta" in cols
         conn.close()
+
+
+# ============================================================================
+# Custom Mechanic Tests
+# ============================================================================
+
+
+class TestCustomMechanicModel:
+    """Test custom_mechanic as a valid EffectType with new fields."""
+
+    def test_custom_mechanic_is_valid_effect_type(self):
+        """custom_mechanic is an accepted EffectType literal."""
+        spec = EffectSpec(
+            effect_type="custom_mechanic",
+            description="Defenders gain stamina from blocks",
+            mechanic_description="Defenders recover stamina on defensive plays",
+            mechanic_hook_point="sim.possession.post",
+            mechanic_observable_behavior="Defenders recover stamina after steals/blocks",
+            mechanic_implementation_spec="Hook at sim.possession.post, check for defensive events",
+        )
+        assert spec.effect_type == "custom_mechanic"
+        assert spec.mechanic_description is not None
+        assert spec.mechanic_hook_point == "sim.possession.post"
+        assert spec.mechanic_observable_behavior is not None
+        assert spec.mechanic_implementation_spec is not None
+
+    def test_custom_mechanic_fields_optional(self):
+        """New mechanic fields are optional — existing EffectSpecs don't break."""
+        spec = EffectSpec(
+            effect_type="parameter_change",
+            parameter="three_point_value",
+            new_value=5,
+        )
+        assert spec.mechanic_description is None
+        assert spec.mechanic_hook_point is None
+        assert spec.mechanic_observable_behavior is None
+        assert spec.mechanic_implementation_spec is None
+
+
+class TestCustomMechanicTierDetection:
+    """custom_mechanic maps to Tier 3."""
+
+    def test_custom_mechanic_tier_3(self):
+        """detect_tier_v2 returns Tier 3 for custom_mechanic effects."""
+        from pinwheel.core.governance import detect_tier_v2
+
+        interp = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="custom_mechanic",
+                    description="Defenders recover stamina",
+                )
+            ],
+            confidence=0.8,
+        )
+        tier = detect_tier_v2(interp, RuleSet())
+        assert tier == 3
+
+    def test_compound_with_custom_mechanic(self):
+        """Compound proposal with parameter_change + custom_mechanic:
+        highest tier wins."""
+        from pinwheel.core.governance import detect_tier_v2
+
+        interp = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="parameter_change",
+                    parameter="stamina_drain_rate",
+                    new_value=1.5,
+                    old_value=1.0,
+                ),
+                EffectSpec(
+                    effect_type="custom_mechanic",
+                    description="Defenders gain stamina",
+                ),
+            ],
+            confidence=0.85,
+        )
+        tier = detect_tier_v2(interp, RuleSet())
+        assert tier == 3  # custom_mechanic = 3, stamina_drain_rate = 1 → max = 3
+
+
+class TestCustomMechanicAdminReview:
+    """custom_mechanic always triggers admin review, even with high confidence."""
+
+    def test_custom_mechanic_always_needs_review(self):
+        """_needs_admin_review returns True for custom_mechanic even at 0.9 confidence."""
+        from pinwheel.core.governance import _needs_admin_review
+        from pinwheel.models.governance import Proposal
+
+        proposal = Proposal(
+            id="p1",
+            governor_id="gov1",
+            team_id="t1",
+            raw_text="defenders gain stamina",
+            tier=3,
+        )
+        interp_v2 = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="custom_mechanic",
+                    description="Defenders gain stamina",
+                )
+            ],
+            confidence=0.9,
+        )
+        assert _needs_admin_review(proposal, interpretation_v2=interp_v2) is True
+
+    def test_non_custom_with_high_confidence_no_review(self):
+        """A non-custom effect with high confidence does NOT need review."""
+        from pinwheel.core.governance import _needs_admin_review
+        from pinwheel.models.governance import Proposal
+
+        proposal = Proposal(
+            id="p2",
+            governor_id="gov1",
+            team_id="t1",
+            raw_text="make threes worth 5",
+            tier=1,
+        )
+        interp_v2 = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="parameter_change",
+                    parameter="three_point_value",
+                    new_value=5,
+                )
+            ],
+            confidence=0.9,
+        )
+        assert _needs_admin_review(proposal, interpretation_v2=interp_v2) is False
+
+
+class TestCustomMechanicEffectsRegistry:
+    """custom_mechanic effects have no hook_points and show as PENDING MECHANIC."""
+
+    def test_custom_mechanic_no_hooks(self):
+        """effect_spec_to_registered gives custom_mechanic empty hook_points."""
+        spec = EffectSpec(
+            effect_type="custom_mechanic",
+            description="Defenders gain stamina",
+            mechanic_hook_point="sim.possession.post",
+        )
+        effect = effect_spec_to_registered(spec, "p1", 1)
+        assert effect.hook_points == []
+        assert effect.effect_type == "custom_mechanic"
+
+    def test_pending_mechanic_summary(self):
+        """build_effects_summary shows custom_mechanic as [PENDING MECHANIC]."""
+        registry = EffectRegistry()
+        effect = RegisteredEffect(
+            effect_id="e1",
+            proposal_id="p1",
+            _hook_points=[],
+            effect_type="custom_mechanic",
+            description="Defenders gain stamina from blocks",
+        )
+        registry.register(effect)
+        summary = registry.build_effects_summary()
+        assert "[PENDING MECHANIC]" in summary
+        assert "Defenders gain stamina" in summary
+
+    def test_custom_mechanic_apply_returns_narrative(self):
+        """RegisteredEffect.apply for custom_mechanic returns narrative with prefix."""
+        from pinwheel.core.hooks import HookContext
+
+        effect = RegisteredEffect(
+            effect_id="e1",
+            proposal_id="p1",
+            _hook_points=[],
+            effect_type="custom_mechanic",
+            description="Defenders gain stamina",
+        )
+        result = effect.apply("any.hook", HookContext())
+        assert "[Pending mechanic]" in result.narrative
+        assert "Defenders gain stamina" in result.narrative
+
+
+class TestCustomMechanicMockInterpreter:
+    """Mock interpreter produces correct effect types for various proposals."""
+
+    def test_out_of_bounds_double_is_hook_callback(self):
+        """'out of bounds double' → hook_callback, NOT custom_mechanic."""
+        result = interpret_proposal_v2_mock(
+            "when a ball goes out of bounds it is worth double",
+            RuleSet(),
+        )
+        has_hook = any(e.effect_type == "hook_callback" for e in result.effects)
+        has_custom = any(e.effect_type == "custom_mechanic" for e in result.effects)
+        assert has_hook, "Should produce hook_callback for conditional rule"
+        assert not has_custom, "Should NOT produce custom_mechanic — hook_callback suffices"
+        assert result.confidence >= 0.8
+
+    def test_lava_with_defender_gain(self):
+        """'ball is lava + defenders gain stamina' → parameter_change + custom_mechanic."""
+        result = interpret_proposal_v2_mock(
+            "ball is lava... defenders GAIN stamina with great defensive plays",
+            RuleSet(),
+        )
+        types = {e.effect_type for e in result.effects}
+        assert "parameter_change" in types, "Lava should produce stamina_drain parameter change"
+        assert "custom_mechanic" in types, "Defender gain clause needs custom_mechanic"
+        assert result.confidence >= 0.8
+
+    def test_lava_without_defender_gain(self):
+        """'ball is lava' without defender clause → no custom_mechanic."""
+        result = interpret_proposal_v2_mock("the ball is lava", RuleSet())
+        types = {e.effect_type for e in result.effects}
+        assert "parameter_change" in types
+        assert "custom_mechanic" not in types
+
+    def test_gameplay_intent_produces_custom_mechanic(self):
+        """Clear gameplay intent without primitive match → custom_mechanic at 0.75."""
+        result = interpret_proposal_v2_mock(
+            "every time a player dunks the basket should explode with extra points",
+            RuleSet(),
+        )
+        has_custom = any(e.effect_type == "custom_mechanic" for e in result.effects)
+        assert has_custom, "Gameplay intent should produce custom_mechanic"
+        assert result.confidence >= 0.7
+        assert not result.clarification_needed
+
+    def test_no_gameplay_intent_is_narrative(self):
+        """No gameplay intent → narrative at 0.3 (unchanged fallback)."""
+        result = interpret_proposal_v2_mock(
+            "Make the game more exciting and fun",
+            RuleSet(),
+        )
+        has_narrative = any(e.effect_type == "narrative" for e in result.effects)
+        has_custom = any(e.effect_type == "custom_mechanic" for e in result.effects)
+        assert has_narrative
+        assert not has_custom
+        assert result.confidence < 0.5
+        assert result.clarification_needed is True
