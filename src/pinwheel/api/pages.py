@@ -1001,8 +1001,11 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
     if not team:
         raise HTTPException(404, "Team not found")
 
-    # Get this team's standings
-    season_id = await _get_active_season_id(repo)
+    # Use the team's own season for contextual data (standings, governors,
+    # strategy, league averages).  This ensures team pages remain fully
+    # populated even when a newer season is active — e.g. when a user
+    # follows a link from an old game detail page.
+    season_id = team.season_id
     team_standings = None
     standing_position = None
     league_name = None

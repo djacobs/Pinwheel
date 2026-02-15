@@ -407,6 +407,55 @@ class TestGovernorPages:
         assert "LinkedGovernor" in r.text
         assert f"/governors/{player_id}" in r.text
 
+    async def test_team_page_cross_season(self, app_client):
+        """Team page for an old season's team still shows standings and roster.
+
+        When a new season is active, visiting a team page via an old-season
+        game link should use the team's own season for context — not the
+        active season — so that standings, hoopers, and governors are correct.
+        """
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+        old_team_id = team_ids[0]
+
+        # Enroll a governor on team 1 (old season)
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            player = await repo.get_or_create_player(
+                discord_id="111222333",
+                username="OldSeasonGov",
+            )
+            await repo.enroll_player(player.id, old_team_id, season_id)
+            await session.commit()
+
+        # Start a new season (creates new team records)
+        from pinwheel.core.season import start_new_season
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            season.status = "completed"
+            await session.flush()
+
+            await start_new_season(
+                repo=repo,
+                league_id=season.league_id,
+                season_name="Season 2",
+                carry_forward_rules=True,
+                previous_season_id=season_id,
+            )
+            await session.commit()
+
+        # Visit the OLD season's team page
+        r = await client.get(f"/teams/{old_team_id}")
+        assert r.status_code == 200
+        # Must still show the team name, roster, and standings
+        assert "Team 1" in r.text
+        assert "Hooper-1-1" in r.text
+        assert "<svg" in r.text
+        # Standings should reflect old season data (team played games)
+        assert "Record" in r.text
+
 
 @pytest.fixture
 async def admin_client():
