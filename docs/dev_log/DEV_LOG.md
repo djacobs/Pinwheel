@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1163 tests**, zero lint errors (Session 68)
+- **1163 tests**, zero lint errors (Session 69)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,7 +15,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases 1 & 2
 - **Live at:** https://pinwheel.fly.dev
 - **Day 15:** Tiebreakers, offseason governance, season memorial, injection evals, GQI/rule evaluator wiring, Discord UX humanization
-- **Latest commit:** Session 68 (Fix /join interaction timeout)
+- **Latest commit:** Session 69 (Upgrade /propose to V2 effects interpreter)
 
 ## Day 13 Agenda (Governance Decoupling + Hackathon Prep) — COMPLETE
 
@@ -875,3 +875,44 @@ Post-round session (~1s): mark games presented
 **1163 tests, zero lint errors.**
 
 **What could have gone better:** The "Something went wrong" message not existing in our codebase was the key diagnostic clue — it meant Discord itself was generating it because our handler crashed without responding. We should add a global `CommandTree.on_error` handler to catch any future cases where commands fail without responding.
+
+---
+
+## Session 69 — Upgrade /propose to V2 Effects Interpreter
+
+**What was asked:** Adriana proposed "the ball is lava and holding it costs extra stamina" — a creative, clearly interpretable rule that maps to `stamina_drain_rate`. The V1 interpreter returned "Could not map to a game parameter" with 30% confidence. Upgrade `/propose` to use the V2 effects interpreter (which already exists but wasn't wired into Discord) and make the system prompt more creative about embracing metaphorical proposals.
+
+**What was built:**
+
+### V2 system prompt — creative proposal guidance (`interpreter.py`)
+- Added "Embrace Creative Proposals" section to `INTERPRETER_V2_SYSTEM_PROMPT` with 8 examples of metaphorical proposals mapped to mechanical effects ("the ball is lava" → stamina_drain_rate, "let them cook" → foul_rate_modifier decrease, etc.).
+- Guidance to set confidence >= 0.7 for proposals with clear gameplay intent, reserving low confidence for genuinely ambiguous proposals.
+
+### `/propose` switched to V2 (`bot.py`)
+- Replaced `interpret_proposal` / `interpret_proposal_mock` with `interpret_proposal_v2` / `interpret_proposal_v2_mock`.
+- V2 returns `ProposalInterpretation`; converted to `RuleInterpretation` via `.to_rule_interpretation()` for tier detection and backward compat.
+- Both `interpretation` and `interpretation_v2` passed to view and embed.
+- Injection rejection creates both V1 and V2 interpretation objects.
+
+### Revise modal switched to V2 (`views.py`)
+- Same change in `ReviseProposalModal.on_submit`: uses V2 interpreter, converts for compat, updates both `interpretation` and `interpretation_v2` on parent view.
+
+### ProposalConfirmView carries V2 (`views.py`)
+- Added `interpretation_v2: ProposalInterpretation | None = None` parameter to `__init__`.
+
+### Rich V2 embed display (`embeds.py`)
+- `build_interpretation_embed` accepts optional `interpretation_v2`. When present with effects, renders each effect type with appropriate labels:
+  - Parameter Change: `` `stamina_drain_rate`: 1.0 -> 1.5 ``
+  - Hook: hook point + description
+  - Meta: operation + target + description
+  - Narrative: description text
+- Falls back to legacy single-parameter display when no V2 interpretation.
+
+### V2 mock patterns for lava/fire (`interpreter.py`)
+- Added keyword detection for "lava", "hot potato", "fire", "burn", "scorching" → `stamina_drain_rate` increase + narrative effect about the ball being dangerously hot. Confidence 0.85.
+
+**Files modified (4):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/views.py`, `src/pinwheel/discord/embeds.py`
+
+**1163 tests, zero lint errors.**
+
+**What could have gone better:** Nothing significant — the V2 interpreter, `ProposalInterpretation` model, and `.to_rule_interpretation()` conversion were all already in place from Session 63. This was primarily a wiring change.

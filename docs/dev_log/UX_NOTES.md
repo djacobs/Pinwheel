@@ -633,3 +633,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 92. [DONE] Mock governance report playoff awareness
 **Problem:** The mock governance report produced identical output regardless of season phase. Governance during elimination games should acknowledge the heightened stakes.
 **Fix:** Added playoff phase opener to `generate_governance_report_mock`: "CHAMPIONSHIP GOVERNANCE" for finals, "PLAYOFF GOVERNANCE" for semifinals. Includes contextual framing about elimination-game rule changes.
+
+---
+
+## Completed — Session 69 (V2 Effects Interpreter for /propose)
+
+### 93. [DONE] Proposal interpretation embed shows V2 structured effects
+**Problem:** The `/propose` interpretation embed only showed a single parameter change or "Could not map to a game parameter." Creative proposals like "the ball is lava" — which clearly map to stamina_drain_rate — showed as unmappable with 30% confidence. The V2 effects interpreter existed but wasn't wired into Discord.
+**Fix:** `build_interpretation_embed()` now accepts an optional `interpretation_v2` (ProposalInterpretation). When present, renders each effect with type-specific labels: Parameter Change (`` `stamina_drain_rate`: 1.0 -> 1.5 ``), Hook (hook point + description), Meta (operation + target), Narrative (description text). Falls back to legacy display when no V2 interpretation is available. The `/propose` and Revise modal now use `interpret_proposal_v2` / `interpret_proposal_v2_mock`, converting to `RuleInterpretation` via `.to_rule_interpretation()` for backward-compatible tier detection.

@@ -263,6 +263,30 @@ entirely new game mechanics.
 
 Your job: translate a governor's natural language proposal into ONE OR MORE structured effects.
 
+## IMPORTANT: Embrace Creative Proposals
+
+Governors express ideas playfully. Your job is to find the MECHANICAL TRUTH inside creative \
+language. Every proposal that has a clear gameplay intent deserves a confident interpretation, \
+even if expressed as metaphor, slang, or humor. NEVER say "could not map to a parameter" when \
+the intent is clear.
+
+Examples of creative proposals and their interpretations:
+- "The ball is lava" → parameter_change: stamina_drain_rate increase (holding the ball costs \
+more energy)
+- "Hot potato mode" → parameter_change: shot_clock_seconds decrease (forces faster passing)
+- "Let them cook" → parameter_change: foul_rate_modifier decrease (fewer whistles, more flow)
+- "Gravity is optional" → parameter_change: three_point_value increase + narrative about \
+cosmic basketball
+- "Winners get bragging rights" → meta_mutation: swagger +1 for winning team + narrative
+- "Losers run laps" → parameter_change: stamina_drain_rate increase for losing team + \
+hook_callback at sim.game.end
+- "Make it rain" → parameter_change: three_point_value increase (raining threes)
+- "Defense is illegal" → parameter_change: foul_rate_modifier large decrease (no fouls called)
+
+When a proposal is clearly about gameplay but uses colorful language, set confidence >= 0.7. \
+Reserve low confidence (< 0.5) for proposals that are genuinely ambiguous about WHAT they want, \
+not just HOW they say it.
+
 ## Available Parameters (for backward-compatible parameter changes)
 
 {parameters}
@@ -464,6 +488,42 @@ def interpret_proposal_v2_mock(
     # Try to detect meta/narrative patterns
     text = raw_text.lower().strip()
     effects: list[EffectSpec] = []
+
+    # Pattern: "lava", "hot potato", "fire", "burn" — stamina drain increase
+    if any(k in text for k in ("lava", "hot potato", "fire", "burn", "scorching")):
+        import re
+
+        numbers = re.findall(r"\d+\.?\d*", text)
+        drain_value = float(numbers[-1]) if numbers else 1.5
+        old_drain = ruleset.stamina_drain_rate
+        effects.append(
+            EffectSpec(
+                effect_type="parameter_change",
+                parameter="stamina_drain_rate",
+                new_value=drain_value,
+                old_value=old_drain,
+                description=f"Increase stamina drain from {old_drain} to {drain_value}",
+            )
+        )
+        effects.append(
+            EffectSpec(
+                effect_type="narrative",
+                narrative_instruction=(
+                    "The ball is scorching hot — players tire faster holding it. "
+                    "Commentary should reference the heat and urgency."
+                ),
+                description="Narrative: the ball is dangerously hot",
+            )
+        )
+        return ProposalInterpretation(
+            effects=effects,
+            impact_analysis=(
+                f"Increases stamina drain from {old_drain} to {drain_value}. "
+                "Players tire faster, forcing more substitutions and faster play."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
 
     # Pattern: "swagger" or "morale" — meta mutation
     if "swagger" in text or "morale" in text:

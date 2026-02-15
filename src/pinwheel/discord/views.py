@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from pinwheel.config import Settings
     from pinwheel.discord.helpers import GovernorInfo
-    from pinwheel.models.governance import RuleInterpretation
+    from pinwheel.models.governance import ProposalInterpretation, RuleInterpretation
     from pinwheel.models.tokens import HooperTrade, Trade
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ class ProposalConfirmView(discord.ui.View):
         governor_info: GovernorInfo,
         engine: AsyncEngine,
         settings: Settings,
+        interpretation_v2: ProposalInterpretation | None = None,
     ) -> None:
         super().__init__(timeout=300)
         self.original_user_id = original_user_id
@@ -55,6 +56,7 @@ class ProposalConfirmView(discord.ui.View):
         self.governor_info = governor_info
         self.engine = engine
         self.settings = settings
+        self.interpretation_v2 = interpretation_v2
 
     async def _check_user(
         self,
@@ -248,8 +250,8 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             return
 
         from pinwheel.ai.interpreter import (
-            interpret_proposal,
-            interpret_proposal_mock,
+            interpret_proposal_v2,
+            interpret_proposal_v2_mock,
         )
         from pinwheel.core.governance import detect_tier, token_cost_for_tier
         from pinwheel.db.engine import get_session
@@ -266,9 +268,13 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 ruleset = RuleSet(**ruleset_data)
 
             api_key = self.parent_view.settings.anthropic_api_key
+            interpretation_v2 = None
             if api_key:
                 from pinwheel.ai.classifier import classify_injection
                 from pinwheel.evals.injection import store_injection_classification
+                from pinwheel.models.governance import (
+                    ProposalInterpretation as PI,
+                )
                 from pinwheel.models.governance import (
                     RuleInterpretation as RI,
                 )
@@ -295,22 +301,35 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                         rejection_reason=classification.reason,
                         impact_analysis="Proposal flagged as potential prompt injection.",
                     )
+                    interpretation_v2 = PI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Proposal flagged as potential prompt injection.",
+                        original_text_echo=new_text,
+                    )
                 else:
-                    interpretation = await interpret_proposal(
+                    interpretation_v2 = await interpret_proposal_v2(
                         new_text,
                         ruleset,
                         api_key,
                     )
+                    interpretation = interpretation_v2.to_rule_interpretation()
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
                             f"[Suspicious: {classification.reason}] "
                             + interpretation.impact_analysis
                         )
+                        interpretation_v2.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation_v2.impact_analysis
+                        )
             else:
-                interpretation = interpret_proposal_mock(
+                interpretation_v2 = interpret_proposal_v2_mock(
                     new_text,
                     ruleset,
                 )
+                interpretation = interpretation_v2.to_rule_interpretation()
 
             tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
@@ -318,6 +337,7 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             # Update parent view
             self.parent_view.raw_text = new_text
             self.parent_view.interpretation = interpretation
+            self.parent_view.interpretation_v2 = interpretation_v2
             self.parent_view.tier = tier
             self.parent_view.token_cost = cost
 
@@ -328,6 +348,7 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 token_cost=cost,
                 tokens_remaining=self.parent_view.tokens_remaining,
                 governor_name=interaction.user.display_name,
+                interpretation_v2=interpretation_v2,
             )
             await interaction.response.edit_message(
                 embed=embed,

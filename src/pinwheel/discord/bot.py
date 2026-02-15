@@ -1607,8 +1607,8 @@ class PinwheelBot(commands.Bot):
 
         try:
             from pinwheel.ai.interpreter import (
-                interpret_proposal,
-                interpret_proposal_mock,
+                interpret_proposal_v2,
+                interpret_proposal_v2_mock,
             )
             from pinwheel.core.governance import (
                 detect_tier,
@@ -1645,9 +1645,16 @@ class PinwheelBot(commands.Bot):
                 ruleset = RuleSet(**rs_data)
 
             api_key = self.settings.anthropic_api_key
+            interpretation_v2 = None
             if api_key:
                 from pinwheel.ai.classifier import classify_injection
                 from pinwheel.evals.injection import store_injection_classification
+                from pinwheel.models.governance import (
+                    ProposalInterpretation as PI,
+                )
+                from pinwheel.models.governance import (
+                    RuleInterpretation as RI,
+                )
 
                 classification = await classify_injection(text, api_key)
 
@@ -1665,32 +1672,41 @@ class PinwheelBot(commands.Bot):
                     await session.commit()
 
                 if classification.classification == "injection" and classification.confidence > 0.8:
-                    from pinwheel.models.governance import (
-                        RuleInterpretation as RI,
-                    )
-
                     interpretation = RI(
                         confidence=0.0,
                         injection_flagged=True,
                         rejection_reason=classification.reason,
                         impact_analysis="Proposal flagged as potential prompt injection.",
                     )
+                    interpretation_v2 = PI(
+                        confidence=0.0,
+                        injection_flagged=True,
+                        rejection_reason=classification.reason,
+                        impact_analysis="Proposal flagged as potential prompt injection.",
+                        original_text_echo=text,
+                    )
                 else:
-                    interpretation = await interpret_proposal(
+                    interpretation_v2 = await interpret_proposal_v2(
                         text,
                         ruleset,
                         api_key,
                     )
+                    interpretation = interpretation_v2.to_rule_interpretation()
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
                             f"[Suspicious: {classification.reason}] "
                             + interpretation.impact_analysis
                         )
+                        interpretation_v2.impact_analysis = (
+                            f"[Suspicious: {classification.reason}] "
+                            + interpretation_v2.impact_analysis
+                        )
             else:
-                interpretation = interpret_proposal_mock(
+                interpretation_v2 = interpret_proposal_v2_mock(
                     text,
                     ruleset,
                 )
+                interpretation = interpretation_v2.to_rule_interpretation()
 
             tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
@@ -1707,6 +1723,7 @@ class PinwheelBot(commands.Bot):
                 governor_info=gov,
                 engine=self.engine,
                 settings=self.settings,
+                interpretation_v2=interpretation_v2,
             )
             embed = build_interpretation_embed(
                 raw_text=text,
@@ -1715,6 +1732,7 @@ class PinwheelBot(commands.Bot):
                 token_cost=cost,
                 tokens_remaining=balance.propose,
                 governor_name=interaction.user.display_name,
+                interpretation_v2=interpretation_v2,
             )
             await interaction.followup.send(
                 embed=embed,

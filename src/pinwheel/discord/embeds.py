@@ -12,7 +12,12 @@ from typing import TYPE_CHECKING
 import discord
 
 if TYPE_CHECKING:
-    from pinwheel.models.governance import Proposal, RuleInterpretation, VoteTally
+    from pinwheel.models.governance import (
+        Proposal,
+        ProposalInterpretation,
+        RuleInterpretation,
+        VoteTally,
+    )
     from pinwheel.models.report import Report
     from pinwheel.models.tokens import TokenBalance, Trade
 
@@ -327,10 +332,13 @@ def build_interpretation_embed(
     token_cost: int,
     tokens_remaining: int,
     governor_name: str = "",
+    interpretation_v2: ProposalInterpretation | None = None,
 ) -> discord.Embed:
     """Build an embed showing AI interpretation of a proposal.
 
     Displayed ephemeral with confirm/revise/cancel buttons.
+    When interpretation_v2 is provided, shows rich V2 effects instead of
+    the legacy single-parameter view.
     """
     embed = discord.Embed(
         title="Proposal Interpretation",
@@ -339,7 +347,50 @@ def build_interpretation_embed(
 
     embed.description = f'"{raw_text}"'
 
-    if interpretation.parameter:
+    if interpretation_v2 and interpretation_v2.effects:
+        # V2 rich effects display
+        for effect in interpretation_v2.effects:
+            if effect.effect_type == "parameter_change" and effect.parameter:
+                embed.add_field(
+                    name="Parameter Change",
+                    value=(
+                        f"`{effect.parameter}`: "
+                        f"{effect.old_value} -> {effect.new_value}"
+                    ),
+                    inline=False,
+                )
+            elif effect.effect_type == "hook_callback":
+                hook_label = effect.hook_point or "custom hook"
+                embed.add_field(
+                    name=f"Hook: {hook_label}",
+                    value=effect.description[:1024],
+                    inline=False,
+                )
+            elif effect.effect_type == "meta_mutation":
+                target = effect.target_selector or "all"
+                op = effect.meta_operation or "set"
+                embed.add_field(
+                    name=f"Meta: {effect.meta_field or 'update'}",
+                    value=(
+                        f"{op} on {effect.target_type or 'entity'} ({target})\n"
+                        f"{effect.description[:900]}"
+                    ),
+                    inline=False,
+                )
+            elif effect.effect_type == "narrative":
+                embed.add_field(
+                    name="Narrative Effect",
+                    value=effect.description[:1024],
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name=effect.effect_type.replace("_", " ").title(),
+                    value=effect.description[:1024],
+                    inline=False,
+                )
+    elif interpretation.parameter:
+        # Legacy single-parameter display
         embed.add_field(
             name="Parameter Change",
             value=(
