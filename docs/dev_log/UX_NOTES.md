@@ -657,3 +657,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 96. [DONE] Drama-aware arena pacing CSS
 **Problem:** Arena replay played all possessions at the same speed, making dramatic moments (lead changes, game-winners, scoring runs) feel the same as routine possessions.
 **Fix:** New `core/drama.py` module classifies possessions into four drama levels (routine/elevated/high/peak). `annotate_drama()` detects lead changes, scoring runs, move activations, Elam approach, game-winning shots. `normalize_delays()` redistributes time budget so dramatic moments get proportionally more replay time. Arena CSS updated with drama-level styling.
+
+### 97. [DONE] First-touch server welcome DM for new Discord members
+**Problem:** New members joining the Discord server had no context about what Pinwheel is or how to get started until they ran `/join`. The first interaction was a blank slate.
+**Fix:** Added `on_member_join` handler that sends a gold-colored DM embed explaining "Pinwheel starts as basketball, but becomes whatever you want" with quick-start commands (`/join`, `/propose`, `/vote`, `/standings`). Skips bots, fails silently if DMs are disabled. Separate from the post-`/join` welcome which is team-specific.

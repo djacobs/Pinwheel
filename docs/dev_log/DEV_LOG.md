@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1421 tests**, zero lint errors (Session 71)
+- **1427 tests**, zero lint errors (Session 72)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -15,13 +15,14 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 14:** Admin visibility, season lifecycle phases, effects system, NarrativeContext, game richness audit, SQLite write lock fix, playoff series, V2 interpreter, e2e verification, workbench
 - **Day 15:** Overnight wave execution — amendments, repeal, milestones, drama pacing, effects wave 2, documentation
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `3c342f0` — Waves 3b-5 (amendments, repeal, milestones, drama, effects hooks, docs)
+- **Day 15 (cont):** Dev-mode Discord guard, server welcome DM for new members
+- **Latest commit:** `c3d89eb` — dev-mode Discord guard + server welcome DM
 
 ## Today's Agenda
 
 - [x] Complete overnight wave execution (Waves 3b-5)
-- [ ] Push all commits to GitHub
-- [ ] Deploy to production
+- [x] Push all commits to GitHub
+- [x] Deploy to production
 - [ ] Reset season history for hackathon demo
 - [ ] Demo verification — Showboat/Rodney pipeline
 
@@ -89,3 +90,21 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1421 tests (258 new across 6 agents), zero lint errors.**
 
 **What could have gone better:** All 6 agents ran in parallel against the same working tree. Each independently reported 1421 tests passing, and the integrated suite also passed 1421 — no cross-agent conflicts. The only issue was the server startup for post-commit demo verification: `pinwheel` module wasn't importable without `PYTHONPATH=src`, indicating the editable install may need a `uv sync` refresh.
+
+---
+
+## Session 72 — Dev-Mode Discord Guard + Server Welcome DM
+
+**What was asked:** Fix duplicate Discord channel creation caused by local dev server connecting to production guild. Also add a first-touch welcome DM for new Discord server members, before they pick a team.
+
+**What was built:**
+- `is_discord_enabled()` now returns `False` when `pinwheel_env == "development"` (the default), preventing local dev servers from connecting to the production Discord guild
+- `on_member_join()` handler — sends a first-touch DM when a human joins the Discord server, explaining what Pinwheel is and how to get started (`/join`, `/propose`, `/vote`)
+- `build_server_welcome_embed()` — gold-colored embed with "Pinwheel starts as basketball, but becomes whatever you want" intro, quick-start commands, and footer "The rules are yours to write"
+- 6 new tests: dev-mode guard, server welcome embed content/color, on_member_join for humans/bots/DM-forbidden
+
+**Files modified (3):** `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/embeds.py`, `tests/test_discord.py`
+
+**1427 tests, zero lint errors.**
+
+**What could have gone better:** The duplicate channel issue was caused by running a dev server that picked up `DISCORD_ENABLED=true` from the environment. The guard is simple and effective — check for development mode first.
