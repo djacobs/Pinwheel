@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1570 tests**, zero lint errors (Session 85)
+- **1891 tests**, zero lint errors (Session 86)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -25,7 +25,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 15 (cont):** Post-commit skill relocation, SSE dedup, team name links, blank team page fix, playoff series banners
 - **Day 16:** AI intelligence layer (impact validation, leverage detection, behavioral profiles, The Pinwheel Post), playoff series banner fix
 - **Day 16 (cont):** Interpreter fix for conditional mechanics, Amplify Human Judgment roadmap
-- **Latest commit:** `88c0939` — feat: move Floor below game reports, what-changed widget, standings callouts
+- **Day 16 (cont):** Amplify Human Judgment — all 9 features (sim editorial, governance coalitions, private insights, smart Discord embeds, commentary threading, rules dashboard, narrative standings, team trajectory, what-changed + game context)
+- **Latest commit:** `ec093cc` — feat: private report relative insights — blind spots and voting outcomes
 
 ## Today's Agenda
 
@@ -35,7 +36,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [ ] Reset season history for hackathon demo
 - [ ] Demo verification — Showboat/Rodney pipeline
 - [x] Fix V2 interpreter for conditional mechanic proposals
-- [ ] Amplify Human Judgment — features 1-8 and 10 (see roadmap below)
+- [x] Amplify Human Judgment — features 1-8 and 10 (see roadmap below)
 
 ---
 
@@ -479,6 +480,71 @@ See below: **Amplify Human Judgment Roadmap (P1/P2/P3)**
 **1570 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — clean layout reorder.
+
+---
+
+## Session 86 — Amplify Human Judgment (9 Parallel Agents)
+
+**What was asked:** Execute all 9 Amplify Human Judgment features (1-8 and 10) from the roadmap, running them as parallel background agents.
+
+**What was built:**
+
+### Feature 1: Simulation Report Editorial Prompt (18 new tests)
+- Replaced `SIMULATION_REPORT_PROMPT` with Pinwheel Post editorial prompt — strict lede hierarchy, "what changed" principle
+- New `build_system_context()` computes scoring trends, competitive balance, rule correlations
+- Mock rewrites: multi-line what_changed_lines, "what the round reveals" closing
+- Enriched `round_data` in `_phase_ai()` with `rules_changed`
+
+### Feature 2: Governance Coalition Detection (35 new tests)
+- `compute_proposal_parameter_clustering()` — groups proposals by parameter category
+- `compute_governance_velocity()` — classifies activity vs. season average (peak/high/normal/low/silent)
+- `detect_governance_blind_spots()` — finds untargeted game parameter categories
+- Updated governance mock with coalition detection, isolated governor detection, velocity qualifiers
+- Updated `GOVERNANCE_REPORT_PROMPT` for coalition/pattern/blind-spot surfacing
+
+### Feature 3: Private Report Relative Insights (29 new tests)
+- `PARAMETER_CATEGORIES` mapping 35+ params to 7 categories
+- `compute_private_report_context()` — blind spots, voting outcomes, alignment rate, swing votes
+- Enriched `_phase_ai()` to call `compute_private_report_context` per governor
+- Mock shows real blind spots, voting record vs. outcomes, swing vote counts
+
+### Feature 4: Smart Discord Embeds (40 new tests)
+- `TeamGameContext` / `GameContext` dataclasses for embed enrichment
+- `compute_game_context()` — streaks, standings movement, margin significance, new rules
+- `build_game_result_embed()` / `build_team_game_result_embed()` accept optional context
+- Fully backward compatible
+
+### Feature 5: Commentary System-Level Threading (58 new tests)
+- `_game_count_milestone()` — detects milestone game counts (10th, 25th, 50th, etc.)
+- `_stat_comparison_with_average()` — uses historical pre-rule-change averages
+- "System-Level Notes" section in AI prompt context
+- New `NarrativeContext` fields: `season_game_number`, `pre_rule_avg_score`
+
+### Feature 6: Rules Governance Dashboard (14 new tests)
+- Enhanced `get_rule_change_timeline()` with governor name, raw text, vote margin
+- Drift bars showing distance from default (%, with high-drift orange tint at 50%+)
+- Governor attribution with profile links, vote margin badges, original proposal text
+- Change count badges per parameter
+
+### Feature 7: Narrative Standings (31 new tests)
+- New `core/narrative_standings.py` — SOS, magic numbers, trajectory, most improved
+- `compute_narrative_callouts()` — 2-6 contextual strings per standings view
+- SOS column, trajectory arrows, clinch/elimination badges, standings legend
+
+### Feature 8: Team Performance Trajectory (44 new tests)
+- New `core/trajectory.py` — streaks, trend description, win rate timeline, rule regimes, governor impacts
+- Recent form dots, trend pills, SVG sparkline chart with rule-change markers
+- Record by rule regime table, governor impact analysis (before/after W-L)
+
+### Features 9+10: What-Changed + Game Detail Context (~15 new tests)
+- What-Changed: 9 signal types in lede hierarchy (champion, clinch, elimination, upset, streaks, blowout, nailbiter, standings, rules)
+- Game detail: streak context, season-high personal bests, styled annotation cards
+
+**Files modified (20+):** `src/pinwheel/ai/report.py`, `src/pinwheel/ai/commentary.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/narrative.py`, `src/pinwheel/core/narrative_standings.py` (new), `src/pinwheel/core/trajectory.py` (new), `src/pinwheel/discord/embeds.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/db/repository.py`, `templates/pages/standings.html`, `templates/pages/rules.html`, `templates/pages/team.html`, `templates/pages/game.html`, `templates/pages/home.html`, `static/css/pinwheel.css`, `tests/test_reports.py`, `tests/test_commentary.py`, `tests/test_discord.py`, `tests/test_pages.py`, `tests/test_narrative_standings.py` (new), `tests/test_trajectory.py` (new), `tests/test_rules_dashboard.py` (new), `tests/test_pages_what_changed.py` (new)
+
+**1891 tests (~284 new), zero lint errors.**
+
+**What could have gone better:** All 9 agents ran cleanly with no merge conflicts — a good outcome for parallel execution on a shared codebase. The agents touch largely independent surfaces (reports, embeds, templates, new modules) which kept conflicts minimal.
 
 ---
 

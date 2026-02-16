@@ -713,3 +713,27 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 110. [DONE] Move The Floor below game reports on home page
 **Problem:** The Floor (governance report) was displayed side-by-side with game reports in the Post card, taking equal visual weight. Game reports and hot players are more interesting for most visitors.
 **Fix:** Moved game reports to single-column layout in the Post card with hot players directly below. The Floor now lives in the lower Standings+Floor two-column section, replacing the duplicate simulation report that was already shown in the Post above. Links to /governance for full proposals.
+
+### 111. [DONE] Rules page governance dashboard
+**Problem:** Rules page was a flat parameter table — no history, no attribution, no sense of which rules had drifted far from defaults.
+**Fix:** Added drift bars (% from default with orange tint at 50%+), governor attribution with profile links, vote margin badges ("Passed 4-1"), original proposal text in italics, change count badges, and a change timeline section.
+
+### 112. [DONE] Narrative standings with SOS, trajectory, and clinch badges
+**Problem:** Standings page showed only W-L and point differential — no narrative context about races, strength of schedule, or playoff implications.
+**Fix:** Added SOS column (record vs above-.500 teams, color-coded), trajectory arrows (moved up/down in last 3 rounds, hidden on mobile), clinch/elimination badges next to team names, and a standings legend explaining abbreviations.
+
+### 113. [DONE] Team page performance trajectory
+**Problem:** Team pages were static snapshots — roster, record, strategy — with no sense of how performance changed over time or how governance affected results.
+**Fix:** Added recent form dots (last 5 W/L), trend description, streak callouts, trend pills, SVG win-rate sparkline chart with rule-change markers, record-by-rule-regime table, and governor impact analysis showing before/after W-L for each passed proposal.
+
+### 114. [DONE] Game detail contextual annotations
+**Problem:** Game detail pages showed box scores with no historical or system-level context.
+**Fix:** Added styled annotation cards for game significance (season-high personal bests) and game context (streak context at game time). Yellow-accented significance cards and blue-accented context cards with rule-change highlights.
+
+### 115. [DONE] Smart Discord game result embeds
+**Problem:** Discord game result embeds were flat score cards with no context about streaks, standings movement, or game significance.
+**Fix:** Enriched embeds with streak indicators ("W7" / "L3"), standings movement ("moved to 1st" / "dropped to 4th"), margin significance ("Closest game of the season"), and new-rules context. Fully backward compatible.
+
+### 116. [DONE] What-Changed widget enhanced with 9 signal types
+**Problem:** The what-changed widget on the home page had limited signal detection.
+**Fix:** Expanded to 9 signal types in lede hierarchy order: champion crowned, playoff clinch, elimination, upset, streaks, blowout, nailbiter, standings movement, rule changes. Max signals increased from 3 to 5.
