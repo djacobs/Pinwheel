@@ -1132,7 +1132,12 @@ async def _call_claude(
 
     When ``db_session`` is provided, records token usage to the AI usage log.
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        record_ai_usage,
+        track_latency,
+    )
 
     model = "claude-sonnet-4-5-20250929"
     try:
@@ -1141,14 +1146,14 @@ async def _call_claude(
             response = await client.messages.create(
                 model=model,
                 max_tokens=1500,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_message}],
             )
         text = response.content[0].text
 
         # Record usage if a DB session is available
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type=call_type,
@@ -1156,6 +1161,7 @@ async def _call_claude(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,

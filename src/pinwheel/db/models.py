@@ -312,6 +312,7 @@ class AIUsageLogRow(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_creation_tokens: Mapped[int] = mapped_column(Integer, default=0)
     latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     season_id: Mapped[str] = mapped_column(String(36), default="")

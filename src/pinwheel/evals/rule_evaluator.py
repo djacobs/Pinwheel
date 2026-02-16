@@ -120,10 +120,12 @@ async def evaluate_rules(
             flags=json.dumps(flags, indent=2),
             staleness=json.dumps(staleness, indent=2),
         )
+        from pinwheel.ai.usage import cacheable_system
+
         response = await client.messages.create(
             model="claude-opus-4-6",
             max_tokens=1500,
-            system=prompt,
+            system=cacheable_system(prompt),
             messages=[{"role": "user", "content": "Evaluate the current ruleset and game state."}],
         )
         analysis_text = response.content[0].text

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from typing import Literal
 
 import anthropic
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +49,18 @@ Respond with ONLY a JSON object:
 """
 
 
-@dataclass(frozen=True)
-class ClassificationResult:
-    """Result of the prompt injection classifier."""
+class ClassificationResult(BaseModel):
+    """Result of the prompt injection classifier.
+
+    Pydantic BaseModel with frozen=True for immutability (matches the
+    original dataclass behavior). Uses ``model_json_schema()`` for
+    structured output via the Messages API ``response_format`` parameter.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     classification: Literal["legitimate", "suspicious", "injection"]
-    confidence: float
+    confidence: float = Field(ge=0.0, le=1.0)
     reason: str
 
 
@@ -72,7 +78,13 @@ async def classify_injection(
     with a note (fail-open -- the downstream interpreter has its own
     injection detection).
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        pydantic_to_response_format,
+        record_ai_usage,
+        track_latency,
+    )
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -80,13 +92,16 @@ async def classify_injection(
             response = await client.messages.create(
                 model=CLASSIFIER_MODEL,
                 max_tokens=200,
-                system=CLASSIFIER_PROMPT,
+                system=cacheable_system(CLASSIFIER_PROMPT),
                 messages=[{"role": "user", "content": text}],
+                response_format=pydantic_to_response_format(
+                    ClassificationResult, "classification_result"
+                ),
             )
 
         # Record usage if DB session is available
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="classifier",
@@ -94,13 +109,15 @@ async def classify_injection(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,
             )
 
         raw = response.content[0].text.strip()
-        # Handle markdown code fences
+        # Fallback: handle markdown code fences (belt and suspenders —
+        # response_format guarantees valid JSON, but keep this for robustness)
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 

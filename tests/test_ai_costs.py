@@ -86,16 +86,18 @@ class TestExtractUsage:
         response.usage.input_tokens = 150
         response.usage.output_tokens = 300
         response.usage.cache_read_input_tokens = 50
-        inp, out, cache = extract_usage(response)
+        response.usage.cache_creation_input_tokens = 0
+        inp, out, cache, cache_create = extract_usage(response)
         assert inp == 150
         assert out == 300
         assert cache == 50
+        assert cache_create == 0
 
     def test_no_usage_attribute(self) -> None:
         """Return zeros when response has no usage attribute."""
         response = object()  # No .usage attribute
-        inp, out, cache = extract_usage(response)
-        assert (inp, out, cache) == (0, 0, 0)
+        inp, out, cache, cache_create = extract_usage(response)
+        assert (inp, out, cache, cache_create) == (0, 0, 0, 0)
 
     def test_missing_cache_field(self) -> None:
         """Handle missing cache_read_input_tokens gracefully."""
@@ -103,10 +105,25 @@ class TestExtractUsage:
         response.usage.input_tokens = 100
         response.usage.output_tokens = 200
         response.usage.cache_read_input_tokens = None
-        inp, out, cache = extract_usage(response)
+        response.usage.cache_creation_input_tokens = None
+        inp, out, cache, cache_create = extract_usage(response)
         assert inp == 100
         assert out == 200
         assert cache == 0
+        assert cache_create == 0
+
+    def test_cache_creation_tokens(self) -> None:
+        """Extract cache_creation_input_tokens from first cache write."""
+        response = MagicMock()
+        response.usage.input_tokens = 200
+        response.usage.output_tokens = 100
+        response.usage.cache_read_input_tokens = 0
+        response.usage.cache_creation_input_tokens = 1500
+        inp, out, cache, cache_create = extract_usage(response)
+        assert inp == 200
+        assert out == 100
+        assert cache == 0
+        assert cache_create == 1500
 
 
 # ---------------------------------------------------------------------------

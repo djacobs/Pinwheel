@@ -91,7 +91,13 @@ async def interpret_proposal(
 
     This is a sandboxed call — the AI sees only the proposal text and parameter definitions.
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        pydantic_to_response_format,
+        record_ai_usage,
+        track_latency,
+    )
 
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_SYSTEM_PROMPT.format(parameters=params_desc)
@@ -107,12 +113,15 @@ async def interpret_proposal(
             response = await client.messages.create(
                 model=model,
                 max_tokens=500,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
+                response_format=pydantic_to_response_format(
+                    RuleInterpretation, "rule_interpretation"
+                ),
             )
 
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="interpreter.v1",
@@ -120,13 +129,14 @@ async def interpret_proposal(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,
             )
 
         text = response.content[0].text
-        # Parse JSON from response (handle markdown code fences)
+        # Fallback: handle markdown code fences (belt and suspenders)
         text = text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -256,7 +266,13 @@ async def interpret_strategy(
     db_session: object | None = None,
 ) -> TeamStrategy:
     """Use Claude to interpret natural language strategy into structured parameters."""
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        pydantic_to_response_format,
+        record_ai_usage,
+        track_latency,
+    )
 
     model = "claude-sonnet-4-5-20250929"
     try:
@@ -265,12 +281,15 @@ async def interpret_strategy(
             response = await client.messages.create(
                 model=model,
                 max_tokens=300,
-                system=STRATEGY_SYSTEM_PROMPT,
+                system=cacheable_system(STRATEGY_SYSTEM_PROMPT),
                 messages=[{"role": "user", "content": f"Strategy: {raw_text}"}],
+                response_format=pydantic_to_response_format(
+                    TeamStrategy, "team_strategy"
+                ),
             )
 
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="interpreter.strategy",
@@ -278,6 +297,7 @@ async def interpret_strategy(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,
@@ -508,7 +528,13 @@ async def interpret_proposal_v2(
     The AI sees the full vocabulary of hook points, meta targets, and action
     primitives.
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        pydantic_to_response_format,
+        record_ai_usage,
+        track_latency,
+    )
 
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_V2_SYSTEM_PROMPT.format(parameters=params_desc)
@@ -524,12 +550,15 @@ async def interpret_proposal_v2(
             response = await client.messages.create(
                 model=model,
                 max_tokens=2000,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
+                response_format=pydantic_to_response_format(
+                    ProposalInterpretation, "proposal_interpretation"
+                ),
             )
 
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="interpreter.v2",
@@ -537,6 +566,7 @@ async def interpret_proposal_v2(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,

@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass, field
 
 import anthropic
+from pydantic import BaseModel, model_validator
 
 from pinwheel.db.models import HooperRow, TeamRow
 
@@ -86,9 +87,12 @@ STAT_ALIASES: dict[str, str] = {
 }
 
 
-@dataclass
-class QueryPlan:
-    """Structured representation of a parsed natural language query."""
+class QueryPlan(BaseModel):
+    """Structured representation of a parsed natural language query.
+
+    Pydantic BaseModel for structured output via the Messages API
+    ``response_format`` parameter. Replaces the original dataclass.
+    """
 
     query_type: str = "unknown"
     stat: str | None = None
@@ -98,9 +102,11 @@ class QueryPlan:
     hooper_name: str | None = None
     limit: int = 5
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _validate_query_type(self) -> QueryPlan:
         if self.query_type not in VALID_QUERY_TYPES:
             self.query_type = "unknown"
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +337,8 @@ async def parse_query_ai(
     hooper_names: list[str],
 ) -> QueryPlan:
     """Parse a question using Claude API. Falls back to mock on failure."""
+    from pinwheel.ai.usage import cacheable_system, pydantic_to_response_format
+
     system = SEARCH_PARSER_SYSTEM_PROMPT.format(
         team_names=", ".join(team_names) if team_names else "(none yet)",
         hooper_names=", ".join(hooper_names) if hooper_names else "(none yet)",
@@ -342,11 +350,13 @@ async def parse_query_ai(
         response = await client.messages.create(
             model=model,
             max_tokens=300,
-            system=system,
+            system=cacheable_system(system),
             messages=[{"role": "user", "content": question}],
+            response_format=pydantic_to_response_format(QueryPlan, "query_plan"),
         )
 
         text = response.content[0].text.strip()
+        # Fallback: handle markdown code fences (belt and suspenders)
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
@@ -1034,13 +1044,15 @@ async def format_response_ai(
         f"Raw data:\n{json.dumps(result.data, indent=2, default=str)}"
     )
 
+    from pinwheel.ai.usage import cacheable_system
+
     model = "claude-sonnet-4-5-20250929"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
             model=model,
             max_tokens=500,
-            system=SEARCH_FORMATTER_SYSTEM_PROMPT,
+            system=cacheable_system(SEARCH_FORMATTER_SYSTEM_PROMPT),
             messages=[{"role": "user", "content": user_msg}],
         )
         return response.content[0].text.strip()

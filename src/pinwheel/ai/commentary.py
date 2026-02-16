@@ -434,7 +434,12 @@ async def generate_game_commentary(
     Uses Claude Sonnet for cost-effective high-volume generation.
     Falls back to a bracketed error message on API failure.
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        record_ai_usage,
+        track_latency,
+    )
 
     context = _build_game_context(
         game_result, home_team, away_team, ruleset, playoff_context,
@@ -452,13 +457,13 @@ async def generate_game_commentary(
             response = await client.messages.create(
                 model=model,
                 max_tokens=400,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": f"Call this game:\n\n{context}"}],
             )
         text = response.content[0].text
 
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="commentary.game",
@@ -466,6 +471,7 @@ async def generate_game_commentary(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,
@@ -755,7 +761,12 @@ async def generate_highlight_reel(
 
     One punchy sentence per game, plus overall round narrative.
     """
-    from pinwheel.ai.usage import extract_usage, record_ai_usage, track_latency
+    from pinwheel.ai.usage import (
+        cacheable_system,
+        extract_usage,
+        record_ai_usage,
+        track_latency,
+    )
 
     if not game_summaries:
         return (
@@ -798,13 +809,13 @@ async def generate_highlight_reel(
             response = await client.messages.create(
                 model=model,
                 max_tokens=300,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": f"Highlights:\n\n{context}"}],
             )
         text = response.content[0].text
 
         if db_session is not None:
-            input_tok, output_tok, cache_tok = extract_usage(response)
+            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
             await record_ai_usage(
                 session=db_session,
                 call_type="commentary.highlight_reel",
@@ -812,6 +823,7 @@ async def generate_highlight_reel(
                 input_tokens=input_tok,
                 output_tokens=output_tok,
                 cache_read_tokens=cache_tok,
+                cache_creation_tokens=cache_create_tok,
                 latency_ms=timing["latency_ms"],
                 season_id=season_id,
                 round_number=round_number,

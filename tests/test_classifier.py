@@ -253,12 +253,14 @@ class TestClassificationResult:
 
     def test_frozen(self) -> None:
         """ClassificationResult is immutable."""
+        from pydantic import ValidationError
+
         result = ClassificationResult(
             classification="legitimate",
             confidence=0.9,
             reason="OK",
         )
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValidationError):
             result.classification = "injection"  # type: ignore[misc]
 
     def test_fields(self) -> None:
