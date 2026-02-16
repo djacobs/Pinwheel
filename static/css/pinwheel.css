@@ -361,6 +361,39 @@ h3 { font-size: 1.05rem; }
   opacity: 0.85;
 }
 
+/* --- Game Detail: Contextual Annotations --- */
+.game-annotation {
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  margin-bottom: 0.75rem;
+}
+.game-annotation-significance {
+  border-left: 3px solid var(--accent-elam, #ffdd00);
+}
+.game-annotation-context {
+  border-left: 3px solid var(--accent-score, #00d9ff);
+}
+.game-annotation-header {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.game-annotation-body {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.game-annotation-line {
+  margin: 0.25rem 0;
+}
+.game-annotation-rule-change {
+  color: var(--accent-elam, #ffdd00);
+}
+
 .section-title {
   font-size: 0.7rem;
   font-weight: 700;

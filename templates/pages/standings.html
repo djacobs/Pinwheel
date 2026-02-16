@@ -35,6 +35,8 @@
         <th class="num">PA</th>
         <th class="num">DIFF</th>
         <th class="num">STRK</th>
+        <th class="num">SOS</th>
+        <th class="num hide-mobile">TRAJ</th>
       </tr>
     </thead>
     <tbody hx-get="/standings" hx-trigger="every 30s" hx-select="tbody" hx-swap="outerHTML">
@@ -44,6 +46,14 @@
         <td>
           <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{{ team.color }}; margin-right:0.4rem; vertical-align:middle;"></span>
           <a href="/teams/{{ team.team_id }}" class="team-link">{{ team.team_name }}</a>
+          {% if magic_numbers is defined and magic_numbers %}
+            {% set mn = magic_numbers.get(team.team_id) %}
+            {% if mn is not none and mn == 0 %}
+              <span class="badge badge-clinch" title="Clinched playoff berth">CLINCHED</span>
+            {% elif mn is none %}
+              <span class="badge badge-elim" title="Eliminated from playoff contention">ELIM</span>
+            {% endif %}
+          {% endif %}
         </td>
         <td class="num record">{{ team.wins }}</td>
         <td class="num record">{{ team.losses }}</td>
@@ -69,10 +79,41 @@
             &mdash;
           {% endif %}
         </td>
+        <td class="num">
+          {% if sos is defined and sos %}
+            {% set team_sos = sos.get(team.team_id, {"wins": 0, "losses": 0}) %}
+            {% set sos_total = team_sos.wins + team_sos.losses %}
+            {% if sos_total > 0 %}
+              <span class="{% if team_sos.wins > team_sos.losses %}diff-positive{% elif team_sos.wins < team_sos.losses %}diff-negative{% endif %}">{{ team_sos.wins }}-{{ team_sos.losses }}</span>
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+        <td class="num hide-mobile">
+          {% if trajectory is defined and trajectory %}
+            {% set traj = trajectory.get(team.team_id, 0) %}
+            {% if traj > 0 %}
+              <span class="diff-positive traj-up" title="Moved up {{ traj }} spot{{ 's' if traj != 1 else '' }}">&#9650;{{ traj }}</span>
+            {% elif traj < 0 %}
+              <span class="diff-negative traj-down" title="Moved down {{ traj|abs }} spot{{ 's' if traj|abs != 1 else '' }}">&#9660;{{ traj|abs }}</span>
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <div class="standings-legend">
+    <span><strong>SOS</strong> = Record vs. teams above .500</span>
+    <span class="hide-mobile"><strong>TRAJ</strong> = Position change, last 3 rounds</span>
+  </div>
 </div>
 {% else %}
 <div class="empty-state">

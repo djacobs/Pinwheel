@@ -17,6 +17,13 @@ from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
 from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
 from pinwheel.core.narrate import narrate_play, narrate_winner
+from pinwheel.core.narrative_standings import (
+    compute_magic_numbers,
+    compute_most_improved,
+    compute_narrative_callouts,
+    compute_standings_trajectory,
+    compute_strength_of_schedule,
+)
 from pinwheel.core.schedule_times import (
     compute_round_start_times,
     format_game_time,
@@ -297,11 +304,35 @@ def _compute_what_changed(
     prev_streaks: dict[str, int],
     rule_changes: list[dict],
     season_phase: str,
+    post_headline: str = "",
+    latest_round_games: list[dict] | None = None,
+    playoff_teams: int = 4,
+    total_regular_rounds: int = 0,
+    current_round: int = 0,
 ) -> list[str]:
-    """Compute 1-3 "what changed" signals for the home page.
+    """Compute 1-5 "what changed" signals for the home page.
 
     Returns a list of short, punchy change signals in lede priority order:
-    champion > elimination > standings shift > streak change > rule change.
+    champion crowned > team eliminated > playoff clinch > upset >
+    streak change > blowout/classic > standings shift > rule change.
+
+    Args:
+        standings: Current standings dicts (must have team_id, team_name, wins).
+        prev_standings: Standings from the previous round.
+        streaks: Current win/loss streak per team_id.
+        prev_streaks: Previous round's streaks.
+        rule_changes: List of dicts with parameter/new_value keys.
+        season_phase: Current season phase string.
+        post_headline: Most recent Post headline (fallback).
+        latest_round_games: Dicts with home_name, away_name, home_score,
+            away_score, winner_team_id, home_team_id, away_team_id for
+            the latest round.
+        playoff_teams: Number of teams that make the playoffs.
+        total_regular_rounds: Total rounds in the regular season schedule.
+        current_round: Current round number.
+
+    When no change signals are detected and *post_headline* is provided, falls
+    back to the most recent Post headline (prefixed with "Latest:").
     """
     signals: list[str] = []
 
@@ -312,11 +343,178 @@ def _compute_what_changed(
             signals.append(f"{champion} are your champions.")
         return signals[:1]
 
+    # --- Playoff clinch / elimination detection ---
+    if (
+        standings
+        and prev_standings
+        and total_regular_rounds > 0
+        and current_round > 0
+        and season_phase not in ("playoffs", "championship")
+    ):
+        remaining = total_regular_rounds - current_round
+        for idx, team in enumerate(standings):
+            tid = team["team_id"]
+            tname = team["team_name"]
+            wins = team.get("wins", 0)
+
+            # Clinch: team's wins already exceed the max possible wins
+            # for the team currently on the playoff bubble
+            if idx < playoff_teams and len(standings) > playoff_teams:
+                bubble = standings[playoff_teams]
+                bubble_max = bubble.get("wins", 0) + remaining
+                if wins > bubble_max:
+                    # Check this is newly clinched (wasn't clinched last round)
+                    prev_team = next(
+                        (s for s in prev_standings if s["team_id"] == tid), None
+                    )
+                    prev_bubble = (
+                        prev_standings[playoff_teams]
+                        if len(prev_standings) > playoff_teams
+                        else None
+                    )
+                    was_clinched = False
+                    if prev_team and prev_bubble:
+                        prev_remaining = total_regular_rounds - (current_round - 1)
+                        prev_bubble_max = (
+                            prev_bubble.get("wins", 0) + prev_remaining
+                        )
+                        was_clinched = (
+                            prev_team.get("wins", 0) > prev_bubble_max
+                        )
+                    if not was_clinched:
+                        seed = idx + 1
+                        suffix = _ordinal_suffix(seed)
+                        signals.append(
+                            f"{tname} clinched the {seed}{suffix} seed."
+                        )
+
+            # Elimination: team can no longer reach playoff spot
+            if idx >= playoff_teams:
+                max_wins = wins + remaining
+                cutoff_team = standings[playoff_teams - 1]
+                cutoff_wins = cutoff_team.get("wins", 0)
+                if max_wins < cutoff_wins:
+                    # Check if newly eliminated
+                    prev_team = next(
+                        (s for s in prev_standings if s["team_id"] == tid),
+                        None,
+                    )
+                    was_eliminated = False
+                    if prev_team and prev_standings:
+                        prev_remaining = (
+                            total_regular_rounds - (current_round - 1)
+                        )
+                        prev_max = prev_team.get("wins", 0) + prev_remaining
+                        prev_cutoff = (
+                            prev_standings[playoff_teams - 1]
+                            if len(prev_standings) >= playoff_teams
+                            else None
+                        )
+                        if prev_cutoff:
+                            was_eliminated = (
+                                prev_max < prev_cutoff.get("wins", 0)
+                            )
+                    if not was_eliminated:
+                        signals.append(
+                            f"{tname} eliminated from playoff contention."
+                        )
+
+    # --- Upset detection ---
+    if latest_round_games and standings and prev_standings:
+        prev_positions = {
+            s["team_id"]: idx for idx, s in enumerate(prev_standings)
+        }
+        for game in latest_round_games:
+            winner_id = game.get("winner_team_id", "")
+            home_id = game.get("home_team_id", "")
+            away_id = game.get("away_team_id", "")
+            loser_id = away_id if winner_id == home_id else home_id
+            if not winner_id or not loser_id:
+                continue
+            winner_pos = prev_positions.get(winner_id)
+            loser_pos = prev_positions.get(loser_id)
+            if winner_pos is not None and loser_pos is not None:
+                # Upset: lower-ranked team (higher position index) beats
+                # higher-ranked team with a gap of 2+ positions
+                if winner_pos - loser_pos >= 2:
+                    winner_name = (
+                        game.get("home_name", "?")
+                        if winner_id == home_id
+                        else game.get("away_name", "?")
+                    )
+                    loser_name = (
+                        game.get("away_name", "?")
+                        if winner_id == home_id
+                        else game.get("home_name", "?")
+                    )
+                    signals.append(
+                        f"Upset! {winner_name} knocked off {loser_name}."
+                    )
+
+    # Streak changes — new 3+ streaks or broken 3+ streaks
+    for team_id, streak in streaks.items():
+        prev_streak = prev_streaks.get(team_id, 0)
+        team_name = next(
+            (s["team_name"] for s in standings if s["team_id"] == team_id),
+            "Unknown",
+        )
+
+        # New streak (crossed threshold)
+        if abs(streak) >= 3 and abs(prev_streak) < 3:
+            if streak > 0:
+                signals.append(
+                    f"{team_name} on a {streak}-game win streak."
+                )
+            else:
+                signals.append(
+                    f"{team_name} on a {abs(streak)}-game losing streak."
+                )
+        # Broken streak
+        elif abs(prev_streak) >= 3 and abs(streak) < 3:
+            if prev_streak > 0:
+                signals.append(
+                    f"{team_name} snapped their "
+                    f"{prev_streak}-game win streak."
+                )
+            else:
+                signals.append(
+                    f"{team_name} snapped their "
+                    f"{abs(prev_streak)}-game losing streak."
+                )
+
+    # --- Blowout / classic game signals ---
+    if latest_round_games:
+        for game in latest_round_games:
+            home_score = game.get("home_score", 0)
+            away_score = game.get("away_score", 0)
+            margin = abs(home_score - away_score)
+            winner_id = game.get("winner_team_id", "")
+            home_id = game.get("home_team_id", "")
+            winner_name = (
+                game.get("home_name", "?")
+                if winner_id == home_id
+                else game.get("away_name", "?")
+            )
+            if margin >= 20:
+                signals.append(
+                    f"{winner_name} blew it open "
+                    f"with a {margin}-point rout."
+                )
+            elif margin <= 2 and (home_score + away_score) > 0:
+                signals.append(
+                    f"Instant classic: "
+                    f"{home_score}-{away_score} nailbiter."
+                )
+
     # Standings movement — compare current to previous
     if standings and prev_standings:
         # Build position maps
-        prev_positions = {s["team_id"]: idx for idx, s in enumerate(prev_standings)}
-        curr_positions = {s["team_id"]: idx for idx, s in enumerate(standings)}
+        prev_positions = {
+            s["team_id"]: idx for idx, s in enumerate(prev_standings)
+        }
+        curr_positions = {
+            s["team_id"]: idx for idx, s in enumerate(standings)
+        }
 
         # Find biggest climber and biggest faller
         biggest_climb = 0
@@ -330,51 +528,59 @@ def _compute_what_changed(
             delta = prev_positions[team_id] - curr_positions[team_id]
             if delta > biggest_climb:
                 biggest_climb = delta
-                climber_name = next(s["team_name"] for s in standings if s["team_id"] == team_id)
+                climber_name = next(
+                    s["team_name"]
+                    for s in standings
+                    if s["team_id"] == team_id
+                )
             if delta < biggest_fall:
                 biggest_fall = delta
-                faller_name = next(s["team_name"] for s in standings if s["team_id"] == team_id)
+                faller_name = next(
+                    s["team_name"]
+                    for s in standings
+                    if s["team_id"] == team_id
+                )
 
         if biggest_climb >= 2:
             climber_id = next(
-                s["team_id"] for s in standings if s["team_name"] == climber_name
+                s["team_id"]
+                for s in standings
+                if s["team_name"] == climber_name
             )
             new_pos = curr_positions[climber_id]
             suffix = _ordinal_suffix(new_pos + 1)
-            signals.append(f"{climber_name} climbed to {new_pos + 1}{suffix} place.")
+            signals.append(
+                f"{climber_name} climbed to "
+                f"{new_pos + 1}{suffix} place."
+            )
         if biggest_fall <= -2:
             faller_id = next(
-                s["team_id"] for s in standings if s["team_name"] == faller_name
+                s["team_id"]
+                for s in standings
+                if s["team_name"] == faller_name
             )
             new_pos = curr_positions[faller_id]
             suffix = _ordinal_suffix(new_pos + 1)
-            signals.append(f"{faller_name} dropped to {new_pos + 1}{suffix} place.")
-
-    # Streak changes — new 3+ streaks or broken 3+ streaks
-    for team_id, streak in streaks.items():
-        prev_streak = prev_streaks.get(team_id, 0)
-        team_name = next((s["team_name"] for s in standings if s["team_id"] == team_id), "Unknown")
-
-        # New streak (crossed threshold)
-        if abs(streak) >= 3 and abs(prev_streak) < 3:
-            if streak > 0:
-                signals.append(f"{team_name} on a {streak}-game win streak.")
-            else:
-                signals.append(f"{team_name} on a {abs(streak)}-game losing streak.")
-        # Broken streak
-        elif abs(prev_streak) >= 3 and abs(streak) < 3:
-            if prev_streak > 0:
-                signals.append(f"{team_name} snapped their {prev_streak}-game win streak.")
-            else:
-                signals.append(f"{team_name} snapped their {abs(prev_streak)}-game losing streak.")
+            signals.append(
+                f"{faller_name} dropped to "
+                f"{new_pos + 1}{suffix} place."
+            )
 
     # Rule changes
     for rc in rule_changes:
         param = rc.get("parameter", "a rule")
         new_val = rc.get("new_value")
-        signals.append(f"{param.replace('_', ' ').title()} changed to {new_val}.")
+        signals.append(
+            f"{param.replace('_', ' ').title()} changed to {new_val}."
+        )
 
-    return signals[:3]
+    result = signals[:5]
+
+    # Fallback: when no change signals detected, surface the Post headline
+    if not result and post_headline:
+        result.append(f"Latest: {post_headline}")
+
+    return result
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -561,6 +767,23 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 if e.round_number == current_round
             ]
 
+            # Total regular-season rounds and playoff slots for
+            # clinch / elimination detection
+            regular_schedule = await repo.get_full_schedule(
+                season_id, phase="regular",
+            )
+            wc_total_rounds = (
+                max(s.round_number for s in regular_schedule)
+                if regular_schedule
+                else 0
+            )
+            season_obj = await repo.get_season(season_id)
+            if season_obj and season_obj.current_ruleset:
+                wc_ruleset = RuleSet(**season_obj.current_ruleset)
+            else:
+                wc_ruleset = DEFAULT_RULESET
+            wc_playoff_teams = wc_ruleset.playoff_teams
+
             # Compute signals
             what_changed_signals = _compute_what_changed(
                 standings=standings,
@@ -569,6 +792,10 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 prev_streaks=prev_streaks,
                 rule_changes=latest_rule_changes,
                 season_phase=season_phase,
+                latest_round_games=latest_round_games,
+                playoff_teams=wc_playoff_teams,
+                total_regular_rounds=wc_total_rounds,
+                current_round=current_round,
             )
 
     # --- Pinwheel Post data (newspaper inlined on home page) ---
@@ -667,6 +894,10 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         post_headline = headlines.get("headline", "")
         post_subhead = headlines.get("subhead", "")
 
+    # Fallback: when no change signals were detected, surface the Post headline
+    if not what_changed_signals and post_headline:
+        what_changed_signals = [f"Latest: {post_headline}"]
+
     ctx = {
         "active_page": "home",
         "season_name": season_name or "Season",
@@ -692,6 +923,173 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "pages/home.html",
         {**ctx, **_auth_context(request, current_user)},
     )
+
+
+@router.get("/partials/what-changed", response_class=HTMLResponse)
+async def what_changed_partial(request: Request, repo: RepoDep) -> HTMLResponse:
+    """HTMX partial — returns the what-changed widget HTML fragment.
+
+    Polled by the home page via hx-trigger="every 60s" to keep the
+    widget up-to-date without a full page reload.
+    """
+    season_id, _ = await _get_active_season(repo)
+    if not season_id:
+        return HTMLResponse("")
+
+    standings = await _get_standings(repo, season_id)
+
+    # Find current round
+    current_round = 0
+    for rn in range(1, 100):
+        round_games = await repo.get_games_for_round(season_id, rn)
+        if round_games:
+            current_round = rn
+        else:
+            break
+
+    if current_round <= 0:
+        return HTMLResponse("")
+
+    season_phase = await _get_season_phase(repo, season_id)
+    all_games = await repo.get_all_games(season_id)
+    streaks: dict[str, int] = {}
+    if all_games:
+        streaks = _compute_streaks_from_games(all_games)
+
+    # Previous round standings
+    prev_standings: list[dict] = []
+    prev_streaks: dict[str, int] = {}
+    if current_round > 1:
+        prev_results: list[dict] = []
+        for rn in range(1, current_round):
+            rg = await repo.get_games_for_round(season_id, rn)
+            for g in rg:
+                prev_results.append({
+                    "home_team_id": g.home_team_id,
+                    "away_team_id": g.away_team_id,
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                })
+        prev_standings = compute_standings(prev_results)
+        for s in prev_standings:
+            team = await repo.get_team(s["team_id"])
+            if team:
+                s["team_name"] = team.name
+        prev_games = [g for g in all_games if g.round_number < current_round]
+        if prev_games:
+            prev_streaks = _compute_streaks_from_games(prev_games)
+
+    # Rule changes in latest round
+    rule_change_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["rule.enacted"],
+    )
+    latest_rule_changes = [
+        e.payload for e in rule_change_events
+        if e.round_number == current_round
+    ]
+
+    # Compute Post headline for fallback
+    post_headline = ""
+    from pinwheel.ai.insights import generate_newspaper_headlines_mock
+
+    round_games_for_post = await repo.get_games_for_round(season_id, current_round)
+    if round_games_for_post:
+        team_names: dict[str, str] = {}
+        game_summaries: list[dict] = []
+        for g in round_games_for_post:
+            for tid in (g.home_team_id, g.away_team_id):
+                if tid not in team_names:
+                    t = await repo.get_team(tid)
+                    team_names[tid] = t.name if t else tid
+            game_summaries.append({
+                "home_team_name": team_names.get(g.home_team_id, "?"),
+                "away_team_name": team_names.get(g.away_team_id, "?"),
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "winner_team_id": g.winner_team_id,
+                "winner_team_name": team_names.get(g.winner_team_id, "?"),
+            })
+
+        round_phase = await _get_game_phase(repo, season_id, current_round)
+        total_season_games = sum(s.get("wins", 0) for s in standings)
+        headlines = generate_newspaper_headlines_mock(
+            {"round_number": current_round, "games": game_summaries, "governance": {}},
+            current_round,
+            playoff_phase=round_phase or "",
+            total_games_played=total_season_games,
+        )
+        post_headline = headlines.get("headline", "")
+
+    # Build latest_round_games dicts for upset / blowout detection
+    partial_round_games: list[dict] = []
+    if round_games_for_post:
+        for g in round_games_for_post:
+            home_id = g.home_team_id
+            away_id = g.away_team_id
+            partial_round_games.append({
+                "home_name": team_names.get(home_id, "?"),
+                "away_name": team_names.get(away_id, "?"),
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "winner_team_id": g.winner_team_id,
+                "home_team_id": home_id,
+                "away_team_id": away_id,
+            })
+
+    # Total regular-season rounds and playoff slots
+    regular_schedule = await repo.get_full_schedule(
+        season_id, phase="regular",
+    )
+    wc_total_rounds = (
+        max(s.round_number for s in regular_schedule)
+        if regular_schedule
+        else 0
+    )
+    season_obj = await repo.get_season(season_id)
+    if season_obj and season_obj.current_ruleset:
+        wc_ruleset = RuleSet(**season_obj.current_ruleset)
+    else:
+        wc_ruleset = DEFAULT_RULESET
+    wc_playoff_teams = wc_ruleset.playoff_teams
+
+    what_changed_signals = _compute_what_changed(
+        standings=standings,
+        prev_standings=prev_standings,
+        streaks=streaks,
+        prev_streaks=prev_streaks,
+        rule_changes=latest_rule_changes,
+        season_phase=season_phase,
+        post_headline=post_headline,
+        latest_round_games=partial_round_games,
+        playoff_teams=wc_playoff_teams,
+        total_regular_rounds=wc_total_rounds,
+        current_round=current_round,
+    )
+
+    if not what_changed_signals:
+        return HTMLResponse("")
+
+    # Build HTML fragment
+    is_fallback = (
+        len(what_changed_signals) == 1
+        and what_changed_signals[0].startswith("Latest:")
+    )
+    items_html = ""
+    for signal in what_changed_signals:
+        css_class = "what-changed-item"
+        if is_fallback:
+            css_class += " what-changed-fallback"
+        items_html += f'<div class="{css_class}">{signal}</div>'
+
+    html = (
+        '<div class="what-changed" id="what-changed"'
+        ' hx-get="/partials/what-changed" hx-trigger="every 60s"'
+        ' hx-swap="outerHTML">'
+        f'{items_html}</div>'
+    )
+    return HTMLResponse(html)
 
 
 @router.get("/play", response_class=HTMLResponse)
@@ -1182,12 +1580,15 @@ def _ordinal_suffix(n: int) -> str:
 
 @router.get("/standings", response_class=HTMLResponse)
 async def standings_page(request: Request, repo: RepoDep, current_user: OptionalUser):
-    """Standings page."""
+    """Standings page with narrative context."""
     season_id = await _get_active_season_id(repo)
-    standings = []
+    standings: list[dict] = []
     season_phase = ""
     streaks: dict[str, int] = {}
     callouts: list[str] = []
+    sos: dict[str, dict[str, int]] = {}
+    magic_numbers: dict[str, int | None] = {}
+    trajectory: dict[str, int] = {}
 
     if season_id:
         standings = await _get_standings(repo, season_id)
@@ -1209,10 +1610,54 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
         full_schedule = await repo.get_full_schedule(season_id)
         total_rounds = max((s.round_number for s in full_schedule), default=0)
 
-        # Generate narrative callouts
-        if standings and current_round > 0:
-            callouts = _compute_standings_callouts(
-                standings, streaks, current_round, total_rounds
+        # Build result dicts with round_number for narrative computations
+        if standings and current_round > 0 and all_games:
+            results_with_rounds: list[dict] = [
+                {
+                    "home_team_id": g.home_team_id,
+                    "away_team_id": g.away_team_id,
+                    "home_score": g.home_score,
+                    "away_score": g.away_score,
+                    "winner_team_id": g.winner_team_id,
+                    "round_number": g.round_number,
+                }
+                for g in all_games
+            ]
+
+            # Team name lookup
+            team_names: dict[str, str] = {
+                s["team_id"]: s.get("team_name", s["team_id"]) for s in standings
+            }
+
+            # Strength of schedule
+            sos = compute_strength_of_schedule(results_with_rounds, standings)
+
+            # Magic numbers (1 game per round in round-robin)
+            magic_numbers = compute_magic_numbers(
+                standings, total_rounds, games_per_round=1
+            )
+
+            # Trajectory (position movement over last 3 rounds)
+            trajectory = compute_standings_trajectory(
+                results_with_rounds, current_round
+            )
+
+            # Most improved
+            improved_id, _old_pct, _new_pct = compute_most_improved(
+                results_with_rounds, current_round
+            )
+
+            # Generate narrative callouts
+            callouts = compute_narrative_callouts(
+                standings=standings,
+                streaks=streaks,
+                current_round=current_round,
+                total_rounds=total_rounds,
+                sos=sos,
+                magic_numbers=magic_numbers,
+                trajectory=trajectory,
+                most_improved_team=improved_id,
+                team_names=team_names,
             )
 
     return templates.TemplateResponse(
@@ -1224,10 +1669,45 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
             "season_phase": season_phase,
             "streaks": streaks,
             "callouts": callouts,
+            "sos": sos,
+            "magic_numbers": magic_numbers,
+            "trajectory": trajectory,
             **_auth_context(request, current_user),
         },
     )
 
+
+
+def _compute_game_standings(
+    all_games: list[object],
+    up_to_round: int,
+) -> list[dict]:
+    """Compute standings from games played before a given round.
+
+    Used to determine game significance (first-place showdown, clinch scenarios)
+    based on where teams stood going into the game.
+
+    Args:
+        all_games: All game results in the season.
+        up_to_round: Include games from rounds strictly before this one.
+
+    Returns:
+        Sorted standings list (same format as compute_standings).
+    """
+    prior_results: list[dict] = [
+        {
+            "home_team_id": g.home_team_id,
+            "away_team_id": g.away_team_id,
+            "home_score": g.home_score,
+            "away_score": g.away_score,
+            "winner_team_id": g.winner_team_id,
+        }
+        for g in all_games
+        if g.round_number < up_to_round
+    ]
+    if not prior_results:
+        return []
+    return compute_standings(prior_results)
 
 @router.get("/games/{game_id}", response_class=HTMLResponse)
 async def game_page(request: Request, game_id: str, repo: RepoDep, current_user: OptionalUser):
@@ -1321,6 +1801,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
 
     # Compute historical context
     game_context: list[str] = []
+    game_significance: list[str] = []
+    rule_changes_since_last: list[str] = []
     if season_id:
         all_games = await repo.get_all_games(season_id)
         if all_games:
@@ -1338,6 +1820,80 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
                     game_context.append(f"Season series: {home_name} leads {home_wins}-{away_wins}")
                 else:
                     game_context.append(f"Season series: {away_name} leads {away_wins}-{home_wins}")
+
+            # Previous meeting context — blowout rematch + rule changes
+            previous_meetings = sorted(
+                [
+                    g for g in h2h_games
+                    if g.round_number < game.round_number
+                ],
+                key=lambda g: g.round_number,
+                reverse=True,
+            )
+            if previous_meetings:
+                last_meeting = previous_meetings[0]
+                last_margin = abs(last_meeting.home_score - last_meeting.away_score)
+                if last_margin >= 15:
+                    last_winner_name = (
+                        home_name
+                        if last_meeting.winner_team_id == game.home_team_id
+                        else away_name
+                    )
+                    game_significance.append(
+                        f"Last meeting: {last_winner_name} won by {last_margin}"
+                    )
+
+                # Rule changes enacted between last meeting and this game
+                timeline = await repo.get_rule_change_timeline(season_id)
+                for rc in timeline:
+                    if last_meeting.round_number < rc["round_enacted"] <= game.round_number:
+                        param_label = rc["parameter"].replace("_", " ").title()
+                        rule_changes_since_last.append(
+                            f"Since Round {last_meeting.round_number}: "
+                            f"{param_label} changed from {rc['old_value']} "
+                            f"to {rc['new_value']}"
+                        )
+
+            # Game significance — standings-based callouts
+            standings_at_game = _compute_game_standings(all_games, game.round_number)
+            if len(standings_at_game) >= 2:
+                team_ids_in_game = {game.home_team_id, game.away_team_id}
+                top_two_ids = {
+                    standings_at_game[0]["team_id"],
+                    standings_at_game[1]["team_id"],
+                }
+                if team_ids_in_game == top_two_ids:
+                    game_significance.append("First place showdown")
+
+                # Win-and-clinch: can a team lock a playoff spot with a win?
+                schedule = await repo.get_full_schedule(season_id, phase="regular")
+                if schedule:
+                    total_regular_rounds = max(s.round_number for s in schedule)
+                    remaining_after = total_regular_rounds - game.round_number
+                    ruleset = RuleSet(**(game.ruleset_snapshot or {}))
+                    playoff_spots = ruleset.playoff_teams
+                    if len(standings_at_game) >= playoff_spots:
+                        bubble_team = standings_at_game[playoff_spots - 1]
+                        for tid in team_ids_in_game:
+                            team_standing = next(
+                                (s for s in standings_at_game if s["team_id"] == tid),
+                                None,
+                            )
+                            if not team_standing:
+                                continue
+                            bubble_max = bubble_team["wins"] + remaining_after
+                            if (
+                                team_standing["wins"] + 1 > bubble_max
+                                and tid != bubble_team["team_id"]
+                            ):
+                                clinch_name = (
+                                    home_name
+                                    if tid == game.home_team_id
+                                    else away_name
+                                )
+                                game_significance.append(
+                                    f"Win-and-clinch scenario for {clinch_name}"
+                                )
 
             # Margin context
             margin = abs(game.home_score - game.away_score)
@@ -1372,6 +1928,51 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
                     f"(season avg: {avg_total_str})"
                 )
 
+            # Streak context — show each team's streak at game time
+            games_up_to = [
+                g for g in all_games
+                if g.round_number <= game.round_number
+            ]
+            if games_up_to:
+                game_streaks = _compute_streaks_from_games(games_up_to)
+                for tid, tname in [
+                    (game.home_team_id, home_name),
+                    (game.away_team_id, away_name),
+                ]:
+                    streak_val = game_streaks.get(tid, 0)
+                    if streak_val >= 3:
+                        game_context.append(
+                            f"{tname} on a {streak_val}-game "
+                            f"win streak"
+                        )
+                    elif streak_val <= -3:
+                        game_context.append(
+                            f"{tname} on a {abs(streak_val)}-game "
+                            f"losing streak"
+                        )
+
+            # Personal bests — season-high points for hoopers in this game
+            # Build a map of hooper_id -> max points scored in any game
+            hooper_season_highs: dict[str, int] = {}
+            for g in all_games:
+                for bs in g.box_scores:
+                    if bs.hooper_id not in hooper_season_highs:
+                        hooper_season_highs[bs.hooper_id] = bs.points
+                    elif bs.points > hooper_season_highs[bs.hooper_id]:
+                        hooper_season_highs[bs.hooper_id] = bs.points
+
+            for bs in game.box_scores:
+                season_high = hooper_season_highs.get(bs.hooper_id, 0)
+                if (
+                    bs.points > 0
+                    and bs.points == season_high
+                    and len(all_games) > 1
+                ):
+                    name = hooper_names.get(bs.hooper_id, bs.hooper_id)
+                    game_significance.append(
+                        f"Season-high {bs.points} points for {name}"
+                    )
+
     return templates.TemplateResponse(
         request,
         "pages/game.html",
@@ -1389,6 +1990,8 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             "report": report,
             "game_phase": game_phase,
             "game_context": game_context,
+            "game_significance": game_significance,
+            "rule_changes_since_last": rule_changes_since_last,
             **_auth_context(request, current_user),
         },
     )
@@ -1475,103 +2078,81 @@ async def team_page(request: Request, team_id: str, repo: RepoDep, current_user:
                 }
             )
 
-    # Compute trajectory data (recent form, trends, streaks)
-    trajectory = {}
+    # Compute trajectory data (performance trajectory with rule impact analysis)
+    trajectory = None
     if season_id:
         game_results = await repo.get_team_game_results(team_id, season_id)
 
         if game_results:
-            # Recent form (last 5 games)
-            recent = game_results[-5:]
-            recent_form = "".join("W" if g["won"] else "L" for g in recent)
-
-            # Best/worst streaks
-            longest_win_streak = 0
-            longest_loss_streak = 0
-            current_streak = 0
-            current_streak_type = None
-
-            for g in game_results:
-                if g["won"]:
-                    if current_streak_type == "win":
-                        current_streak += 1
-                    else:
-                        current_streak = 1
-                        current_streak_type = "win"
-                    longest_win_streak = max(longest_win_streak, current_streak)
-                else:
-                    if current_streak_type == "loss":
-                        current_streak += 1
-                    else:
-                        current_streak = 1
-                        current_streak_type = "loss"
-                    longest_loss_streak = max(longest_loss_streak, current_streak)
-
-            # First-half vs second-half trend
-            total_games = len(game_results)
-            midpoint = total_games // 2
-            first_half = game_results[:midpoint] if midpoint > 0 else []
-            second_half = game_results[midpoint:] if midpoint > 0 else game_results
-
-            first_half_wins = sum(1 for g in first_half if g["won"])
-            first_half_losses = len(first_half) - first_half_wins
-            second_half_wins = sum(1 for g in second_half if g["won"])
-            second_half_losses = len(second_half) - second_half_wins
-
-            # Trend description
-            trend_desc = ""
-            first_total = first_half_wins + first_half_losses
-            second_total = second_half_wins + second_half_losses
-            if first_half and second_half and first_total > 0 and second_total > 0:
-                first_pct = first_half_wins / first_total
-                second_pct = second_half_wins / second_total
-                if second_pct > first_pct + 0.2:
-                    trend_desc = (
-                        f"Strong finish — {first_half_wins}-{first_half_losses} early, "
-                        f"{second_half_wins}-{second_half_losses} recently"
-                    )
-                elif first_pct > second_pct + 0.2:
-                    trend_desc = (
-                        f"Started {first_half_wins}-{first_half_losses}, "
-                        f"cooled to {second_half_wins}-{second_half_losses}"
-                    )
-                else:
-                    trend_desc = (
-                        f"Consistent — {first_half_wins}-{first_half_losses} first half, "
-                        f"{second_half_wins}-{second_half_losses} second half"
-                    )
-
-            # Rule change segments (check for rule.enacted events)
+            # Get rule change events for regime analysis
             rule_events = await repo.get_events_by_type(
                 season_id=season_id,
                 event_types=["rule.enacted"],
             )
-            rule_change_rounds = sorted({e.round_number for e in rule_events if e.round_number})
+            rule_change_rounds = sorted(
+                {e.round_number for e in rule_events if e.round_number}
+            )
+            rule_event_payloads: list[dict[str, object]] = [
+                e.payload for e in rule_events
+            ]
 
-            segments = []
-            for idx, change_round in enumerate(rule_change_rounds):
-                before = [g for g in game_results if g["round_number"] < change_round]
-                after = [g for g in game_results if g["round_number"] >= change_round]
-                if before and after:
-                    before_wins = sum(1 for g in before if g["won"])
-                    before_losses = len(before) - before_wins
-                    after_wins = sum(1 for g in after if g["won"])
-                    after_losses = len(after) - after_wins
-                    # Only report first rule change impact for brevity
-                    if idx == 0:
-                        segments.append(
-                            f"{before_wins}-{before_losses} before Round {change_round}, "
-                            f"{after_wins}-{after_losses} after"
-                        )
-                    break  # Only show first rule change segment to avoid clutter
+            # Build governor proposal impact data
+            team_passed_proposals: list[dict[str, object]] = []
+            if governors:
+                governor_ids = {g["id"] for g in governors}
 
-            trajectory = {
-                "recent_form": recent_form,
-                "longest_win_streak": longest_win_streak,
-                "longest_loss_streak": longest_loss_streak,
-                "trend_desc": trend_desc,
-                "rule_change_segment": segments[0] if segments else "",
-            }
+                submitted_events = await repo.get_events_by_type(
+                    season_id=season_id,
+                    event_types=["proposal.submitted"],
+                )
+                team_proposals: dict[str, tuple[str, str]] = {}
+                for e in submitted_events:
+                    if e.governor_id and e.governor_id in governor_ids:
+                        pid = e.payload.get("id", "")
+                        raw_text = e.payload.get("raw_text", "")
+                        if pid:
+                            team_proposals[pid] = (e.governor_id, raw_text)
+
+                if team_proposals:
+                    enacted_params: dict[str, str] = {}
+                    for re_evt in rule_events:
+                        p_id = re_evt.payload.get("source_proposal_id", "")
+                        param = re_evt.payload.get("parameter", "")
+                        if p_id and param:
+                            enacted_params[p_id] = param
+
+                    passed_events = await repo.get_events_by_type(
+                        season_id=season_id,
+                        event_types=["proposal.passed"],
+                    )
+                    for oe in passed_events:
+                        pid = oe.payload.get("proposal_id", oe.aggregate_id)
+                        if pid in team_proposals:
+                            gov_id, raw_text = team_proposals[pid]
+                            enacted_round = oe.round_number or 0
+                            gov_name = next(
+                                (
+                                    gv["username"]
+                                    for gv in governors
+                                    if gv["id"] == gov_id
+                                ),
+                                "A governor",
+                            )
+                            team_passed_proposals.append({
+                                "governor_name": gov_name,
+                                "raw_text": raw_text,
+                                "enacted_round": enacted_round,
+                                "parameter": enacted_params.get(pid, ""),
+                            })
+
+            from pinwheel.core.trajectory import build_performance_trajectory
+
+            trajectory = build_performance_trajectory(
+                game_results=game_results,
+                rule_events=rule_event_payloads,
+                team_passed_proposals=team_passed_proposals,
+                rule_change_rounds=rule_change_rounds,
+            )
 
     return templates.TemplateResponse(
         request,
@@ -2008,21 +2589,56 @@ RULE_TIERS = [
 ]
 
 
+
+async def _compute_rule_impact(
+    repo: RepoDep, season_id: str, round_enacted: int
+) -> str:
+    """Compute a gameplay impact string for a rule change.
+
+    Compares average total game score (home + away) before vs after
+    the round the rule was enacted.  Returns a human-readable string
+    like "Scoring +12% since change" or "Too early to measure".
+    """
+    min_games_after = 2
+
+    # Before: rounds 1 through round_enacted - 1
+    if round_enacted > 1:
+        before_avg, before_count = await repo.get_avg_total_game_score_for_rounds(
+            season_id, 1, round_enacted - 1,
+        )
+    else:
+        before_avg, before_count = 0.0, 0
+
+    # After: round_enacted onward (large upper bound)
+    after_avg, after_count = await repo.get_avg_total_game_score_for_rounds(
+        season_id, round_enacted, 9999,
+    )
+
+    if after_count < min_games_after:
+        return "Too early to measure"
+    if before_count == 0 or before_avg == 0:
+        return f"Avg {after_avg:.0f} pts/game over {after_count} games"
+
+    pct_change = ((after_avg - before_avg) / before_avg) * 100
+    direction = "+" if pct_change >= 0 else ""
+    return f"Scoring {direction}{pct_change:.0f}% since change"
+
+
 @router.get("/rules", response_class=HTMLResponse)
 async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Current rules page."""
     season_id = await _get_active_season_id(repo)
     ruleset = RuleSet()
+    defaults = RuleSet()
     changes_from_default: dict = {}
-    rule_history = []
-    rule_change_timeline: dict[str, list[dict]] = {}
+    rule_history: list[dict[str, object]] = []
+    rule_change_timeline: dict[str, list[dict[str, object]]] = {}
 
     if season_id:
         season = await repo.get_season(season_id)
         if season and season.current_ruleset:
             ruleset = RuleSet(**season.current_ruleset)
 
-        defaults = RuleSet()
         for param in RuleSet.model_fields:
             current = getattr(ruleset, param)
             default = getattr(defaults, param)
@@ -2038,9 +2654,12 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
         )
         rule_history = [e.payload for e in rc_events]
 
-        # Get rule change timeline and map by parameter
+        # Get rule change timeline and map by parameter, with gameplay deltas
         timeline = await repo.get_rule_change_timeline(season_id)
         for change in timeline:
+            round_enacted: int = change["round_enacted"]
+            impact = await _compute_rule_impact(repo, season_id, round_enacted)
+            change["impact"] = impact
             param = change["parameter"]
             if param not in rule_change_timeline:
                 rule_change_timeline[param] = []
@@ -2056,24 +2675,45 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
             value = ruleset_dict.get(param)
             fi = field_info.get(param)
             range_str = ""
+            range_min: float | None = None
+            range_max: float | None = None
             if fi and fi.metadata:
-                bounds = []
+                bounds: list[str] = []
                 for m in fi.metadata:
                     if hasattr(m, "ge"):
                         bounds.append(f"{m.ge}")
+                        range_min = float(m.ge)
                     if hasattr(m, "le"):
                         bounds.append(f"{m.le}")
+                        range_max = float(m.le)
                 if len(bounds) == 2:
-                    range_str = f"{bounds[0]}–{bounds[1]}"
+                    range_str = f"{bounds[0]}\u2013{bounds[1]}"
             changed = param in changes_from_default
+
+            # Compute drift: how far from default as % of range (0-100)
+            drift_pct: int = 0
+            default_val = getattr(defaults, param)
+            if changed and range_min is not None and range_max is not None:
+                span = range_max - range_min
+                if span > 0 and isinstance(value, (int, float)):
+                    drift_pct = int(
+                        abs(float(value) - float(default_val)) / span * 100
+                    )
+
+            # Count total changes for this parameter
+            change_count = len(rule_change_timeline.get(param, []))
+
             tier_rules.append(
                 {
                     "param": param,
                     "label": label,
                     "desc": desc,
                     "value": value,
+                    "default": default_val,
                     "range": range_str,
                     "changed": changed,
+                    "drift_pct": drift_pct,
+                    "change_count": change_count,
                     "history": rule_change_timeline.get(param, []),
                 }
             )
