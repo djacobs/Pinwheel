@@ -17,7 +17,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer, Amplify Human Judgment (9 features), P0/P1 security hardening, doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
-- **Latest commit:** `9accd69` — fix: deduplicate Discord team channel notifications
+- **Latest commit:** `f075307` — feat: rewrite simulation report prompt — specificity, surprise, energy
 
 ## Today's Agenda
 
@@ -103,3 +103,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1966 tests, zero lint errors.**
 
 **What could have gone better:** This bug existed since the first season reset — any time a new season created teams with new UUIDs, stale `channel_team_*` entries accumulated in `bot_state`. The original iteration pattern (`for key, chan_id in self.channel_ids.items() if key.startswith("team_")`) assumed a 1:1 mapping between team keys and Discord channels, which broke across seasons.
+
+---
+
+## Session 94 — Simulation Report Prompt Rewrite
+
+**What was asked:** Round 2 report (generated after Opus upgrade) still used cliches ("the league is as tight as it has ever been," "one bad round changes everything"), always-true statements, and listy game-by-game recaps. Needed to be specific, exciting, and surprising.
+
+**What was built:**
+- Rewrote `SIMULATION_REPORT_PROMPT` in `report.py` — restructured from a long list of don'ts to a positive, energy-first directive
+- New opening mandate: "be specific, be surprising, tell us what changed"
+- Two core sections: **"What Was Unusual?"** (five discovery questions) and **"What Changed?"** (before/after with baselines)
+- **"Writing With Energy"** replaces "Composing the Story" — leads with excitement, bans sequential game recaps
+- **Specificity Test** tightened with positive example: "Not 'what a round!' but 'St. Johns just beat the only undefeated team left...'"
+- **Hard Rules** condensed — guardrails at the bottom where they belong, not dominating the prompt
+
+**Files modified (1):** `src/pinwheel/ai/report.py`
+
+**1966 tests, zero lint errors.**
+
+**What could have gone better:** The Session 92 early-season guard was necessary but insufficient — it added "don't do X" rules without restructuring the prompt's energy. The model needs positive direction ("find what's surprising") more than negative guardrails ("don't use cliches").
