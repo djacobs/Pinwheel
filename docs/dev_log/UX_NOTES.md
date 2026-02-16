@@ -769,3 +769,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **`light_safe` Jinja2 filter:** Computes relative luminance; if > 0.5, darkens color by 40%. Only triggers for gold and light blue — all other team colors pass through unchanged.
 
 **14 templates updated:** game, arena, home, standings, newspaper, hooper, governor, team, admin_roster, playoffs, spider_chart, base.html. Arena SSE JavaScript switched from `line.style.color` to `.setProperty('--tc', color)` with CSS class.
+
+### 119. [DONE] Champion headline shows actual finals winner
+**Problem:** Homepage "what changed" banner said "Rose City Thorns are your champions" when Hawthorne Hammers won the championship finals. The logic used `standings[0]` (best regular-season record) instead of the actual playoff winner.
+**Fix:** `_compute_what_changed()` now reads `champion_team_name` from `season.config` (set by playoff pipeline when finals conclude). Falls back to standings only if config is empty.
+
+### 120. [DONE] Report prose rendering + prompt cleanup
+**Problem:** Simulation reports displayed raw markdown on the homepage — `**bold**`, `## headers`, and `---` rendered as literal text. The model also included literal question scaffolding ("**1. What was surprising?**") from the prompt template.
+**Fix:** Added `prose` Jinja2 filter that converts paragraph text to `<p>` tags with `<br>` for single newlines, applied to sim reports, highlight reels, and governance reports. Updated prompt to say "do NOT include questions in your output" and "Output plain prose paragraphs only."

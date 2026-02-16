@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1966 tests**, zero lint errors (Session 96)
+- **1967 tests**, zero lint errors (Session 97)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `8e66104` — docs: session 94 — simulation report prompt rewrite
+- **Latest commit:** `3b15208` — fix: SDK structured output (response_format → output_config) + report prose rendering
 
 ## Today's Agenda
 
@@ -164,3 +164,22 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1966 tests, zero lint errors.**
 
 **What could have gone better:** The CSS was well-architected with custom properties from day one, making the variable scoping clean. The main complexity was the ~10 hardcoded `rgba(255,255,255,...)` overlay values scattered through component styles — these became white-on-white in light mode and had to be replaced with theme-aware variables. Also, the arena SSE JavaScript created DOM elements with inline `style.color` which doesn't respect CSS custom properties — had to switch to `.setProperty('--tc', ...)` pattern.
+
+---
+
+## Session 97 — Champion Headline Fix + SDK Structured Output + Prose Rendering
+
+**What was asked:** Three issues on the live homepage: (1) champion headline said "Rose City Thorns are your champions" when Hawthorne Hammers actually won the finals, (2) simulation report included literal question scaffolding ("**1. What was surprising?**") and markdown that wasn't rendered, (3) all AI structured output calls used `response_format=` which isn't a valid parameter in anthropic SDK v0.79.0.
+
+**What was built:**
+- **Champion headline fix** — `_compute_what_changed()` now accepts `champion_team_name` from `season.config["champion_team_name"]` (set by the playoff pipeline when a team wins the finals) instead of using `standings[0]` (best regular-season record). Falls back to standings if config is empty.
+- **SDK structured output fix** — Changed all 5 AI call sites from `response_format=` to `output_config=` to match SDK v0.79.0. Replaced hand-rolled schema builder with `anthropic.transform_schema()` which handles `additionalProperties: false`, strips unsupported constraints (`minimum`/`maximum`), and moves them to descriptions.
+- **Report prompt update** — "Three Questions" section renamed to "Before You Write" with explicit "do NOT include them in your output." Added "Output plain prose paragraphs only. No markdown headers, no bold, no numbered lists."
+- **Prose rendering filter** — New `prose` Jinja2 filter converts plain paragraph text to `<p>` tags with `<br>` for single newlines. Applied to sim reports, highlight reels, governance reports on home page and reports page.
+- **Test fixture hardening** — All test fixtures that create `Settings()` now explicitly set `anthropic_api_key=""` to prevent `.env` leakage causing tests to hit the real API instead of mock fallbacks.
+
+**Files modified (11):** `src/pinwheel/ai/usage.py`, `src/pinwheel/ai/classifier.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/ai/search.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/api/pages.py`, `templates/pages/home.html`, `templates/pages/reports.html`, `tests/test_messages_api.py`, `tests/test_discord.py`, `tests/test_admin_workbench.py`, `tests/test_pages_what_changed.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** The `response_format` parameter was added to all AI call sites in Session 88 (Messages API Phase 2) but was never tested against the actual SDK — tests used mocks that accepted any kwargs. Adding the API key to `.env` exposed this immediately because tests started making real API calls. The champion headline bug existed since the championship feature was added — `standings[0]` is the regular-season leader, not the playoff winner, and nobody noticed because they happened to be the same team until this season.
