@@ -20,6 +20,21 @@ import anthropic
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+# Module-level client cache for connection reuse
+_client_cache: dict[str, anthropic.AsyncAnthropic] = {}
+
+_CLASSIFIER_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
+
+
+def _get_client(api_key: str) -> anthropic.AsyncAnthropic:
+    """Return a cached AsyncAnthropic client for connection reuse."""
+    if api_key not in _client_cache:
+        _client_cache[api_key] = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=_CLASSIFIER_TIMEOUT,
+        )
+    return _client_cache[api_key]
+
 logger = logging.getLogger(__name__)
 
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
@@ -88,10 +103,7 @@ async def classify_injection(
     )
 
     try:
-        client = anthropic.AsyncAnthropic(
-            api_key=api_key,
-            timeout=httpx.Timeout(15.0, connect=5.0),
-        )
+        client = _get_client(api_key)
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=CLASSIFIER_MODEL,

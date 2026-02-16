@@ -23,6 +23,21 @@ from pinwheel.models.team import TeamStrategy
 
 logger = logging.getLogger(__name__)
 
+# Module-level client cache for connection reuse
+_client_cache: dict[str, anthropic.AsyncAnthropic] = {}
+
+_INTERPRETER_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+
+
+def _get_client(api_key: str) -> anthropic.AsyncAnthropic:
+    """Return a cached AsyncAnthropic client for connection reuse."""
+    if api_key not in _client_cache:
+        _client_cache[api_key] = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=_INTERPRETER_TIMEOUT,
+        )
+    return _client_cache[api_key]
+
 INTERPRETER_SYSTEM_PROMPT = """\
 You are the Constitutional Interpreter for Pinwheel Fates, a basketball governance game.
 
@@ -108,13 +123,10 @@ async def interpret_proposal(
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
     model = "claude-sonnet-4-5-20250929"
+    client = _get_client(api_key)
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            client = anthropic.AsyncAnthropic(
-                api_key=api_key,
-                timeout=httpx.Timeout(30.0, connect=10.0),
-            )
             async with track_latency() as timing:
                 response = await client.messages.create(
                     model=model,
@@ -158,9 +170,6 @@ async def interpret_proposal(
                 "AI interpretation attempt %d failed (API error): %s", attempt + 1, e
             )
             if attempt == 0:
-                import asyncio
-
-                await asyncio.sleep(1)
                 continue
             # Both attempts failed — fall back to mock
             break
@@ -303,10 +312,7 @@ async def interpret_strategy(
 
     model = "claude-sonnet-4-5-20250929"
     try:
-        client = anthropic.AsyncAnthropic(
-            api_key=api_key,
-            timeout=httpx.Timeout(30.0, connect=10.0),
-        )
+        client = _get_client(api_key)
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=model,
@@ -574,17 +580,14 @@ async def interpret_proposal_v2(
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
     model = "claude-sonnet-4-5-20250929"
+    client = _get_client(api_key)
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            client = anthropic.AsyncAnthropic(
-                api_key=api_key,
-                timeout=httpx.Timeout(30.0, connect=10.0),
-            )
             async with track_latency() as timing:
                 response = await client.messages.create(
                     model=model,
-                    max_tokens=2000,
+                    max_tokens=1000,
                     system=cacheable_system(system),
                     messages=[{"role": "user", "content": user_msg}],
                     output_config=pydantic_to_response_format(
@@ -625,9 +628,6 @@ async def interpret_proposal_v2(
                 e,
             )
             if attempt == 0:
-                import asyncio
-
-                await asyncio.sleep(1)
                 continue
             # Both attempts failed — fall back to mock
             break

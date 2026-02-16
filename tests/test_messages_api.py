@@ -172,7 +172,7 @@ class TestCallSitesCacheableSystem:
         )
 
         with patch(
-            "pinwheel.ai.classifier.anthropic.AsyncAnthropic",
+            "pinwheel.ai.classifier._get_client",
             return_value=mock_client,
         ):
             await classify_injection("Test proposal", "fake-key")
@@ -203,7 +203,7 @@ class TestCallSitesCacheableSystem:
         )
 
         with patch(
-            "pinwheel.ai.interpreter.anthropic.AsyncAnthropic",
+            "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
             await interpret_proposal(
@@ -432,7 +432,7 @@ class TestCallSitesOutputConfig:
         )
 
         with patch(
-            "pinwheel.ai.classifier.anthropic.AsyncAnthropic",
+            "pinwheel.ai.classifier._get_client",
             return_value=mock_client,
         ):
             await classify_injection("Test", "fake-key")
@@ -464,7 +464,7 @@ class TestCallSitesOutputConfig:
         )
 
         with patch(
-            "pinwheel.ai.interpreter.anthropic.AsyncAnthropic",
+            "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
             await interpret_proposal(
@@ -498,7 +498,7 @@ class TestCallSitesOutputConfig:
         )
 
         with patch(
-            "pinwheel.ai.interpreter.anthropic.AsyncAnthropic",
+            "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
             await interpret_strategy(
@@ -530,7 +530,7 @@ class TestCallSitesOutputConfig:
         )
 
         with patch(
-            "pinwheel.ai.interpreter.anthropic.AsyncAnthropic",
+            "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
             await interpret_proposal_v2(
@@ -590,7 +590,7 @@ class TestFenceStrippingFallback:
         )
 
         with patch(
-            "pinwheel.ai.classifier.anthropic.AsyncAnthropic",
+            "pinwheel.ai.classifier._get_client",
             return_value=mock_client,
         ):
             result = await classify_injection("Test", "fake-key")
@@ -620,7 +620,7 @@ class TestFenceStrippingFallback:
         )
 
         with patch(
-            "pinwheel.ai.interpreter.anthropic.AsyncAnthropic",
+            "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
             result = await interpret_proposal(
