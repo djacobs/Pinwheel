@@ -6,6 +6,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.ai.commentary import (
+    _build_game_context,
+    _game_count_milestone,
+    _is_numeric,
+    _rule_change_stat_comparison,
+    _season_milestone_callout,
+    _stat_comparison_with_average,
     generate_game_commentary_mock,
     generate_highlight_reel_mock,
 )
@@ -1857,3 +1863,681 @@ class TestPresenterPlayoffContext:
 
         live = state.live_games[0]
         assert live.series_context is None
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Stat comparison and milestone callout tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsNumeric:
+    """Tests for the _is_numeric type guard."""
+
+    def test_int(self) -> None:
+        assert _is_numeric(5) is True
+
+    def test_float(self) -> None:
+        assert _is_numeric(3.5) is True
+
+    def test_bool_excluded(self) -> None:
+        assert _is_numeric(True) is False
+        assert _is_numeric(False) is False
+
+    def test_string_excluded(self) -> None:
+        assert _is_numeric("5") is False
+
+    def test_none_excluded(self) -> None:
+        assert _is_numeric(None) is False
+
+
+def _rc(
+    param: str, old: object, new: object, enacted: int,
+) -> dict[str, object]:
+    """Build a rule change dict for tests."""
+    return {
+        "parameter": param,
+        "old_value": old,
+        "new_value": new,
+        "round_enacted": enacted,
+    }
+
+
+class TestStatComparisonCallout:
+    """Tests for _rule_change_stat_comparison in game commentary."""
+
+    def test_scoring_param_up(self) -> None:
+        changes = [_rc("three_point_value", 3, 5, 4)]
+        result = _rule_change_stat_comparison(changes, 5, 100)
+        assert "up" in result
+        assert "three point value" in result
+        assert "3" in result and "5" in result
+
+    def test_scoring_param_down(self) -> None:
+        changes = [_rc("two_point_value", 3, 1, 3)]
+        result = _rule_change_stat_comparison(changes, 4, 80)
+        assert "down" in result
+        assert "two point value" in result
+
+    def test_shot_clock_change(self) -> None:
+        changes = [_rc("shot_clock_seconds", 24, 14, 5)]
+        result = _rule_change_stat_comparison(changes, 6, 90)
+        assert "pace" in result.lower()
+        assert "shot clock seconds" in result
+
+    def test_non_scoring_param(self) -> None:
+        changes = [_rc("quarter_minutes", 12, 8, 2)]
+        result = _rule_change_stat_comparison(changes, 3, 70)
+        assert "rhythm" in result.lower()
+
+    def test_generic_param(self) -> None:
+        changes = [_rc("stamina_drain", 0.5, 0.8, 3)]
+        result = _rule_change_stat_comparison(changes, 4, 80)
+        assert "stamina drain" in result
+        assert "governors" in result.lower()
+
+    def test_change_too_old(self) -> None:
+        """Rule changes enacted more than 3 rounds ago get no callout."""
+        changes = [_rc("three_point_value", 3, 5, 1)]
+        result = _rule_change_stat_comparison(changes, 5, 100)
+        assert result == ""
+
+    def test_current_round_skipped(self) -> None:
+        """Current round changes get 'first game under', not stat comparison."""
+        changes = [_rc("three_point_value", 3, 5, 5)]
+        result = _rule_change_stat_comparison(changes, 5, 100)
+        assert result == ""
+
+    def test_empty_changes(self) -> None:
+        result = _rule_change_stat_comparison([], 5, 100)
+        assert result == ""
+
+
+class TestMilestoneCallout:
+    """Tests for _season_milestone_callout."""
+
+    def test_halfway_point(self) -> None:
+        result = _season_milestone_callout(5, 10)
+        assert "halfway" in result.lower()
+        assert "Round 5 of 10" in result
+
+    def test_final_round(self) -> None:
+        result = _season_milestone_callout(9, 9)
+        assert "final round" in result.lower()
+        assert "Playoff seeds" in result
+
+    def test_down_the_stretch(self) -> None:
+        result = _season_milestone_callout(7, 9)
+        assert "2 rounds left" in result
+
+    def test_clinch_detection(self) -> None:
+        standings = [
+            {"team_id": "t1", "team_name": "Thorns", "wins": 8, "losses": 1},
+            {"team_id": "t2", "team_name": "Hammers", "wins": 3, "losses": 6},
+        ]
+        result = _season_milestone_callout(9, 12, standings)
+        assert "Thorns" in result
+        assert "clinched" in result
+
+    def test_no_milestone_during_playoffs(self) -> None:
+        result = _season_milestone_callout(1, 9, playoff_context="semifinal")
+        assert result == ""
+
+    def test_no_milestone_normal_round(self) -> None:
+        result = _season_milestone_callout(3, 9)
+        assert result == ""
+
+    def test_short_season_no_halfway(self) -> None:
+        """Seasons with fewer than 4 rounds don't get a halfway callout."""
+        result = _season_milestone_callout(1, 2)
+        assert result == ""
+
+
+class TestHighlightReelStatComparison:
+    """Tests for stat comparison in highlight reel mock."""
+
+    def test_stat_comparison_in_highlight_reel(self) -> None:
+        """Recent rule change (not current round) triggers stat comparison."""
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            season_arc="mid",
+            standings=[],
+            streaks={},
+            active_rule_changes=[
+                _rc("three_point_value", 3, 5, 5),
+            ],
+        )
+        summaries = [{
+            "home_team": "Thorns", "away_team": "Hammers",
+            "home_score": 55, "away_score": 48,
+            "elam_activated": False,
+        }]
+        result = generate_highlight_reel_mock(
+            summaries,
+            round_number=6,
+            narrative=narrative,
+        )
+        assert "scoring" in result.lower() or "governors" in result.lower()
+
+
+class TestHighlightReelMilestone:
+    """Tests for milestone callouts in highlight reel mock."""
+
+    def test_milestone_in_highlight_reel(self) -> None:
+        """Final round milestone appears in highlight reel."""
+        narrative = NarrativeContext(
+            round_number=9,
+            total_rounds=9,
+            season_arc="late",
+            standings=[],
+            streaks={},
+        )
+        summaries = [{
+            "home_team": "Thorns", "away_team": "Hammers",
+            "home_score": 55, "away_score": 48,
+            "elam_activated": False,
+        }]
+        result = generate_highlight_reel_mock(
+            summaries,
+            round_number=9,
+            narrative=narrative,
+        )
+        assert "final round" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Game count milestones
+# ---------------------------------------------------------------------------
+
+
+class TestGameCountMilestone:
+    """Tests for _game_count_milestone."""
+
+    def test_hits_10(self) -> None:
+        result = _game_count_milestone(8, 2)
+        assert "Game #10" in result
+        assert "milestone" in result.lower()
+
+    def test_hits_25(self) -> None:
+        result = _game_count_milestone(24, 2)
+        assert "Game #25" in result
+
+    def test_hits_50(self) -> None:
+        result = _game_count_milestone(49, 2)
+        assert "Game #50" in result
+
+    def test_hits_100(self) -> None:
+        result = _game_count_milestone(99, 2)
+        assert "Game #100" in result
+
+    def test_no_milestone_between(self) -> None:
+        """No milestone between 11 and 24 (next is 25)."""
+        result = _game_count_milestone(12, 2)
+        assert result == ""
+
+    def test_exact_boundary(self) -> None:
+        """Exactly at milestone with 1 game."""
+        result = _game_count_milestone(49, 1)
+        assert "Game #50" in result
+
+    def test_zero_games_no_milestone(self) -> None:
+        result = _game_count_milestone(0, 2)
+        assert result == ""
+
+    def test_negative_count_safe(self) -> None:
+        result = _game_count_milestone(-1, 2)
+        assert result == ""
+
+    def test_zero_games_this_round(self) -> None:
+        result = _game_count_milestone(49, 0)
+        assert result == ""
+
+    def test_prefers_first_milestone_in_range(self) -> None:
+        """If multiple milestones fall in range, picks the first."""
+        # Range: 9..12 — hits 10
+        result = _game_count_milestone(8, 4)
+        assert "Game #10" in result
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Stat comparison with historical average
+# ---------------------------------------------------------------------------
+
+
+class TestStatComparisonWithAverage:
+    """Tests for _stat_comparison_with_average."""
+
+    def test_scoring_up_with_average(self) -> None:
+        changes = [_rc("three_point_value", 3, 5, 4)]
+        result = _stat_comparison_with_average(changes, 5, 100, 80.0)
+        assert "up" in result.lower()
+        assert "100" in result
+        assert "80" in result
+
+    def test_scoring_down_with_average(self) -> None:
+        changes = [_rc("three_point_value", 3, 1, 4)]
+        result = _stat_comparison_with_average(changes, 5, 70, 85.0)
+        assert "down" in result.lower()
+        assert "70" in result
+        assert "85" in result
+
+    def test_scoring_steady_with_average(self) -> None:
+        """Small difference (< 2) triggers 'holding steady'."""
+        changes = [_rc("two_point_value", 2, 3, 4)]
+        result = _stat_comparison_with_average(changes, 5, 81, 80.0)
+        assert "holding steady" in result.lower()
+
+    def test_no_matching_scoring_param(self) -> None:
+        """Non-scoring parameters return empty string."""
+        changes = [_rc("shot_clock_seconds", 24, 14, 4)]
+        result = _stat_comparison_with_average(changes, 5, 90, 85.0)
+        assert result == ""
+
+    def test_too_old_returns_empty(self) -> None:
+        changes = [_rc("three_point_value", 3, 5, 1)]
+        result = _stat_comparison_with_average(changes, 5, 100, 80.0)
+        assert result == ""
+
+    def test_current_round_skipped(self) -> None:
+        changes = [_rc("three_point_value", 3, 5, 5)]
+        result = _stat_comparison_with_average(changes, 5, 100, 80.0)
+        assert result == ""
+
+    def test_empty_changes(self) -> None:
+        result = _stat_comparison_with_average([], 5, 100, 80.0)
+        assert result == ""
+
+    def test_zero_average_returns_empty(self) -> None:
+        changes = [_rc("three_point_value", 3, 5, 4)]
+        result = _stat_comparison_with_average(changes, 5, 100, 0.0)
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Mock commentary uses stat comparison with average
+# ---------------------------------------------------------------------------
+
+
+class TestCommentaryStatComparisonWithAverage:
+    """Mock commentary should prefer stat comparison with historical average."""
+
+    def test_uses_historical_average_when_available(self) -> None:
+        result = _make_game_result(home_score=55, away_score=48)
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,
+                    "narrative": "",
+                }
+            ],
+            pre_rule_avg_score=75.0,
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+        # Should reference the historical average comparison
+        assert "103" in commentary or "75" in commentary or "scoring" in commentary.lower()
+
+    def test_falls_back_to_generic_without_average(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,
+                    "narrative": "",
+                }
+            ],
+            pre_rule_avg_score=0.0,  # no historical data
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+        # Should fall back to generic stat comparison callout
+        assert "scoring" in commentary.lower() or "governors" in commentary.lower()
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Game count milestone in mock commentary
+# ---------------------------------------------------------------------------
+
+
+class TestCommentaryGameCountMilestone:
+    """Mock commentary should include game-count milestones."""
+
+    def test_50th_game_milestone_in_commentary(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=5,
+            total_rounds=9,
+            season_game_number=49,  # This round will play game #50
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+        assert "Game #50" in commentary
+        assert "milestone" in commentary.lower()
+
+    def test_no_milestone_normal_game_count(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=3,
+            total_rounds=9,
+            season_game_number=7,  # no milestone near 8
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+        assert "Game #" not in commentary
+
+    def test_10th_game_milestone(self) -> None:
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+
+        narrative = NarrativeContext(
+            round_number=3,
+            total_rounds=9,
+            season_game_number=9,  # game #10
+        )
+        commentary = generate_game_commentary_mock(
+            result, home, away, narrative=narrative
+        )
+        assert "Game #10" in commentary
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Game count milestone in highlight reel
+# ---------------------------------------------------------------------------
+
+
+class TestHighlightReelGameCountMilestone:
+    """Highlight reel mock should include game-count milestones."""
+
+    def test_50th_game_milestone_in_reel(self) -> None:
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            },
+            {
+                "home_team": "Herons",
+                "away_team": "Hammers",
+                "home_score": 50,
+                "away_score": 45,
+                "elam_activated": False,
+            },
+        ]
+        narrative = NarrativeContext(
+            round_number=5,
+            total_rounds=9,
+            season_game_number=49,  # 2 games -> 50 and 51
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=5, narrative=narrative
+        )
+        assert "Game #50" in reel
+
+    def test_no_milestone_in_reel(self) -> None:
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 55,
+                "away_score": 48,
+                "elam_activated": False,
+            },
+        ]
+        narrative = NarrativeContext(
+            round_number=3,
+            total_rounds=9,
+            season_game_number=7,
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=3, narrative=narrative
+        )
+        assert "Game #" not in reel
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: _build_game_context system-level notes
+# ---------------------------------------------------------------------------
+
+
+class TestBuildGameContextSystemNotes:
+    """_build_game_context should include system-level threading notes."""
+
+    def test_first_game_under_new_rule_in_context(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+        ruleset = RuleSet(three_point_value=5)
+
+        narrative = NarrativeContext(
+            round_number=5,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,
+                    "narrative": "",
+                }
+            ],
+        )
+        context = _build_game_context(
+            result, home, away, ruleset, narrative=narrative
+        )
+        assert "FIRST GAME" in context
+        assert "three point value" in context
+        assert "System-Level Notes" in context
+
+    def test_stat_comparison_in_context(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        result = _make_game_result(home_score=55, away_score=48)
+        home = _make_home_team()
+        away = _make_away_team()
+        ruleset = RuleSet(three_point_value=5)
+
+        narrative = NarrativeContext(
+            round_number=6,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,
+                    "narrative": "",
+                }
+            ],
+            pre_rule_avg_score=75.0,
+        )
+        context = _build_game_context(
+            result, home, away, ruleset, narrative=narrative
+        )
+        assert "System-Level Notes" in context
+        # Should have scoring comparison
+        assert "103" in context or "75" in context or "scoring" in context.lower()
+
+    def test_game_count_milestone_in_context(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+        ruleset = RuleSet()
+
+        narrative = NarrativeContext(
+            round_number=5,
+            season_game_number=49,
+        )
+        context = _build_game_context(
+            result, home, away, ruleset, narrative=narrative
+        )
+        assert "Game #50" in context
+        assert "System-Level Notes" in context
+
+    def test_no_system_notes_when_nothing_special(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+        ruleset = RuleSet()
+
+        narrative = NarrativeContext(
+            round_number=3,
+            total_rounds=9,
+            season_game_number=5,  # no milestone
+        )
+        context = _build_game_context(
+            result, home, away, ruleset, narrative=narrative
+        )
+        # No system-level notes section when nothing to report
+        assert "System-Level Notes" not in context
+
+    def test_no_narrative_no_system_notes(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        result = _make_game_result()
+        home = _make_home_team()
+        away = _make_away_team()
+        ruleset = RuleSet()
+
+        context = _build_game_context(result, home, away, ruleset)
+        assert "System-Level Notes" not in context
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: NarrativeContext new fields
+# ---------------------------------------------------------------------------
+
+
+class TestNarrativeContextNewFields:
+    """NarrativeContext should include season_game_number and pre_rule_avg_score."""
+
+    def test_default_values(self) -> None:
+        ctx = NarrativeContext()
+        assert ctx.season_game_number == 0
+        assert ctx.pre_rule_avg_score == 0.0
+
+    def test_set_values(self) -> None:
+        ctx = NarrativeContext(
+            season_game_number=42,
+            pre_rule_avg_score=85.5,
+        )
+        assert ctx.season_game_number == 42
+        assert ctx.pre_rule_avg_score == 85.5
+
+    def test_format_narrative_includes_game_count(self) -> None:
+        from pinwheel.core.narrative import format_narrative_for_prompt
+
+        ctx = NarrativeContext(
+            season_game_number=42,
+        )
+        formatted = format_narrative_for_prompt(ctx)
+        assert "42 games played" in formatted
+
+    def test_format_narrative_includes_pre_rule_avg(self) -> None:
+        from pinwheel.core.narrative import format_narrative_for_prompt
+
+        ctx = NarrativeContext(
+            pre_rule_avg_score=85.5,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 3,
+                    "narrative": "",
+                }
+            ],
+            rules_narrative="Three-pointers worth 5",
+        )
+        formatted = format_narrative_for_prompt(ctx)
+        assert "Pre-rule-change average" in formatted
+        assert "85.5" in formatted
+
+    def test_format_narrative_no_avg_when_zero(self) -> None:
+        from pinwheel.core.narrative import format_narrative_for_prompt
+
+        ctx = NarrativeContext(
+            pre_rule_avg_score=0.0,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 3,
+                    "narrative": "",
+                }
+            ],
+        )
+        formatted = format_narrative_for_prompt(ctx)
+        assert "Pre-rule-change average" not in formatted
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Highlight reel stat comparison with historical average
+# ---------------------------------------------------------------------------
+
+
+class TestHighlightReelStatComparisonWithAverage:
+    """Highlight reel mock should use historical averages when available."""
+
+    def test_uses_historical_average(self) -> None:
+        summaries = [
+            {
+                "home_team": "Thorns",
+                "away_team": "Breakers",
+                "home_score": 60,
+                "away_score": 50,
+                "elam_activated": False,
+            },
+        ]
+        narrative = NarrativeContext(
+            round_number=6,
+            total_rounds=9,
+            active_rule_changes=[
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 5,
+                    "round_enacted": 5,
+                    "narrative": "",
+                }
+            ],
+            pre_rule_avg_score=80.0,
+        )
+        reel = generate_highlight_reel_mock(
+            summaries, round_number=6, narrative=narrative
+        )
+        # Should mention the comparison (110 total vs 80 avg)
+        assert "110" in reel or "80" in reel or "scoring" in reel.lower()

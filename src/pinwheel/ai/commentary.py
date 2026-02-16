@@ -33,8 +33,12 @@ Write 2-3 short paragraphs of play-by-play commentary for this game. Your style:
 
 {playoff_instructions}
 
-System-level awareness:
-- If rule changes are recent, mention this is "the first game under [new rule]" or note its impact
+System-level awareness (IMPORTANT — check the "System-Level Notes" section in the game context):
+- If this is the FIRST GAME under a new rule, that is the lead story. Open with it. \
+"This is the first game under the new three-point value, and it showed."
+- If a stat comparison to pre-rule-change averages is provided, cite specific numbers: \
+"Scoring is up 12 points per game since the governors changed the three-point value."
+- If a game-count milestone is noted (50th game, 100th game), mention it naturally.
 - If a team is on a win/loss streak (3+), weave that into the narrative naturally
 - For playoff/championship games, treat every possession with elevated stakes
 - If this is late in the season, reference playoff positioning or championship implications
@@ -68,6 +72,10 @@ of overall round narrative — trends, surprises, the vibe. Keep it brisk and en
 {playoff_instructions}
 
 System-level awareness:
+- If new rules debuted this round, lead with that: "The governors' new three-point value made \
+its presence felt."
+- If pre-rule-change stat averages are provided, cite the comparison explicitly.
+- If a game-count milestone is noted (50th game, etc.), mention it in the wrap-up.
 - Reference rule changes if they affected gameplay this round
 - Note win/loss streaks when relevant (3+ games)
 - For late-season rounds, frame action in terms of playoff positioning
@@ -86,6 +94,202 @@ _PLAYOFF_HIGHLIGHT_INSTRUCTIONS = {
         "Frame everything as historic — a champion is crowned tonight."
     ),
 }
+
+
+def _is_numeric(val: object) -> bool:
+    """Type guard for int/float, excluding bool."""
+    return isinstance(val, (int, float)) and not isinstance(val, bool)
+
+
+_SCORING_PARAMS = {"three_point_value", "two_point_value", "free_throw_value"}
+
+
+def _rule_change_stat_comparison(
+    active_rule_changes: list[dict[str, object]],
+    round_number: int,
+    total_game_score: int,
+) -> str:
+    """Generate stat-comparison callout for recent (but not brand-new) rule changes.
+
+    Targets rule changes enacted 1-3 rounds ago (not the current round,
+    which gets the 'first game under' callout instead).
+    """
+    for rc in active_rule_changes:
+        enacted = rc.get("round_enacted")
+        if not _is_numeric(enacted):
+            continue
+        enacted_int = int(enacted)  # type: ignore[arg-type]
+        rounds_since = round_number - enacted_int
+        if rounds_since < 1 or rounds_since > 3:
+            continue
+
+        param = str(rc.get("parameter", "")).replace("_", " ")
+        old_val = rc.get("old_value")
+        new_val = rc.get("new_value")
+        param_key = str(rc.get("parameter", ""))
+
+        if param_key in _SCORING_PARAMS and _is_numeric(old_val) and _is_numeric(new_val):
+            direction = "up" if float(new_val) > float(old_val) else "down"  # type: ignore[arg-type]
+            return (
+                f"Scoring is {direction} since the {param} changed "
+                f"from {old_val} to {new_val} — the governors' impact is real."
+            )
+        if param_key == "shot_clock_seconds":
+            return (
+                f"The pace has shifted since the {param} changed "
+                f"from {old_val} to {new_val} — the governors set the tempo."
+            )
+        if param_key == "quarter_minutes":
+            return (
+                f"The rhythm is different since the {param} changed "
+                f"from {old_val} to {new_val} — the governors' vision takes shape."
+            )
+        return (
+            f"The {param} changed from {old_val} to {new_val} — "
+            f"and the governors' fingerprints are all over this game."
+        )
+    return ""
+
+
+def _check_clinch(
+    standings: list[dict[str, object]],
+    round_number: int,
+    total_rounds: int,
+) -> str:
+    """Detect if first place has mathematically clinched the top seed."""
+    if len(standings) < 2:
+        return ""
+    first = standings[0]
+    second = standings[1]
+    first_wins = int(first.get("wins", 0))
+    second_wins = int(second.get("wins", 0))
+    remaining = total_rounds - round_number
+    if remaining >= 0 and first_wins > second_wins + remaining:
+        team_name = str(first.get("team_name", "First place"))
+        return (
+            f"The {team_name} have clinched the top seed "
+            f"— no one can catch them now."
+        )
+    return ""
+
+
+def _season_milestone_callout(
+    round_number: int,
+    total_rounds: int,
+    standings: list[dict[str, object]] | None = None,
+    playoff_context: str | None = None,
+) -> str:
+    """Generate milestone callouts based on round position in the season."""
+    if playoff_context:
+        return ""
+    if total_rounds <= 0:
+        return ""
+
+    # Check clinch first
+    if standings:
+        clinch = _check_clinch(standings, round_number, total_rounds)
+        if clinch:
+            return clinch
+
+    # Final round
+    if round_number == total_rounds:
+        return (
+            "This is it — the final round of the regular season. "
+            "Playoff seeds are on the line."
+        )
+
+    # Down the stretch (2 rounds left)
+    if total_rounds - round_number == 2:
+        return (
+            "Just 2 rounds left in the regular season. "
+            "Down the stretch they come."
+        )
+
+    # Halfway point
+    halfway = total_rounds // 2
+    if round_number == halfway and total_rounds >= 4:
+        return (
+            f"We've reached the halfway point of the season — "
+            f"Round {round_number} of {total_rounds}. The second half starts now."
+        )
+
+    return ""
+
+
+# Milestone thresholds for "Nth game of the season" callouts.
+_GAME_COUNT_MILESTONES: list[int] = [10, 25, 50, 75, 100, 150, 200]
+
+
+def _game_count_milestone(
+    season_game_number: int,
+    games_this_round: int,
+) -> str:
+    """Generate a callout when the season hits a round game-count milestone.
+
+    The ``season_game_number`` is the count of games played *before* this round.
+    ``games_this_round`` is how many games will be played in this round.
+    If the range [season_game_number+1 .. season_game_number+games_this_round]
+    includes a milestone number, we callout.
+
+    Returns an empty string if no milestone is hit.
+    """
+    if season_game_number < 0 or games_this_round <= 0:
+        return ""
+
+    start = season_game_number + 1
+    end = season_game_number + games_this_round
+
+    for milestone in _GAME_COUNT_MILESTONES:
+        if start <= milestone <= end:
+            return (
+                f"Game #{milestone} of the season — a milestone that marks how far "
+                f"this league has come."
+            )
+    return ""
+
+
+def _stat_comparison_with_average(
+    active_rule_changes: list[dict[str, object]],
+    round_number: int,
+    total_game_score: int,
+    pre_rule_avg_score: float,
+) -> str:
+    """Generate a stat-comparison callout using pre-rule historical averages.
+
+    Enhanced version of ``_rule_change_stat_comparison`` that incorporates the
+    actual historical average total game score from before the rule change.
+    Falls back to the generic callout if no average is available.
+    """
+    for rc in active_rule_changes:
+        enacted = rc.get("round_enacted")
+        if not _is_numeric(enacted):
+            continue
+        enacted_int = int(enacted)  # type: ignore[arg-type]
+        rounds_since = round_number - enacted_int
+        if rounds_since < 1 or rounds_since > 3:
+            continue
+
+        param_key = str(rc.get("parameter", ""))
+        param = param_key.replace("_", " ")
+        old_val = rc.get("old_value")
+        new_val = rc.get("new_value")
+
+        if param_key in _SCORING_PARAMS and pre_rule_avg_score > 0:
+            diff = total_game_score - pre_rule_avg_score
+            if abs(diff) >= 2:
+                direction = "up" if diff > 0 else "down"
+                return (
+                    f"Scoring is {direction} since the {param} changed from "
+                    f"{old_val} to {new_val} — this game's {total_game_score} total "
+                    f"points vs. the pre-change average of {pre_rule_avg_score:.0f}."
+                )
+            return (
+                f"Under the new {param} ({new_val}), scoring is holding steady "
+                f"— {total_game_score} total points vs. {pre_rule_avg_score:.0f} "
+                f"before the change."
+            )
+    # No matching scoring rule change with historical average — fall through
+    return ""
 
 
 def _build_game_context(
@@ -156,6 +360,59 @@ def _build_game_context(
         narrative_block = format_narrative_for_prompt(narrative)
         if narrative_block:
             lines.append(f"\n--- Dramatic Context ---\n{narrative_block}")
+
+        # System-level threading — explicit callouts for AI to incorporate
+        system_notes: list[str] = []
+
+        # First game under new rule
+        if narrative.active_rule_changes:
+            recent_changes = [
+                rc for rc in narrative.active_rule_changes
+                if rc.get("round_enacted") == narrative.round_number
+            ]
+            if recent_changes:
+                for change in recent_changes:
+                    param = str(change.get("parameter", "")).replace("_", " ")
+                    old_val = change.get("old_value")
+                    new_val = change.get("new_value")
+                    system_notes.append(
+                        f"FIRST GAME under new {param}: changed from {old_val} to {new_val}. "
+                        f"Weave this into the commentary — how did the new rule show up?"
+                    )
+            else:
+                # Stat comparison with historical average
+                game_total = game_result.home_score + game_result.away_score
+                if narrative.pre_rule_avg_score > 0:
+                    stat_cmp = _stat_comparison_with_average(
+                        narrative.active_rule_changes,
+                        narrative.round_number,
+                        game_total,
+                        narrative.pre_rule_avg_score,
+                    )
+                    if stat_cmp:
+                        system_notes.append(stat_cmp)
+                else:
+                    stat_cmp = _rule_change_stat_comparison(
+                        narrative.active_rule_changes,
+                        narrative.round_number,
+                        game_total,
+                    )
+                    if stat_cmp:
+                        system_notes.append(stat_cmp)
+
+        # Game count milestone
+        milestone = _game_count_milestone(
+            narrative.season_game_number, games_this_round=1,
+        )
+        if milestone:
+            system_notes.append(milestone)
+
+        if system_notes:
+            lines.append(
+                "\n--- System-Level Notes (thread these into the narrative) ---"
+            )
+            for note in system_notes:
+                lines.append(f"  - {note}")
 
     return "\n".join(lines)
 
@@ -362,15 +619,52 @@ def generate_game_commentary_mock(
                     f"This is the first game under the new {param} ({new_val}). "
                     f"The governors have spoken, and the court has changed."
                 )
-            elif narrative.rules_narrative:
-                paragraphs.append(
-                    f"Rules in effect: {narrative.rules_narrative}."
-                )
+            else:
+                # Not the first game — check for stat comparison callout
+                game_total = game_result.home_score + game_result.away_score
+                # Prefer comparison with historical averages when available
+                stat_cmp = ""
+                if narrative.pre_rule_avg_score > 0:
+                    stat_cmp = _stat_comparison_with_average(
+                        narrative.active_rule_changes,
+                        narrative.round_number,
+                        game_total,
+                        narrative.pre_rule_avg_score,
+                    )
+                if not stat_cmp:
+                    stat_cmp = _rule_change_stat_comparison(
+                        narrative.active_rule_changes,
+                        narrative.round_number,
+                        game_total,
+                    )
+                if stat_cmp:
+                    paragraphs.append(stat_cmp)
+                elif narrative.rules_narrative:
+                    paragraphs.append(
+                        f"Rules in effect: {narrative.rules_narrative}."
+                    )
         elif narrative.rules_narrative:
             # No active_rule_changes list, but rules_narrative is set
             paragraphs.append(
                 f"Rules in effect: {narrative.rules_narrative}."
             )
+
+        # Season milestone callouts (round position)
+        milestone = _season_milestone_callout(
+            narrative.round_number,
+            narrative.total_rounds,
+            narrative.standings,
+            playoff_context,
+        )
+        if milestone:
+            paragraphs.append(milestone)
+
+        # Game count milestone callouts (e.g., "50th game of the season")
+        game_milestone = _game_count_milestone(
+            narrative.season_game_number, games_this_round=1,
+        )
+        if game_milestone:
+            paragraphs.append(game_milestone)
 
         # Season arc awareness — late season urgency
         if narrative.season_arc == "late" and not playoff_context:
@@ -665,11 +959,46 @@ def generate_highlight_reel_mock(
                     f"The new {param} ({new_val}) made its debut — "
                     f"the governors' will is now law on the court."
                 )
-            elif narrative.rules_narrative:
-                lines.append(f"Rules in effect: {narrative.rules_narrative}.")
+            else:
+                # Not the first round — check for stat comparison
+                stat_cmp = ""
+                if narrative.pre_rule_avg_score > 0:
+                    stat_cmp = _stat_comparison_with_average(
+                        narrative.active_rule_changes,
+                        round_number,
+                        total_points,
+                        narrative.pre_rule_avg_score,
+                    )
+                if not stat_cmp:
+                    stat_cmp = _rule_change_stat_comparison(
+                        narrative.active_rule_changes,
+                        round_number,
+                        total_points,
+                    )
+                if stat_cmp:
+                    lines.append(stat_cmp)
+                elif narrative.rules_narrative:
+                    lines.append(f"Rules in effect: {narrative.rules_narrative}.")
         elif narrative.rules_narrative:
             # No active_rule_changes list, but rules_narrative is set
             lines.append(f"Rules in effect: {narrative.rules_narrative}.")
+
+        # Season milestone callouts (round position)
+        milestone = _season_milestone_callout(
+            round_number,
+            narrative.total_rounds,
+            narrative.standings,
+            playoff_context,
+        )
+        if milestone:
+            lines.append(milestone)
+
+        # Game count milestone callouts
+        game_milestone = _game_count_milestone(
+            narrative.season_game_number, games_this_round=len(game_summaries),
+        )
+        if game_milestone:
+            lines.append(game_milestone)
 
         # Late season arc awareness
         if narrative.season_arc == "late" and not playoff_context:

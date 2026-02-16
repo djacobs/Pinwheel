@@ -79,6 +79,14 @@ class NarrativeContext:
     """Human-readable summary of active proposal effects (meta_mutation,
     hook_callback, narrative). Built from EffectRegistry.build_effects_summary()."""
 
+    # System-level game milestones
+    season_game_number: int = 0
+    """Total games played in this season so far (before this round's games)."""
+
+    pre_rule_avg_score: float = 0.0
+    """Average total game score (home+away) from games before the most recent
+    scoring rule change.  Used for stat-comparison callouts in commentary."""
+
 
 async def compute_narrative_context(
     repo: Repository,
@@ -177,6 +185,10 @@ async def compute_narrative_context(
         # --- Hot players ---
         ctx.hot_players = await _compute_hot_players(repo, season_id, games)
 
+    # --- Season game count ---
+    if games:
+        ctx.season_game_number = len(games)
+
     # --- Rule changes ---
     rule_events = await repo.get_events_by_type(
         season_id=season_id,
@@ -194,6 +206,26 @@ async def compute_narrative_context(
                 }
             )
         ctx.rules_narrative = _build_rules_narrative(ctx.active_rule_changes)
+
+        # Compute pre-rule average score for scoring parameter changes
+        scoring_params = {"three_point_value", "two_point_value", "free_throw_value"}
+        scoring_changes = [
+            rc for rc in ctx.active_rule_changes
+            if rc.get("parameter") in scoring_params
+        ]
+        if scoring_changes and games:
+            # Use the most recent scoring rule change
+            most_recent = max(
+                scoring_changes,
+                key=lambda rc: int(rc.get("round_enacted", 0) or 0),
+            )
+            enacted_round = int(most_recent.get("round_enacted", 0) or 0)
+            if enacted_round > 1:
+                avg_score, count = await repo.get_avg_total_game_score_for_rounds(
+                    season_id, 1, enacted_round - 1,
+                )
+                if count > 0:
+                    ctx.pre_rule_avg_score = avg_score
 
     # --- Governance state ---
     if governance_interval > 0:
@@ -503,9 +535,19 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
                 f"{hp.get('value', 0)} {hp.get('stat', 'pts')}"
             )
 
+    # Season game milestones
+    if ctx.season_game_number > 0:
+        lines.append(f"\nSeason game count: {ctx.season_game_number} games played so far")
+
     # Rule changes
     if ctx.rules_narrative:
         lines.append(f"\nRule changes in effect: {ctx.rules_narrative}")
+
+    # Pre-rule average score for stat comparison context
+    if ctx.pre_rule_avg_score > 0 and ctx.active_rule_changes:
+        lines.append(
+            f"Pre-rule-change average total score: {ctx.pre_rule_avg_score:.1f} points per game"
+        )
 
     # Active proposal effects (v2: meta mutations, hook callbacks, narratives)
     if ctx.effects_narrative:
