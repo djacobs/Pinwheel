@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `9bfc861` — copy: "Starts as basketball, becomes ???"
+- **Latest commit:** `89cabf3` — fix: use full URL in Discord welcome embed
 
 ## Today's Agenda
 
@@ -198,3 +198,19 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — clean one-line copy fix.
+
+---
+
+## Session 99 — Full URL in Discord Welcome Embed
+
+**What was asked:** Discord welcome DM said "Read the full rules at /play on the web" — a relative path that players can't click. Use the full URL instead.
+
+**What was built:**
+- Added `pinwheel_base_url` setting to `config.py` (defaults to `https://pinwheel.fly.dev`, overridable via `PINWHEEL_BASE_URL` env var)
+- Updated `build_welcome_embed()` in `discord/embeds.py` to use the full clickable URL
+
+**Files modified (2):** `src/pinwheel/config.py`, `src/pinwheel/discord/embeds.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward fix.
