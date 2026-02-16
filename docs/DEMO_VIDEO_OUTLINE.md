@@ -9,7 +9,7 @@
 **On screen:** Arena page — live games in progress, AI commentary scrolling.
 
 **Voiceover:**
-> "This is Pinwheel Fates — a basketball league where humans don't play basketball. They govern it. Rule changes in plain language, interpreted by AI, cascading through dozens of simulated games. A governance lab disguised as a sport."
+> "This is Pinwheel Fates — a basketball league where humans don't play basketball. They govern it. Rule changes in plain language, interpreted by AI, cascading through dozens of simulated games. Sports drives tribal loyalty, deep emotion, fierce opinions — which makes it the perfect arena to discover whether AI can help us make better decisions together and, if need be, change our minds."
 
 ---
 
@@ -21,14 +21,14 @@ Walk through one complete **Govern → Simulate → Observe → Reflect** cycle.
 **On screen:** Discord — a governor types `/propose Make three-pointers worth 5 points`
 
 - Show the AI interpretation step: Opus reads the natural language, classifies the governance tier, explains what the rule means mechanically, and asks the governor to confirm.
-- Governor confirms. The proposal enters the voting floor. Other governors vote. The rule passes.
+- The governor confirms. The proposal enters the voting floor. Other governors vote. The rule passes.
 
 **Then — the multilingual moment:**
 **On screen:** A second governor types `/propose` *in Spanish* (or another non-English language). The AI interprets it correctly, responds with the structured rule in English, and asks for confirmation.
 
 **Key line:** *"The AI interprets what you mean — in whatever language you say it. You decide whether that interpretation is right. Then the community votes."*
 
-> **Why the multilingual beat matters:** This is 5 seconds of screen time that demonstrates linguistic accessibility, the interpreter's flexibility, and the "human in the loop" confirmation step — all at once. Show, don't tell.
+> **Why the multilingual beat matters:** Five seconds of screen time that demonstrates linguistic accessibility, the interpreter's flexibility, and the human-in-the-loop confirmation step — all at once. Show, don't tell.
 
 ### Simulate + Observe (0:35–0:55)
 **On screen:** Arena page — games running under the new rule. Cut to a game detail page showing box scores with the rule context panel.
@@ -44,20 +44,20 @@ Walk through one complete **Govern → Simulate → Observe → Reflect** cycle.
 - The private report tells a governor something only the AI can see: *"You've voted with the same coalition on 4 of 5 proposals. Your governance pattern suggests alliance formation."*
 - The shared report surfaces league-wide dynamics: power concentration, emerging coalitions, rule drift.
 
-**Key line:** *"The AI never decides. It illuminates. Each governor gets a private mirror — honest feedback delivered directly, visible only to them."*
+**Key line:** *"The AI never decides. It illuminates. Each governor gets a private mirror — honest feedback delivered directly, visible only to you."*
 
 ---
 
 ## Section 2: Architecture + Opus 4.6 (1:15–1:55) — *Judging: Depth/Execution + Opus Usage*
 
-### Agent-Native Architecture (1:15–1:35)
+### How We Built It — and Where It's Going (1:15–1:35)
 **On screen:** Architecture diagram. Dev log scrolling. Test output.
 
-- Agent-native means the AI is a first-class participant in every layer — not a bolted-on feature. The interpreter, the reporter, the broadcaster, and the build process itself all run through Opus.
-- API-first: Discord is the chat interface today, but the API and CLI exist as proof that any chat app with persistent memory can be a point of entry. The architecture is designed to outlive any single client.
-- 16 days. 83 sessions. 1515 tests. Every session documented in the dev log. The prompts that drive gameplay were iterated alongside the code that executes them — prompts treated as code.
+- Today, Opus serves three roles inside the product: it interprets rule proposals, generates reports, and broadcasts game commentary. It also served as the build partner — the entire codebase was pair-programmed with Claude across 83 sessions, every decision documented in the dev log.
+- Sixteen days. 1,986 tests. API-first: Discord is the chat interface today, but the REST API and CLI exist as proof that any chat app with persistent memory can serve as a point of entry.
+- But nearly 2,000 tests are a measure of how much code exists — and the vision for a future model is agent-native, where much of that code is replaced by well-specified narrative. Instead of classes and schema validators for rule interpretation, a one-to-two-page product document describes the input the model receives and the output it should return. The development environment starts to look less like a coding IDE and more like the narrative design tools that game makers use. The operational overhead drops dramatically — fewer tests, fewer code paths, because the model handles the ambiguity that code was written to constrain.
 
-**Key line:** *"Opus 4.6 isn't just inside the game — it built the game. Agent-native from the ground up: 83 sessions, 1515 tests, every decision traceable."*
+**Key line:** *"We used Opus to build this — nearly 2,000 tests worth of code. The vision for a future model is agent-native: ship refined ideas specified in narrative, not code. The IDE of that future looks more like a writer's room than a compiler."*
 
 ### Four Roles for Opus 4.6 (1:35–1:55)
 **On screen:** Quick cuts between each role in action — code snippets from `ai/interpreter.py`, `ai/report.py`, `ai/commentary.py`, then the dev log.
@@ -84,18 +84,18 @@ Walk through one complete **Govern → Simulate → Observe → Reflect** cycle.
 ### Why a Game (2:05–2:20)
 **On screen:** Montage of gameplay moments — proposals, votes, games, reports.
 
-- Games are where humanity prototypes its next societies. Low stakes, high reps, fast feedback.
-- A game is how builders learn what metaphors and interfaces work — and how players become comfortable with the activities of self-governance itself.
-- Basketball is the substrate: familiar enough to be intuitive, complex enough to reward strategic governance. The rules are open-ended — players can change mechanics, league structure, even the meta-rules. It starts as basketball. It finishes as whatever the community decides.
+- Games are where humanity prototypes its next societies — low stakes, high reps, fast feedback.
+- A game is how builders learn which metaphors and interfaces work, and how players become comfortable with the activities of self-governance itself.
+- Basketball is the substrate: familiar enough to be intuitive, complex enough to reward strategic governance. The rules are open-ended — players can change mechanics, league structure, even the meta-rules. It starts as basketball; it finishes as whatever the community decides.
 
 **Key line:** *"Pinwheel is a governance lab through basketball. The AI makes invisible dynamics legible to the people inside the system. Visibility improves governance."*
 
 ### Beyond the Game (2:20–2:40)
 **On screen:** Text overlay listing real-world applications. Then the Resonant Computing principles.
 
-- The patterns surfaced in Pinwheel — coalition detection, power concentration, free-riding, participation gaps — are the same patterns that matter in newsrooms, fan communities, neighborhood associations, city councils, and federal agencies.
-- The architecture is designed to be accessible: financially (open source, no paywall), linguistically (multilingual proposals), and operationally (agent-native reduces the overhead of running these systems).
-- Built on Resonant Computing: private (your report is yours alone), dedicated (no ad platform), plural (no single actor controls the rules), adaptable (the game evolves with the community), prosocial (playing practices collective self-governance).
+- The patterns Pinwheel surfaces — coalition detection, power concentration, free-riding, participation gaps — are the same patterns that matter in newsrooms, fan communities, neighborhood associations, city councils, and federal agencies.
+- The architecture is designed to be accessible: financially (open source, no paywall), linguistically (multilingual proposals), and operationally (agent-native architecture reduces the overhead of running these systems).
+- Built on Resonant Computing: private (your report is yours alone), dedicated (no ad platform), plural (no single actor controls the rules), adaptable (the game evolves with the community), prosocial (playing Pinwheel practices collective self-governance).
 
 **Key line:** *"We will need completely new, verified, authentic means of communication and negotiation. Pinwheel is a rehearsal space for that future."*
 
@@ -121,21 +121,25 @@ Show the URL: **pinwheel.fly.dev**
 
 The most revealing challenge was getting Claude to treat human proposals as genuine free text rather than strings to pattern-match against a database schema.
 
-"Make it take it" is a real basketball rule — the scoring team keeps possession. Claude *knows* this. During development, Claude Code correctly identified it: "make it take it is a real basketball rule. With the custom_mechanic effect type, this should get interpreted as a custom mechanic at ~0.75 confidence."
+"Make it take it" is a real basketball rule — the scoring team keeps possession. Claude *knows* this. During development, Claude Code correctly identified it: "Make it take it is a real basketball rule. With the custom_mechanic effect type, this should get interpreted as a custom mechanic at ~0.75 confidence."
 
-But when the interpreter actually ran the string, it returned zero signals and fell through to the "uninterpretable" path. Four words, no explicit game vocabulary, no structural patterns to match. Claude's proposed fix was to add common basketball idioms to a lookup table — which is exactly the wrong answer. The whole point of using a frontier model as an interpreter is that it shouldn't need special-casing for knowledge it already possesses.
+But when the interpreter actually ran the string, it returned zero signals and fell through to the "uninterpretable" path. Four words, no explicit game vocabulary, no structural patterns to match. Claude's proposed fix was to add common basketball idioms to a lookup table — exactly the wrong answer. The whole point of using a frontier model as an interpreter is that it should not need special-casing for knowledge it already possesses.
 
 **The gap:** There is a difference between what the model *knows* and what the model *does* when constrained by a structured interpretation pipeline. The interpreter's system prompt was optimized for decomposing proposals into schema-compatible fields. That optimization made it excellent at parsing "make three-pointers worth 5 points" and blind to "make it take it" — even though the underlying model understands both equally well.
 
-**The lesson:** Agent-native architecture means trusting the model's knowledge, not just its ability to fill structured templates. The interpreter needs a path that says: "I recognize this as a known game concept even though it doesn't decompose neatly into my schema. Here's what it means and here's how it should affect gameplay." That path doesn't exist yet. Building it is the next step.
+**The lesson:** Agent-native architecture means trusting the model's knowledge, not just its ability to fill structured templates. The interpreter needs a path that says: "I recognize this as a known game concept, even though it doesn't decompose neatly into my schema. Here's what it means, and here's how it should affect gameplay." That path does not exist yet. Building it is the next step.
 
 **Why this matters for the track:** "Amplify Human Judgment" requires that the AI meet humans where they are — including in the idioms, shorthand, and cultural references they use naturally. If a governance tool can't handle "make it take it," it can't handle the way real communities actually talk. Closing this gap is core to the mission.
 
-### Agent-Native Is a Mindset, Not a Feature
+### Agent-Native Is the Destination, Not the Current State
 
-The biggest recurring challenge was resisting the instinct to build traditional software patterns around the AI. Every time we defaulted to pattern matching, lookup tables, or hardcoded decision trees, we were undermining the agent-native premise. The model has world knowledge — the architecture should let it use that knowledge directly, not force it through a narrow structured pipeline.
+Pinwheel today is a traditional codebase with AI deeply integrated into it. That is not the same thing as agent-native. The proof is in the numbers: nearly nearly 2,000 tests. Each test validates a code path, and each code path represents a decision we made in Python rather than trusting to the model. That is too many. The goal for a future model is to ship refined ideas well-specified in narrative, not code.
 
-This tension is productive. It surfaced a design principle: **an agent-native system should degrade gracefully toward the model's general knowledge, not toward a fallback lookup table.** We haven't fully achieved that yet, and doing so is the most important piece of future work.
+Agent-native means replacing the interpreter's Python classes, schema validators, and pattern matchers with a product document that tells the model what input it will receive and what output to return. The development environment for an agent-native system looks less like VS Code and more like the narrative design tools that game studios use to author branching dialogue and decision trees. The operational overhead — tests, deploys, debugging structured pipelines — drops dramatically because the model handles the ambiguity that code was written to constrain.
+
+We are not there yet. Today's models require the scaffolding we built. The current interpreter has hundreds of lines of structured pipeline code, and removing that code prematurely would break the product. But the architecture is designed so that as models improve, code can be progressively replaced by prompts. The "make it take it" failure is the clearest signal of where that boundary sits today — and where a future model should push it.
+
+The productive tension is this: **an agent-native system should degrade gracefully toward the model's general knowledge, not toward a fallback lookup table.** Achieving that with a future model means progressively replacing code with narrative — and trusting the model to handle the ambiguity that code was written to eliminate. That is the most important piece of future work.
 
 ### Keeping Claude Expansive
 
@@ -145,11 +149,11 @@ Every time, the answer was no. The whole point is that a governor should be able
 
 This is a deeper challenge than a single bug. The model's training optimizes for helpfulness, and "helpful" in a software engineering context usually means "prevent bad inputs." In a governance context, restricting inputs is the opposite of helpful — it's the AI overriding human judgment, which is precisely what the Amplify Human Judgment track asks us not to do.
 
-**The design principle:** An agent-native governance system must default to openness. The AI's job is to interpret and illuminate, never to gatekeep. When a proposal doesn't fit the schema, the correct response is to expand the schema — not to reject the proposal. Keeping Claude in an expansive state of mind required constant vigilance, and the architecture still has seams where the restrictive instinct leaks through. Closing those seams is ongoing work.
+**The design principle:** An agent-native governance system must default to openness. The AI's job is to interpret and illuminate, never to gatekeep. When a proposal does not fit the schema, the correct response is to expand the schema — not to reject the proposal. Keeping Claude in an expansive state of mind required constant vigilance, and the architecture still has seams where the restrictive instinct leaks through. Closing those seams is ongoing work.
 
 ### Discord Is a Bridge, Not a Destination
 
-Discord was the right choice for the hackathon — it's where communities already gather, and the bot framework is mature. But the API-first architecture exists precisely because Discord shouldn't be the only entry point. The vision is that any chat app with persistent memory — Slack, WhatsApp, a custom client — can serve as a front end to the governance engine. The existence of the REST API and CLI proves that the coupling to Discord is shallow, not structural.
+Discord was the right choice for the hackathon — it is where communities already gather, and the bot framework is mature. But the API-first architecture exists precisely because Discord should not be the only entry point. The vision is that any chat app with persistent memory — Slack, WhatsApp, a custom client — can serve as a front end to the governance engine. The existence of the REST API and CLI proves that the coupling to Discord is shallow, not structural.
 
 ---
 
