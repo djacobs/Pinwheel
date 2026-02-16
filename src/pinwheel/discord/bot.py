@@ -27,6 +27,7 @@ from pinwheel.discord.embeds import (
     build_amendment_confirm_embed,
     build_commentary_embed,
     build_game_result_embed,
+    build_games_live_embed,
     build_governor_profile_embed,
     build_history_list_embed,
     build_interpretation_embed,
@@ -1435,7 +1436,38 @@ class PinwheelBot(commands.Bot):
         if not isinstance(data, dict):
             return
 
-        if event_type == "presentation.game_finished":
+        if event_type == "presentation.game_starting":
+            # Collect game_starting events and post a single "LIVE NOW" embed
+            # on the first one. Subsequent games are close behind (concurrent),
+            # so buffer briefly to capture all matchups in one message.
+            if not hasattr(self, "_live_buffer"):
+                self._live_buffer: list[dict] = []
+                self._live_buffer_task: asyncio.Task | None = None  # type: ignore[annotation-unchecked]
+            self._live_buffer.append(data)
+
+            async def _flush_live_buffer() -> None:
+                await asyncio.sleep(2)  # brief buffer for concurrent game starts
+                games = list(self._live_buffer)
+                self._live_buffer.clear()
+                if not games:
+                    return
+                pc = None
+                for g in games:
+                    pc = str(g.get("playoff_context", "")) or None
+                    if pc:
+                        break
+                embed = build_games_live_embed(games, playoff_context=pc)
+                channel = self._get_channel_for("play_by_play")
+                if not channel:
+                    channel = self._get_channel_for("main")
+                if channel:
+                    await channel.send(embed=embed)
+
+            # Only start the flush task for the first event in a batch
+            if self._live_buffer_task is None or self._live_buffer_task.done():
+                self._live_buffer_task = asyncio.create_task(_flush_live_buffer())
+
+        elif event_type == "presentation.game_finished":
             # Extract playoff context from event data (propagated from game_summaries)
             pc = str(data.get("playoff_context", "")) or None
             embed = build_game_result_embed(data, playoff_context=pc)

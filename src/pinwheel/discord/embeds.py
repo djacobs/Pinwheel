@@ -276,6 +276,7 @@ def _format_standing_movement(position: int | None, movement: int | None) -> str
 
 # Brand colors
 COLOR_GAME = 0xE74C3C  # Red — game results
+COLOR_LIVE = 0x00FF7F  # Spring green — live game indicator
 COLOR_GOVERNANCE = 0x3498DB  # Blue — governance
 COLOR_REPORT = 0x9B59B6  # Purple — AI reports
 COLOR_SCHEDULE = 0x2ECC71  # Green — schedule
@@ -376,6 +377,51 @@ def build_game_result_embed(
     if playoff_context:
         label = "Championship Finals" if playoff_context == "finals" else "Semifinal Playoffs"
         embed.add_field(name="Stage", value=label, inline=True)
+    embed.set_footer(text="Pinwheel Fates")
+    return embed
+
+
+def build_games_live_embed(
+    games: list[dict[str, object]],
+    playoff_context: str | None = None,
+) -> discord.Embed:
+    """Build an embed announcing that games are now live.
+
+    Sent when the replay presentation starts so Discord users know
+    games are in progress and can watch on the arena page.
+
+    Args:
+        games: List of game_starting event dicts, each with
+            home_team_name, away_team_name.
+        playoff_context: 'semifinal', 'finals', or None.
+    """
+    if playoff_context == "finals":
+        title = "CHAMPIONSHIP FINALS — LIVE NOW"
+    elif playoff_context == "semifinal":
+        title = "SEMIFINAL PLAYOFFS — LIVE NOW"
+    else:
+        title = "GAMES LIVE NOW"
+
+    matchups = []
+    for g in games:
+        home = str(g.get("home_team_name", g.get("home_team", "?")))
+        away = str(g.get("away_team_name", g.get("away_team", "?")))
+        matchups.append(f"**{home}** vs **{away}**")
+
+    description = "\n".join(matchups)
+    description += "\n\nWatch live on the arena page."
+
+    color = COLOR_LIVE
+    if playoff_context == "finals":
+        color = COLOR_STANDINGS
+    elif playoff_context == "semifinal":
+        color = 0xE91E63
+
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+    )
     embed.set_footer(text="Pinwheel Fates")
     return embed
 
