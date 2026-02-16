@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="team-header">
-  <div class="team-color-dot" style="background-color: {{ team.color }};"></div>
+  <div class="team-color-dot tc-dot" style="--tc: {{ team.color }};"></div>
   <div class="team-info">
     <h1>{{ team.name }}</h1>
     {% if team_standings %}
@@ -162,7 +162,7 @@
             {% set y = 100 - (pt.win_rate * 100) %}
             {% set ns.points = ns.points ~ x|round(1) ~ ',' ~ y|round(1) ~ ' ' %}
           {% endfor %}
-          <polyline points="{{ ns.points }}" class="timeline-line" style="stroke: {{ team.color }};" />
+          <polyline points="{{ ns.points }}" class="timeline-line tc-stroke" style="--tc: {{ team.color }}; --tcl: {{ team.color|light_safe }};" />
           {# Rule change markers #}
           {% for pt in trajectory.win_rate_timeline %}
             {% if pt.marker == 'rule_change' %}

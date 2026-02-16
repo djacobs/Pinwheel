@@ -61,7 +61,7 @@
         {% for s in standings %}
           <tr>
             <td>{{ loop.index }}</td>
-            <td><span class="team-dot" style="background:{{ s.color|default('#888') }}"></span> {{ s.team_name }}</td>
+            <td><span class="team-dot tc-dot" style="--tc: {{ s.color|default('#888') }}"></span> {{ s.team_name }}</td>
             <td>{{ s.wins }}</td>
             <td>{{ s.losses }}</td>
           </tr>

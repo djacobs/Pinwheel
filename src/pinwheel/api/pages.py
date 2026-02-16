@@ -61,6 +61,54 @@ def _get_slot_start_times(
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
+def _light_safe(hex_color: str) -> str:
+    """Darken high-luminance hex colors for readability on light backgrounds.
+
+    Colors with relative luminance > 0.5 (e.g. gold #FFD700, light blue
+    #88BBDD) get darkened ~40% and saturation-boosted.  All other colors
+    pass through unchanged.
+    """
+    c = hex_color.lstrip("#")
+    if len(c) != 6:
+        return hex_color
+    try:
+        r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+    except ValueError:
+        return hex_color
+    # Relative luminance (sRGB)
+    luminance = 0.2126 * (r / 255) + 0.7152 * (g / 255) + 0.0722 * (b / 255)
+    if luminance <= 0.5:
+        return hex_color
+    # Darken by 40%
+    factor = 0.6
+    rd, gd, bd = int(r * factor), int(g * factor), int(b * factor)
+    return f"#{rd:02x}{gd:02x}{bd:02x}"
+
+
+templates.env.filters["light_safe"] = _light_safe
+
+
+def _prose_to_html(text: str) -> str:
+    """Convert plain prose paragraphs to HTML.
+
+    Splits on double newlines into <p> tags. Single newlines become <br>.
+    HTML-escapes content for safety.
+    """
+    import html
+
+    text = text.strip()
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    parts = []
+    for p in paragraphs:
+        escaped = html.escape(p)
+        escaped = escaped.replace("\n", "<br>")
+        parts.append(f"<p>{escaped}</p>")
+    return "\n".join(parts)
+
+
+templates.env.filters["prose"] = _prose_to_html
+
+
 def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
     """Build auth-related template context available on every page."""
     settings = request.app.state.settings
@@ -305,6 +353,7 @@ def _compute_what_changed(
     playoff_teams: int = 4,
     total_regular_rounds: int = 0,
     current_round: int = 0,
+    champion_team_name: str = "",
 ) -> list[str]:
     """Compute 1-5 "what changed" signals for the home page.
 
@@ -334,8 +383,10 @@ def _compute_what_changed(
 
     # Champion signal — overrides all else
     if season_phase in ("championship", "offseason", "completed"):
-        if standings:
+        champion = champion_team_name
+        if not champion and standings:
             champion = standings[0]["team_name"]
+        if champion:
             signals.append(f"{champion} are your champions.")
         return signals[:1]
 
@@ -777,6 +828,12 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             wc_playoff_teams = wc_ruleset.playoff_teams
 
             # Compute signals
+            wc_champion_name = ""
+            if season_obj and season_obj.config:
+                wc_champion_name = season_obj.config.get(
+                    "champion_team_name", ""
+                )
+
             what_changed_signals = _compute_what_changed(
                 standings=standings,
                 prev_standings=prev_standings,
@@ -788,6 +845,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 playoff_teams=wc_playoff_teams,
                 total_regular_rounds=wc_total_rounds,
                 current_round=current_round,
+                champion_team_name=wc_champion_name,
             )
 
     # --- Pinwheel Post data (newspaper inlined on home page) ---
@@ -1040,6 +1098,10 @@ async def what_changed_partial(request: Request, repo: RepoDep) -> HTMLResponse:
         wc_ruleset = DEFAULT_RULESET
     wc_playoff_teams = wc_ruleset.playoff_teams
 
+    wc_champion_name = ""
+    if season_obj and season_obj.config:
+        wc_champion_name = season_obj.config.get("champion_team_name", "")
+
     what_changed_signals = _compute_what_changed(
         standings=standings,
         prev_standings=prev_standings,
@@ -1052,6 +1114,7 @@ async def what_changed_partial(request: Request, repo: RepoDep) -> HTMLResponse:
         playoff_teams=wc_playoff_teams,
         total_regular_rounds=wc_total_rounds,
         current_round=current_round,
+        champion_team_name=wc_champion_name,
     )
 
     if not what_changed_signals:

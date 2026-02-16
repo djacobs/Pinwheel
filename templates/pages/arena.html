@@ -22,12 +22,12 @@
     </div>
     <div class="live-zone-scoreboard">
       <div class="live-team">
-        <span class="live-team-name" data-role="home" data-g="{{ game.game_index }}" style="color: {{ game.home_color }};">{{ game.home_team_name }}</span>
+        <span class="live-team-name tc" data-role="home" data-g="{{ game.game_index }}" style="--tc: {{ game.home_color }}; --tcl: {{ game.home_color|light_safe }};">{{ game.home_team_name }}</span>
         <span class="live-score" data-role="home" data-g="{{ game.game_index }}">{{ game.home_score }}</span>
       </div>
       <div class="live-vs">vs</div>
       <div class="live-team">
-        <span class="live-team-name" data-role="away" data-g="{{ game.game_index }}" style="color: {{ game.away_color }};">{{ game.away_team_name }}</span>
+        <span class="live-team-name tc" data-role="away" data-g="{{ game.game_index }}" style="--tc: {{ game.away_color }}; --tcl: {{ game.away_color|light_safe }};">{{ game.away_team_name }}</span>
         <span class="live-score" data-role="away" data-g="{{ game.game_index }}">{{ game.away_score }}</span>
       </div>
     </div>
@@ -53,7 +53,7 @@
     <div class="live-status" data-g="{{ game.game_index }}" {% if game.status == 'final' %}class="live-status live-final"{% endif %}>{% if game.status == 'final' %}FINAL{% endif %}</div>
     <div class="live-plays" data-g="{{ game.game_index }}">
       {% for play in game.recent_plays|reverse %}
-      <div class="live-play-line" style="color: {{ play.offense_color }};">
+      <div class="live-play-line tc" style="--tc: {{ play.offense_color }}; --tcl: {{ play.offense_color|light_safe }};">
         <span class="live-play-clock">{{ play.game_clock }}</span>
         {{ play.narration }}
         {% if play.points_scored > 0 %}<span class="live-play-pts">+{{ play.points_scored }}</span>{% endif %}
@@ -104,8 +104,8 @@
         </div>
         {% endif %}
         <div class="game-panel-teams">
-          <div class="team-score-block" style="border-left: 3px solid {{ game.home_color }}; padding-left: 0.5rem;">
-            <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner{% endif %}" {% if game.winner_team_id == game.home_team_id %}style="color: {{ game.home_color }};"{% endif %}>
+          <div class="team-score-block" style="--tc: {{ game.home_color }}; --tcl: {{ game.home_color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc)); padding-left: 0.5rem;">
+            <div class="team-name {% if game.winner_team_id == game.home_team_id %}winner tc{% endif %}">
               {{ game.home_name }}
             </div>
             <div class="score score-sm {% if game.winner_team_id == game.home_team_id %}score-winner{% else %}score-loser{% endif %}">
@@ -113,8 +113,8 @@
             </div>
           </div>
           <div class="vs-divider">Final</div>
-          <div class="team-score-block" style="border-left: 3px solid {{ game.away_color }}; padding-left: 0.5rem;">
-            <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner{% endif %}" {% if game.winner_team_id == game.away_team_id %}style="color: {{ game.away_color }};"{% endif %}>
+          <div class="team-score-block" style="--tc: {{ game.away_color }}; --tcl: {{ game.away_color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc)); padding-left: 0.5rem;">
+            <div class="team-name {% if game.winner_team_id == game.away_team_id %}winner tc{% endif %}">
               {{ game.away_name }}
             </div>
             <div class="score score-sm {% if game.winner_team_id == game.away_team_id %}score-winner{% else %}score-loser{% endif %}">
@@ -188,11 +188,11 @@
       {% for ug in slot.games %}
       <div class="game-panel upcoming-panel">
         <div class="game-panel-teams">
-          <div class="team-score-block" style="border-left: 3px solid {{ ug.home_color }}; padding-left: 0.5rem;">
+          <div class="team-score-block" style="--tc: {{ ug.home_color }}; --tcl: {{ ug.home_color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc)); padding-left: 0.5rem;">
             <div class="team-name">{{ ug.home_name }}</div>
           </div>
           <div class="vs-divider">vs</div>
-          <div class="team-score-block" style="border-left: 3px solid {{ ug.away_color }}; padding-left: 0.5rem;">
+          <div class="team-score-block" style="--tc: {{ ug.away_color }}; --tcl: {{ ug.away_color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc)); padding-left: 0.5rem;">
             <div class="team-name">{{ ug.away_name }}</div>
           </div>
         </div>
@@ -245,12 +245,12 @@
       '</div>' +
       '<div class="live-zone-scoreboard">' +
         '<div class="live-team">' +
-          '<span class="live-team-name" data-role="home" data-g="' + gameIdx + '" style="color:' + homeColor + ';">' + (d.home_team_name || 'Home') + '</span>' +
+          '<span class="live-team-name tc" data-role="home" data-g="' + gameIdx + '" style="--tc:' + homeColor + ';">' + (d.home_team_name || 'Home') + '</span>' +
           '<span class="live-score" data-role="home" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
         '<div class="live-vs">vs</div>' +
         '<div class="live-team">' +
-          '<span class="live-team-name" data-role="away" data-g="' + gameIdx + '" style="color:' + awayColor + ';">' + (d.away_team_name || 'Away') + '</span>' +
+          '<span class="live-team-name tc" data-role="away" data-g="' + gameIdx + '" style="--tc:' + awayColor + ';">' + (d.away_team_name || 'Away') + '</span>' +
           '<span class="live-score" data-role="away" data-g="' + gameIdx + '">0</span>' +
         '</div>' +
       '</div>' +
@@ -289,8 +289,8 @@
     if (plays && d.narration) {
       var line = document.createElement('div');
       var dramaLevel = d.drama_level || 'routine';
-      line.className = 'live-play-line play--' + dramaLevel;
-      if (d.offense_color) line.style.color = d.offense_color;
+      line.className = 'live-play-line tc play--' + dramaLevel;
+      if (d.offense_color) line.style.setProperty('--tc', d.offense_color);
       var pts = d.points_scored > 0 ? ' <span class="live-play-pts">+' + d.points_scored + '</span>' : '';
       var dramaBadge = '';
       var tags = d.drama_tags || [];

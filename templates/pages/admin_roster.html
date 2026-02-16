@@ -41,7 +41,7 @@
             <a href="/governors/{{ g.id }}">{{ g.username }}</a>
           </td>
           <td style="text-align:left;">
-            <span class="team-dot-sm" style="background: {{ g.team_color }};"></span>
+            <span class="team-dot-sm tc-dot" style="--tc: {{ g.team_color }};"></span>
             {{ g.team_name }}
           </td>
           <td style="text-align:left; font-size: 0.85rem;" class="mono">{{ g.joined.strftime('%b %d') if g.joined else '—' }}</td>

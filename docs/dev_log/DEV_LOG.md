@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1966 tests**, zero lint errors (Session 93)
+- **1966 tests**, zero lint errors (Session 96)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `1bc58e3` — feat: simplify simulation report prompt + add regen-report command
+- **Latest commit:** `8e66104` — docs: session 94 — simulation report prompt rewrite
 
 ## Today's Agenda
 
@@ -142,3 +142,25 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1966 tests, zero lint errors.** (7 pre-existing mock failures in `TestProposeGovernance`)
 
 **What could have gone better:** The `get_reports_for_round()` ordering was ascending from the start — any time a report was regenerated, the old version would still show. The `get_latest_report()` method had correct `desc()` ordering, but the homepage used a different query path.
+
+---
+
+## Session 96 — Light/Dark Mode Toggle
+
+**What was asked:** Implement a light/dark mode toggle with light as the default. Two team colors (gold #FFD700 and light blue #88BBDD) are problematic on light backgrounds and need special handling.
+
+**What was built:**
+- **CSS architecture:** Current `:root` dark variables moved to `[data-theme="dark"]` selector. New `:root` block with light-mode palette (white/near-white backgrounds, dark text, darkened accents for readability). Added `--overlay-subtle`, `--overlay-light`, `--overlay-border` variables replacing ~10 hardcoded `rgba(255,255,255,...)` values that would be white-on-white in light mode.
+- **Team color utility classes:** `.tc`, `.tc-bg`, `.tc-border`, `.tc-dot`, `.tc-stroke` — all use CSS custom properties `--tc` (raw team color) and `--tcl` (light-safe variant). Dark mode falls back to raw color, light mode uses the safe variant.
+- **Anti-FOUC script:** Inline `<script>` before CSS reads `localStorage` and sets `data-theme="dark"` on `<html>` if saved — prevents flash of wrong theme.
+- **Toggle button:** Sun/moon icon in nav bar. Toggles `data-theme` attribute on `<html>`, saves to `localStorage`.
+- **`light_safe` Jinja2 filter:** Computes relative luminance from hex color. If luminance > 0.5 (too bright for light backgrounds), darkens by 40%. Only affects gold (#FFD700 → #999900) and light blue (#88BBDD → #517188). All other team colors pass through unchanged.
+- **14 templates updated:** All inline `style="color: {{ team.color }}"` patterns replaced with CSS custom property approach (`class="tc" style="--tc: ...; --tcl: ..."`). Includes game.html, arena.html, home.html, standings.html, newspaper.html, hooper.html, governor.html, team.html, admin_roster.html, playoffs.html, spider_chart.html.
+- **Arena SSE JavaScript updated:** Dynamic play-by-play lines and live zones use `.setProperty('--tc', color)` instead of `line.style.color = color`.
+- **Spider chart fix:** Average polygon uses `.spider-avg-fill` CSS class instead of hardcoded white-alpha fills.
+
+**Files modified (14):** `static/css/pinwheel.css`, `templates/base.html`, `src/pinwheel/api/pages.py`, `templates/pages/game.html`, `templates/pages/arena.html`, `templates/pages/home.html`, `templates/pages/standings.html`, `templates/pages/newspaper.html`, `templates/pages/hooper.html`, `templates/pages/governor.html`, `templates/pages/team.html`, `templates/pages/admin_roster.html`, `templates/pages/playoffs.html`, `templates/components/spider_chart.html`
+
+**1966 tests, zero lint errors.**
+
+**What could have gone better:** The CSS was well-architected with custom properties from day one, making the variable scoping clean. The main complexity was the ~10 hardcoded `rgba(255,255,255,...)` overlay values scattered through component styles — these became white-on-white in light mode and had to be replaced with theme-aware variables. Also, the arena SSE JavaScript created DOM elements with inline `style.color` which doesn't respect CSS custom properties — had to switch to `.setProperty('--tc', ...)` pattern.

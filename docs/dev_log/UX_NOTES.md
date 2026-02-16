@@ -741,3 +741,31 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 117. [DONE] Duplicate Discord notifications in team channels
 **Problem:** "The Floor Has Spoken" governance embeds, championship announcements, and memorial embeds were sent 5x to each team channel. Stale `channel_team_*` entries from previous seasons accumulated in `bot_state`, all pointing to the same Discord channel — the iteration sent once per stale entry.
 **Fix:** Added `_get_unique_team_channels()` helper that deduplicates by channel ID. All 3 team-broadcast sites (governance, championship, memorial) now use it. Setup also prunes stale `team_*` entries that don't match the current season's teams.
+
+---
+
+## Completed — Session 96 (Light/Dark Mode Toggle)
+
+### 118. [DONE] Light/dark mode toggle with light as default
+**Problem:** The entire frontend was dark-mode-only. No way for users to switch to a light theme. Two team colors — gold (#FFD700, Alberta Monarchs) and light blue (#88BBDD, Sellwood Drift) — would be unreadable on a light background.
+
+**Fix:** Full theme system implemented via CSS custom properties:
+
+**CSS architecture:**
+- Current `:root` dark variables moved to `[data-theme="dark"]` selector
+- New `:root` block with light-mode palette: white/near-white backgrounds (`#f4f4f8`, `#ffffff`), dark text (`#1a1a2e`, `#555570`), darkened accents for readability (cyan `#53d8fb` → `#0077aa`, gold `#f0c040` → `#9a7000`)
+- Added `--overlay-subtle`, `--overlay-light`, `--overlay-border` variables replacing ~10 hardcoded `rgba(255,255,255,...)` that become white-on-white in light mode
+
+**Team color utility classes:**
+- `.tc` — text color: uses `var(--tcl, var(--tc))` in light mode, `var(--tc)` in dark mode
+- `.tc-bg` — background: `color-mix(in srgb, var(--tc) 10%, var(--bg-card))` in light, `var(--tc2)` in dark
+- `.tc-border`, `.tc-dot`, `.tc-stroke` — same pattern
+- All inline `style="color: {{ team.color }}"` replaced with `class="tc" style="--tc: {{ color }}; --tcl: {{ color|light_safe }};"`
+
+**Anti-FOUC:** Inline `<script>` before CSS reads `localStorage('pinwheel-theme')` and sets `data-theme="dark"` on `<html>` if stored. No attribute = light mode default.
+
+**Toggle button:** Sun (☼) / moon (☾) button in nav bar. Toggles `data-theme` attribute on `<html>`, saves preference to `localStorage`.
+
+**`light_safe` Jinja2 filter:** Computes relative luminance; if > 0.5, darkens color by 40%. Only triggers for gold and light blue — all other team colors pass through unchanged.
+
+**14 templates updated:** game, arena, home, standings, newspaper, hooper, governor, team, admin_roster, playoffs, spider_chart, base.html. Arena SSE JavaScript switched from `line.style.color` to `.setProperty('--tc', color)` with CSS class.

@@ -29,8 +29,7 @@
     {# Layer 3: League average polygon #}
     {% if avg_poly %}
     <polygon points="{{ avg_poly }}"
-             fill="rgba(255,255,255,0.04)"
-             stroke="rgba(255,255,255,0.2)"
+             class="spider-avg-fill"
              stroke-width="1"
              stroke-dasharray="4,3"/>
     {% endif %}
@@ -38,7 +37,7 @@
     {# Layer 4: Hooper polygon #}
     <polygon points="{{ hooper_poly }}"
              fill="{{ team_color }}1f"
-             stroke="{{ team_color }}"
+             stroke="{{ team_color|light_safe }}"
              stroke-width="2"/>
 
     {# Layer 5: Vertex dots #}

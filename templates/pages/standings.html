@@ -44,7 +44,7 @@
       <tr>
         <td class="rank rank-{{ loop.index }}">{{ loop.index }}</td>
         <td>
-          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:{{ team.color }}; margin-right:0.4rem; vertical-align:middle;"></span>
+          <span class="tc-dot" style="--tc: {{ team.color }}; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:0.4rem; vertical-align:middle;"></span>
           <a href="/teams/{{ team.team_id }}" class="team-link">{{ team.team_name }}</a>
           {% if magic_numbers is defined and magic_numbers %}
             {% set mn = magic_numbers.get(team.team_id) %}

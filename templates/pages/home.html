@@ -56,14 +56,14 @@
   {% if post_sim_report %}
   <div class="home-post-section">
     <div class="home-post-section-header">GAME REPORTS</div>
-    <div class="home-post-article">{{ post_sim_report }}</div>
+    <div class="home-post-article">{{ post_sim_report | prose | safe }}</div>
   </div>
   {% endif %}
 
   {% if post_highlight_reel %}
   <div class="home-post-full-width">
     <div class="home-post-section-header">HIGHLIGHT REEL</div>
-    <div class="home-post-article">{{ post_highlight_reel }}</div>
+    <div class="home-post-article">{{ post_highlight_reel | prose | safe }}</div>
   </div>
   {% endif %}
 
@@ -93,12 +93,12 @@
     <a href="/games/{{ game.id }}" class="score-card">
       <div class="sc-teams">
         <div class="sc-team">
-          <span class="sc-dot" style="background:{{ game.home_color }};"></span>
+          <span class="sc-dot tc-dot" style="--tc: {{ game.home_color }};"></span>
           <span class="sc-name {% if game.winner_team_id == game.home_team_id %}sc-winner{% endif %}">{{ game.home_name }}</span>
           <span class="sc-score {% if game.winner_team_id == game.home_team_id %}sc-score-win{% endif %}">{{ game.home_score }}</span>
         </div>
         <div class="sc-team">
-          <span class="sc-dot" style="background:{{ game.away_color }};"></span>
+          <span class="sc-dot tc-dot" style="--tc: {{ game.away_color }};"></span>
           <span class="sc-name {% if game.winner_team_id == game.away_team_id %}sc-winner{% endif %}">{{ game.away_name }}</span>
           <span class="sc-score {% if game.winner_team_id == game.away_team_id %}sc-score-win{% endif %}">{{ game.away_score }}</span>
         </div>
@@ -131,7 +131,7 @@
       {% for s in standings %}
       <a href="/teams/{{ s.team_id }}" class="ms-row">
         <span class="ms-rank">{{ loop.index }}</span>
-        <span class="ms-dot" style="background:{{ s.color|default('#888') }};"></span>
+        <span class="ms-dot tc-dot" style="--tc: {{ s.color|default('#888') }};"></span>
         <span class="ms-name">{{ s.team_name }}</span>
         <span class="ms-record mono">{{ s.wins }}-{{ s.losses }}</span>
         {% set diff = s.points_for - s.points_against %}
@@ -163,7 +163,7 @@
       <span class="section-title-badge">Round {{ current_round }}</span>
     </div>
     <div class="home-report">
-      <div class="home-report-content">{{ post_gov_report }}</div>
+      <div class="home-report-content">{{ post_gov_report | prose | safe }}</div>
     </div>
     <div class="section-more">
       <a href="/governance" class="more-link">Proposals &amp; votes &rarr;</a>
@@ -190,12 +190,12 @@
       {% for game in slot.games %}
       <div class="upcoming-card">
         <div class="uc-team">
-          <span class="sc-dot" style="background:{{ game.home_color }};"></span>
+          <span class="sc-dot tc-dot" style="--tc: {{ game.home_color }};"></span>
           <span>{{ game.home_name }}</span>
         </div>
         <span class="uc-vs">vs</span>
         <div class="uc-team">
-          <span class="sc-dot" style="background:{{ game.away_color }};"></span>
+          <span class="sc-dot tc-dot" style="--tc: {{ game.away_color }};"></span>
           <span>{{ game.away_name }}</span>
         </div>
       </div>

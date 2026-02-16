@@ -11,7 +11,7 @@
       {% if team %}
       <span class="text-muted">&middot;</span>
       <a href="/teams/{{ team.id }}" class="team-link-sm">
-        <span class="team-dot-sm" style="background: {{ team.color }};"></span>
+        <span class="team-dot-sm tc-dot" style="--tc: {{ team.color }};"></span>
         {{ team.name }}
       </a>
       {% endif %}

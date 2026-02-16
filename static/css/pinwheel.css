@@ -4,7 +4,44 @@
 /* ===== Reset & Base ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* --- Light mode (default) --- */
 :root {
+  --bg-primary: #f4f4f8;
+  --bg-secondary: #eaeaf0;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f0f0f6;
+  --bg-input: #f8f8fc;
+  --border: #d0d0dc;
+  --border-bright: #b0b0c4;
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #555570;
+  --text-muted: #888898;
+
+  --accent-score: #9a7000;
+  --accent-highlight: #c7253e;
+  --accent-governance: #0077aa;
+  --accent-report: #7c4dcc;
+  --accent-success: #1a8a50;
+  --accent-danger: #d43545;
+  --accent-elam: #d45520;
+
+  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-glow: 0 0 20px rgba(199, 37, 62, 0.1);
+
+  --overlay-subtle: rgba(0, 0, 0, 0.03);
+  --overlay-light: rgba(0, 0, 0, 0.05);
+  --overlay-border: rgba(0, 0, 0, 0.06);
+}
+
+/* --- Dark mode --- */
+[data-theme="dark"] {
   --bg-primary: #0d0d1a;
   --bg-secondary: #141428;
   --bg-card: #1a1a3e;
@@ -25,14 +62,12 @@
   --accent-danger: #fc5c65;
   --accent-elam: #ff6b35;
 
-  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
-
-  --radius: 8px;
-  --radius-lg: 12px;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   --shadow-glow: 0 0 20px rgba(233, 69, 96, 0.15);
+
+  --overlay-subtle: rgba(255, 255, 255, 0.02);
+  --overlay-light: rgba(255, 255, 255, 0.04);
+  --overlay-border: rgba(255, 255, 255, 0.06);
 }
 
 html {
@@ -110,7 +145,7 @@ a:hover { text-decoration: underline; }
 
 .nav-link:hover, .nav-link.active {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--overlay-light);
   text-decoration: none;
 }
 
@@ -184,7 +219,7 @@ a:hover { text-decoration: underline; }
     border-bottom: 2px solid var(--accent-highlight);
     padding: 0.5rem 1.5rem 0.75rem;
     z-index: 200;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow);
   }
 
   .nav-links.open {
@@ -455,7 +490,7 @@ h3 { font-size: 1.05rem; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--overlay-light);
 }
 
 .game-panel-teams {
@@ -565,7 +600,7 @@ h3 { font-size: 1.05rem; }
 .standings-callouts {
   margin-bottom: 1.25rem;
   padding: 0.875rem 1.25rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--overlay-subtle);
   border-left: 3px solid var(--accent-highlight);
   border-radius: var(--radius);
 }
@@ -620,7 +655,7 @@ h3 { font-size: 1.05rem; }
 }
 
 .standings-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--overlay-subtle);
 }
 
 .rank {
@@ -1332,7 +1367,7 @@ h3 { font-size: 1.05rem; }
   font-weight: 600;
   font-size: 0.6rem;
   letter-spacing: 0.06em;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--overlay-border);
 }
 
 .quarter-table td {
@@ -1356,7 +1391,7 @@ h3 { font-size: 1.05rem; }
 }
 
 .quarter-table td.qt-total {
-  border-left: 1px solid rgba(255,255,255,0.06);
+  border-left: 1px solid var(--overlay-border);
   font-weight: 600;
 }
 
@@ -1454,7 +1489,7 @@ h3 { font-size: 1.05rem; }
   gap: 0.5rem;
   margin-top: 1.25rem;
   padding: 0.4rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--overlay-subtle);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.75rem;
@@ -1610,7 +1645,7 @@ h3 { font-size: 1.05rem; }
 .sc-play {
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid var(--overlay-light);
   font-size: 0.75rem;
   color: var(--accent-elam);
   font-weight: 600;
@@ -1665,7 +1700,7 @@ h3 { font-size: 1.05rem; }
 }
 
 .ms-row:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--overlay-subtle);
   text-decoration: none;
 }
 
@@ -3050,7 +3085,7 @@ h3 { font-size: 1.05rem; }
   padding: 0.4rem 0.75rem;
   margin: 0.5rem 0;
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--overlay-light);
   border: 1px solid var(--border);
 }
 
@@ -3434,3 +3469,45 @@ h3 { font-size: 1.05rem; }
   color: var(--text-secondary, #999);
   padding-top: 0.8rem;
 }
+
+/* ===== Team Color Utilities ===== */
+/* Use --tc for the raw team color, --tcl for a light-safe variant.
+   In dark mode, both resolve to the raw color.
+   In light mode, .tc uses --tcl which is darkened for readability. */
+.tc       { color: var(--tcl, var(--tc)); }
+.tc-bg    { background: color-mix(in srgb, var(--tc) 10%, var(--bg-card)); }
+.tc-border { border-color: var(--tcl, var(--tc)); }
+.tc-dot   { background: var(--tc); }
+.tc-stroke { stroke: var(--tcl, var(--tc)); }
+
+[data-theme="dark"] .tc       { color: var(--tc); }
+[data-theme="dark"] .tc-bg    { background: var(--tc2, var(--bg-card)); }
+[data-theme="dark"] .tc-border { border-color: var(--tc); }
+[data-theme="dark"] .tc-stroke { stroke: var(--tc); }
+
+/* ===== Theme Toggle ===== */
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+/* Show correct icon per theme */
+.theme-toggle .icon-sun  { display: inline; }
+.theme-toggle .icon-moon { display: none; }
+[data-theme="dark"] .theme-toggle .icon-sun  { display: none; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: inline; }
+
+/* ===== Spider Chart Light Mode Fix ===== */
+.spider-avg-fill  { fill: var(--overlay-light); stroke: var(--text-muted); opacity: 0.4; }

@@ -21,7 +21,7 @@
 {% if bracket.champion %}
 <div class="card" style="border: 2px solid var(--accent-score); margin-bottom: 1.5rem; text-align: center; padding: 1.5rem;">
   <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent-score); margin-bottom: 0.5rem;">Champion</div>
-  <div style="font-size: 1.8rem; font-weight: 800; color: {{ bracket.champion.color }};">
+  <div class="tc" style="--tc: {{ bracket.champion.color }}; --tcl: {{ bracket.champion.color|light_safe }}; font-size: 1.8rem; font-weight: 800;">
     {{ bracket.champion.team_name }}
   </div>
 </div>
@@ -46,14 +46,14 @@
         {% endif %}
       </div>
       <div class="bracket-teams">
-        <div class="bracket-team {% if semi.seed_high.wins > semi.seed_low.wins %}bracket-team-leading{% endif %}" style="border-left: 3px solid {{ semi.seed_high.color }};">
+        <div class="bracket-team {% if semi.seed_high.wins > semi.seed_low.wins %}bracket-team-leading{% endif %}" style="--tc: {{ semi.seed_high.color }}; --tcl: {{ semi.seed_high.color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc));">
           <span class="bracket-seed">#{{ semi.seed_high.seed }}</span>
-          <a href="/teams/{{ semi.seed_high.team_id }}" class="bracket-team-name" style="{% if semi.seed_high.wins > semi.seed_low.wins %}color: {{ semi.seed_high.color }};{% endif %}">{{ semi.seed_high.team_name }}</a>
+          <a href="/teams/{{ semi.seed_high.team_id }}" class="bracket-team-name {% if semi.seed_high.wins > semi.seed_low.wins %}tc{% endif %}">{{ semi.seed_high.team_name }}</a>
           <span class="bracket-wins">{{ semi.seed_high.wins }}</span>
         </div>
-        <div class="bracket-team {% if semi.seed_low.wins > semi.seed_high.wins %}bracket-team-leading{% endif %}" style="border-left: 3px solid {{ semi.seed_low.color }};">
+        <div class="bracket-team {% if semi.seed_low.wins > semi.seed_high.wins %}bracket-team-leading{% endif %}" style="--tc: {{ semi.seed_low.color }}; --tcl: {{ semi.seed_low.color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc));">
           <span class="bracket-seed">#{{ semi.seed_low.seed }}</span>
-          <a href="/teams/{{ semi.seed_low.team_id }}" class="bracket-team-name" style="{% if semi.seed_low.wins > semi.seed_high.wins %}color: {{ semi.seed_low.color }};{% endif %}">{{ semi.seed_low.team_name }}</a>
+          <a href="/teams/{{ semi.seed_low.team_id }}" class="bracket-team-name {% if semi.seed_low.wins > semi.seed_high.wins %}tc{% endif %}">{{ semi.seed_low.team_name }}</a>
           <span class="bracket-wins">{{ semi.seed_low.wins }}</span>
         </div>
       </div>
@@ -89,14 +89,14 @@
         {% endif %}
       </div>
       <div class="bracket-teams">
-        <div class="bracket-team {% if bracket.finals.team_a.wins > bracket.finals.team_b.wins %}bracket-team-leading{% endif %}" style="border-left: 3px solid {{ bracket.finals.team_a.color }};">
+        <div class="bracket-team {% if bracket.finals.team_a.wins > bracket.finals.team_b.wins %}bracket-team-leading{% endif %}" style="--tc: {{ bracket.finals.team_a.color }}; --tcl: {{ bracket.finals.team_a.color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc));">
           {% if bracket.finals.team_a.seed %}<span class="bracket-seed">#{{ bracket.finals.team_a.seed }}</span>{% endif %}
-          <a href="/teams/{{ bracket.finals.team_a.team_id }}" class="bracket-team-name" style="{% if bracket.finals.team_a.wins > bracket.finals.team_b.wins %}color: {{ bracket.finals.team_a.color }};{% endif %}">{{ bracket.finals.team_a.team_name }}</a>
+          <a href="/teams/{{ bracket.finals.team_a.team_id }}" class="bracket-team-name {% if bracket.finals.team_a.wins > bracket.finals.team_b.wins %}tc{% endif %}">{{ bracket.finals.team_a.team_name }}</a>
           <span class="bracket-wins">{{ bracket.finals.team_a.wins }}</span>
         </div>
-        <div class="bracket-team {% if bracket.finals.team_b.wins > bracket.finals.team_a.wins %}bracket-team-leading{% endif %}" style="border-left: 3px solid {{ bracket.finals.team_b.color }};">
+        <div class="bracket-team {% if bracket.finals.team_b.wins > bracket.finals.team_a.wins %}bracket-team-leading{% endif %}" style="--tc: {{ bracket.finals.team_b.color }}; --tcl: {{ bracket.finals.team_b.color|light_safe }}; border-left: 3px solid var(--tcl, var(--tc));">
           {% if bracket.finals.team_b.seed %}<span class="bracket-seed">#{{ bracket.finals.team_b.seed }}</span>{% endif %}
-          <a href="/teams/{{ bracket.finals.team_b.team_id }}" class="bracket-team-name" style="{% if bracket.finals.team_b.wins > bracket.finals.team_a.wins %}color: {{ bracket.finals.team_b.color }};{% endif %}">{{ bracket.finals.team_b.team_name }}</a>
+          <a href="/teams/{{ bracket.finals.team_b.team_id }}" class="bracket-team-name {% if bracket.finals.team_b.wins > bracket.finals.team_a.wins %}tc{% endif %}">{{ bracket.finals.team_b.team_name }}</a>
           <span class="bracket-wins">{{ bracket.finals.team_b.wins }}</span>
         </div>
       </div>
