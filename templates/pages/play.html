@@ -52,7 +52,7 @@
       <div class="join-step-content">
         <strong>Join the Discord</strong> and type <code>/join TEAM</code> to enroll on a team.
         {% if team_names %}
-        Current teams: <strong>{{ team_names | join('</strong>, <strong>') }}</strong>.
+        Current teams: {% for tn in team_names %}<strong>{{ tn }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
         {% endif %}
         You're locked to that team for the season.
       </div>
@@ -515,7 +515,7 @@
   </a>
   <p class="play-cta-sub">
     Use <code>/join TEAM</code> once you're in.
-    {% if team_names %}Pick from: <strong>{{ team_names | join('</strong>, <strong>') }}</strong>.{% endif %}
+    {% if team_names %}Pick from: {% for tn in team_names %}<strong>{{ tn }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}
     You'll be assigned to that team and the next time the Floor opens is your first chance to shape the game.
   </p>
   {% else %}

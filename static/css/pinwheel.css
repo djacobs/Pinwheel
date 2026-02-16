@@ -68,6 +68,7 @@ a:hover { text-decoration: underline; }
 .nav {
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--accent-highlight);
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -172,15 +173,18 @@ a:hover { text-decoration: underline; }
     display: flex;
   }
 
-  .nav-inner {
-    flex-wrap: wrap;
-  }
-
   .nav-links {
     display: none;
-    width: 100%;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     flex-direction: column;
-    padding-bottom: 0.75rem;
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--accent-highlight);
+    padding: 0.5rem 1.5rem 0.75rem;
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
   .nav-links.open {
@@ -350,6 +354,11 @@ h3 { font-size: 1.05rem; }
 }
 .what-changed-item:not(:last-child) {
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.what-changed-fallback {
+  font-style: italic;
+  font-weight: 600;
+  opacity: 0.85;
 }
 
 .section-title {
@@ -1912,6 +1921,13 @@ h3 { font-size: 1.05rem; }
 .rule-change-proposer a:hover {
   color: var(--accent-highlight);
   text-decoration: underline;
+}
+
+.rule-change-impact {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--accent-score);
+  margin-top: 0.1rem;
 }
 
 /* Changed rules strip */
