@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `89cabf3` — fix: use full URL in Discord welcome embed
+- **Latest commit:** `d274942` — fix: retry + graceful fallback for interpreter API errors
 
 ## Today's Agenda
 
@@ -214,3 +214,22 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — straightforward fix.
+
+---
+
+## Session 100 — Interpreter API Error Graceful Fallback
+
+**What was asked:** A player's `/propose` command showed a raw Anthropic API 500 error in the Discord embed's Impact Analysis field. Fix it so players never see internal errors.
+
+**What was built:**
+- Added retry-once-on-API-error logic to both `interpret_proposal` (V1) and `interpret_proposal_v2` in `ai/interpreter.py`
+- On transient API errors (500s), retries once after 1-second delay
+- If both attempts fail, falls back to mock interpreter instead of exposing the raw error
+- User-facing message: "The AI interpreter is temporarily unavailable. Your proposal will be interpreted using basic pattern matching."
+- Parse errors (JSON decode, missing keys) skip retry and fall back immediately
+
+**Files modified (1):** `src/pinwheel/ai/interpreter.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** This should have been caught earlier — the `f"V2 interpretation failed: {e}"` pattern was there since the V2 interpreter was written. Any API error (transient or not) would have exposed internals to players.
