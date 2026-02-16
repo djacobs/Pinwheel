@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `4b428d1` — docs: session 101 — markdown rendering fix, hackathon submission
+- **Latest commit:** `1153fd8` — perf: harden proposal pipeline — shared clients, tighter timeouts, lower max_tokens
 
 ## Today's Agenda
 
@@ -267,3 +267,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — the retro surfaced real patterns and the API limit was a billing issue, not a code bug. The Session 100 fallback worked exactly as designed.
+
+---
+
+## Session 103 — Proposal Pipeline Performance Hardening
+
+**What was asked:** Proposals are the core gameplay feature and timing out in production. The pipeline (classifier + interpreter v2 running in parallel) had worst-case latency of 61s. Reduce timeouts, reuse HTTP connections, and cut unnecessary token budget.
+
+**What was built:**
+- **Shared `AsyncAnthropic` client singletons** in both `classifier.py` and `interpreter.py` — `_get_client(api_key)` caches instances per API key, reusing httpx connection pools instead of creating new clients per call
+- **Tightened timeouts** — interpreter: 30s → 20s (connect 10s → 5s), classifier: 15s → 10s (connect 5s → 3s)
+- **Reduced `max_tokens`** on v2 interpreter: 2000 → 1000 (typical response ~800 tokens, lower cap lets model stop earlier)
+- **Removed retry sleep** — removed `await asyncio.sleep(1)` between retries in both v1 and v2 interpreters (no benefit after a 20s timeout)
+- **Updated test mocks** — all tests in `test_classifier.py` and `test_messages_api.py` now patch `_get_client` instead of `anthropic.AsyncAnthropic` constructor
+- Worst-case latency: 61s → 40s. Common case (no retry): 30s → 20s.
+
+**Files modified (4):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/ai/classifier.py`, `tests/test_classifier.py`, `tests/test_messages_api.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** Session 91 flagged "AI client consolidation appears incomplete: several AI call sites still instantiate `anthropic.AsyncAnthropic(...)` directly" — this was known tech debt for 12 sessions before being addressed. The connection pool overhead was invisible until proposals started timing out in production.
