@@ -516,10 +516,16 @@ class TestCallSitesOutputConfig:
         from pinwheel.models.rules import RuleSet
 
         payload = json.dumps({
-            "effects": [],
+            "effects": [{
+                "effect_type": "parameter_change",
+                "parameter": "stamina_drain_rate",
+                "new_value": 1.5,
+                "old_value": 1.0,
+                "description": "Increase stamina drain",
+            }],
             "impact_analysis": "test",
-            "confidence": 0.5,
-            "clarification_needed": True,
+            "confidence": 0.8,
+            "clarification_needed": False,
             "injection_flagged": False,
             "original_text_echo": "test",
         })
@@ -629,3 +635,184 @@ class TestFenceStrippingFallback:
 
         assert result.parameter == "three_point_value"
         assert result.new_value == 4
+
+
+# ---------------------------------------------------------------------------
+# Opus Escalation Tests
+# ---------------------------------------------------------------------------
+
+
+class TestOpusEscalation:
+    """Verify the two-tier Sonnet → Opus escalation pipeline."""
+
+    async def test_sonnet_confident_no_escalation(self) -> None:
+        """When Sonnet is confident, Opus is never called."""
+        from pinwheel.ai.interpreter import interpret_proposal_v2
+        from pinwheel.models.rules import RuleSet
+
+        payload = json.dumps({
+            "effects": [{
+                "effect_type": "parameter_change",
+                "parameter": "three_point_value",
+                "new_value": 4,
+                "old_value": 3,
+                "description": "Threes worth 4",
+            }],
+            "impact_analysis": "More threes",
+            "confidence": 0.9,
+            "clarification_needed": False,
+            "injection_flagged": False,
+            "original_text_echo": "Make threes worth 4",
+        })
+        mock_resp = _mock_response(payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+        with (
+            patch(
+                "pinwheel.ai.interpreter._get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "pinwheel.ai.interpreter._opus_escalate",
+            ) as mock_opus,
+        ):
+            result = await interpret_proposal_v2(
+                "Make threes worth 4", RuleSet(), "fake-key"
+            )
+
+        assert result.confidence == pytest.approx(0.9)
+        mock_opus.assert_not_called()
+
+    async def test_sonnet_uncertain_triggers_opus(self) -> None:
+        """When Sonnet is uncertain, Opus is called and its result returned."""
+        from pinwheel.ai.interpreter import interpret_proposal_v2
+        from pinwheel.models.governance import ProposalInterpretation
+        from pinwheel.models.rules import RuleSet
+
+        # Sonnet returns uncertain
+        sonnet_payload = json.dumps({
+            "effects": [],
+            "impact_analysis": "Seems like rhythm/flow concept",
+            "confidence": 0.3,
+            "clarification_needed": True,
+            "injection_flagged": False,
+            "original_text_echo": "test",
+        })
+        mock_resp = _mock_response(sonnet_payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+        # Opus returns confident
+        opus_result = ProposalInterpretation(
+            effects=[],
+            impact_analysis="Opus figured it out",
+            confidence=0.85,
+            clarification_needed=False,
+            injection_flagged=False,
+            original_text_echo="test",
+        )
+
+        with (
+            patch(
+                "pinwheel.ai.interpreter._get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "pinwheel.ai.interpreter._opus_escalate",
+                return_value=opus_result,
+            ) as mock_opus,
+        ):
+            result = await interpret_proposal_v2(
+                "When a hooper is feeling it", RuleSet(), "fake-key"
+            )
+
+        assert result.confidence == pytest.approx(0.85)
+        assert result.impact_analysis == "Opus figured it out"
+        mock_opus.assert_called_once()
+
+    async def test_sonnet_uncertain_opus_fails_returns_sonnet(self) -> None:
+        """When Sonnet is uncertain and Opus fails, Sonnet's result is returned."""
+        from pinwheel.ai.interpreter import interpret_proposal_v2
+        from pinwheel.models.rules import RuleSet
+
+        sonnet_payload = json.dumps({
+            "effects": [],
+            "impact_analysis": "Not sure about this one",
+            "confidence": 0.4,
+            "clarification_needed": True,
+            "injection_flagged": False,
+            "original_text_echo": "test",
+        })
+        mock_resp = _mock_response(sonnet_payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+        with (
+            patch(
+                "pinwheel.ai.interpreter._get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "pinwheel.ai.interpreter._opus_escalate",
+                return_value=None,
+            ),
+        ):
+            result = await interpret_proposal_v2(
+                "Some creative proposal", RuleSet(), "fake-key"
+            )
+
+        assert result.confidence == pytest.approx(0.4)
+        assert result.clarification_needed is True
+
+    async def test_low_confidence_triggers_escalation(self) -> None:
+        """Confidence < 0.5 (even without clarification_needed) triggers Opus."""
+        from pinwheel.ai.interpreter import interpret_proposal_v2
+        from pinwheel.models.governance import ProposalInterpretation
+        from pinwheel.models.rules import RuleSet
+
+        sonnet_payload = json.dumps({
+            "effects": [{
+                "effect_type": "parameter_change",
+                "parameter": "stamina_drain_rate",
+                "new_value": 1.5,
+                "old_value": 1.0,
+                "description": "Stamina change",
+            }],
+            "impact_analysis": "Maybe stamina?",
+            "confidence": 0.4,
+            "clarification_needed": False,
+            "injection_flagged": False,
+            "original_text_echo": "test",
+        })
+        mock_resp = _mock_response(sonnet_payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+        opus_result = ProposalInterpretation(
+            effects=[],
+            impact_analysis="Opus nailed it",
+            confidence=0.9,
+            clarification_needed=False,
+            injection_flagged=False,
+            original_text_echo="test",
+        )
+
+        with (
+            patch(
+                "pinwheel.ai.interpreter._get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "pinwheel.ai.interpreter._opus_escalate",
+                return_value=opus_result,
+            ) as mock_opus,
+        ):
+            result = await interpret_proposal_v2(
+                "Let them cook when they on fire",
+                RuleSet(),
+                "fake-key",
+            )
+
+        assert result.confidence == pytest.approx(0.9)
+        mock_opus.assert_called_once()
