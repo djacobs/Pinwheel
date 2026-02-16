@@ -295,6 +295,19 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_latest_round_number(self, season_id: str) -> int | None:
+        """Get the highest round number with completed game results.
+
+        Returns None if no games have been played yet.  This is O(1) via
+        ``SELECT MAX(round_number)`` — use it instead of scanning rounds
+        in a loop.
+        """
+        stmt = select(func.max(GameResultRow.round_number)).where(
+            GameResultRow.season_id == season_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def mark_game_presented(self, game_id: str) -> None:
         """Mark a game result as presented (visible to players)."""
         game = await self.session.get(GameResultRow, game_id)

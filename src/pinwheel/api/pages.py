@@ -97,21 +97,17 @@ async def _get_active_season(repo: RepoDep) -> tuple[str | None, str | None]:
 
 async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
     """Compute standings for a season."""
-    all_results: list[dict] = []
-    for round_num in range(1, 100):
-        games = await repo.get_games_for_round(season_id, round_num)
-        if not games:
-            break
-        for g in games:
-            all_results.append(
-                {
-                    "home_team_id": g.home_team_id,
-                    "away_team_id": g.away_team_id,
-                    "home_score": g.home_score,
-                    "away_score": g.away_score,
-                    "winner_team_id": g.winner_team_id,
-                }
-            )
+    games = await repo.get_all_games(season_id)
+    all_results: list[dict] = [
+        {
+            "home_team_id": g.home_team_id,
+            "away_team_id": g.away_team_id,
+            "home_score": g.home_score,
+            "away_score": g.away_score,
+            "winner_team_id": g.winner_team_id,
+        }
+        for g in games
+    ]
     standings = compute_standings(all_results)
     for s in standings:
         team = await repo.get_team(s["team_id"])
@@ -613,12 +609,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
                 s["color"] = t.color or "#888"
 
         # Find current round
-        for rn in range(1, 100):
-            round_games = await repo.get_games_for_round(season_id, rn)
-            if round_games:
-                current_round = rn
-            else:
-                break
+        current_round = await repo.get_latest_round_number(season_id) or 0
 
         # Latest round's games — the headline scores (presented only)
         if current_round > 0:
@@ -940,13 +931,7 @@ async def what_changed_partial(request: Request, repo: RepoDep) -> HTMLResponse:
     standings = await _get_standings(repo, season_id)
 
     # Find current round
-    current_round = 0
-    for rn in range(1, 100):
-        round_games = await repo.get_games_for_round(season_id, rn)
-        if round_games:
-            current_round = rn
-        else:
-            break
+    current_round = await repo.get_latest_round_number(season_id) or 0
 
     if current_round <= 0:
         return HTMLResponse("")
@@ -1112,12 +1097,7 @@ async def play_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         standings = await _get_standings(repo, season_id)
         total_teams = len(standings)
         total_games = sum(s["wins"] for s in standings)
-        for rn in range(1, 100):
-            games = await repo.get_games_for_round(season_id, rn)
-            if games:
-                current_round = rn
-            else:
-                break
+        current_round = await repo.get_latest_round_number(season_id) or 0
         # Count agents + collect team names
         for s in standings:
             team = await repo.get_team(s["team_id"])
@@ -1237,13 +1217,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
 
     if season_id:
         # Find the latest round that has games
-        latest_round = 0
-        for rn in range(1, 100):
-            round_games = await repo.get_games_for_round(season_id, rn)
-            if round_games:
-                latest_round = rn
-            else:
-                break
+        latest_round = await repo.get_latest_round_number(season_id) or 0
 
         # Show up to 4 recent rounds (newest first)
         team_names: dict[str, str] = {}
@@ -1406,13 +1380,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
     # where no team plays twice (simultaneous tip-off).
     upcoming_rounds: list[dict] = []
     if season_id:
-        latest_played = 0
-        for rn in range(1, 100):
-            rg = await repo.get_games_for_round(season_id, rn)
-            if rg:
-                latest_played = rn
-            else:
-                break
+        latest_played = await repo.get_latest_round_number(season_id) or 0
 
         full_schedule = await repo.get_full_schedule(season_id)
         remaining_entries: list = [
@@ -1599,13 +1567,7 @@ async def standings_page(request: Request, repo: RepoDep, current_user: Optional
             streaks = _compute_streaks_from_games(all_games)
 
         # Compute current round and total rounds
-        current_round = 0
-        for rn in range(1, 100):
-            games = await repo.get_games_for_round(season_id, rn)
-            if games:
-                current_round = rn
-            else:
-                break
+        current_round = await repo.get_latest_round_number(season_id) or 0
 
         # Get total scheduled rounds
         full_schedule = await repo.get_full_schedule(season_id)
@@ -2816,12 +2778,7 @@ async def newspaper_page(request: Request, repo: RepoDep, current_user: Optional
 
     if season_id:
         # Find latest round
-        for rn in range(1, 100):
-            games = await repo.get_games_for_round(season_id, rn)
-            if games:
-                current_round = rn
-            else:
-                break
+        current_round = await repo.get_latest_round_number(season_id) or 0
 
         if current_round > 0:
             # Detect playoff phase for this round (needed for headlines

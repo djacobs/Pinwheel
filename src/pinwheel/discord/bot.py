@@ -1619,21 +1619,17 @@ class PinwheelBot(commands.Bot):
                 if not season:
                     return []
 
-                all_results: list[dict] = []
-                for rn in range(1, 100):
-                    games = await repo.get_games_for_round(season.id, rn)
-                    if not games:
-                        break
-                    for g in games:
-                        all_results.append(
-                            {
-                                "home_team_id": g.home_team_id,
-                                "away_team_id": g.away_team_id,
-                                "home_score": g.home_score,
-                                "away_score": g.away_score,
-                                "winner_team_id": g.winner_team_id,
-                            }
-                        )
+                all_games = await repo.get_all_games(season.id)
+                all_results: list[dict] = [
+                    {
+                        "home_team_id": g.home_team_id,
+                        "away_team_id": g.away_team_id,
+                        "home_score": g.home_score,
+                        "away_score": g.away_score,
+                        "winner_team_id": g.winner_team_id,
+                    }
+                    for g in all_games
+                ]
                 standings = compute_standings(all_results)
                 for s in standings:
                     team = await repo.get_team(s["team_id"])
@@ -2846,13 +2842,7 @@ class PinwheelBot(commands.Bot):
                     return []
 
                 # Find the latest played round
-                latest_played = 0
-                for rn in range(1, 100):
-                    games = await repo.get_games_for_round(season.id, rn)
-                    if games:
-                        latest_played = rn
-                    else:
-                        break
+                latest_played = await repo.get_latest_round_number(season.id) or 0
 
                 # Get all remaining scheduled rounds
                 full_schedule = await repo.get_full_schedule(season.id)

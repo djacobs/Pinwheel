@@ -178,6 +178,42 @@ class TestGameResultRoundTrip:
         games = await repo.get_games_for_round(season.id, 1)
         assert len(games) == 2
 
+    async def test_get_latest_round_number_with_data(self, repo: Repository):
+        """get_latest_round_number returns the highest round with game results."""
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        t1 = await repo.create_team(season.id, "T1")
+        t2 = await repo.create_team(season.id, "T2")
+
+        await repo.store_game_result(season.id, 1, 0, t1.id, t2.id, 40, 35, t1.id, 1, 75)
+        await repo.store_game_result(season.id, 2, 0, t2.id, t1.id, 42, 38, t2.id, 2, 80)
+        await repo.store_game_result(season.id, 5, 0, t1.id, t2.id, 50, 45, t1.id, 5, 90)
+
+        result = await repo.get_latest_round_number(season.id)
+        assert result == 5
+
+    async def test_get_latest_round_number_no_data(self, repo: Repository):
+        """get_latest_round_number returns None when no games exist."""
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+
+        result = await repo.get_latest_round_number(season.id)
+        assert result is None
+
+    async def test_get_latest_round_number_wrong_season(self, repo: Repository):
+        """get_latest_round_number returns None for a season with no games."""
+        league = await repo.create_league("L")
+        s1 = await repo.create_season(league.id, "S1")
+        s2 = await repo.create_season(league.id, "S2")
+        t1 = await repo.create_team(s1.id, "T1")
+        t2 = await repo.create_team(s1.id, "T2")
+
+        # Games only in season 1
+        await repo.store_game_result(s1.id, 3, 0, t1.id, t2.id, 40, 35, t1.id, 1, 75)
+
+        assert await repo.get_latest_round_number(s1.id) == 3
+        assert await repo.get_latest_round_number(s2.id) is None
+
 
 class TestGovernanceEvents:
     async def test_append_and_retrieve_events(self, repo: Repository):
