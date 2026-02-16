@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1891 tests**, zero lint errors (Session 86)
+- **1925 tests**, zero lint errors (Session 87)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -26,7 +26,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer (impact validation, leverage detection, behavioral profiles, The Pinwheel Post), playoff series banner fix
 - **Day 16 (cont):** Interpreter fix for conditional mechanics, Amplify Human Judgment roadmap
 - **Day 16 (cont):** Amplify Human Judgment — all 9 features (sim editorial, governance coalitions, private insights, smart Discord embeds, commentary threading, rules dashboard, narrative standings, team trajectory, what-changed + game context)
-- **Latest commit:** `ec093cc` — feat: private report relative insights — blind spots and voting outcomes
+- **Day 16 (cont):** P0/P1 security hardening — auth gates, XSS fix, fail-closed admin, dead code removal
+- **Latest commit:** `c2d2c9e` — fix: P0/P1 security hardening — auth gates, XSS fix, dead code removal
 
 ## Today's Agenda
 
@@ -663,3 +664,53 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 - When a governor types `/propose`, surface: "The last 3 proposals targeting this parameter all passed. Current scoring average is 48 — historically high."
 - Amplifies governance judgment at the moment of decision
 - Requires real-time context injection into the Discord `/propose` flow
+
+---
+
+## Session 87 — P0/P1 Security Hardening
+
+**What was asked:** Execute all P0 and P1 security items from the dev log checklist: remove unauthenticated governance endpoints, auth-gate private reports, fix stored XSS in hooper bios, fail-closed admin auth, shared require_admin dependency, wire into all admin modules, delete legacy mirror stack.
+
+**What was built:**
+
+### P0: Remove unauthenticated governance POST endpoints
+- Deleted `POST /api/governance/proposals`, `POST /api/governance/proposals/{id}/confirm`, `POST /api/governance/votes` — governance now exclusively through Discord
+- Removed `SubmitProposalRequest`, `CastVoteRequest`, `CloseWindowRequest` models and unused imports
+- Updated classifier test to verify wiring through Discord bot instead of deleted endpoint
+
+### P0: Auth-gate private reports API
+- `GET /api/reports/private/{season_id}/{governor_id}` now requires session auth
+- Verifies authenticated user's Discord ID maps to the requested governor_id via `get_player_by_discord_id`
+- Returns 401 for unauthenticated, 403 for wrong governor, dev mode bypass preserved
+- 6 new tests covering all auth scenarios
+
+### P0: Fix stored XSS in hooper bio
+- Replaced 3 inline HTML f-string handlers (`bio/edit`, `bio/view`, `bio` POST) with Jinja2 template partials
+- Created `templates/partials/hooper_bio_view.html` and `templates/partials/hooper_bio_edit.html`
+- Jinja2 auto-escaping prevents `<script>` and `<img onerror>` attack vectors
+- 7 new tests including XSS payload verification
+
+### P0: Fail-closed admin auth
+- Created shared `check_admin_access()`, `is_admin()`, `admin_auth_context()` in `auth/deps.py`
+- In production, returns 503 when OAuth is misconfigured instead of silently granting access
+- In development mode, allows unauthenticated access for local testing
+- 21 new tests covering all environment/auth combinations
+
+### P1: Wire shared admin dependency into all modules
+- Replaced per-module `_is_admin` (5 copies) and `_auth_context` (6 copies) across `admin_costs.py`, `admin_workbench.py`, `admin_roster.py`, `admin_review.py`, `admin_season.py`, `eval_dashboard.py`
+- Upgraded `eval_dashboard.py` from login-only check to full admin check for consistency
+- Updated 4 test files to use `pinwheel_env="staging"` for OAuth redirect tests
+
+### P1: Delete legacy mirror stack
+- Deleted 3 dead files: `ai/mirror.py`, `models/mirror.py`, `api/mirrors.py`
+- Not mounted in main.py, no imports, no tests, no DB methods — completely unreferenced
+
+**Files modified (19):** `src/pinwheel/auth/deps.py`, `src/pinwheel/api/governance.py`, `src/pinwheel/api/reports.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/api/admin_costs.py`, `src/pinwheel/api/admin_review.py`, `src/pinwheel/api/admin_roster.py`, `src/pinwheel/api/admin_season.py`, `src/pinwheel/api/admin_workbench.py`, `src/pinwheel/api/eval_dashboard.py`, `tests/test_admin_review.py`, `tests/test_admin_workbench.py`, `tests/test_ai_costs.py`, `tests/test_classifier.py`, `tests/test_evals/test_eval_dashboard.py`, `tests/test_pages.py`, `tests/test_reports.py`, `pyproject.toml`, `uv.lock`
+
+**New files (3):** `templates/partials/hooper_bio_view.html`, `templates/partials/hooper_bio_edit.html`, `tests/test_admin_auth.py`
+
+**Deleted files (3):** `src/pinwheel/ai/mirror.py`, `src/pinwheel/api/mirrors.py`, `src/pinwheel/models/mirror.py`
+
+**1925 tests (34 new), zero lint errors.**
+
+**What could have gone better:** All 5 parallel agents ran cleanly with no merge conflicts. The security items were straightforward because the existing code was well-structured — the auth patterns were consistent (just duplicated), the XSS was contained to 3 handlers, and the mirror stack was completely dead. Net -145 lines despite adding 34 tests.
