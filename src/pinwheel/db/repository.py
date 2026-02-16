@@ -806,7 +806,7 @@ class Repository:
         )
         if report_type:
             stmt = stmt.where(ReportRow.report_type == report_type)
-        stmt = stmt.order_by(ReportRow.created_at)
+        stmt = stmt.order_by(ReportRow.created_at.desc())
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

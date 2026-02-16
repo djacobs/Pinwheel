@@ -17,7 +17,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer, Amplify Human Judgment (9 features), P0/P1 security hardening, doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
-- **Latest commit:** `f075307` — feat: rewrite simulation report prompt — specificity, surprise, energy
+- **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
+- **Latest commit:** `1bc58e3` — feat: simplify simulation report prompt + add regen-report command
 
 ## Today's Agenda
 
@@ -123,3 +124,21 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1966 tests, zero lint errors.**
 
 **What could have gone better:** The Session 92 early-season guard was necessary but insufficient — it added "don't do X" rules without restructuring the prompt's energy. The model needs positive direction ("find what's surprising") more than negative guardrails ("don't use cliches").
+
+---
+
+## Session 95 — Production Report Fix + Report Ordering
+
+**What was asked:** The live production homepage was showing a bad simulation report that missed the championship upset (Hawthorne beating league-dominant Rose City in the finals). The new simplified prompt (Session 94) was deployed but the existing report needed regeneration. Also needed to fix ANTHROPIC_API_KEY availability on Fly and a report ordering bug.
+
+**What was built:**
+- **Regenerated production report** via `regen-report` command on Fly — new report correctly leads with the Hawthorne championship upset
+- **Fixed report ordering bug** in `get_reports_for_round()` — was sorting `created_at` ascending, so `[0]` returned the oldest report for a round instead of the newest. Changed to `desc()` so regenerated reports take precedence
+- **Resolved ANTHROPIC_API_KEY** on production — key was re-added to Fly secrets and verified accessible in SSH sessions
+- **Pre-existing test failures identified** — 7 `TestProposeGovernance` tests fail due to `response_format` kwarg not handled by mocks (from Messages API changes); 1 workbench test fails when API key is set locally
+
+**Files modified (1):** `src/pinwheel/db/repository.py`
+
+**1966 tests, zero lint errors.** (7 pre-existing mock failures in `TestProposeGovernance`)
+
+**What could have gone better:** The `get_reports_for_round()` ordering was ascending from the start — any time a report was regenerated, the old version would still show. The `get_latest_report()` method had correct `desc()` ordering, but the homepage used a different query path.
