@@ -777,3 +777,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 120. [DONE] Report prose rendering + prompt cleanup
 **Problem:** Simulation reports displayed raw markdown on the homepage — `**bold**`, `## headers`, and `---` rendered as literal text. The model also included literal question scaffolding ("**1. What was surprising?**") from the prompt template.
 **Fix:** Added `prose` Jinja2 filter that converts paragraph text to `<p>` tags with `<br>` for single newlines, applied to sim reports, highlight reels, and governance reports. Updated prompt to say "do NOT include questions in your output" and "Output plain prose paragraphs only."
+
+### 121. [DONE] Full markdown rendering on /reports page
+**Problem:** The /reports page still showed raw markdown syntax (headings, bold, lists) because the `prose` filter only wrapped paragraphs in `<p>` tags and HTML-escaped everything else. Follow-up to #120.
+**Fix:** Replaced the `_prose_to_html` filter with `markdown.markdown()` using `nl2br` (preserves line breaks) and `smarty` (smart quotes/dashes) extensions. Added `markdown>=3.5` to project dependencies. Reports now render all markdown formatting as proper HTML.

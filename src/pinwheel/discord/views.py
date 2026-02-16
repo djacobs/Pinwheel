@@ -309,6 +309,8 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
             api_key = self.parent_view.settings.anthropic_api_key
             interpretation_v2 = None
             if api_key:
+                import asyncio
+
                 from pinwheel.ai.classifier import classify_injection
                 from pinwheel.evals.injection import store_injection_classification
                 from pinwheel.models.governance import (
@@ -317,8 +319,6 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 from pinwheel.models.governance import (
                     RuleInterpretation as RI,
                 )
-
-                import asyncio
 
                 classification, interpretation_v2 = await asyncio.gather(
                     classify_injection(new_text, api_key),

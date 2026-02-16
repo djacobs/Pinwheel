@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1967 tests**, zero lint errors (Session 97)
+- **1967 tests**, zero lint errors (Session 101)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `d274942` — fix: retry + graceful fallback for interpreter API errors
+- **Latest commit:** `fc2e588` — fix: render markdown in reports page instead of raw syntax
 
 ## Today's Agenda
 
@@ -233,3 +233,21 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** This should have been caught earlier — the `f"V2 interpretation failed: {e}"` pattern was there since the V2 interpreter was written. Any API error (transient or not) would have exposed internals to players.
+
+---
+
+## Session 101 — Render Markdown in Reports Page (Hackathon Submission)
+
+**What was asked:** The /reports page was displaying raw markdown syntax instead of rendered HTML. Fix it so markdown is properly interpreted. This is the as-was commit at time of project submission for the Claude Code hackathon.
+
+**What was built:**
+- Added `markdown>=3.5` dependency to `pyproject.toml`
+- Replaced `_prose_to_html` Jinja2 filter in `api/pages.py` — was HTML-escaping and wrapping in `<p>` tags, now uses `markdown.markdown()` with `nl2br` and `smarty` extensions
+- Reports page now renders headings, bold, italic, lists, and other markdown as formatted HTML
+- Fixed 3 pre-existing import-order lint errors in `discord/bot.py` and `discord/views.py`
+
+**Files modified (5):** `pyproject.toml`, `uv.lock`, `src/pinwheel/api/pages.py`, `src/pinwheel/discord/bot.py`, `src/pinwheel/discord/views.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — straightforward fix. The `prose` filter was written early on when reports were plain paragraphs; once the AI started outputting markdown, the filter didn't keep up.

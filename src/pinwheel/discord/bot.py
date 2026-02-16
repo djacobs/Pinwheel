@@ -2168,6 +2168,10 @@ class PinwheelBot(commands.Bot):
             api_key = self.settings.anthropic_api_key
             interpretation_v2 = None
             if api_key:
+                # Fire classifier and interpreter in parallel —
+                # total time = max(classifier, interpreter) instead of sum.
+                import asyncio
+
                 from pinwheel.ai.classifier import classify_injection
                 from pinwheel.evals.injection import store_injection_classification
                 from pinwheel.models.governance import (
@@ -2176,10 +2180,6 @@ class PinwheelBot(commands.Bot):
                 from pinwheel.models.governance import (
                     RuleInterpretation as RI,
                 )
-
-                # Fire classifier and interpreter in parallel —
-                # total time = max(classifier, interpreter) instead of sum.
-                import asyncio
 
                 classification, interpretation_v2 = await asyncio.gather(
                     classify_injection(text, api_key),
@@ -2465,6 +2465,8 @@ class PinwheelBot(commands.Bot):
             api_key = self.settings.anthropic_api_key
             interpretation_v2 = None
             if api_key:
+                import asyncio
+
                 from pinwheel.ai.classifier import classify_injection
                 from pinwheel.evals.injection import store_injection_classification
                 from pinwheel.models.governance import (
@@ -2473,8 +2475,6 @@ class PinwheelBot(commands.Bot):
                 from pinwheel.models.governance import (
                     RuleInterpretation as RI,
                 )
-
-                import asyncio
 
                 classification, interpretation_v2 = await asyncio.gather(
                     classify_injection(text, api_key),
