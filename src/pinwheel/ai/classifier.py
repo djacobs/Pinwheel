@@ -17,6 +17,7 @@ import logging
 from typing import Literal
 
 import anthropic
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,10 @@ async def classify_injection(
     )
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=httpx.Timeout(15.0, connect=5.0),
+        )
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=CLASSIFIER_MODEL,

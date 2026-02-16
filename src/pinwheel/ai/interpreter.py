@@ -11,6 +11,7 @@ import json
 import logging
 
 import anthropic
+import httpx
 
 from pinwheel.models.governance import (
     EffectSpec,
@@ -110,7 +111,10 @@ async def interpret_proposal(
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            client = anthropic.AsyncAnthropic(api_key=api_key)
+            client = anthropic.AsyncAnthropic(
+                api_key=api_key,
+                timeout=httpx.Timeout(30.0, connect=10.0),
+            )
             async with track_latency() as timing:
                 response = await client.messages.create(
                     model=model,
@@ -299,7 +303,10 @@ async def interpret_strategy(
 
     model = "claude-sonnet-4-5-20250929"
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+        )
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=model,
@@ -570,7 +577,10 @@ async def interpret_proposal_v2(
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            client = anthropic.AsyncAnthropic(api_key=api_key)
+            client = anthropic.AsyncAnthropic(
+                api_key=api_key,
+                timeout=httpx.Timeout(30.0, connect=10.0),
+            )
             async with track_latency() as timing:
                 response = await client.messages.create(
                     model=model,
