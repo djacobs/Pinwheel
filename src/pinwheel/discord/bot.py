@@ -2177,7 +2177,14 @@ class PinwheelBot(commands.Bot):
                     RuleInterpretation as RI,
                 )
 
-                classification = await classify_injection(text, api_key)
+                # Fire classifier and interpreter in parallel —
+                # total time = max(classifier, interpreter) instead of sum.
+                import asyncio
+
+                classification, interpretation_v2 = await asyncio.gather(
+                    classify_injection(text, api_key),
+                    interpret_proposal_v2(text, ruleset, api_key),
+                )
 
                 # Store classification result for dashboard visibility
                 async with get_session(self.engine) as session:
@@ -2193,6 +2200,7 @@ class PinwheelBot(commands.Bot):
                     await session.commit()
 
                 if classification.classification == "injection" and classification.confidence > 0.8:
+                    # Discard interpreter result — injection detected
                     interpretation = RI(
                         confidence=0.0,
                         injection_flagged=True,
@@ -2207,11 +2215,6 @@ class PinwheelBot(commands.Bot):
                         original_text_echo=text,
                     )
                 else:
-                    interpretation_v2 = await interpret_proposal_v2(
-                        text,
-                        ruleset,
-                        api_key,
-                    )
                     interpretation = interpretation_v2.to_rule_interpretation()
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
@@ -2471,7 +2474,12 @@ class PinwheelBot(commands.Bot):
                     RuleInterpretation as RI,
                 )
 
-                classification = await classify_injection(text, api_key)
+                import asyncio
+
+                classification, interpretation_v2 = await asyncio.gather(
+                    classify_injection(text, api_key),
+                    interpret_proposal_v2(text, ruleset, api_key),
+                )
 
                 # Store classification result
                 async with get_session(self.engine) as cls_session:
@@ -2501,9 +2509,6 @@ class PinwheelBot(commands.Bot):
                         original_text_echo=text,
                     )
                 else:
-                    interpretation_v2 = await interpret_proposal_v2(
-                        text, ruleset, api_key
-                    )
                     interpretation = interpretation_v2.to_rule_interpretation()
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (

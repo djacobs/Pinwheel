@@ -318,7 +318,12 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                     RuleInterpretation as RI,
                 )
 
-                classification = await classify_injection(new_text, api_key)
+                import asyncio
+
+                classification, interpretation_v2 = await asyncio.gather(
+                    classify_injection(new_text, api_key),
+                    interpret_proposal_v2(new_text, ruleset, api_key),
+                )
 
                 # Store classification result for dashboard visibility
                 async with get_session(self.parent_view.engine) as cls_session:
@@ -348,11 +353,6 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                         original_text_echo=new_text,
                     )
                 else:
-                    interpretation_v2 = await interpret_proposal_v2(
-                        new_text,
-                        ruleset,
-                        api_key,
-                    )
                     interpretation = interpretation_v2.to_rule_interpretation()
                     if classification.classification == "suspicious":
                         interpretation.impact_analysis = (
