@@ -189,8 +189,8 @@ async def interpret_proposal(
     result = interpret_proposal_mock(raw_text, ruleset)
     if last_error is not None and result.confidence < 0.5:
         result.impact_analysis = (
-            "The AI interpreter is temporarily unavailable. "
-            "Your proposal will be interpreted using basic pattern matching."
+            "The Interpreter is busy right now. "
+            "Try Revise to rephrase, or Confirm to submit as-is for the Floor to vote on."
         )
     return result
 
@@ -626,8 +626,8 @@ async def interpret_proposal_v2(
     result = interpret_proposal_v2_mock(raw_text, ruleset)
     if last_error is not None and result.confidence < 0.5:
         result.impact_analysis = (
-            "The AI interpreter is temporarily unavailable. "
-            "Your proposal will be interpreted using basic pattern matching."
+            "The Interpreter is busy right now. "
+            "Try Revise to rephrase, or Confirm to submit as-is for the Floor to vote on."
         )
     result.original_text_echo = raw_text
     return result
