@@ -1244,10 +1244,13 @@ async def archive_season(
         if team:
             s["team_name"] = team.name
 
-    # Determine champion (top of standings)
+    # Determine champion — prefer config (actual finals winner) over standings
     champion_team_id = None
     champion_team_name = None
-    if standings:
+    if season.config:
+        champion_team_id = season.config.get("champion_team_id")
+        champion_team_name = season.config.get("champion_team_name")
+    if not champion_team_id and standings:
         champion_team_id = standings[0]["team_id"]
         champion_team_name = standings[0].get("team_name", str(champion_team_id))
 
@@ -1292,6 +1295,18 @@ async def archive_season(
 
         memorial_data = generate_season_memorial_mock(memorial_data)
 
+    # Gather public reports (simulation, governance, series)
+    report_rows = await repo.get_public_reports_for_season(season_id)
+    archived_reports = [
+        {
+            "report_type": r.report_type,
+            "round_number": r.round_number,
+            "content": r.content,
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+        }
+        for r in report_rows
+    ]
+
     # Create archive
     archive = SeasonArchiveRow(
         season_id=season_id,
@@ -1305,6 +1320,7 @@ async def archive_season(
         total_proposals=len(proposal_events),
         total_rule_changes=len(rule_changes),
         governor_count=len(governors),
+        reports=archived_reports,
         memorial=memorial_data,
     )
     await repo.store_season_archive(archive)

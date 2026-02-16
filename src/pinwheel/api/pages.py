@@ -3032,6 +3032,7 @@ async def season_archive_detail(
         "total_proposals": archive.total_proposals,
         "total_rule_changes": archive.total_rule_changes,
         "governor_count": archive.governor_count,
+        "reports": archive.reports or [],
         "created_at": archive.created_at.isoformat() if archive.created_at else "",
     }
 

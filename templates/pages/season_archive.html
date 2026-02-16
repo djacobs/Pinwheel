@@ -107,6 +107,23 @@
 </div>
 {% endif %}
 
+{% if archive.reports %}
+<div class="card">
+  <h3 style="margin-bottom:1rem;">Season Reports</h3>
+  {% for r in archive.reports %}
+  <div style="margin-bottom:1.5rem; {% if not loop.last %}border-bottom:1px solid var(--border); padding-bottom:1.5rem;{% endif %}">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+      <span style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent-{% if r.report_type == 'simulation' %}highlight{% elif r.report_type == 'governance' %}governance{% else %}report{% endif %}); font-weight:700;">
+        {% if r.report_type == 'simulation' %}Game Report{% elif r.report_type == 'governance' %}Governance Report{% elif r.report_type == 'series' %}Series Report{% else %}{{ r.report_type }}{% endif %}
+      </span>
+      <span style="font-size:0.75rem; color:var(--text-muted);">Round {{ r.round_number }}</span>
+    </div>
+    <div class="report-content">{{ r.content | prose | safe }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% else %}
 {# --- Archive list view --- #}
 <div class="page-header">

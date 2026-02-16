@@ -297,6 +297,7 @@ class SeasonArchiveRow(Base):
     total_proposals: Mapped[int] = mapped_column(Integer, default=0)
     total_rule_changes: Mapped[int] = mapped_column(Integer, default=0)
     governor_count: Mapped[int] = mapped_column(Integer, default=0)
+    reports: Mapped[list | None] = mapped_column(JSON, nullable=True)
     memorial: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 

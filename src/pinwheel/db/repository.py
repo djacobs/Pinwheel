@@ -876,6 +876,22 @@ class Repository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_public_reports_for_season(
+        self,
+        season_id: str,
+    ) -> list[ReportRow]:
+        """Get all public reports (simulation, governance, series) for a season."""
+        stmt = (
+            select(ReportRow)
+            .where(
+                ReportRow.season_id == season_id,
+                ReportRow.report_type.in_(["simulation", "governance", "series"]),
+            )
+            .order_by(ReportRow.round_number.asc(), ReportRow.report_type.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_all_game_results_for_season(self, season_id: str) -> list[GameResultRow]:
         """Get all game results for a season, ordered by round."""
         stmt = (
