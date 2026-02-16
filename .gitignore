@@ -45,6 +45,9 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
+# Demo binary assets (screenshots captured by Rodney)
+demo/*.png
+
 # Distribution
 *.tar.gz
 *.whl
