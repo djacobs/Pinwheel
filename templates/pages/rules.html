@@ -105,7 +105,7 @@
   <p class="rules-tier-subtitle">{{ tier.subtitle }}</p>
   <div class="rules-tier-grid">
     {% for rule in tier.rules %}
-    <div class="rule-card {% if rule.changed %}rule-card-changed{% endif %}">
+    <div class="rule-card {% if rule.changed %}rule-card-changed{% endif %} {% if rule.get('drift_pct', 0) >= 50 %}rule-card-high-drift{% endif %}">
       <div class="rule-card-header">
         <span class="rule-card-label">{{ rule.label }}</span>
         {% if rule.value is sameas true %}
@@ -116,20 +116,52 @@
         <span class="rule-card-value {% if rule.changed %}rule-card-value-changed{% endif %}">{{ rule.value }}</span>
         {% endif %}
       </div>
+      {# Drift bar: visual indicator of how far from default #}
+      {% if rule.changed and rule.get('drift_pct', 0) > 0 %}
+      <div class="rule-drift-bar-container">
+        <div class="rule-drift-bar" style="width: {{ [rule.get('drift_pct', 0), 100] | min }}%"></div>
+        <span class="rule-drift-label">{{ rule.get('drift_pct', 0) }}% from default ({{ rule.default }})</span>
+      </div>
+      {% elif rule.changed %}
+      <div class="rule-drift-label-only">Changed from default ({{ rule.default }})</div>
+      {% endif %}
       <div class="rule-card-desc">{{ rule.desc }}</div>
       {% if rule.range %}
       <div class="rule-card-range">Range: {{ rule.range }}</div>
       {% endif %}
+      {% if rule.get('change_count', 0) > 0 %}
+      <div class="rule-card-change-count">{{ rule.change_count }} change{{ 's' if rule.change_count != 1 else '' }} this season</div>
+      {% endif %}
       {% if rule.history %}
       <div class="rule-card-history">
+        <div class="rule-history-header">Change History</div>
         {% for change in rule.history %}
         <div class="rule-change-entry">
-          <span class="rule-change-arrow">{{ change.old_value }} &rarr; {{ change.new_value }}</span>
-          <span class="rule-change-round">Round {{ change.round_enacted }}</span>
-          {% if change.governor_id %}
-          <span class="rule-change-proposer">
-            <a href="/governors/{{ change.governor_id }}" class="text-muted">Proposed by Governor</a>
-          </span>
+          <div class="rule-change-top-row">
+            <span class="rule-change-arrow">{{ change.old_value }} &rarr; {{ change.new_value }}</span>
+            <span class="rule-change-round">Round {{ change.round_enacted }}</span>
+          </div>
+          {% if change.governor_name or change.governor_id %}
+          <div class="rule-change-attribution">
+            {% if change.governor_name %}
+            <span class="rule-change-proposer">
+              <a href="/governors/{{ change.governor_id }}">{{ change.governor_name }}</a>
+            </span>
+            {% elif change.governor_id %}
+            <span class="rule-change-proposer">
+              <a href="/governors/{{ change.governor_id }}">Governor</a>
+            </span>
+            {% endif %}
+            {% if change.vote_margin %}
+            <span class="rule-change-vote-margin" title="Vote: {{ change.vote_margin }}">Passed {{ change.vote_margin }}</span>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% if change.raw_text %}
+          <div class="rule-change-proposal-text">&ldquo;{{ change.raw_text }}&rdquo;</div>
+          {% endif %}
+          {% if change.impact %}
+          <div class="rule-change-impact">{{ change.impact }}</div>
           {% endif %}
         </div>
         {% endfor %}
@@ -144,19 +176,21 @@
 {% if rule_history %}
 <div class="home-section">
   <div class="section-title-bar">
-    <span class="section-title-text">Change History</span>
+    <span class="section-title-text">Change Timeline</span>
   </div>
-  {% for rc in rule_history %}
-  <div class="rule-history-item">
-    <span class="rule-history-param">{{ rc.parameter.replace('_', ' ').title() }}</span>
-    <span class="rule-history-change">
-      <span class="rule-old">{{ rc.old_value }}</span>
-      <span class="rule-arrow">&rarr;</span>
-      <span class="rule-new">{{ rc.new_value }}</span>
-    </span>
-    <span class="rule-history-round">Round {{ rc.round_enacted }}</span>
+  <div class="rule-timeline">
+    {% for rc in rule_history %}
+    <div class="rule-history-item">
+      <span class="rule-history-param">{{ rc.parameter.replace('_', ' ').title() }}</span>
+      <span class="rule-history-change">
+        <span class="rule-old">{{ rc.old_value }}</span>
+        <span class="rule-arrow">&rarr;</span>
+        <span class="rule-new">{{ rc.new_value }}</span>
+      </span>
+      <span class="rule-history-round">Round {{ rc.round_enacted }}</span>
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
 </div>
 {% endif %}
 

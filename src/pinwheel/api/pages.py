@@ -433,23 +433,24 @@ def _compute_what_changed(
                 continue
             winner_pos = prev_positions.get(winner_id)
             loser_pos = prev_positions.get(loser_id)
-            if winner_pos is not None and loser_pos is not None:
-                # Upset: lower-ranked team (higher position index) beats
-                # higher-ranked team with a gap of 2+ positions
-                if winner_pos - loser_pos >= 2:
-                    winner_name = (
-                        game.get("home_name", "?")
-                        if winner_id == home_id
-                        else game.get("away_name", "?")
-                    )
-                    loser_name = (
-                        game.get("away_name", "?")
-                        if winner_id == home_id
-                        else game.get("home_name", "?")
-                    )
-                    signals.append(
-                        f"Upset! {winner_name} knocked off {loser_name}."
-                    )
+            if (
+                winner_pos is not None
+                and loser_pos is not None
+                and winner_pos - loser_pos >= 2
+            ):
+                winner_name = (
+                    game.get("home_name", "?")
+                    if winner_id == home_id
+                    else game.get("away_name", "?")
+                )
+                loser_name = (
+                    game.get("away_name", "?")
+                    if winner_id == home_id
+                    else game.get("home_name", "?")
+                )
+                signals.append(
+                    f"Upset! {winner_name} knocked off {loser_name}."
+                )
 
     # Streak changes — new 3+ streaks or broken 3+ streaks
     for team_id, streak in streaks.items():
@@ -1956,9 +1957,12 @@ async def game_page(request: Request, game_id: str, repo: RepoDep, current_user:
             hooper_season_highs: dict[str, int] = {}
             for g in all_games:
                 for bs in g.box_scores:
-                    if bs.hooper_id not in hooper_season_highs:
-                        hooper_season_highs[bs.hooper_id] = bs.points
-                    elif bs.points > hooper_season_highs[bs.hooper_id]:
+                    is_new = bs.hooper_id not in hooper_season_highs
+                    is_higher = (
+                        not is_new
+                        and bs.points > hooper_season_highs[bs.hooper_id]
+                    )
+                    if is_new or is_higher:
                         hooper_season_highs[bs.hooper_id] = bs.points
 
             for bs in game.box_scores:

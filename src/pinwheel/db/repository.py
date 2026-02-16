@@ -366,6 +366,31 @@ class Repository:
             "elam_activation_rate": elam_count / game_count if game_count > 0 else 0,
         }
 
+    async def get_avg_total_game_score_for_rounds(
+        self,
+        season_id: str,
+        round_start: int,
+        round_end: int,
+    ) -> tuple[float, int]:
+        """Compute average total game score (home + away) for a range of rounds.
+
+        Returns (avg_total_score, game_count).  If no games exist in the
+        range, returns (0.0, 0).
+        """
+        stmt = select(
+            func.count(GameResultRow.id),
+            func.avg(GameResultRow.home_score + GameResultRow.away_score),
+        ).where(
+            GameResultRow.season_id == season_id,
+            GameResultRow.round_number >= round_start,
+            GameResultRow.round_number <= round_end,
+        )
+        result = await self.session.execute(stmt)
+        row = result.one()
+        count: int = row[0] or 0
+        avg: float = float(row[1]) if row[1] is not None else 0.0
+        return avg, count
+
     # --- Governance Events (append-only) ---
 
     async def append_event(
@@ -1109,6 +1134,7 @@ class Repository:
                 "opponent_score": opponent_score,
                 "won": won,
                 "margin": margin,
+                "is_home": is_home,
             })
 
         return results
@@ -1411,7 +1437,12 @@ class Repository:
         - new_value: int | float | bool
         - round_enacted: int
         - proposal_id: str
-        - governor_id: str | None (from linked proposal.submitted event if available)
+        - governor_id: str | None (from linked proposal.submitted event)
+        - governor_name: str | None (resolved username)
+        - raw_text: str | None (original proposal text)
+        - vote_yes: float (weighted yes votes)
+        - vote_no: float (weighted no votes)
+        - vote_margin: str | None (human-readable margin, e.g. "3-1")
 
         Ordered by round_enacted, then sequence_number.
         """
@@ -1420,28 +1451,69 @@ class Repository:
             event_types=["rule.enacted"],
         )
 
-        # Build a map of proposal_id -> governor_id from submitted events
+        # Build maps from submitted events
         submitted_events = await self.get_events_by_type(
             season_id=season_id,
             event_types=["proposal.submitted"],
         )
         proposal_governors: dict[str, str | None] = {}
+        proposal_raw_text: dict[str, str] = {}
         for e in submitted_events:
             pid = e.payload.get("id", "")
             if pid:
                 proposal_governors[pid] = e.governor_id
+                proposal_raw_text[pid] = e.payload.get("raw_text", "")
+
+        # Build vote tally map from outcome events
+        outcome_events = await self.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.passed", "proposal.failed"],
+        )
+        vote_tallies: dict[str, dict[str, float | int]] = {}
+        for e in outcome_events:
+            pid = e.payload.get("proposal_id", e.aggregate_id)
+            vote_tallies[pid] = {
+                "yes": float(e.payload.get("weighted_yes", 0)),
+                "no": float(e.payload.get("weighted_no", 0)),
+                "yes_count": int(e.payload.get("yes_count", 0)),
+                "no_count": int(e.payload.get("no_count", 0)),
+            }
+
+        # Resolve governor usernames in bulk
+        governor_ids = {
+            gid for gid in proposal_governors.values() if gid
+        }
+        governor_names: dict[str, str] = {}
+        for gid in governor_ids:
+            player = await self.get_player(gid)
+            if player:
+                governor_names[gid] = player.username
 
         timeline: list[dict] = []
         for evt in rule_events:
             payload = evt.payload
             proposal_id = payload.get("source_proposal_id", "")
+            governor_id = proposal_governors.get(proposal_id)
+            tally = vote_tallies.get(proposal_id, {})
+            yes_count = int(tally.get("yes_count", 0))
+            no_count = int(tally.get("no_count", 0))
+            vote_margin = (
+                f"{yes_count}\u2013{no_count}"
+                if yes_count or no_count
+                else None
+            )
             timeline.append({
                 "parameter": payload.get("parameter", ""),
                 "old_value": payload.get("old_value"),
                 "new_value": payload.get("new_value"),
                 "round_enacted": payload.get("round_enacted", 0),
                 "proposal_id": proposal_id,
-                "governor_id": proposal_governors.get(proposal_id),
+                "governor_id": governor_id,
+                "governor_name": governor_names.get(governor_id or ""),
+                "raw_text": proposal_raw_text.get(proposal_id),
+                "vote_yes": float(tally.get("yes", 0)),
+                "vote_no": float(tally.get("no", 0)),
+                "vote_margin": vote_margin,
             })
 
         # Sort by round_enacted ascending
