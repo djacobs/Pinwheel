@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1964 tests**, zero lint errors (Session 90)
+- **1964 tests**, zero lint errors (Session 92)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -17,7 +17,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer, Amplify Human Judgment (9 features), P0/P1 security hardening, doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
-- **Latest commit:** `0c137b2` — docs: session 90 — archive day 15 dev log, start day 17
+- **Latest commit:** `1724532` — feat: upgrade reports to Opus, add early-season awareness guard
 
 ## Today's Agenda
 
@@ -64,3 +64,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 **Recommended next demo-safe polish:**
 - Optimize the `reports_page` retrieval path first (largest remaining page-latency hotspot with minimal product-surface risk).
+
+---
+
+## Session 92 — Reports Upgrade to Opus + Early-Season Guard
+
+**What was asked:** Round 1 simulation report claimed "the league is as tight as it has ever been" and "just 1 game separates" teams — meaningless after a single round. Also duplicated a game result line. Reports were using Sonnet, not Opus.
+
+**What was built:**
+- Upgraded report model from `claude-sonnet-4-5-20250929` to `claude-opus-4-6` in `_call_claude()`
+- Added "Early-Season Awareness" section to all 3 report prompts (simulation, governance, private):
+  - Simulation: Don't claim patterns, tight races, or trends from 1-2 games
+  - Governance: Don't claim coalitions from fewer than 3 shared votes
+  - Private: Don't pad with generic advice when governor has no activity
+- Added Opus pricing to `usage.py` ($15/$75 per Mtok input/output)
+
+**Files modified (3):** `src/pinwheel/ai/report.py`, `src/pinwheel/ai/usage.py`, `docs/dev_log/DEV_LOG.md`
+
+**1964 tests, zero lint errors.**
+
+**What could have gone better:** Reports should have been on Opus from the start — the editorial voice is the game's personality. The early-season guard is an obvious prompt gap that should have been caught during the Session 86 prompt rewrite.
