@@ -1898,7 +1898,7 @@ async def _generate_series_reports(
                             "series_type": "semifinal",
                             "winner_name": winner_name,
                             "loser_name": loser_name,
-                            "excerpt": report.content[:200],
+                            "excerpt": report.content,
                         },
                     )
                     logger.info(
@@ -2001,7 +2001,7 @@ async def _generate_series_reports(
                         "series_type": "finals",
                         "winner_name": winner_name,
                         "loser_name": loser_name,
-                        "excerpt": report.content[:200],
+                        "excerpt": report.content,
                     },
                 )
                 logger.info(
@@ -2053,7 +2053,7 @@ async def _phase_persist_and_finalize(
         {
             "report_type": "simulation",
             "round": sim.round_number,
-            "excerpt": ai.sim_report.content[:200],
+            "excerpt": ai.sim_report.content,
         },
     )
 
@@ -2069,7 +2069,7 @@ async def _phase_persist_and_finalize(
         {
             "report_type": "governance",
             "round": sim.round_number,
-            "excerpt": ai.gov_report.content[:200],
+            "excerpt": ai.gov_report.content,
         },
     )
 
@@ -2089,7 +2089,7 @@ async def _phase_persist_and_finalize(
                 "round": sim.round_number,
                 "governor_id": gov_id,
                 "report_id": report_row.id,
-                "excerpt": priv_report.content[:200],
+                "excerpt": priv_report.content,
             },
         )
 
@@ -2106,7 +2106,7 @@ async def _phase_persist_and_finalize(
             {
                 "report_type": "impact_validation",
                 "round": sim.round_number,
-                "excerpt": ai.impact_report.content[:200],
+                "excerpt": ai.impact_report.content,
             },
         )
 
@@ -2125,7 +2125,7 @@ async def _phase_persist_and_finalize(
                 "report_type": "leverage",
                 "round": sim.round_number,
                 "governor_id": gov_id,
-                "excerpt": lev_report.content[:200],
+                "excerpt": lev_report.content,
             },
         )
 
@@ -2144,7 +2144,7 @@ async def _phase_persist_and_finalize(
                 "report_type": "behavioral",
                 "round": sim.round_number,
                 "governor_id": gov_id,
-                "excerpt": beh_report.content[:200],
+                "excerpt": beh_report.content,
             },
         )
 

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.discord.embeds import (
     build_amendment_confirm_embed,
+    build_commentary_embed,
     build_game_result_embed,
     build_governor_profile_embed,
     build_history_list_embed,
@@ -1441,6 +1442,12 @@ class PinwheelBot(commands.Bot):
             play_channel = self._get_channel_for("play_by_play")
             if play_channel:
                 await play_channel.send(embed=embed)
+
+            # Send AI commentary if available
+            commentary = str(data.get("commentary", ""))
+            if commentary and play_channel:
+                comm_embed = build_commentary_embed(data, playoff_context=pc)
+                await play_channel.send(embed=comm_embed)
 
             # Big plays: blowout (>15 diff) or buzzer-beater (margin <= 2)
             home_score = int(data.get("home_score", 0))

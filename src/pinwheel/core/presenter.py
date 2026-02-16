@@ -83,6 +83,32 @@ class PresentationState:
         self.color_cache = {}
 
 
+async def _staggered_game(
+    delay: int,
+    state: PresentationState,
+    game_kwargs: dict,
+) -> None:
+    """Wait *delay* seconds before starting a game presentation.
+
+    If the presentation is cancelled during the wait, the game is
+    never started.  The first game (delay=0) starts immediately.
+
+    ``game_kwargs`` are forwarded to ``_present_full_game``.  The
+    coroutine is created lazily — only after the delay elapses — so
+    no "coroutine never awaited" warnings occur on early cancellation.
+    """
+    if delay > 0:
+        # Sleep in short increments so cancellation is responsive
+        elapsed = 0.0
+        while elapsed < delay:
+            if state.cancel_event.is_set():
+                return
+            chunk = min(1.0, delay - elapsed)
+            await asyncio.sleep(chunk)
+            elapsed += chunk
+    await _present_full_game(**game_kwargs)
+
+
 async def present_round(
     game_results: list[GameResult],
     event_bus: object,
@@ -95,19 +121,20 @@ async def present_round(
     game_summaries: list[dict] | None = None,
     skip_quarters: int = 0,
 ) -> None:
-    """Replay a round's games concurrently over real time via EventBus.
+    """Replay a round's games with staggered starts via EventBus.
 
-    All games in a round start simultaneously and stream possessions in
-    parallel.  No team plays twice in a single round, so concurrent
-    presentation is physically correct.  The *spacing* between rounds is
-    handled by the APScheduler cron — not by this function.
+    Games start one quarter apart so they finish at different times,
+    giving viewers a steady stream of results instead of a simultaneous
+    burst.  The stagger equals ``quarter_replay_seconds`` — game 0
+    starts immediately, game 1 after one quarter's worth of wall-clock
+    time, etc.
 
     Args:
         game_results: Pre-computed game results from simulation.
         event_bus: EventBus instance for publishing events.
         state: Shared PresentationState for re-entry guard.
-        game_interval_seconds: Kept for API compat; ignored. Round spacing
-            is controlled by the cron schedule.
+        game_interval_seconds: Stagger delay between game starts in
+            seconds.  Defaults to ``quarter_replay_seconds`` when 0.
         quarter_replay_seconds: Wall-clock seconds to replay each quarter.
         name_cache: Mapping of entity IDs to display names (team IDs, hooper IDs).
         color_cache: Mapping of team IDs to (primary_color, secondary_color) tuples.
@@ -132,19 +159,26 @@ async def present_round(
     state.color_cache = dict(colors)
     state.live_games = {}
 
+    # Stagger delay: one quarter between game starts so endings are spread out
+    stagger = game_interval_seconds if game_interval_seconds > 0 else quarter_replay_seconds
+
     try:
         tasks = [
-            _present_full_game(
-                game_idx=idx,
-                game_result=gr,
-                total_games=len(game_results),
-                event_bus=event_bus,
+            _staggered_game(
+                delay=idx * stagger,
                 state=state,
-                quarter_replay_seconds=quarter_replay_seconds,
-                names=names,
-                colors=colors,
-                on_game_finished=on_game_finished,
-                skip_quarters=skip_quarters,
+                game_kwargs={
+                    "game_idx": idx,
+                    "game_result": gr,
+                    "total_games": len(game_results),
+                    "event_bus": event_bus,
+                    "state": state,
+                    "quarter_replay_seconds": quarter_replay_seconds,
+                    "names": names,
+                    "colors": colors,
+                    "on_game_finished": on_game_finished,
+                    "skip_quarters": skip_quarters,
+                },
             )
             for idx, gr in enumerate(game_results)
         ]
