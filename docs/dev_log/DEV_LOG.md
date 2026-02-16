@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `3b15208` — fix: SDK structured output (response_format → output_config) + report prose rendering
+- **Latest commit:** `9bfc861` — copy: "Starts as basketball, becomes ???"
 
 ## Today's Agenda
 
@@ -183,3 +183,18 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** The `response_format` parameter was added to all AI call sites in Session 88 (Messages API Phase 2) but was never tested against the actual SDK — tests used mocks that accepted any kwargs. Adding the API key to `.env` exposed this immediately because tests started making real API calls. The champion headline bug existed since the championship feature was added — `standings[0]` is the regular-season leader, not the playoff winner, and nobody noticed because they happened to be the same team until this season.
+
+---
+
+## Session 98 — Home Page Copy Tweak
+
+**What was asked:** Change "Starts out as basketball. Finishes as ???" to "Starts as basketball, becomes ???" — the game is open-ended, it doesn't finish.
+
+**What was built:**
+- Updated home page tagline in `templates/pages/home.html`
+
+**Files modified (1):** `templates/pages/home.html`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — clean one-line copy fix.
