@@ -99,12 +99,14 @@
 </div>
 {% endif %}
 
+{# --- Performance Trajectory --- #}
 {% if trajectory and trajectory.recent_form %}
 <div class="card mb-2">
   <div class="card-header">
     <h3>Season Arc</h3>
   </div>
   <div class="card-body">
+    {# Recent form dots #}
     <div class="mb-1">
       <span class="text-muted text-xs">RECENT FORM</span><br>
       <div class="recent-form-display">
@@ -114,11 +116,10 @@
       </div>
     </div>
 
-    {% if trajectory.trend_desc or trajectory.rule_change_segment %}
+    {# Trend description and streaks #}
+    {% if trajectory.trend_desc %}
     <div style="margin-top:1rem; line-height:1.6;">
-      {% if trajectory.trend_desc %}
       <p style="margin-bottom:0.5rem;">{{ trajectory.trend_desc }}</p>
-      {% endif %}
       {% if trajectory.longest_win_streak >= 3 or trajectory.longest_loss_streak >= 3 %}
       <p style="margin-bottom:0.5rem;">
         {% if trajectory.longest_win_streak >= 3 %}
@@ -129,13 +130,122 @@
         {% endif %}
       </p>
       {% endif %}
-      {% if trajectory.rule_change_segment %}
-      <p class="text-muted" style="font-size:0.9rem; margin-bottom:0;">
-        {{ trajectory.rule_change_segment }}
-      </p>
-      {% endif %}
     </div>
     {% endif %}
+
+    {# Team-specific trends (home/away, streaks, rule-change impact) #}
+    {% if trajectory.trends %}
+    <div class="trajectory-trends">
+      <span class="text-muted text-xs">TRENDS</span>
+      <div class="trend-pills">
+        {% for trend in trajectory.trends %}
+        <span class="trend-pill trend-pill--{{ trend.trend_type }}">{{ trend.label }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Win rate timeline with rule change markers #}
+    {% if trajectory.win_rate_timeline and trajectory.win_rate_timeline|length >= 3 %}
+    <div class="trajectory-timeline">
+      <span class="text-muted text-xs">WIN RATE OVER TIME</span>
+      <div class="timeline-chart">
+        <svg viewBox="0 0 400 100" preserveAspectRatio="none" class="timeline-svg">
+          {# Background grid lines at 25%, 50%, 75% #}
+          <line x1="0" y1="25" x2="400" y2="25" class="timeline-grid" />
+          <line x1="0" y1="50" x2="400" y2="50" class="timeline-grid timeline-grid--mid" />
+          <line x1="0" y1="75" x2="400" y2="75" class="timeline-grid" />
+          {# Win rate polyline #}
+          {% set ns = namespace(points='') %}
+          {% for pt in trajectory.win_rate_timeline %}
+            {% set x = (loop.index0 / (trajectory.win_rate_timeline|length - 1)) * 400 if trajectory.win_rate_timeline|length > 1 else 200 %}
+            {% set y = 100 - (pt.win_rate * 100) %}
+            {% set ns.points = ns.points ~ x|round(1) ~ ',' ~ y|round(1) ~ ' ' %}
+          {% endfor %}
+          <polyline points="{{ ns.points }}" class="timeline-line" style="stroke: {{ team.color }};" />
+          {# Rule change markers #}
+          {% for pt in trajectory.win_rate_timeline %}
+            {% if pt.marker == 'rule_change' %}
+              {% set x = (loop.index0 / (trajectory.win_rate_timeline|length - 1)) * 400 if trajectory.win_rate_timeline|length > 1 else 200 %}
+              <line x1="{{ x|round(1) }}" y1="0" x2="{{ x|round(1) }}" y2="100" class="timeline-rule-marker" />
+              <circle cx="{{ x|round(1) }}" cy="{{ (100 - pt.win_rate * 100)|round(1) }}" r="4" class="timeline-rule-dot" />
+            {% endif %}
+          {% endfor %}
+        </svg>
+        <div class="timeline-labels">
+          <span class="text-muted text-xs">R{{ trajectory.win_rate_timeline[0].round_number }}</span>
+          <span class="text-muted text-xs" style="text-align:center;">.500</span>
+          <span class="text-muted text-xs" style="text-align:right;">R{{ trajectory.win_rate_timeline[-1].round_number }}</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# --- Rule Regime Comparison --- #}
+{% if trajectory and trajectory.rule_regimes and trajectory.rule_regimes|length > 1 %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Record by Rule Regime</h3>
+  </div>
+  <div class="card-body">
+    <div class="regime-table">
+      {% for regime in trajectory.rule_regimes %}
+      <div class="regime-row {% if loop.last %}regime-row--current{% endif %}">
+        <div class="regime-label">
+          <span class="regime-name">{{ regime.label }}</span>
+          <span class="text-muted text-xs">
+            Rounds {{ regime.start_round }}{% if regime.end_round %}&ndash;{{ regime.end_round }}{% else %}+{% endif %}
+          </span>
+        </div>
+        <div class="regime-record">
+          <span class="mono regime-wl">{{ regime.wins }}-{{ regime.losses }}</span>
+          {% if regime.games_played > 0 %}
+          <span class="regime-pct mono {% if regime.win_pct >= 0.6 %}diff-positive{% elif regime.win_pct < 0.4 %}diff-negative{% endif %}">
+            {{ '%.0f'|format(regime.win_pct * 100) }}%
+          </span>
+          {% endif %}
+          {% if regime.point_diff != 0 %}
+          <span class="mono text-muted regime-diff">
+            {% if regime.point_diff > 0 %}+{% endif %}{{ regime.point_diff }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# --- Governor Impact on Performance --- #}
+{% if trajectory and trajectory.governor_impacts %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Governor Impact</h3>
+  </div>
+  <div class="card-body">
+    {% for impact in trajectory.governor_impacts %}
+    <div{% if not loop.last %} class="mb-1"{% endif %}>
+      <div>
+        <strong>{{ impact.governor_name }}</strong> &mdash;
+        &ldquo;{{ impact.proposal_text[:60] }}{% if impact.proposal_text|length > 60 %}...{% endif %}&rdquo;
+        <span class="text-muted text-xs">&middot; Round {{ impact.enacted_round }}</span>
+      </div>
+      <div class="flex gap-2" style="margin-top:0.25rem;">
+        <div>
+          <span class="text-muted text-xs">BEFORE</span>
+          <span class="mono">{{ impact.before_wins }}-{{ impact.before_losses }}</span>
+        </div>
+        <div>
+          <span class="text-muted text-xs">AFTER</span>
+          <span class="mono">{{ impact.after_wins }}-{{ impact.after_losses }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
   </div>
 </div>
 {% endif %}

@@ -64,12 +64,26 @@
   {% endif %}
 </div>
 
-{% if game_context %}
+{% if game_significance %}
+<div class="card mb-2" style="padding: 0.75rem 1rem; background: var(--bg-secondary); border-left: 3px solid var(--accent-elam);">
+  <h4 style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem;">Game Significance</h4>
+  <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
+    {% for sig in game_significance %}
+    <p style="margin: 0.25rem 0;">{{ sig }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if game_context or rule_changes_since_last %}
 <div class="card mb-2" style="padding: 0.75rem 1rem; background: var(--bg-secondary); border-left: 3px solid var(--accent-score);">
   <h4 style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem;">Game Context</h4>
   <div style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;">
     {% for ctx in game_context %}
     <p style="margin: 0.25rem 0;">{{ ctx }}</p>
+    {% endfor %}
+    {% for rc in rule_changes_since_last %}
+    <p style="margin: 0.25rem 0; color: var(--accent-elam);">{{ rc }}</p>
     {% endfor %}
   </div>
 </div>
