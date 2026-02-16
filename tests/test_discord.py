@@ -1020,9 +1020,7 @@ class TestSetupServer:
         ]
 
         # fetch_channels returns both the category and existing text channels
-        guild.fetch_channels = AsyncMock(
-            return_value=[category, *existing_channels]
-        )
+        guild.fetch_channels = AsyncMock(return_value=[category, *existing_channels])
         guild.roles = []
         guild.me = MagicMock()
 
@@ -1449,9 +1447,7 @@ class TestProposeGovernance:
         from pinwheel.discord.helpers import get_governor
 
         gov = await get_governor(engine, str(interaction.user.id))
-        bot._proposal_cooldowns[gov.player_id] = (
-            time.monotonic() - PROPOSAL_COOLDOWN_SECONDS - 1
-        )
+        bot._proposal_cooldowns[gov.player_id] = time.monotonic() - PROPOSAL_COOLDOWN_SECONDS - 1
 
         await bot._handle_propose(
             interaction,
@@ -2483,7 +2479,10 @@ class TestWelcomeEmbedExtended:
             "total_rounds": total_rounds,
         }
         embed = build_welcome_embed(
-            "Rose City Thorns", "#E74C3C", hoopers, season_context=ctx,
+            "Rose City Thorns",
+            "#E74C3C",
+            hoopers,
+            season_context=ctx,
         )
         desc = embed.description or ""
         for label in expected_labels:
@@ -2513,7 +2512,10 @@ class TestWelcomeEmbedExtended:
                 "total_rounds": 9,
             }
             embed = build_welcome_embed(
-                "Thorns", "#E74C3C", hoopers, season_context=ctx,
+                "Thorns",
+                "#E74C3C",
+                hoopers,
+                season_context=ctx,
             )
             desc = embed.description or ""
             assert expected_label in desc, (
@@ -2552,7 +2554,12 @@ class TestGatherSeasonContext:
             # Create schedule (3 rounds)
             for rn in range(1, 4):
                 await repo.create_schedule_entry(
-                    season.id, rn, 0, team_a.id, team_b.id, phase="regular",
+                    season.id,
+                    rn,
+                    0,
+                    team_a.id,
+                    team_b.id,
+                    phase="regular",
                 )
 
             # Create game results for 2 rounds
@@ -2606,7 +2613,12 @@ class TestGatherSeasonContext:
             # Create schedule but no game results
             for rn in range(1, 10):
                 await repo.create_schedule_entry(
-                    season.id, rn, 0, team_a.id, team_b.id, phase="regular",
+                    season.id,
+                    rn,
+                    0,
+                    team_a.id,
+                    team_b.id,
+                    phase="regular",
                 )
             await session.commit()
 
@@ -2824,9 +2836,7 @@ class TestBotStatePersistence:
             return {201: ch_how, 202: ch_play, 203: ch_big}.get(cid)
 
         guild.get_channel = MagicMock(side_effect=get_channel_side_effect)
-        guild.fetch_channels = AsyncMock(
-            return_value=[category, ch_how, ch_play, ch_big]
-        )
+        guild.fetch_channels = AsyncMock(return_value=[category, ch_how, ch_play, ch_big])
         guild.roles = []
         guild.me = MagicMock()
         guild.default_role = MagicMock()
@@ -2977,9 +2987,7 @@ class TestSetupIdempotencyWithDB:
         first_ids = dict(bot.channel_ids)
 
         # --- Second setup: fetch_channels now returns existing channels ---
-        guild.fetch_channels = AsyncMock(
-            return_value=[category, *created_channels.values()]
-        )
+        guild.fetch_channels = AsyncMock(return_value=[category, *created_channels.values()])
         guild.create_category.reset_mock()
         guild.create_text_channel.reset_mock()
 
@@ -3179,7 +3187,9 @@ class TestSyncRoleEnrollments:
             league = await repo.create_league("Test League")
             season = await repo.create_season(league.id, "Season 1")
             team = await repo.create_team(
-                season.id, "Burnside Breakers", color="#53d8fb",
+                season.id,
+                "Burnside Breakers",
+                color="#53d8fb",
             )
             # Pre-enroll a player (they already exist in DB)
             player = await repo.get_or_create_player(
@@ -3241,7 +3251,9 @@ class TestSyncRoleEnrollments:
             league = await repo.create_league("Test League")
             season = await repo.create_season(league.id, "Season 1")
             await repo.create_team(
-                season.id, "Rose City Thorns", color="#e94560",
+                season.id,
+                "Rose City Thorns",
+                color="#e94560",
             )
             await session.commit()
             season_id = season.id
@@ -3479,7 +3491,9 @@ class TestEditSeriesCommand:
             await session.commit()
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
         interaction = make_interaction(user_id=999888777)
         await bot._handle_edit_series(interaction, report_id)
@@ -3535,7 +3549,9 @@ class TestEditSeriesCommand:
             await session.commit()
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
         interaction = make_interaction(user_id=444555666)
         await bot._handle_edit_series(interaction, report_id)
@@ -3588,7 +3604,9 @@ class TestEditSeriesCommand:
             await session.commit()
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
         interaction = make_interaction(user_id=111222333)
         await bot._handle_edit_series(interaction, report_id)
@@ -3642,7 +3660,9 @@ class TestEditSeriesCommand:
             await session.commit()
 
         bot = PinwheelBot(
-            settings=settings_discord_enabled, event_bus=event_bus, engine=engine,
+            settings=settings_discord_enabled,
+            event_bus=event_bus,
+            engine=engine,
         )
         interaction = make_interaction(user_id=777888999)
         await bot._handle_edit_series(interaction, report_id)
@@ -3732,3 +3752,726 @@ class TestEditSeriesModal:
         assert call_kwargs.kwargs.get("ephemeral") is True
 
         await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Smart Game Result Embeds — Feature 4
+# ---------------------------------------------------------------------------
+
+
+class TestTeamGameContext:
+    """Tests for TeamGameContext and GameContext dataclasses."""
+
+    def test_defaults(self) -> None:
+        from pinwheel.discord.embeds import GameContext
+
+        ctx = GameContext()
+        assert ctx.home.streak == 0
+        assert ctx.away.streak == 0
+        assert ctx.home.standing_position is None
+        assert ctx.home.standing_movement is None
+        assert ctx.margin_label == ""
+        assert ctx.new_rules == []
+
+    def test_team_game_context_frozen(self) -> None:
+        from pinwheel.discord.embeds import TeamGameContext
+
+        tc = TeamGameContext(streak=5, standing_position=1, standing_movement=2)
+        assert tc.streak == 5
+        assert tc.standing_position == 1
+        assert tc.standing_movement == 2
+
+    def test_game_context_with_values(self) -> None:
+        from pinwheel.discord.embeds import GameContext, TeamGameContext
+
+        ctx = GameContext(
+            home=TeamGameContext(streak=7, standing_position=1, standing_movement=2),
+            away=TeamGameContext(streak=-3, standing_position=4, standing_movement=-1),
+            margin_label="Closest game of the season",
+            new_rules=["3-point range extended"],
+        )
+        assert ctx.home.streak == 7
+        assert ctx.away.streak == -3
+        assert ctx.margin_label == "Closest game of the season"
+        assert len(ctx.new_rules) == 1
+
+
+class TestFormatStreak:
+    """Tests for the _format_streak helper."""
+
+    def test_win_streak(self) -> None:
+        from pinwheel.discord.embeds import _format_streak
+
+        assert _format_streak(3) == "W3"
+        assert _format_streak(7) == "W7"
+        assert _format_streak(1) == "W1"
+
+    def test_loss_streak(self) -> None:
+        from pinwheel.discord.embeds import _format_streak
+
+        assert _format_streak(-2) == "L2"
+        assert _format_streak(-5) == "L5"
+
+    def test_no_streak(self) -> None:
+        from pinwheel.discord.embeds import _format_streak
+
+        assert _format_streak(0) == ""
+
+
+class TestOrdinalSuffix:
+    """Tests for the _ordinal_suffix helper."""
+
+    def test_ordinals(self) -> None:
+        from pinwheel.discord.embeds import _ordinal_suffix
+
+        assert _ordinal_suffix(1) == "st"
+        assert _ordinal_suffix(2) == "nd"
+        assert _ordinal_suffix(3) == "rd"
+        assert _ordinal_suffix(4) == "th"
+        assert _ordinal_suffix(11) == "th"
+        assert _ordinal_suffix(12) == "th"
+        assert _ordinal_suffix(13) == "th"
+        assert _ordinal_suffix(21) == "st"
+        assert _ordinal_suffix(22) == "nd"
+        assert _ordinal_suffix(23) == "rd"
+
+
+class TestFormatStandingMovement:
+    """Tests for the _format_standing_movement helper."""
+
+    def test_moved_up(self) -> None:
+        from pinwheel.discord.embeds import _format_standing_movement
+
+        assert _format_standing_movement(1, 2) == "moved to 1st"
+        assert _format_standing_movement(2, 1) == "moved to 2nd"
+
+    def test_dropped(self) -> None:
+        from pinwheel.discord.embeds import _format_standing_movement
+
+        assert _format_standing_movement(4, -2) == "dropped to 4th"
+        assert _format_standing_movement(3, -1) == "dropped to 3rd"
+
+    def test_no_movement(self) -> None:
+        from pinwheel.discord.embeds import _format_standing_movement
+
+        assert _format_standing_movement(2, 0) == ""
+
+    def test_none_position(self) -> None:
+        from pinwheel.discord.embeds import _format_standing_movement
+
+        assert _format_standing_movement(None, 2) == ""
+
+    def test_none_movement(self) -> None:
+        from pinwheel.discord.embeds import _format_standing_movement
+
+        assert _format_standing_movement(1, None) == ""
+
+
+class TestComputeTeamStreak:
+    """Tests for the _compute_team_streak helper."""
+
+    def test_win_streak(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        games = [
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t2",
+                "winner_team_id": "t1",
+                "home_score": 50,
+                "away_score": 40,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t3",
+                "winner_team_id": "t1",
+                "home_score": 55,
+                "away_score": 45,
+                "round_number": 2,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t4",
+                "winner_team_id": "t1",
+                "home_score": 60,
+                "away_score": 50,
+                "round_number": 3,
+                "matchup_index": 0,
+            },
+        ]
+        assert _compute_team_streak("t1", games) == 3
+
+    def test_loss_streak(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        games = [
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t2",
+                "winner_team_id": "t2",
+                "home_score": 40,
+                "away_score": 50,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t3",
+                "winner_team_id": "t3",
+                "home_score": 35,
+                "away_score": 55,
+                "round_number": 2,
+                "matchup_index": 0,
+            },
+        ]
+        assert _compute_team_streak("t1", games) == -2
+
+    def test_streak_resets_on_reversal(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        games = [
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t2",
+                "winner_team_id": "t1",
+                "home_score": 50,
+                "away_score": 40,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t3",
+                "winner_team_id": "t3",
+                "home_score": 40,
+                "away_score": 50,
+                "round_number": 2,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t4",
+                "winner_team_id": "t1",
+                "home_score": 55,
+                "away_score": 45,
+                "round_number": 3,
+                "matchup_index": 0,
+            },
+        ]
+        assert _compute_team_streak("t1", games) == 1
+
+    def test_empty_games(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        assert _compute_team_streak("t1", []) == 0
+
+    def test_no_matching_team(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        games = [
+            {
+                "home_team_id": "t2",
+                "away_team_id": "t3",
+                "winner_team_id": "t2",
+                "home_score": 50,
+                "away_score": 40,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+        ]
+        assert _compute_team_streak("t1", games) == 0
+
+    def test_away_team_streak(self) -> None:
+        from pinwheel.discord.embeds import _compute_team_streak
+
+        games = [
+            {
+                "home_team_id": "t2",
+                "away_team_id": "t1",
+                "winner_team_id": "t1",
+                "home_score": 40,
+                "away_score": 55,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t3",
+                "away_team_id": "t1",
+                "winner_team_id": "t1",
+                "home_score": 35,
+                "away_score": 60,
+                "round_number": 2,
+                "matchup_index": 0,
+            },
+        ]
+        assert _compute_team_streak("t1", games) == 2
+
+
+class TestFindStandingPosition:
+    """Tests for _find_standing_position helper."""
+
+    def test_finds_position(self) -> None:
+        from pinwheel.discord.embeds import _find_standing_position
+
+        standings = [
+            {"team_id": "t1", "wins": 5},
+            {"team_id": "t2", "wins": 3},
+            {"team_id": "t3", "wins": 1},
+        ]
+        assert _find_standing_position("t1", standings) == 1
+        assert _find_standing_position("t2", standings) == 2
+        assert _find_standing_position("t3", standings) == 3
+
+    def test_not_found(self) -> None:
+        from pinwheel.discord.embeds import _find_standing_position
+
+        standings = [{"team_id": "t1", "wins": 5}]
+        assert _find_standing_position("t999", standings) is None
+
+    def test_none_standings(self) -> None:
+        from pinwheel.discord.embeds import _find_standing_position
+
+        assert _find_standing_position("t1", None) is None
+
+    def test_empty_standings(self) -> None:
+        from pinwheel.discord.embeds import _find_standing_position
+
+        assert _find_standing_position("t1", []) is None
+
+
+class TestComputeMarginLabel:
+    """Tests for _compute_margin_label helper."""
+
+    def test_closest_game(self) -> None:
+        from pinwheel.discord.embeds import _compute_margin_label
+
+        game = {"home_score": 50, "away_score": 49}
+        all_games = [
+            {"home_score": 60, "away_score": 40},
+            {"home_score": 55, "away_score": 45},
+            {"home_score": 50, "away_score": 49},  # margin=1, the smallest
+        ]
+        assert _compute_margin_label(game, all_games) == "Closest game of the season"
+
+    def test_biggest_blowout(self) -> None:
+        from pinwheel.discord.embeds import _compute_margin_label
+
+        game = {"home_score": 80, "away_score": 40}
+        all_games = [
+            {"home_score": 50, "away_score": 48},
+            {"home_score": 55, "away_score": 50},
+            {"home_score": 80, "away_score": 40},  # margin=40, the biggest
+        ]
+        assert _compute_margin_label(game, all_games) == "Biggest blowout of the season"
+
+    def test_unremarkable_margin(self) -> None:
+        from pinwheel.discord.embeds import _compute_margin_label
+
+        game = {"home_score": 55, "away_score": 50}
+        all_games = [
+            {"home_score": 50, "away_score": 48},
+            {"home_score": 55, "away_score": 50},
+            {"home_score": 60, "away_score": 40},
+        ]
+        assert _compute_margin_label(game, all_games) == ""
+
+    def test_single_game_no_label(self) -> None:
+        from pinwheel.discord.embeds import _compute_margin_label
+
+        game = {"home_score": 55, "away_score": 50}
+        assert _compute_margin_label(game, [game]) == ""
+
+    def test_all_same_margin_no_label(self) -> None:
+        from pinwheel.discord.embeds import _compute_margin_label
+
+        game = {"home_score": 55, "away_score": 50}
+        all_games = [
+            {"home_score": 55, "away_score": 50},
+            {"home_score": 60, "away_score": 55},
+            {"home_score": 45, "away_score": 40},
+        ]
+        # All margins are 5 — min == max, so no label
+        assert _compute_margin_label(game, all_games) == ""
+
+
+class TestComputeGameContext:
+    """Tests for the compute_game_context function."""
+
+    def test_full_context(self) -> None:
+        from pinwheel.discord.embeds import compute_game_context
+
+        game = {
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+            "round_number": 3,
+            "matchup_index": 0,
+        }
+        all_games = [
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t2",
+                "winner_team_id": "t1",
+                "home_score": 50,
+                "away_score": 40,
+                "round_number": 1,
+                "matchup_index": 0,
+            },
+            {
+                "home_team_id": "t1",
+                "away_team_id": "t3",
+                "winner_team_id": "t1",
+                "home_score": 55,
+                "away_score": 45,
+                "round_number": 2,
+                "matchup_index": 0,
+            },
+            game,
+        ]
+        standings_before = [{"team_id": "t2"}, {"team_id": "t1"}, {"team_id": "t3"}]
+        standings_after = [{"team_id": "t1"}, {"team_id": "t2"}, {"team_id": "t3"}]
+
+        ctx = compute_game_context(
+            game,
+            all_games,
+            standings_before=standings_before,
+            standings_after=standings_after,
+            new_rules=["Shot clock reduced to 20s"],
+        )
+
+        assert ctx.home.streak == 3  # t1 has 3 wins in a row
+        assert ctx.home.standing_position == 1
+        assert ctx.home.standing_movement == 1  # moved up from 2nd to 1st
+        assert ctx.away.standing_position == 2
+        assert ctx.away.standing_movement == -1  # dropped from 1st to 2nd
+        assert len(ctx.new_rules) == 1
+        assert ctx.new_rules[0] == "Shot clock reduced to 20s"
+
+    def test_no_optional_data(self) -> None:
+        from pinwheel.discord.embeds import compute_game_context
+
+        game = {
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+            "round_number": 1,
+            "matchup_index": 0,
+        }
+        ctx = compute_game_context(game, [game])
+        assert ctx.home.streak == 1
+        assert ctx.away.streak == -1
+        assert ctx.home.standing_position is None
+        assert ctx.margin_label == ""
+        assert ctx.new_rules == []
+
+
+class TestBuildGameResultEmbedWithContext:
+    """Tests for enriched game result embeds with GameContext."""
+
+    def test_streak_shown_in_description(self) -> None:
+        from pinwheel.discord.embeds import GameContext, TeamGameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Hammers",
+            "home_score": 56,
+            "away_score": 45,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=7),
+            away=TeamGameContext(streak=-3),
+        )
+        embed = build_game_result_embed(data, game_context=ctx)
+        desc = embed.description or ""
+        assert "Thorns W7" in desc
+        assert "Hammers L3" in desc
+
+    def test_standings_movement_shown(self) -> None:
+        from pinwheel.discord.embeds import GameContext, TeamGameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(
+            home=TeamGameContext(standing_position=1, standing_movement=2),
+            away=TeamGameContext(standing_position=4, standing_movement=-1),
+        )
+        embed = build_game_result_embed(data, game_context=ctx)
+        desc = embed.description or ""
+        assert "Thorns moved to 1st" in desc
+        assert "Breakers dropped to 4th" in desc
+
+    def test_margin_label_shown(self) -> None:
+        from pinwheel.discord.embeds import GameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 50,
+            "away_score": 49,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(margin_label="Closest game of the season")
+        embed = build_game_result_embed(data, game_context=ctx)
+        desc = embed.description or ""
+        assert "Closest game of the season" in desc
+
+    def test_new_rules_shown(self) -> None:
+        from pinwheel.discord.embeds import GameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(new_rules=["3-point range extended", "Shot clock 18s"])
+        embed = build_game_result_embed(data, game_context=ctx)
+        desc = embed.description or ""
+        assert "First game under new rules" in desc
+        assert "3-point range extended" in desc
+        assert "Shot clock 18s" in desc
+
+    def test_no_context_backward_compat(self) -> None:
+        """Without game_context, the embed is identical to the old behavior."""
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        embed = build_game_result_embed(data)
+        desc = embed.description or ""
+        assert "**Thorns** 55 - 48 **Breakers**" in desc
+        # No enrichment lines
+        assert "W" not in desc
+        assert "moved to" not in desc
+        assert "Closest" not in desc
+        assert "First game under" not in desc
+
+    def test_zero_streaks_not_shown(self) -> None:
+        from pinwheel.discord.embeds import GameContext, TeamGameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=0),
+            away=TeamGameContext(streak=0),
+        )
+        embed = build_game_result_embed(data, game_context=ctx)
+        desc = embed.description or ""
+        # No streak line should be added
+        lines = desc.strip().split("\n")
+        assert len(lines) == 1  # just the score line
+
+    def test_playoff_context_plus_game_context(self) -> None:
+        """Playoff context and game context both work together."""
+        from pinwheel.discord.embeds import GameContext, TeamGameContext
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_score": 55,
+            "away_score": 48,
+            "total_possessions": 60,
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=5),
+            margin_label="Biggest blowout of the season",
+        )
+        embed = build_game_result_embed(data, playoff_context="finals", game_context=ctx)
+        assert "CHAMPIONSHIP FINALS" in embed.title
+        desc = embed.description or ""
+        assert "Thorns W5" in desc
+        assert "Biggest blowout of the season" in desc
+
+
+class TestBuildTeamGameResultEmbedWithContext:
+    """Tests for enriched team-specific game result embeds."""
+
+    def test_streak_in_title(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            TeamGameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Hammers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 56,
+            "away_score": 45,
+            "winner_team_id": "t1",
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=7, standing_position=1, standing_movement=2),
+            away=TeamGameContext(streak=-3, standing_position=4, standing_movement=-1),
+        )
+        # Home team embed
+        embed = build_team_game_result_embed(data, "t1", game_context=ctx)
+        assert "(W7)" in embed.title
+        assert "Victory" in embed.title
+
+        # Away team embed
+        away_embed = build_team_game_result_embed(data, "t2", game_context=ctx)
+        assert "(L3)" in away_embed.title
+        assert "Defeat" in away_embed.title
+
+    def test_standings_movement_for_team(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            TeamGameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+        }
+        ctx = GameContext(
+            home=TeamGameContext(standing_position=1, standing_movement=3),
+            away=TeamGameContext(standing_position=4, standing_movement=-2),
+        )
+        home_embed = build_team_game_result_embed(data, "t1", game_context=ctx)
+        desc = home_embed.description or ""
+        assert "Thorns moved to 1st" in desc
+
+        away_embed = build_team_game_result_embed(data, "t2", game_context=ctx)
+        desc = away_embed.description or ""
+        assert "Breakers dropped to 4th" in desc
+
+    def test_margin_label_in_team_embed(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 50,
+            "away_score": 49,
+            "winner_team_id": "t1",
+        }
+        ctx = GameContext(margin_label="Closest game of the season")
+        embed = build_team_game_result_embed(data, "t1", game_context=ctx)
+        desc = embed.description or ""
+        assert "Closest game of the season" in desc
+
+    def test_new_rules_in_team_embed(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+        }
+        ctx = GameContext(new_rules=["Elam ending enabled"])
+        embed = build_team_game_result_embed(data, "t1", game_context=ctx)
+        desc = embed.description or ""
+        assert "First game under new rules" in desc
+        assert "Elam ending enabled" in desc
+
+    def test_playoff_with_streak(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            TeamGameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 70,
+            "away_score": 55,
+            "winner_team_id": "t1",
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=4),
+        )
+        embed = build_team_game_result_embed(data, "t1", playoff_context="finals", game_context=ctx)
+        assert "CHAMPIONS" in embed.title
+        assert "(W4)" in embed.title
+
+    def test_backward_compat_no_context(self) -> None:
+        from pinwheel.discord.embeds import build_team_game_result_embed
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 55,
+            "away_score": 48,
+            "winner_team_id": "t1",
+        }
+        embed = build_team_game_result_embed(data, "t1")
+        assert "Victory" in embed.title
+        desc = embed.description or ""
+        assert "**Thorns** 55 - 48 Breakers" in desc
+        # No enrichment
+        assert "moved to" not in desc
+        assert "Closest" not in desc
+
+    def test_loss_streak_in_semifinal_title(self) -> None:
+        from pinwheel.discord.embeds import (
+            GameContext,
+            TeamGameContext,
+            build_team_game_result_embed,
+        )
+
+        data = {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 45,
+            "away_score": 60,
+            "winner_team_id": "t2",
+        }
+        ctx = GameContext(
+            home=TeamGameContext(streak=-2),
+            away=TeamGameContext(streak=2),
+        )
+        embed = build_team_game_result_embed(
+            data, "t1", playoff_context="semifinal", game_context=ctx
+        )
+        assert "Eliminated" in embed.title
+        assert "(L2)" in embed.title

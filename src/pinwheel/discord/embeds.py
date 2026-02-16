@@ -7,6 +7,7 @@ a styled embed ready to send.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 import discord
@@ -22,6 +23,257 @@ if TYPE_CHECKING:
     from pinwheel.models.report import Report
     from pinwheel.models.tokens import TokenBalance, Trade
 
+
+# ---------------------------------------------------------------------------
+# Game Context — enrichment data for smart game result embeds
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class TeamGameContext:
+    """Contextual data about one team in a game result.
+
+    Attributes:
+        streak: Current streak length after this game.
+            Positive = win streak, negative = loss streak.
+        standing_position: 1-indexed standings position after this game,
+            or None if unavailable.
+        standing_movement: Change in standings position compared to
+            before this round. Negative = moved up (improved).
+            Positive = dropped. None if unavailable.
+    """
+
+    streak: int = 0
+    standing_position: int | None = None
+    standing_movement: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class GameContext:
+    """Enrichment context for a single game result embed.
+
+    Passed into ``build_game_result_embed`` and ``build_team_game_result_embed``
+    to enrich the flat score card with dramatic context: streaks, standings
+    movement, margin significance, and rule-change context.
+
+    Attributes:
+        home: Context for the home team.
+        away: Context for the away team.
+        margin_label: Human-readable margin significance label, e.g.
+            "Closest game of the season" or "Biggest blowout this season".
+            Empty string when the margin is unremarkable.
+        new_rules: List of short descriptions of rule changes active for
+            the first time in this round (e.g. "3-point range extended").
+            Empty list when there are no new rules.
+    """
+
+    home: TeamGameContext = dataclasses.field(default_factory=TeamGameContext)
+    away: TeamGameContext = dataclasses.field(default_factory=TeamGameContext)
+    margin_label: str = ""
+    new_rules: list[str] = dataclasses.field(default_factory=list)
+
+
+def compute_game_context(
+    game_data: dict[str, object],
+    all_games: list[dict[str, object]],
+    standings_before: list[dict[str, object]] | None = None,
+    standings_after: list[dict[str, object]] | None = None,
+    new_rules: list[str] | None = None,
+) -> GameContext:
+    """Compute enrichment context for a game result from history data.
+
+    This is a pure function — no DB access. Callers pass pre-fetched data.
+
+    Args:
+        game_data: The current game result dict (same shape as game summaries).
+        all_games: All game results in the season up to and including
+            this game, as dicts with keys: home_team_id, away_team_id,
+            winner_team_id, home_score, away_score, round_number.
+        standings_before: Standings list *before* this round (each dict has
+            team_id and positional ordering). None if not available.
+        standings_after: Standings list *after* this round. None if not
+            available.
+        new_rules: List of short rule-change descriptions for rules
+            enacted in this round. None or empty list if no changes.
+
+    Returns:
+        A GameContext with all enrichment fields populated.
+    """
+    home_id = str(game_data.get("home_team_id", ""))
+    away_id = str(game_data.get("away_team_id", ""))
+
+    home_streak = _compute_team_streak(home_id, all_games)
+    away_streak = _compute_team_streak(away_id, all_games)
+
+    home_pos = _find_standing_position(home_id, standings_after)
+    away_pos = _find_standing_position(away_id, standings_after)
+    home_prev_pos = _find_standing_position(home_id, standings_before)
+    away_prev_pos = _find_standing_position(away_id, standings_before)
+
+    home_movement: int | None = None
+    if home_pos is not None and home_prev_pos is not None:
+        home_movement = home_prev_pos - home_pos  # negative = dropped
+
+    away_movement: int | None = None
+    if away_pos is not None and away_prev_pos is not None:
+        away_movement = away_prev_pos - away_pos
+
+    margin_label = _compute_margin_label(game_data, all_games)
+
+    return GameContext(
+        home=TeamGameContext(
+            streak=home_streak,
+            standing_position=home_pos,
+            standing_movement=home_movement,
+        ),
+        away=TeamGameContext(
+            streak=away_streak,
+            standing_position=away_pos,
+            standing_movement=away_movement,
+        ),
+        margin_label=margin_label,
+        new_rules=list(new_rules) if new_rules else [],
+    )
+
+
+def _compute_team_streak(
+    team_id: str,
+    all_games: list[dict[str, object]],
+) -> int:
+    """Compute the current win/loss streak for a team from game history.
+
+    Returns positive for win streaks, negative for loss streaks, 0 if no
+    games found for this team.
+    """
+    if not team_id or not all_games:
+        return 0
+
+    # Filter to games involving this team, sorted chronologically
+    team_games = [
+        g for g in all_games
+        if str(g.get("home_team_id", "")) == team_id
+        or str(g.get("away_team_id", "")) == team_id
+    ]
+    if not team_games:
+        return 0
+
+    team_games.sort(key=lambda g: (int(g.get("round_number", 0)), int(g.get("matchup_index", 0))))
+
+    # Walk backward from most recent game
+    streak = 0
+    last_won: bool | None = None
+    for g in reversed(team_games):
+        won = str(g.get("winner_team_id", "")) == team_id
+        if last_won is None:
+            last_won = won
+        if won != last_won:
+            break
+        streak += 1
+
+    if last_won is None:
+        return 0
+    return streak if last_won else -streak
+
+
+def _find_standing_position(
+    team_id: str,
+    standings: list[dict[str, object]] | None,
+) -> int | None:
+    """Find the 1-indexed position of a team in a standings list.
+
+    Returns None if standings is None or team not found.
+    """
+    if not standings or not team_id:
+        return None
+    for i, entry in enumerate(standings):
+        if str(entry.get("team_id", "")) == team_id:
+            return i + 1
+    return None
+
+
+def _compute_margin_label(
+    game_data: dict[str, object],
+    all_games: list[dict[str, object]],
+) -> str:
+    """Compute margin significance label for a game.
+
+    Returns a label like "Closest game of the season" or "Biggest blowout
+    this season" if this game's margin is the most extreme seen so far.
+    Returns empty string if the margin is unremarkable.
+    """
+    home_score = int(game_data.get("home_score", 0))
+    away_score = int(game_data.get("away_score", 0))
+    this_margin = abs(home_score - away_score)
+
+    if len(all_games) < 2:
+        # Only one game played — no basis for comparison
+        return ""
+
+    # Compute all margins from the season (including this game)
+    margins: list[int] = []
+    for g in all_games:
+        hs = int(g.get("home_score", 0))
+        aws = int(g.get("away_score", 0))
+        margins.append(abs(hs - aws))
+
+    if not margins:
+        return ""
+
+    min_margin = min(margins)
+    max_margin = max(margins)
+
+    # Only label if this game IS the extreme (not tied with many others)
+    if this_margin == min_margin and this_margin != max_margin:
+        count_at_min = margins.count(min_margin)
+        if count_at_min <= 2:
+            return "Closest game of the season"
+
+    if this_margin == max_margin and this_margin != min_margin:
+        count_at_max = margins.count(max_margin)
+        if count_at_max <= 2:
+            return "Biggest blowout of the season"
+
+    return ""
+
+
+def _format_streak(streak: int) -> str:
+    """Format a streak integer into a short display string.
+
+    Examples: 3 -> "W3", -2 -> "L2", 0 -> "".
+    """
+    if streak > 0:
+        return f"W{streak}"
+    elif streak < 0:
+        return f"L{abs(streak)}"
+    return ""
+
+
+def _ordinal_suffix(n: int) -> str:
+    """Return ordinal suffix for a number (1st, 2nd, 3rd, 4th, etc.)."""
+    if 11 <= n % 100 <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+def _format_standing_movement(position: int | None, movement: int | None) -> str:
+    """Format a standings movement into a display string.
+
+    Args:
+        position: Current 1-indexed position (e.g. 1 = first place).
+        movement: Positive = moved up, negative = dropped.
+
+    Returns:
+        String like "moved to 1st" or "dropped to 4th", or empty.
+    """
+    if position is None:
+        return ""
+    suffix = _ordinal_suffix(position)
+    if movement is not None and movement > 0:
+        return f"moved to {position}{suffix}"
+    elif movement is not None and movement < 0:
+        return f"dropped to {position}{suffix}"
+    return ""
+
 # Brand colors
 COLOR_GAME = 0xE74C3C  # Red — game results
 COLOR_GOVERNANCE = 0x3498DB  # Blue — governance
@@ -35,6 +287,7 @@ COLOR_ONBOARDING = 0x1ABC9C  # Teal — onboarding / state of the league
 def build_game_result_embed(
     game_data: dict[str, object],
     playoff_context: str | None = None,
+    game_context: GameContext | None = None,
 ) -> discord.Embed:
     """Build an embed for a completed game result.
 
@@ -43,6 +296,8 @@ def build_game_result_embed(
             (or away_team_name), home_score, away_score, winner_team_id,
             elam_activated, total_possessions.
         playoff_context: 'semifinal', 'finals', or None for regular season.
+        game_context: Optional enrichment context with streaks, standings
+            movement, margin significance, and rule-change context.
     """
     home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
     away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
@@ -62,6 +317,44 @@ def build_game_result_embed(
 
     if elam_target:
         description += f"\nElam Target: {elam_target}"
+
+    # Append streak context for both teams
+    if game_context:
+        streak_parts: list[str] = []
+        home_streak_str = _format_streak(game_context.home.streak)
+        away_streak_str = _format_streak(game_context.away.streak)
+        if home_streak_str:
+            streak_parts.append(f"{home} {home_streak_str}")
+        if away_streak_str:
+            streak_parts.append(f"{away} {away_streak_str}")
+        if streak_parts:
+            description += "\n" + " | ".join(streak_parts)
+
+        # Standings movement
+        movement_parts: list[str] = []
+        home_move = _format_standing_movement(
+            game_context.home.standing_position,
+            game_context.home.standing_movement,
+        )
+        away_move = _format_standing_movement(
+            game_context.away.standing_position,
+            game_context.away.standing_movement,
+        )
+        if home_move:
+            movement_parts.append(f"{home} {home_move}")
+        if away_move:
+            movement_parts.append(f"{away} {away_move}")
+        if movement_parts:
+            description += "\n" + " | ".join(movement_parts)
+
+        # Margin significance
+        if game_context.margin_label:
+            description += f"\n*{game_context.margin_label}*"
+
+        # New rules context
+        if game_context.new_rules:
+            rules_text = ", ".join(game_context.new_rules[:3])
+            description += f"\nFirst game under new rules: {rules_text}"
 
     # Use gold for championship, different shade for semis
     color = COLOR_GAME
@@ -920,6 +1213,7 @@ def build_team_game_result_embed(
     game_data: dict[str, object],
     team_id: str,
     playoff_context: str | None = None,
+    game_context: GameContext | None = None,
 ) -> discord.Embed:
     """Build a team-specific game result embed (win/loss framing).
 
@@ -928,6 +1222,8 @@ def build_team_game_result_embed(
             (or away_team_name), home_score, away_score, etc.
         team_id: The team to frame the result for.
         playoff_context: 'semifinal', 'finals', or None for regular season.
+        game_context: Optional enrichment context with streaks, standings
+            movement, margin significance, and rule-change context.
     """
     home = str(game_data.get("home_team", game_data.get("home_team_name", "Home")))
     away = str(game_data.get("away_team", game_data.get("away_team_name", "Away")))
@@ -943,29 +1239,56 @@ def build_team_game_result_embed(
     opp_score = away_score if is_home else home_score
     won = winner_id == team_id
 
+    # Determine this team's context
+    team_ctx = None
+    if game_context:
+        team_ctx = game_context.home if is_home else game_context.away
+
+    # Streak-enriched title
+    streak_suffix = ""
+    if team_ctx and team_ctx.streak != 0:
+        streak_suffix = f" ({_format_streak(team_ctx.streak)})"
+
     # Playoff-specific titles
     if won:
         if playoff_context == "finals":
-            title = f"CHAMPIONS! {your_team} wins the title!"
+            title = f"CHAMPIONS! {your_team} wins the title!{streak_suffix}"
             color = COLOR_STANDINGS  # gold
         elif playoff_context == "semifinal":
-            title = f"ADVANCING! {your_team} wins the semifinal!"
+            title = f"ADVANCING! {your_team} wins the semifinal!{streak_suffix}"
             color = 0x2ECC71  # green
         else:
-            title = f"Victory! {your_team} wins!"
+            title = f"Victory! {your_team} wins!{streak_suffix}"
             color = 0x2ECC71  # green
         description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
     else:
         if playoff_context == "finals":
-            title = f"So close. {your_team} falls in the championship."
+            title = f"So close. {your_team} falls in the championship.{streak_suffix}"
             color = 0xE74C3C  # red
         elif playoff_context == "semifinal":
-            title = f"Eliminated. {your_team}'s season is over."
+            title = f"Eliminated. {your_team}'s season is over.{streak_suffix}"
             color = 0xE74C3C  # red
         else:
-            title = f"Defeat. {your_team} falls."
+            title = f"Defeat. {your_team} falls.{streak_suffix}"
             color = 0xE74C3C  # red
         description = f"**{your_team}** {your_score} - {opp_score} {opponent}"
+
+    # Standings movement for this team
+    if team_ctx:
+        movement_str = _format_standing_movement(
+            team_ctx.standing_position, team_ctx.standing_movement,
+        )
+        if movement_str:
+            description += f"\n{your_team} {movement_str}"
+
+    # Margin significance
+    if game_context and game_context.margin_label:
+        description += f"\n*{game_context.margin_label}*"
+
+    # New rules context
+    if game_context and game_context.new_rules:
+        rules_text = ", ".join(game_context.new_rules[:3])
+        description += f"\nFirst game under new rules: {rules_text}"
 
     embed = discord.Embed(title=title, description=description, color=color)
     embed.set_footer(text="Pinwheel Fates")
