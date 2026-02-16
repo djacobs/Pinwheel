@@ -653,12 +653,29 @@ class PinwheelBot(commands.Bot):
                         if season:
                             teams = await repo.get_teams_for_season(season.id)
                             self._team_names_cache = [t.name for t in teams]
+                            current_team_keys = set()
                             for team in teams:
                                 await self._setup_team_channel_and_role(
                                     guild,
                                     category,
                                     team,
                                     text_channels,
+                                )
+                                current_team_keys.add(f"team_{team.id}")
+
+                            # Prune stale team_* entries from previous seasons
+                            stale_keys = [
+                                k for k in list(self.channel_ids)
+                                if k.startswith("team_") and k not in current_team_keys
+                            ]
+                            for sk in stale_keys:
+                                del self.channel_ids[sk]
+                                await self._persist_bot_state_delete(f"channel_{sk}")
+                            if stale_keys:
+                                logger.info(
+                                    "discord_setup_pruned_stale_team_channels count=%d keys=%s",
+                                    len(stale_keys),
+                                    stale_keys,
                                 )
                 except Exception:
                     logger.exception("discord_setup_team_channels_failed")
@@ -715,6 +732,22 @@ class PinwheelBot(commands.Bot):
                 await repo.set_bot_state(key, value)
         except Exception:
             logger.exception("discord_setup_persist_state_failed key=%s", key)
+
+    async def _persist_bot_state_delete(self, key: str) -> None:
+        """Delete a bot state key from the database."""
+        if not self.engine:
+            return
+        try:
+            from pinwheel.db.engine import get_session
+            from pinwheel.db.models import BotStateRow
+
+            async with get_session(self.engine) as session:
+                row = await session.get(BotStateRow, key)
+                if row:
+                    await session.delete(row)
+                    await session.flush()
+        except Exception:
+            logger.exception("discord_setup_delete_state_failed key=%s", key)
 
     async def _get_or_create_shared_channel(
         self,
@@ -1360,6 +1393,24 @@ class PinwheelBot(commands.Bot):
             return ch
         return None
 
+    def _get_unique_team_channels(self) -> list[discord.TextChannel]:
+        """Return deduplicated team channels.
+
+        Multiple seasons may leave stale ``team_*`` entries in
+        ``self.channel_ids`` that all point to the same Discord channel.
+        This helper deduplicates by channel ID so each channel receives
+        a message at most once.
+        """
+        seen: set[int] = set()
+        channels: list[discord.TextChannel] = []
+        for key, chan_id in self.channel_ids.items():
+            if key.startswith("team_") and chan_id not in seen:
+                seen.add(chan_id)
+                ch = self.get_channel(chan_id)
+                if isinstance(ch, discord.TextChannel):
+                    channels.append(ch)
+        return channels
+
     async def _send_to_team_channel(
         self,
         team_id: str,
@@ -1488,22 +1539,19 @@ class PinwheelBot(commands.Bot):
                         discord.HTTPException,
                     ):
                         await channel.send(embed=te)
-            # Post to all team channels too
-            for key, chan_id in self.channel_ids.items():
-                if key.startswith("team_"):
-                    ch = self.get_channel(chan_id)
-                    if isinstance(ch, discord.TextChannel):
-                        with contextlib.suppress(
-                            discord.Forbidden,
-                            discord.HTTPException,
-                        ):
-                            await ch.send(embed=embed)
-                        for te in tally_embeds:
-                            with contextlib.suppress(
-                                discord.Forbidden,
-                                discord.HTTPException,
-                            ):
-                                await ch.send(embed=te)
+            # Post to all team channels (deduplicated to avoid stale entries)
+            for ch in self._get_unique_team_channels():
+                with contextlib.suppress(
+                    discord.Forbidden,
+                    discord.HTTPException,
+                ):
+                    await ch.send(embed=embed)
+                for te in tally_embeds:
+                    with contextlib.suppress(
+                        discord.Forbidden,
+                        discord.HTTPException,
+                    ):
+                        await ch.send(embed=te)
 
         elif event_type == "season.championship_started":
             champion_name = str(data.get("champion_team_name", "???"))
@@ -1538,16 +1586,13 @@ class PinwheelBot(commands.Bot):
             if channel:
                 await channel.send(embed=embed)
 
-            # Post to all team channels
-            for key, chan_id in self.channel_ids.items():
-                if key.startswith("team_"):
-                    ch = self.get_channel(chan_id)
-                    if isinstance(ch, discord.TextChannel):
-                        with contextlib.suppress(
-                            discord.Forbidden,
-                            discord.HTTPException,
-                        ):
-                            await ch.send(embed=embed)
+            # Post to all team channels (deduplicated)
+            for ch in self._get_unique_team_channels():
+                with contextlib.suppress(
+                    discord.Forbidden,
+                    discord.HTTPException,
+                ):
+                    await ch.send(embed=embed)
 
         elif event_type == "season.memorial_generated":
             season_name = str(data.get("season_name", ""))
@@ -1570,16 +1615,13 @@ class PinwheelBot(commands.Bot):
             if channel:
                 await channel.send(embed=embed)
 
-            # Post to all team channels
-            for key, chan_id in self.channel_ids.items():
-                if key.startswith("team_"):
-                    ch = self.get_channel(chan_id)
-                    if isinstance(ch, discord.TextChannel):
-                        with contextlib.suppress(
-                            discord.Forbidden,
-                            discord.HTTPException,
-                        ):
-                            await ch.send(embed=embed)
+            # Post to all team channels (deduplicated)
+            for ch in self._get_unique_team_channels():
+                with contextlib.suppress(
+                    discord.Forbidden,
+                    discord.HTTPException,
+                ):
+                    await ch.send(embed=embed)
 
         elif event_type == "season.phase_changed":
             to_phase = str(data.get("to_phase", ""))

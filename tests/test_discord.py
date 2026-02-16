@@ -318,6 +318,63 @@ class TestEventDispatch:
         await bot._dispatch_event(event)
         channel.send.assert_called_once()
 
+    async def test_governance_dedup_stale_team_channels(self, bot: PinwheelBot) -> None:
+        """Multiple team_* keys mapping to the same channel ID should only send once."""
+        main_channel = AsyncMock(spec=discord.TextChannel)
+        team_channel = AsyncMock(spec=discord.TextChannel)
+
+        # Simulate stale entries: 3 different team keys all point to channel 5555
+        bot.channel_ids = {
+            "team_old_season1": 5555,
+            "team_old_season2": 5555,
+            "team_current": 5555,
+        }
+
+        def get_channel_side_effect(cid: int) -> AsyncMock:
+            if cid == bot.main_channel_id:
+                return main_channel
+            if cid == 5555:
+                return team_channel
+            return None  # type: ignore[return-value]
+
+        bot.get_channel = MagicMock(side_effect=get_channel_side_effect)
+
+        event = {
+            "type": "governance.window_closed",
+            "data": {"round": 3, "proposals_count": 2, "rules_changed": 1},
+        }
+        await bot._dispatch_event(event)
+
+        # main channel: 1 send, team channel: 1 send (not 3)
+        assert main_channel.send.call_count == 1
+        assert team_channel.send.call_count == 1
+
+    async def test_get_unique_team_channels_deduplicates(self, bot: PinwheelBot) -> None:
+        """_get_unique_team_channels returns each channel only once."""
+        ch_a = MagicMock(spec=discord.TextChannel)
+        ch_b = MagicMock(spec=discord.TextChannel)
+
+        bot.channel_ids = {
+            "team_1": 100,
+            "team_2": 100,  # duplicate
+            "team_3": 200,
+            "play_by_play": 300,  # not a team channel
+        }
+
+        def get_channel_side_effect(cid: int) -> MagicMock | None:
+            if cid == 100:
+                return ch_a
+            if cid == 200:
+                return ch_b
+            return None
+
+        bot.get_channel = MagicMock(side_effect=get_channel_side_effect)
+
+        result = bot._get_unique_team_channels()
+        assert len(result) == 2
+        assert ch_a in result
+        assert ch_b in result
+
     async def test_dispatch_no_channel_configured(self, event_bus: EventBus) -> None:
         settings = Settings(
             pinwheel_env="development",
