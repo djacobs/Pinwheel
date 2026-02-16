@@ -616,6 +616,55 @@ h3 { font-size: 1.05rem; }
 .diff-positive { color: var(--accent-success); }
 .diff-negative { color: var(--accent-danger); }
 
+/* ===== Standings Badges ===== */
+.badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.badge-clinch {
+  background: var(--accent-success);
+  color: var(--bg-primary);
+}
+
+.badge-elim {
+  background: var(--accent-danger);
+  color: var(--bg-primary);
+  opacity: 0.7;
+}
+
+/* ===== Standings Trajectory Arrows ===== */
+.traj-up, .traj-down {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* ===== Standings Legend ===== */
+.standings-legend {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+.standings-legend strong {
+  color: var(--text-secondary);
+}
+
+/* ===== Responsive: hide columns on small screens ===== */
+@media (max-width: 640px) {
+  .hide-mobile { display: none; }
+}
+
 /* ===== Recent Form Display ===== */
 .recent-form-display {
   display: flex;
@@ -1360,6 +1409,11 @@ h3 { font-size: 1.05rem; }
   margin: 0 auto;
   line-height: 1.6;
 }
+.hero-tagline a {
+  color: var(--accent-highlight);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 .hero-pulse {
   display: inline-flex;
@@ -2012,6 +2066,101 @@ h3 { font-size: 1.05rem; }
   color: var(--text-muted);
   min-width: 4rem;
   text-align: right;
+}
+
+/* High-drift rule card: parameters far from default */
+.rule-card-high-drift {
+  border-color: rgba(255, 152, 0, 0.5);
+  background: rgba(255, 152, 0, 0.06);
+}
+
+/* Drift bar: visual indicator of distance from default */
+.rule-drift-bar-container {
+  margin-top: 0.3rem;
+  margin-bottom: 0.25rem;
+  position: relative;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rule-drift-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-highlight), rgba(255, 152, 0, 0.9));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.rule-drift-label {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.rule-drift-label-only {
+  margin-top: 0.2rem;
+  margin-bottom: 0.15rem;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Change count badge */
+.rule-card-change-count {
+  margin-top: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent-governance);
+  letter-spacing: 0.02em;
+}
+
+/* Change history header */
+.rule-history-header {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+/* Change entry layout — top row with arrow + round */
+.rule-change-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Attribution line: governor + vote margin */
+.rule-change-attribution {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+}
+
+/* Vote margin badge */
+.rule-change-vote-margin {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent-success);
+  background: rgba(76, 175, 80, 0.1);
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+}
+
+/* Original proposal text */
+.rule-change-proposal-text {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+  line-height: 1.35;
 }
 
 /* Rules CTA */
@@ -3021,4 +3170,234 @@ h3 { font-size: 1.05rem; }
 .drama-badge--tied {
   background: var(--accent-report);
   color: var(--bg-primary);
+}
+
+/* ===== Performance Trajectory ===== */
+
+/* Trend pills */
+.trajectory-trends {
+  margin-top: 1rem;
+  border-top: 1px solid var(--bg-secondary, #333);
+  padding-top: 0.75rem;
+}
+
+.trend-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.trend-pill {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 2rem;
+  background: var(--bg-secondary, #2a2a3e);
+  color: var(--text-secondary, #ccc);
+  border: 1px solid var(--bg-secondary, #444);
+}
+
+.trend-pill--streak {
+  background: rgba(255, 165, 0, 0.15);
+  color: var(--accent-score, #ffa500);
+  border-color: rgba(255, 165, 0, 0.3);
+}
+
+.trend-pill--home_away {
+  background: rgba(100, 200, 255, 0.12);
+  color: var(--accent-governance, #64c8ff);
+  border-color: rgba(100, 200, 255, 0.25);
+}
+
+.trend-pill--recent {
+  background: rgba(120, 220, 120, 0.12);
+  color: var(--accent-success, #78dc78);
+  border-color: rgba(120, 220, 120, 0.25);
+}
+
+/* Win rate timeline SVG chart */
+.trajectory-timeline {
+  margin-top: 1rem;
+  border-top: 1px solid var(--bg-secondary, #333);
+  padding-top: 0.75rem;
+}
+
+.timeline-chart {
+  margin-top: 0.5rem;
+}
+
+.timeline-svg {
+  width: 100%;
+  height: 80px;
+  display: block;
+}
+
+.timeline-grid {
+  stroke: var(--bg-secondary, #333);
+  stroke-width: 0.5;
+  stroke-dasharray: 4 4;
+}
+
+.timeline-grid--mid {
+  stroke-width: 1;
+  stroke-dasharray: none;
+  opacity: 0.5;
+}
+
+.timeline-line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.timeline-rule-marker {
+  stroke: var(--accent-governance, #64c8ff);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+.timeline-rule-dot {
+  fill: var(--accent-governance, #64c8ff);
+}
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+/* Rule regime comparison */
+.regime-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.regime-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: var(--bg-secondary, #1e1e2e);
+}
+
+.regime-row--current {
+  border: 1px solid var(--accent-governance, #64c8ff);
+  background: rgba(100, 200, 255, 0.06);
+}
+
+.regime-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 60%;
+}
+
+.regime-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.regime-record {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.regime-wl {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.regime-pct {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.regime-diff {
+  font-size: 0.8rem;
+}
+
+/* Governor impact cards */
+.governor-impact-card {
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: var(--bg-secondary, #1e1e2e);
+  border-left: 3px solid var(--accent-governance, #64c8ff);
+}
+
+.impact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.impact-proposal {
+  font-style: italic;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.impact-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.impact-badge--helped {
+  background: rgba(120, 220, 120, 0.2);
+  color: var(--accent-success, #78dc78);
+}
+
+.impact-badge--hurt {
+  background: rgba(255, 100, 100, 0.2);
+  color: var(--accent-danger, #ff6464);
+}
+
+.impact-badge--neutral {
+  background: rgba(200, 200, 200, 0.15);
+  color: var(--text-secondary, #999);
+}
+
+.impact-badge--too-early-to-tell {
+  background: rgba(255, 165, 0, 0.15);
+  color: var(--accent-score, #ffa500);
+}
+
+.impact-details {
+  margin-bottom: 0.5rem;
+}
+
+.impact-records {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.impact-before, .impact-after {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.impact-arrow {
+  font-size: 1.2rem;
+  color: var(--text-secondary, #999);
+  padding-top: 0.8rem;
 }

@@ -9,9 +9,13 @@
     PINWHEEL <span class="hero-accent">FATES</span>
   </h1>
   <p class="hero-tagline">
-    3-on-3 basketball where the players rewrite the rules.
-    Propose changes. Vote with your team. Shape the game.
-    The AI is your reporter &mdash; but the fates are yours.
+    A 3-on-3 basketball sim where the players rewrite the rules.
+    {% if discord_invite_url %}
+    <a href="{{ discord_invite_url }}" target="_blank" rel="noopener">Join the Discord</a> to pick a team, then propose rule changes and vote.
+    {% else %}
+    Join the Discord to pick a team, then propose rule changes and vote.
+    {% endif %}
+    Starts out as basketball. Finishes as&nbsp;???
   </p>
   {% if current_round > 0 %}
   <div class="hero-pulse">
@@ -35,20 +39,6 @@
 {# ===== THE PINWHEEL POST ===== #}
 {% if post_headline or post_sim_report or post_gov_report %}
 <div class="home-post">
-  <div class="home-post-masthead">
-    <div class="home-post-title">THE PINWHEEL POST</div>
-    <div class="home-post-date">
-      {% if season_name %}{{ season_name }} &mdash; {% endif %}Round {{ current_round }}
-    </div>
-  </div>
-
-  {% if post_headline %}
-  <div class="home-post-headline">{{ post_headline }}</div>
-  {% endif %}
-  {% if post_subhead %}
-  <div class="home-post-subhead">{{ post_subhead }}</div>
-  {% endif %}
-
   {% if post_sim_report %}
   <div class="home-post-section">
     <div class="home-post-section-header">GAME REPORTS</div>
@@ -79,10 +69,15 @@
 
 {# ===== WHAT CHANGED ===== #}
 {% if what_changed_signals %}
-<div class="what-changed">
+<div class="what-changed" id="what-changed"
+     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
   {% for signal in what_changed_signals %}
-  <div class="what-changed-item">{{ signal }}</div>
+  <div class="what-changed-item{% if signal.startswith('Latest:') %} what-changed-fallback{% endif %}">{{ signal }}</div>
   {% endfor %}
+</div>
+{% else %}
+<div id="what-changed"
+     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
 </div>
 {% endif %}
 
