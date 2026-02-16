@@ -737,3 +737,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 116. [DONE] What-Changed widget enhanced with 9 signal types
 **Problem:** The what-changed widget on the home page had limited signal detection.
 **Fix:** Expanded to 9 signal types in lede hierarchy order: champion crowned, playoff clinch, elimination, upset, streaks, blowout, nailbiter, standings movement, rule changes. Max signals increased from 3 to 5.
+
+### 117. [DONE] Duplicate Discord notifications in team channels
+**Problem:** "The Floor Has Spoken" governance embeds, championship announcements, and memorial embeds were sent 5x to each team channel. Stale `channel_team_*` entries from previous seasons accumulated in `bot_state`, all pointing to the same Discord channel — the iteration sent once per stale entry.
+**Fix:** Added `_get_unique_team_channels()` helper that deduplicates by channel ID. All 3 team-broadcast sites (governance, championship, memorial) now use it. Setup also prunes stale `team_*` entries that don't match the current season's teams.

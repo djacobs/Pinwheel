@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1964 tests**, zero lint errors (Session 92)
+- **1966 tests**, zero lint errors (Session 93)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -17,7 +17,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer, Amplify Human Judgment (9 features), P0/P1 security hardening, doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
-- **Latest commit:** `1724532` — feat: upgrade reports to Opus, add early-season awareness guard
+- **Latest commit:** `9accd69` — fix: deduplicate Discord team channel notifications
 
 ## Today's Agenda
 
@@ -84,3 +84,22 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1964 tests, zero lint errors.**
 
 **What could have gone better:** Reports should have been on Opus from the start — the editorial voice is the game's personality. The early-season guard is an obvious prompt gap that should have been caught during the Session 86 prompt rewrite.
+
+---
+
+## Session 93 — Fix Duplicate Discord Notifications
+
+**What was asked:** "The Floor Has Spoken -- Round 2" was appearing 5 times in team channels. Investigate and fix duplicate Discord governance notifications.
+
+**What was built:**
+- **Root cause:** `_load_persisted_channel_ids()` loads ALL `channel_team_*` entries from `bot_state`, including stale entries from previous seasons with different team UUIDs. Multiple entries (e.g., `team_abc123`, `team_def456`) all pointed to the same Discord channel, so the governance handler sent the embed once per stale entry.
+- **`_get_unique_team_channels()` helper** — deduplicates team channels by channel ID so each Discord channel receives at most one message, regardless of how many stale `team_*` entries exist
+- **All 3 team-channel iteration sites updated** — governance (`governance.window_closed`), championship (`season.championship_started`), and memorial (`season.memorial_generated`) handlers now use the dedup helper
+- **Stale entry cleanup during setup** — `_setup_server()` now prunes `team_*` entries that don't belong to the current season's teams, removing them from both `self.channel_ids` and the database via new `_persist_bot_state_delete()` method
+- **2 new tests** — `test_governance_dedup_stale_team_channels` (verifies 3 stale entries only produce 1 send), `test_get_unique_team_channels_deduplicates` (unit test for the helper)
+
+**Files modified (2):** `src/pinwheel/discord/bot.py`, `tests/test_discord.py`
+
+**1966 tests, zero lint errors.**
+
+**What could have gone better:** This bug existed since the first season reset — any time a new season created teams with new UUIDs, stale `channel_team_*` entries accumulated in `bot_state`. The original iteration pattern (`for key, chan_id in self.channel_ids.items() if key.startswith("team_")`) assumed a 1:1 mapping between team keys and Discord channels, which broke across seasons.
