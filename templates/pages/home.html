@@ -36,6 +36,20 @@
   {% endif %}
 </div>
 
+{# ===== WHAT CHANGED ===== #}
+{% if what_changed_signals %}
+<div class="what-changed" id="what-changed"
+     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
+  {% for signal in what_changed_signals %}
+  <div class="what-changed-item{% if signal.startswith('Latest:') %} what-changed-fallback{% endif %}">{{ signal }}</div>
+  {% endfor %}
+</div>
+{% else %}
+<div id="what-changed"
+     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
+</div>
+{% endif %}
+
 {# ===== THE PINWHEEL POST ===== #}
 {% if post_headline or post_sim_report or post_gov_report %}
 <div class="home-post">
@@ -64,20 +78,6 @@
   </div>
   {% endif %}
 
-</div>
-{% endif %}
-
-{# ===== WHAT CHANGED ===== #}
-{% if what_changed_signals %}
-<div class="what-changed" id="what-changed"
-     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
-  {% for signal in what_changed_signals %}
-  <div class="what-changed-item{% if signal.startswith('Latest:') %} what-changed-fallback{% endif %}">{{ signal }}</div>
-  {% endfor %}
-</div>
-{% else %}
-<div id="what-changed"
-     hx-get="/partials/what-changed" hx-trigger="every 60s" hx-swap="outerHTML">
 </div>
 {% endif %}
 
