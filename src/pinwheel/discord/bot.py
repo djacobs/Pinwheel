@@ -2165,6 +2165,13 @@ class PinwheelBot(commands.Bot):
                     )
                     return
 
+            # Let the player know their proposal was received before the slow AI call
+            thinking_msg = await interaction.followup.send(
+                "**Received your proposal.** The Constitutional Interpreter "
+                "is reviewing it \u2014 this usually takes 15\u201330 seconds...",
+                ephemeral=True,
+            )
+
             api_key = self.settings.anthropic_api_key
             interpretation_v2 = None
             if api_key:
@@ -2288,20 +2295,28 @@ class PinwheelBot(commands.Bot):
                 governor_name=interaction.user.display_name,
                 interpretation_v2=interpretation_v2,
             )
-            await interaction.followup.send(
+            await thinking_msg.edit(
+                content=None,
                 embed=embed,
                 view=view,
-                ephemeral=True,
             )
         except Exception:
             logger.exception("discord_propose_failed")
-            await interaction.followup.send(
+            # If the thinking message was sent, edit it with the error;
+            # otherwise fall back to a new followup.
+            error_text = (
                 "Your proposal could not be interpreted right now. "
                 "This might be a temporary issue with the AI interpreter -- "
                 "try `/propose` again with the same text. "
-                "If it keeps failing, ask an admin for help.",
-                ephemeral=True,
+                "If it keeps failing, ask an admin for help."
             )
+            if "thinking_msg" in locals():
+                await thinking_msg.edit(content=error_text)
+            else:
+                await interaction.followup.send(
+                    error_text,
+                    ephemeral=True,
+                )
 
     async def _handle_amend(
         self,

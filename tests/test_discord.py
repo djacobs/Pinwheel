@@ -1346,7 +1346,7 @@ class TestProposeGovernance:
         settings_discord_enabled: Settings,
         event_bus: EventBus,
     ) -> None:
-        """Full propose flow: defer, interpret, send view."""
+        """Full propose flow: defer, thinking msg, interpret, edit with view."""
         bot, interaction, gov_data, engine = await _make_enrolled_bot_and_interaction(
             settings_discord_enabled,
             event_bus,
@@ -1359,14 +1359,19 @@ class TestProposeGovernance:
 
         # Should defer (AI call takes time)
         interaction.response.defer.assert_called_once()
-        # Should followup with embed + view
+        # Should send a thinking message first
         interaction.followup.send.assert_called_once()
-        call_kwargs = interaction.followup.send.call_args
-        assert call_kwargs.kwargs.get("ephemeral") is True
-        embed = call_kwargs.kwargs.get("embed")
+        thinking_kwargs = interaction.followup.send.call_args
+        assert thinking_kwargs.kwargs.get("ephemeral") is True
+        assert "reviewing" in str(thinking_kwargs.args[0]).lower()
+        # The thinking message gets edited with the interpretation embed + view
+        thinking_msg = interaction.followup.send.return_value
+        thinking_msg.edit.assert_called_once()
+        edit_kwargs = thinking_msg.edit.call_args
+        embed = edit_kwargs.kwargs.get("embed")
         assert embed is not None
         assert "Interpretation" in embed.title
-        view = call_kwargs.kwargs.get("view")
+        view = edit_kwargs.kwargs.get("view")
         assert view is not None
         await engine.dispose()
 
@@ -1459,15 +1464,17 @@ class TestProposeGovernance:
             event_bus,
         )
 
-        # First proposal should succeed (show interpret view)
+        # First proposal should succeed (thinking msg + edit with interpret view)
         await bot._handle_propose(
             interaction,
             "Make three-pointers worth 5 points",
         )
         interaction.followup.send.assert_called_once()
-        call_kwargs = interaction.followup.send.call_args
-        # First call should show the interpretation embed (not an error string)
-        assert call_kwargs.kwargs.get("embed") is not None
+        thinking_msg = interaction.followup.send.return_value
+        # First call should edit the thinking msg with the interpretation embed
+        thinking_msg.edit.assert_called_once()
+        edit_kwargs = thinking_msg.edit.call_args
+        assert edit_kwargs.kwargs.get("embed") is not None
 
         # Second proposal immediately should be blocked by cooldown
         interaction2 = make_interaction(
@@ -1511,9 +1518,11 @@ class TestProposeGovernance:
             interaction,
             "Make three-pointers worth 5 points",
         )
-        # Should succeed (show interpret view, not cooldown error)
-        call_kwargs = interaction.followup.send.call_args
-        assert call_kwargs.kwargs.get("embed") is not None
+        # Should succeed (thinking msg + edit with interpret view, not cooldown error)
+        thinking_msg = interaction.followup.send.return_value
+        thinking_msg.edit.assert_called_once()
+        edit_kwargs = thinking_msg.edit.call_args
+        assert edit_kwargs.kwargs.get("embed") is not None
         await engine.dispose()
 
     async def test_propose_spends_token_at_propose_time(
@@ -1548,8 +1557,9 @@ class TestProposeGovernance:
         assert balance.propose == 1
 
         # Verify the view has token_already_spent=True
-        call_kwargs = interaction.followup.send.call_args
-        view = call_kwargs.kwargs.get("view")
+        thinking_msg = interaction.followup.send.return_value
+        edit_kwargs = thinking_msg.edit.call_args
+        view = edit_kwargs.kwargs.get("view")
         assert view is not None
         assert view.token_already_spent is True
         await engine.dispose()
@@ -1574,9 +1584,10 @@ class TestProposeGovernance:
             "Make three-pointers worth 5 points",
         )
 
-        # Get the view from the followup
-        call_kwargs = interaction.followup.send.call_args
-        view = call_kwargs.kwargs.get("view")
+        # Get the view from the thinking message edit
+        thinking_msg = interaction.followup.send.return_value
+        edit_kwargs = thinking_msg.edit.call_args
+        view = edit_kwargs.kwargs.get("view")
         assert view is not None
 
         # Simulate cancel button press via the button callback
@@ -1618,8 +1629,9 @@ class TestProposeGovernance:
             "Make three-pointers worth 5 points",
         )
 
-        call_kwargs = interaction.followup.send.call_args
-        view = call_kwargs.kwargs.get("view")
+        thinking_msg = interaction.followup.send.return_value
+        edit_kwargs = thinking_msg.edit.call_args
+        view = edit_kwargs.kwargs.get("view")
         assert view is not None
 
         # Simulate confirm button press via the button callback
