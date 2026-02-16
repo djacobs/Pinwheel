@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     # Database — SQLite only, no PostgreSQL support
     database_url: str = "sqlite+aiosqlite:///pinwheel.db"
 
+    # Public base URL (used in Discord messages, emails, etc.)
+    pinwheel_base_url: str = "https://pinwheel.fly.dev"
+
     # Environment
     pinwheel_env: str = "development"
 

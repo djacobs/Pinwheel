@@ -1040,8 +1040,11 @@ def build_welcome_embed(
         "`/standings` -- See the league standings"
     )
 
+    from pinwheel.config import Settings
+
+    base_url = Settings().pinwheel_base_url.rstrip("/")
     sections.append(
-        "Read the full rules at **/play** on the web."
+        f"Read the full rules at **{base_url}/play**"
     )
 
     embed = discord.Embed(
