@@ -7,14 +7,14 @@ and a form to start a new season. Admin-gated in production.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
 
 from pinwheel.api.deps import RepoDep
-from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
+from pinwheel.config import PROJECT_ROOT
 from pinwheel.db.models import GameResultRow, TeamRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -22,46 +22,13 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
-def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
-    """Build auth-related template context."""
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    admin_id = settings.pinwheel_admin_discord_id
-    is_admin = (
-        current_user is not None
-        and bool(admin_id)
-        and current_user.discord_id == admin_id
-    )
-    return {
-        "current_user": current_user,
-        "oauth_enabled": oauth_enabled,
-        "pinwheel_env": settings.pinwheel_env,
-        "app_version": APP_VERSION,
-        "is_admin": is_admin,
-    }
-
-
-def _is_admin(current_user: SessionUser | None, settings: object) -> bool:
-    """Check if the current user is the configured admin."""
-    if current_user is None:
-        return False
-    admin_id = getattr(settings, "pinwheel_admin_discord_id", "")
-    if not admin_id:
-        return False
-    return current_user.discord_id == admin_id
-
-
 @router.get("/season", response_class=HTMLResponse)
 async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Admin season dashboard -- current config, past seasons, new season form."""
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+    if denied := check_admin_access(current_user, request):
+        return denied
 
-    if oauth_enabled:
-        if current_user is None:
-            return RedirectResponse(url="/auth/login", status_code=302)
-        if not _is_admin(current_user, settings):
-            return HTMLResponse("Unauthorized -- admin access required.", status_code=403)
+    settings = request.app.state.settings
 
     # Current season
     active_season = await repo.get_active_season()
@@ -158,6 +125,6 @@ async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUs
             "current_season": current_season_data,
             "runtime_config": runtime_config,
             "past_seasons": past_seasons,
-            **_auth_context(request, current_user),
+            **admin_auth_context(request, current_user),
         },
     )

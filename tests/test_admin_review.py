@@ -43,10 +43,14 @@ async def app_client():
 
 @pytest.fixture
 async def oauth_app_client():
-    """Create a test app with OAuth configured for auth gate testing."""
+    """Create a test app with OAuth configured for auth gate testing.
+
+    Uses staging env so check_admin_access enforces the auth gate
+    (dev mode skips it for local testing convenience).
+    """
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
-        pinwheel_env="development",
+        pinwheel_env="staging",
         discord_client_id="test-client-id",
         discord_client_secret="test-client-secret",
         session_secret_key="test-secret",

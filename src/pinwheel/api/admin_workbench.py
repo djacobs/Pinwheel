@@ -8,12 +8,12 @@ Admin-gated via PINWHEEL_ADMIN_DISCORD_ID or accessible in dev without OAuth.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
+from pinwheel.config import PROJECT_ROOT
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -35,35 +35,6 @@ class ClassifierTestResponse(BaseModel):
     reason: str
     sanitized_text: str
     would_block: bool
-
-
-def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
-    """Build auth-related template context."""
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    admin_id = settings.pinwheel_admin_discord_id
-    is_admin = (
-        current_user is not None
-        and bool(admin_id)
-        and current_user.discord_id == admin_id
-    )
-    return {
-        "current_user": current_user,
-        "oauth_enabled": oauth_enabled,
-        "pinwheel_env": settings.pinwheel_env,
-        "app_version": APP_VERSION,
-        "is_admin": is_admin,
-    }
-
-
-def _is_admin(current_user: SessionUser | None, settings: object) -> bool:
-    """Check if the current user is the configured admin."""
-    if current_user is None:
-        return False
-    admin_id = getattr(settings, "pinwheel_admin_discord_id", "")
-    if not admin_id:
-        return False
-    return current_user.discord_id == admin_id
 
 
 # Pre-built test cases for the classifier
@@ -108,14 +79,10 @@ async def admin_workbench(request: Request, current_user: OptionalUser):
     Auth-gated: requires admin Discord ID match when OAuth is enabled.
     In dev mode without OAuth credentials the page is accessible.
     """
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+    if denied := check_admin_access(current_user, request):
+        return denied
 
-    if oauth_enabled:
-        if current_user is None:
-            return RedirectResponse(url="/auth/login", status_code=302)
-        if not _is_admin(current_user, settings):
-            return HTMLResponse("Unauthorized -- admin access required.", status_code=403)
+    settings = request.app.state.settings
 
     # Classifier config info
     from pinwheel.ai.classifier import CLASSIFIER_MODEL, CLASSIFIER_PROMPT
@@ -184,7 +151,7 @@ async def admin_workbench(request: Request, current_user: OptionalUser):
             "classifier_config": classifier_config,
             "defense_layers": defense_layers,
             "sample_proposals": SAMPLE_PROPOSALS,
-            **_auth_context(request, current_user),
+            **admin_auth_context(request, current_user),
         },
     )
 
@@ -201,19 +168,10 @@ async def test_classifier(
     result. Accepts JSON body with ``{"text": "..."}`` or form-encoded
     data. Runs sanitize_text first, then the classifier.
     """
-    settings = request.app.state.settings
-    oauth_enabled = bool(
-        settings.discord_client_id and settings.discord_client_secret
-    )
+    if denied := check_admin_access(current_user, request):
+        return denied
 
-    if oauth_enabled:
-        if current_user is None:
-            return HTMLResponse("Unauthorized", status_code=401)
-        if not _is_admin(current_user, settings):
-            return HTMLResponse(
-                "Unauthorized -- admin access required.",
-                status_code=403,
-            )
+    settings = request.app.state.settings
 
     # Accept either JSON body or form-encoded data
     raw_text = ""

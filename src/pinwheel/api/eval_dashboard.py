@@ -15,8 +15,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from pinwheel.api.deps import RepoDep
-from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
+from pinwheel.config import PROJECT_ROOT
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -114,24 +114,6 @@ def compute_safety_summary(
     }
 
 
-def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    admin_id = settings.pinwheel_admin_discord_id
-    is_admin = (
-        current_user is not None
-        and bool(admin_id)
-        and current_user.discord_id == admin_id
-    )
-    return {
-        "current_user": current_user,
-        "oauth_enabled": oauth_enabled,
-        "pinwheel_env": settings.pinwheel_env,
-        "app_version": APP_VERSION,
-        "is_admin": is_admin,
-    }
-
-
 async def _get_active_season_id(repo: RepoDep) -> str | None:
     from sqlalchemy import select
 
@@ -183,12 +165,8 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
     authenticated. In dev mode without OAuth credentials the page is
     accessible to support local testing.
     """
-    from fastapi.responses import RedirectResponse
-
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    if current_user is None and oauth_enabled:
-        return RedirectResponse(url="/auth/login", status_code=302)
+    if denied := check_admin_access(current_user, request):
+        return denied
 
     season_id = await _get_active_season_id(repo)
     if not season_id:
@@ -202,7 +180,7 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
                 "available_rounds": [],
                 "prev_round": None,
                 "next_round": None,
-                **_auth_context(request, current_user),
+                **admin_auth_context(request, current_user),
             },
         )
 
@@ -393,6 +371,6 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
             "injection_attempts": injection_attempts,
             "injection_blocked": injection_blocked,
             "recent_classifications": recent_classifications,
-            **_auth_context(request, current_user),
+            **admin_auth_context(request, current_user),
         },
     )

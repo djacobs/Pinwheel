@@ -7,35 +7,16 @@ Admin-gated via PINWHEEL_ADMIN_DISCORD_ID or accessible in dev without OAuth.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from pinwheel.api.deps import RepoDep
-from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
+from pinwheel.config import PROJECT_ROOT
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
-
-
-def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
-    """Build auth-related template context."""
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    admin_id = settings.pinwheel_admin_discord_id
-    is_admin = (
-        current_user is not None
-        and bool(admin_id)
-        and current_user.discord_id == admin_id
-    )
-    return {
-        "current_user": current_user,
-        "oauth_enabled": oauth_enabled,
-        "pinwheel_env": settings.pinwheel_env,
-        "app_version": APP_VERSION,
-        "is_admin": is_admin,
-    }
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
@@ -50,16 +31,6 @@ async def _get_active_season_id(repo: RepoDep) -> str | None:
     return row.id if row else None
 
 
-def _is_admin(current_user: SessionUser | None, settings: object) -> bool:
-    """Check if the current user is the configured admin."""
-    if current_user is None:
-        return False
-    admin_id = getattr(settings, "pinwheel_admin_discord_id", "")
-    if not admin_id:
-        return False
-    return current_user.discord_id == admin_id
-
-
 @router.get("/roster", response_class=HTMLResponse)
 async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUser):
     """Admin roster -- table of all enrolled governors.
@@ -68,15 +39,8 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
     In dev mode without OAuth credentials the page is accessible to support
     local testing.
     """
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-
-    # Auth gate: in production, require admin login
-    if oauth_enabled:
-        if current_user is None:
-            return RedirectResponse(url="/auth/login", status_code=302)
-        if not _is_admin(current_user, settings):
-            return HTMLResponse("Unauthorized -- admin access required.", status_code=403)
+    if denied := check_admin_access(current_user, request):
+        return denied
 
     # Show ALL players, regardless of season enrollment
     all_players = await repo.get_all_players()
@@ -150,6 +114,6 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         {
             "active_page": "roster",
             "governors": governors,
-            **_auth_context(request, current_user),
+            **admin_auth_context(request, current_user),
         },
     )

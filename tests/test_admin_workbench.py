@@ -40,10 +40,14 @@ async def app_client():
 
 @pytest.fixture
 async def oauth_app_client():
-    """Create a test app with OAuth configured for auth gate testing."""
+    """Create a test app with OAuth configured for auth gate testing.
+
+    Uses staging env so check_admin_access enforces the auth gate
+    (dev mode skips it for local testing convenience).
+    """
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
-        pinwheel_env="development",
+        pinwheel_env="staging",
         discord_client_id="test-client-id",
         discord_client_secret="test-client-secret",
         session_secret_key="test-secret",
@@ -238,12 +242,14 @@ async def test_classifier_test_long_text_truncated(
 async def test_classifier_test_oauth_blocks_anon(
     oauth_app_client: AsyncClient,
 ) -> None:
-    """Classifier test returns 401 when OAuth is on and user not logged in."""
+    """Classifier test redirects to login when OAuth is on and user not logged in."""
     resp = await oauth_app_client.post(
         "/admin/workbench/test-classifier",
         json={"text": "Test proposal"},
+        follow_redirects=False,
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 302
+    assert "/auth/login" in resp.headers.get("location", "")
 
 
 # --- _escape_html unit tests ---

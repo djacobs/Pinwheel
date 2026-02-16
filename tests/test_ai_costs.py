@@ -294,10 +294,11 @@ async def test_costs_dashboard_with_data(app_client: tuple) -> None:
 @pytest.mark.asyncio
 async def test_costs_dashboard_auth_redirect(app_client: tuple) -> None:
     """With OAuth configured, unauthenticated users get redirected."""
-    # Create app with OAuth enabled
+    # Create app with OAuth enabled — use staging so check_admin_access
+    # enforces the gate (dev mode skips it for local testing convenience).
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
-        pinwheel_env="development",
+        pinwheel_env="staging",
         discord_client_id="test-id",
         discord_client_secret="test-secret",
         session_secret_key="test-key",

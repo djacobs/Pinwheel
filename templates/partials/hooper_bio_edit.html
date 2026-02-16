@@ -1,0 +1,12 @@
+<form hx-post="/hoopers/{{ hooper_id }}/bio" hx-target="#hooper-bio" hx-swap="innerHTML">
+  <textarea name="backstory" rows="4" style="width:100%; background:var(--bg-input);
+    color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius);
+    padding:0.75rem; font-family:var(--font-body); font-size:0.9rem; resize:vertical;
+    line-height:1.6;">{{ backstory }}</textarea>
+  <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
+    <button type="submit" class="bio-edit-btn">Save</button>
+    <button type="button" class="bio-edit-btn"
+            hx-get="/hoopers/{{ hooper_id }}/bio/view" hx-target="#hooper-bio"
+            hx-swap="innerHTML">Cancel</button>
+  </div>
+</form>

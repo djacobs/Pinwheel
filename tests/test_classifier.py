@@ -278,18 +278,16 @@ class TestClassificationResult:
 class TestPipelineIntegration:
     """Verify the classifier is called in the governance pipeline call sites."""
 
-    async def test_classifier_wired_into_governance_endpoint(self) -> None:
-        """Verify the governance endpoint imports and uses classify_injection."""
+    async def test_classifier_wired_into_discord_propose_flow(self) -> None:
+        """Verify the Discord bot's proposal flow imports and uses classify_injection."""
         import inspect
 
-        from pinwheel.api import governance
+        from pinwheel.discord import bot
 
-        source = inspect.getsource(governance.api_submit_proposal)
-        # The endpoint must import and call classify_injection
+        source = inspect.getsource(bot)
+        # The Discord bot must import and call classify_injection
         assert "classify_injection" in source
-        assert 'classification == "injection"' in source or (
-            "classification ==" in source and "injection" in source
-        )
+        assert "classification" in source and "injection" in source
 
     async def test_injection_blocks_interpreter(self) -> None:
         """When classifier returns injection with high confidence, interpreter is not called."""

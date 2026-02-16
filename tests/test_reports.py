@@ -1,6 +1,8 @@
-"""Tests for report generation (mock) and report models."""
+"""Tests for report generation (mock), report models, and private report API auth."""
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.ai.report import (
@@ -19,10 +21,14 @@ from pinwheel.ai.report import (
     generate_private_report_mock,
     generate_simulation_report_mock,
 )
+from pinwheel.auth.deps import SESSION_COOKIE_NAME
+from pinwheel.config import Settings
+from pinwheel.core.event_bus import EventBus
 from pinwheel.core.narrative import NarrativeContext
 from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
+from pinwheel.main import create_app
 from pinwheel.models.report import Report, ReportUpdate
 
 
@@ -1852,3 +1858,245 @@ class TestComputePrivateReportContext:
         assert "defense" in ctx["blind_spots"]
         assert ctx["alignment_rate"] == 0.0
         assert ctx["swing_votes"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Private reports API endpoint — auth tests
+# ---------------------------------------------------------------------------
+
+
+def _sign_session(secret: str, data: dict) -> str:
+    """Create a signed session cookie value for testing."""
+    serializer = URLSafeTimedSerializer(secret, salt="pinwheel-session")
+    result: str = serializer.dumps(data)
+    return result
+
+
+def _prod_settings(**overrides: str) -> Settings:
+    """Build production-mode settings for auth testing."""
+    defaults: dict[str, str] = {
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "pinwheel_env": "production",
+        "session_secret_key": "test-secret-for-private-reports",
+    }
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
+def _dev_settings(**overrides: str) -> Settings:
+    """Build development-mode settings for auth testing."""
+    defaults: dict[str, str] = {
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "pinwheel_env": "development",
+        "session_secret_key": "test-secret-for-private-reports",
+    }
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
+async def _make_client_and_engine(
+    settings: Settings,
+) -> tuple[AsyncClient, object]:
+    """Create test app, engine, and httpx client. Caller must dispose engine."""
+    app = create_app(settings)
+
+    engine = create_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    app.state.engine = engine
+    app.state.event_bus = EventBus()
+
+    from pinwheel.core.presenter import PresentationState
+
+    app.state.presentation_state = PresentationState()
+
+    transport = ASGITransport(app=app)
+    client = AsyncClient(transport=transport, base_url="http://test")
+    return client, engine
+
+
+async def _create_player_and_report(
+    engine: object,
+    discord_id: str = "111222333",
+    username: str = "testgov",
+) -> tuple[str, str, str]:
+    """Create a player and a private report, return (player_id, season_id, report_id)."""
+    async with get_session(engine) as session:  # type: ignore[arg-type]
+        repo = Repository(session)
+        player = await repo.get_or_create_player(
+            discord_id=discord_id,
+            username=username,
+        )
+        league = await repo.create_league("Auth Test League")
+        season = await repo.create_season(league.id, "Season 1")
+        report = await repo.store_report(
+            season_id=season.id,
+            report_type="private",
+            round_number=1,
+            content="Your private reflection for round 1.",
+            governor_id=player.id,
+        )
+        return player.id, season.id, report.id
+
+
+class TestPrivateReportsEndpointAuth:
+    """Tests for session auth on GET /api/reports/private/{season_id}/{governor_id}."""
+
+    async def test_unauthenticated_denied_in_production(self) -> None:
+        """Without a session cookie in production, the endpoint returns 401."""
+        settings = _prod_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            player_id, season_id, _ = await _create_player_and_report(engine)
+
+            resp = await client.get(f"/api/reports/private/{season_id}/{player_id}")
+
+            assert resp.status_code == 401
+            assert "Authentication required" in resp.json()["detail"]
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]
+
+    async def test_authorized_governor_can_see_own_reports(self) -> None:
+        """An authenticated governor can view their own private reports."""
+        settings = _prod_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            player_id, season_id, _ = await _create_player_and_report(
+                engine, discord_id="999888777", username="mygov",
+            )
+
+            cookie_value = _sign_session(
+                settings.session_secret_key,
+                {
+                    "discord_id": "999888777",
+                    "username": "mygov",
+                    "avatar_url": "",
+                },
+            )
+            client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
+
+            resp = await client.get(f"/api/reports/private/{season_id}/{player_id}")
+
+            assert resp.status_code == 200
+            data = resp.json()["data"]
+            assert len(data) == 1
+            assert data[0]["governor_id"] == player_id
+            assert "private reflection" in data[0]["content"]
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]
+
+    async def test_governor_cannot_see_another_governors_reports(self) -> None:
+        """A governor requesting another governor's reports gets 403."""
+        settings = _prod_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            # Create the target governor (whose reports exist)
+            target_player_id, season_id, _ = await _create_player_and_report(
+                engine, discord_id="111000111", username="targetgov",
+            )
+
+            # Create the requesting governor (different person)
+            async with get_session(engine) as session:  # type: ignore[arg-type]
+                repo = Repository(session)
+                await repo.get_or_create_player(
+                    discord_id="222000222", username="snoopygov",
+                )
+
+            cookie_value = _sign_session(
+                settings.session_secret_key,
+                {
+                    "discord_id": "222000222",
+                    "username": "snoopygov",
+                    "avatar_url": "",
+                },
+            )
+            client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
+
+            resp = await client.get(
+                f"/api/reports/private/{season_id}/{target_player_id}",
+            )
+
+            assert resp.status_code == 403
+            assert "your own" in resp.json()["detail"].lower()
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]
+
+    async def test_dev_mode_allows_unauthenticated_access(self) -> None:
+        """In development mode, the endpoint works without auth."""
+        settings = _dev_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            player_id, season_id, _ = await _create_player_and_report(engine)
+
+            # No session cookie set — should still work in dev mode
+            resp = await client.get(f"/api/reports/private/{season_id}/{player_id}")
+
+            assert resp.status_code == 200
+            data = resp.json()["data"]
+            assert len(data) == 1
+            assert data[0]["governor_id"] == player_id
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]
+
+    async def test_unknown_discord_id_gets_403(self) -> None:
+        """Auth'd user whose discord_id has no PlayerRow gets 403."""
+        settings = _prod_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            player_id, season_id, _ = await _create_player_and_report(engine)
+
+            # Cookie for a discord_id that has no player record
+            cookie_value = _sign_session(
+                settings.session_secret_key,
+                {
+                    "discord_id": "000000000",
+                    "username": "ghost",
+                    "avatar_url": "",
+                },
+            )
+            client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
+
+            resp = await client.get(f"/api/reports/private/{season_id}/{player_id}")
+
+            assert resp.status_code == 403
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]
+
+    async def test_empty_reports_for_authorized_governor(self) -> None:
+        """An authorized governor with no reports gets an empty list, not an error."""
+        settings = _prod_settings()
+        client, engine = await _make_client_and_engine(settings)
+        try:
+            # Create a player but no reports
+            async with get_session(engine) as session:  # type: ignore[arg-type]
+                repo = Repository(session)
+                player = await repo.get_or_create_player(
+                    discord_id="444555666", username="emptygov",
+                )
+                league = await repo.create_league("Empty League")
+                season = await repo.create_season(league.id, "Season E")
+                player_id = player.id
+                season_id = season.id
+
+            cookie_value = _sign_session(
+                settings.session_secret_key,
+                {
+                    "discord_id": "444555666",
+                    "username": "emptygov",
+                    "avatar_url": "",
+                },
+            )
+            client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
+
+            resp = await client.get(f"/api/reports/private/{season_id}/{player_id}")
+
+            assert resp.status_code == 200
+            assert resp.json()["data"] == []
+        finally:
+            await client.aclose()
+            await engine.dispose()  # type: ignore[union-attr]

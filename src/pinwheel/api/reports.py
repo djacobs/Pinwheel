@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from pinwheel.api.deps import RepoDep
+from pinwheel.auth.deps import OptionalUser
+from pinwheel.config import Settings
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -36,16 +38,36 @@ async def get_round_reports(
 
 @router.get("/private/{season_id}/{governor_id}")
 async def get_private_reports(
+    request: Request,
     season_id: str,
     governor_id: str,
     repo: RepoDep,
+    current_user: OptionalUser,
     round_number: int | None = None,
 ) -> dict:
     """Get private reports for a specific governor.
 
-    Access control: in production, this would verify the requester IS the governor.
-    For hackathon, we trust the governor_id parameter.
+    Access control: requires an authenticated session whose player ID
+    matches the requested governor_id.  In development mode, auth is
+    bypassed so local testing works without Discord OAuth.
     """
+    settings: Settings = request.app.state.settings
+    is_dev = settings.pinwheel_env == "development"
+
+    if not is_dev:
+        if current_user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required — please log in via Discord.",
+            )
+
+        player = await repo.get_player_by_discord_id(current_user.discord_id)
+        if player is None or player.id != governor_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only view your own private reports.",
+            )
+
     rows = await repo.get_private_reports(season_id, governor_id, round_number)
     return {
         "data": [

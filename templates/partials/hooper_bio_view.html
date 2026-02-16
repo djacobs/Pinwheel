@@ -1,0 +1,11 @@
+{% if backstory %}
+<p>{{ backstory }}</p>
+{% else %}
+<p class="text-muted">No bio yet.</p>
+{% endif %}
+{% if can_edit %}
+<button class="bio-edit-btn"
+        hx-get="/hoopers/{{ hooper_id }}/bio/edit"
+        hx-target="#hooper-bio"
+        hx-swap="innerHTML">Edit Bio</button>
+{% endif %}

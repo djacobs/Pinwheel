@@ -2291,21 +2291,11 @@ async def hooper_bio_edit_form(
     if not enrollment or enrollment[0] != hooper.team_id:
         raise HTTPException(403, "Not authorized — must be team governor")
 
-    html = f"""
-    <form hx-post="/hoopers/{hooper_id}/bio" hx-target="#hooper-bio" hx-swap="innerHTML">
-      <textarea name="backstory" rows="4" style="width:100%; background:var(--bg-input);
-        color:var(--text-primary); border:1px solid var(--border); border-radius:var(--radius);
-        padding:0.75rem; font-family:var(--font-body); font-size:0.9rem; resize:vertical;
-        line-height:1.6;">{hooper.backstory or ""}</textarea>
-      <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
-        <button type="submit" class="bio-edit-btn">Save</button>
-        <button type="button" class="bio-edit-btn"
-                hx-get="/hoopers/{hooper_id}/bio/view" hx-target="#hooper-bio"
-                hx-swap="innerHTML">Cancel</button>
-      </div>
-    </form>
-    """
-    return HTMLResponse(html)
+    return templates.TemplateResponse(
+        request,
+        "partials/hooper_bio_edit.html",
+        {"backstory": hooper.backstory or "", "hooper_id": hooper_id},
+    )
 
 
 @router.get("/hoopers/{hooper_id}/bio/view", response_class=HTMLResponse)
@@ -2324,17 +2314,11 @@ async def hooper_bio_view(
         if enrollment and enrollment[0] == hooper.team_id:
             can_edit = True
 
-    no_bio = '<p class="text-muted">No bio yet.</p>'
-    bio_html = f"<p>{hooper.backstory}</p>" if hooper.backstory else no_bio
-    edit_btn = ""
-    if can_edit:
-        edit_btn = f"""
-        <button class="bio-edit-btn"
-                hx-get="/hoopers/{hooper_id}/bio/edit"
-                hx-target="#hooper-bio"
-                hx-swap="innerHTML">Edit Bio</button>
-        """
-    return HTMLResponse(bio_html + edit_btn)
+    return templates.TemplateResponse(
+        request,
+        "partials/hooper_bio_view.html",
+        {"backstory": hooper.backstory, "can_edit": can_edit, "hooper_id": hooper_id},
+    )
 
 
 @router.post("/hoopers/{hooper_id}/bio", response_class=HTMLResponse)
@@ -2360,14 +2344,11 @@ async def update_hooper_bio(
     await repo.session.commit()
 
     # Return the view fragment
-    bio_html = f"<p>{backstory}</p>" if backstory else '<p class="text-muted">No bio yet.</p>'
-    edit_btn = f"""
-    <button class="bio-edit-btn"
-            hx-get="/hoopers/{hooper_id}/bio/edit"
-            hx-target="#hooper-bio"
-            hx-swap="innerHTML">Edit Bio</button>
-    """
-    return HTMLResponse(bio_html + edit_btn)
+    return templates.TemplateResponse(
+        request,
+        "partials/hooper_bio_view.html",
+        {"backstory": backstory, "can_edit": True, "hooper_id": hooper_id},
+    )
 
 
 @router.get("/governors/{player_id}", response_class=HTMLResponse)

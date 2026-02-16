@@ -2552,3 +2552,169 @@ class TestGameDetailAnnotations:
                     "losing streak",
                 ]
             )
+
+
+class TestHooperBioXSS:
+    """Verify that hooper bio handlers escape user content to prevent XSS."""
+
+    @pytest.fixture
+    async def bio_client(self):
+        """App with auth configured + seeded data + authenticated governor."""
+        settings = Settings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            pinwheel_env="production",
+            session_secret_key="test-secret-key-bio",
+            discord_client_id="",
+            discord_client_secret="",
+        )
+        app = create_app(settings)
+
+        engine = create_engine(settings.database_url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        app.state.engine = engine
+
+        from pinwheel.core.event_bus import EventBus
+        from pinwheel.core.presenter import PresentationState
+
+        app.state.event_bus = EventBus()
+        app.state.presentation_state = PresentationState()
+
+        # Seed a season with teams and hoopers
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("XSS Test League")
+            season = await repo.create_season(
+                league.id, "Season 1", starting_ruleset={"quarter_minutes": 3}
+            )
+            team = await repo.create_team(
+                season.id,
+                "Team Alpha",
+                color="#aaa",
+                venue={"name": "Arena", "capacity": 5000},
+            )
+            hooper = await repo.create_hooper(
+                team_id=team.id,
+                season_id=season.id,
+                name="Target Hooper",
+                archetype="sharpshooter",
+                attributes=_hooper_attrs(),
+            )
+            # Enroll a governor on the team
+            player = await repo.get_or_create_player(
+                discord_id="governor-xss-test",
+                username="XSSGovernor",
+            )
+            await repo.enroll_player(player.id, team.id, season.id)
+            await session.commit()
+
+            hooper_id = hooper.id
+
+        # Create a signed session cookie for the governor
+        cookie = _sign_session(
+            settings.session_secret_key,
+            {
+                "discord_id": "governor-xss-test",
+                "username": "XSSGovernor",
+                "avatar_url": "",
+            },
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            client.cookies.set("pinwheel_session", cookie)
+            yield client, hooper_id
+
+        await engine.dispose()
+
+    XSS_PAYLOAD = "<script>alert('xss')</script>"
+
+    async def test_bio_view_escapes_xss_in_backstory(self, bio_client):
+        """GET /hoopers/{id}/bio/view must escape stored XSS in backstory."""
+        client, hooper_id = bio_client
+
+        # Inject the XSS payload via the POST handler
+        r = await client.post(
+            f"/hoopers/{hooper_id}/bio",
+            data={"backstory": self.XSS_PAYLOAD},
+        )
+        assert r.status_code == 200
+        # The raw <script> tag must NOT appear in output
+        assert "<script>" not in r.text
+        # The escaped version should appear
+        assert "&lt;script&gt;" in r.text
+
+    async def test_bio_view_get_escapes_xss(self, bio_client):
+        """GET /hoopers/{id}/bio/view escapes stored XSS after it was saved."""
+        client, hooper_id = bio_client
+
+        # Save XSS payload
+        await client.post(
+            f"/hoopers/{hooper_id}/bio",
+            data={"backstory": self.XSS_PAYLOAD},
+        )
+
+        # Now fetch the view fragment
+        r = await client.get(f"/hoopers/{hooper_id}/bio/view")
+        assert r.status_code == 200
+        assert "<script>" not in r.text
+        assert "&lt;script&gt;" in r.text
+
+    async def test_bio_edit_form_escapes_xss_in_textarea(self, bio_client):
+        """GET /hoopers/{id}/bio/edit must escape XSS in textarea pre-fill."""
+        client, hooper_id = bio_client
+
+        # Save XSS payload first
+        await client.post(
+            f"/hoopers/{hooper_id}/bio",
+            data={"backstory": self.XSS_PAYLOAD},
+        )
+
+        # Fetch the edit form
+        r = await client.get(f"/hoopers/{hooper_id}/bio/edit")
+        assert r.status_code == 200
+        # Inside <textarea>, Jinja2 escapes the content
+        assert "<script>" not in r.text
+        assert "&lt;script&gt;" in r.text
+
+    async def test_bio_view_shows_no_bio_when_empty(self, bio_client):
+        """View fragment shows 'No bio yet.' for empty backstory."""
+        client, hooper_id = bio_client
+
+        r = await client.get(f"/hoopers/{hooper_id}/bio/view")
+        assert r.status_code == 200
+        assert "No bio yet." in r.text
+
+    async def test_bio_view_shows_edit_button_for_governor(self, bio_client):
+        """Authenticated governor sees Edit Bio button."""
+        client, hooper_id = bio_client
+
+        r = await client.get(f"/hoopers/{hooper_id}/bio/view")
+        assert r.status_code == 200
+        assert "Edit Bio" in r.text
+
+    async def test_bio_save_shows_edit_button(self, bio_client):
+        """After saving bio, edit button is present (can_edit=True)."""
+        client, hooper_id = bio_client
+
+        r = await client.post(
+            f"/hoopers/{hooper_id}/bio",
+            data={"backstory": "A regular bio."},
+        )
+        assert r.status_code == 200
+        assert "A regular bio." in r.text
+        assert "Edit Bio" in r.text
+
+    async def test_bio_xss_with_event_handler(self, bio_client):
+        """XSS via onload/onerror event handlers must also be escaped."""
+        client, hooper_id = bio_client
+        payload = '<img src=x onerror="alert(1)">'
+
+        r = await client.post(
+            f"/hoopers/{hooper_id}/bio",
+            data={"backstory": payload},
+        )
+        assert r.status_code == 200
+        # The <img> tag must be escaped so the browser won't parse it as HTML
+        assert "<img" not in r.text
+        assert "&lt;img" in r.text

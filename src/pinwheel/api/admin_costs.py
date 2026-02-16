@@ -6,39 +6,20 @@ breakdown. Admin-only in production.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
 from pinwheel.ai.usage import PRICING
 from pinwheel.api.deps import RepoDep
-from pinwheel.auth.deps import OptionalUser, SessionUser
-from pinwheel.config import APP_VERSION, PROJECT_ROOT
+from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
+from pinwheel.config import PROJECT_ROOT
 from pinwheel.db.models import AIUsageLogRow, SeasonRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
-
-
-def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
-    """Build auth-related template context."""
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-    admin_id = settings.pinwheel_admin_discord_id
-    is_admin = (
-        current_user is not None
-        and bool(admin_id)
-        and current_user.discord_id == admin_id
-    )
-    return {
-        "current_user": current_user,
-        "oauth_enabled": oauth_enabled,
-        "pinwheel_env": settings.pinwheel_env,
-        "app_version": APP_VERSION,
-        "is_admin": is_admin,
-    }
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
@@ -57,17 +38,8 @@ async def costs_dashboard(request: Request, repo: RepoDep, current_user: Optiona
     authenticated. In dev mode without OAuth credentials the page is
     accessible to support local testing.
     """
-    settings = request.app.state.settings
-    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
-
-    if current_user is None:
-        if oauth_enabled:
-            return RedirectResponse("/auth/login", status_code=302)
-        # In dev mode without OAuth, allow access for local testing
-    elif oauth_enabled:
-        admin_id = settings.pinwheel_admin_discord_id
-        if not admin_id or current_user.discord_id != admin_id:
-            raise HTTPException(403, "Not authorized")
+    if denied := check_admin_access(current_user, request):
+        return denied
 
     season_id = await _get_active_season_id(repo)
     session = repo.session
@@ -188,6 +160,6 @@ async def costs_dashboard(request: Request, repo: RepoDep, current_user: Optiona
             "by_caller": by_caller,
             "by_round": by_round,
             "pricing_ref": pricing_ref,
-            **_auth_context(request, current_user),
+            **admin_auth_context(request, current_user),
         },
     )
