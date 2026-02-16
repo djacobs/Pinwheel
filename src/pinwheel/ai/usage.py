@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 # Pricing per million tokens (USD). Update when prices change.
 # cache_write_per_mtok is the 25% premium for creating a cache entry.
 PRICING: dict[str, dict[str, float]] = {
+    "claude-opus-4-6": {
+        "input_per_mtok": 15.00,
+        "output_per_mtok": 75.00,
+        "cache_read_per_mtok": 1.50,
+        "cache_write_per_mtok": 18.75,
+    },
     "claude-sonnet-4-5-20250929": {
         "input_per_mtok": 3.00,
         "output_per_mtok": 15.00,

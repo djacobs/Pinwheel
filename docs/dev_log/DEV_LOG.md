@@ -17,7 +17,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16:** AI intelligence layer, Amplify Human Judgment (9 features), P0/P1 security hardening, doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
-- **Latest commit:** `a861fba` — chore: exclude demo PNGs from git, add demo/*.png to .gitignore
+- **Latest commit:** `0c137b2` — docs: session 90 — archive day 15 dev log, start day 17
 
 ## Today's Agenda
 
@@ -44,3 +44,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1964 tests, zero lint errors.**
 
 **What could have gone better:** The `showboat image` bug existed in both demo scripts since they were written — `showboat image` takes a file path, not a command to execute. The first video demo run failed on this; fixed and re-ran successfully.
+
+---
+
+## Session 91 — Post-Cleanup Code Review (Demo Readiness)
+
+**What was asked:** Run one more code review pass and capture the remaining high-impact gaps before demo.
+
+**What was verified in code:**
+- `get_latest_round_number()` is implemented in `src/pinwheel/db/repository.py` and now used across key page handlers in `src/pinwheel/api/pages.py`.
+- Security hardening remains in place: governance write API routes removed, private reports auth-gated, and centralized admin auth checks wired in admin modules.
+- Legacy mirror stack remains deleted.
+
+**Remaining gaps to close:**
+1. [ ] `reports_page` still uses fixed reverse round scanning with per-round queries in `src/pinwheel/api/pages.py`.
+2. [ ] Two handlers still query each prior round in loops for previous-round context instead of deriving from already-fetched game data in `src/pinwheel/api/pages.py`.
+3. [ ] AI client consolidation (Messages API Phase 0) appears incomplete: several AI call sites still instantiate `anthropic.AsyncAnthropic(...)` directly (e.g., `src/pinwheel/ai/interpreter.py`).
+4. [ ] Keep plan/docs sync tight for demo Q&A: deferred phases docs and shipped work should be explicitly aligned.
+
+**Recommended next demo-safe polish:**
+- Optimize the `reports_page` retrieval path first (largest remaining page-latency hotspot with minimal product-surface risk).

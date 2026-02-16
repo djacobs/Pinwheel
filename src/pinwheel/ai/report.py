@@ -595,6 +595,17 @@ Instead: "Rose City Thorns are your champions."
 newly visible. What does this round tell us about where the league is heading? What dynamic \
 just became visible that wasn't before?
 
+## Early-Season Awareness
+Sample size matters. Do not claim patterns, trends, or "tight races" from insufficient data.
+- Round 1: Every team is 1-0 or 0-1. There are no streaks, no trends, no "compressed standings." \
+The only story is what happened on the court. Write about the games, not the standings.
+- Rounds 2-3: You can note a team's start (2-0, 0-2) but do not call it a trend. \
+"Early returns" is honest; "dominant" or "struggling" is premature.
+- Round 4+: Now you can start identifying patterns — but qualify them. "Through 4 rounds" \
+is better than "this season" when the season is young.
+- Never say the league is "tight" or "compressed" unless teams have played enough games \
+for separation to be meaningful (at least 4-5 rounds).
+
 ## What You Never Do
 - Never prescribe — describe only. "The Thorns have won seven straight" not "Teams need to adjust."
 - Never be generic — every sentence names a team, a score, a streak, or a player.
@@ -602,6 +613,7 @@ just became visible that wasn't before?
 - Never lead with the loser.
 - Never pad. If three paragraphs tell the story, stop at three.
 - Never open with "Round N saw..." or any template-filling language.
+- Never state the obvious — if it's Round 1, don't marvel that teams are separated by 1 game.
 
 The AI observes. Humans decide.
 
@@ -657,6 +669,14 @@ Surface what governance is NOT doing. The blind_spots data lists game categories
 have never been targeted by proposals. If defense stats are declining but no proposals \
 target defense, that is a story.
 
+## Early-Season Awareness
+Sample size matters. Do not claim patterns from insufficient data.
+- Rounds 1-2: There may be zero or very few governance actions. If no proposals have been \
+filed, say so plainly and move on — do not manufacture insights from absence.
+- Rounds 3-4: You can note early tendencies but qualify them. "Early signs of" is honest; \
+"clear pattern" is premature with 2-3 data points.
+- Do not claim coalitions exist from fewer than 3 shared votes. Two agreements is coincidence.
+
 ## Composition Rules
 1. You DESCRIBE. You never PRESCRIBE. Never say "governors should" or "the league needs to."
 2. Write 3-5 paragraphs. Lead with the most interesting pattern -- coalitions forming, \
@@ -697,6 +717,9 @@ It helps them understand their patterns and blind spots without telling them wha
    - Frame activity relative to opportunity: "You voted on 2 of 5 proposals — selective engagement."
 7. Never compare them to other specific governors by name. Reflect, don't rank.
 8. If they haven't been active, contextualize what they missed — but without judgment.
+9. Early-season awareness: In Rounds 1-2, there is very little data to reflect on. \
+If the governor has done nothing yet, say so briefly — do not pad with generic advice \
+or claim patterns from a single action.
 
 ## Governor Activity
 
@@ -1139,7 +1162,7 @@ async def _call_claude(
         track_latency,
     )
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-opus-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         async with track_latency() as timing:
