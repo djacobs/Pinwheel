@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `1153fd8` — perf: harden proposal pipeline — shared clients, tighter timeouts, lower max_tokens
+- **Latest commit:** `c6f7f23` — fix: prevent interpreter v2 timeouts — trim prompt, disable SDK retries, bump timeout
 
 ## Today's Agenda
 
@@ -287,3 +287,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** Session 91 flagged "AI client consolidation appears incomplete: several AI call sites still instantiate `anthropic.AsyncAnthropic(...)` directly" — this was known tech debt for 12 sessions before being addressed. The connection pool overhead was invisible until proposals started timing out in production.
+
+---
+
+## Session 104 — Interpreter v2 Production Fix + Discord UX
+
+**What was asked:** Every proposal in production was timing out — the v2 interpreter (Sonnet) failed 100% of the time, falling back to a mock keyword matcher that mapped "on fire" (basketball idiom) to stamina drain. Three fixes needed: (1) make proposals not time out, (2) show players something while waiting, (3) never fall back to literal keyword matching.
+
+**What was built:**
+- **Trimmed v2 system prompt ~45%** — cut verbose examples (6 hook_callback examples → 3), compressed creative language section, inlined move_grant and custom_mechanic docs into effect type definitions. All 7 effect types, all hook points, all action primitives preserved.
+- **Disabled SDK internal retries** (`max_retries=0`) on interpreter client — the SDK's default retry-with-backoff was eating timeout budget on 429/overloaded responses, leaving no time for the actual generation
+- **Bumped interpreter timeout 20s → 25s** — with SDK retries disabled, the full 25s goes to one clean attempt
+- **Haiku fallback** — when Sonnet fails, interpreter now tries Haiku (15s timeout, `max_retries=0`) before resorting to mock. Haiku works perfectly (classifier proves it at ~2s). A fast model with real understanding beats keyword matching.
+- **Fixed "fire" keyword** — removed bare "fire" from mock's stamina drain pattern (matched "on fire" basketball idiom). Only "ball is fire", "lava", "hot potato", "burn", "scorching" trigger stamina drain now. Mock is now last resort (tests + total API outage only).
+- **Discord thinking indicator** — `/propose` now immediately shows "The Constitutional Interpreter is reviewing it — this usually takes 15-30 seconds..." then edits that message in-place with the actual result embed.
+
+**Files modified (3):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/discord/bot.py`, `tests/test_discord.py`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** The mock interpreter was always the wrong fallback for production — it takes everything literally, which is the opposite of what the game needs. The Haiku fallback should have been there from the start. Also, the v2 prompt was written for expressiveness without considering that token count directly impacts generation latency.
