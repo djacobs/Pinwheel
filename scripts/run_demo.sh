@@ -71,7 +71,8 @@ uvx rodney start
 uvx rodney open "http://localhost:$PORT/"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/01_home.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/01_home.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/01_home.png"
 
 # ---- Step 4: Run Round 1 ----
 uvx showboat note "$DEMO_FILE" "## Step 4: Simulate Round 1"
@@ -86,7 +87,8 @@ uvx showboat note "$DEMO_FILE" "Game results appear in the Arena across multiple
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/02_arena.png -w 1280 -h 1400"
+uvx rodney screenshot "$DEMO_DIR/02_arena.png" -w 1280 -h 1400
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/02_arena.png"
 
 # ---- Step 6: Screenshot Standings ----
 uvx showboat note "$DEMO_FILE" "## Step 6: Standings"
@@ -95,7 +97,8 @@ uvx showboat note "$DEMO_FILE" "The league table updates after each round. Win/L
 uvx rodney open "http://localhost:$PORT/standings"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/03_standings.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/03_standings.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/03_standings.png"
 
 # ---- Step 7: Game Detail ----
 uvx showboat note "$DEMO_FILE" "## Step 7: Game Detail"
@@ -121,7 +124,8 @@ asyncio.run(get_first_game())
 uvx rodney open "http://localhost:$PORT/games/$GAME_ID"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/04_game_detail.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/04_game_detail.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/04_game_detail.png"
 
 # ---- Step 8: Run more rounds ----
 uvx showboat note "$DEMO_FILE" "## Step 8: Advance the Season"
@@ -137,7 +141,8 @@ uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py status"
 uvx rodney open "http://localhost:$PORT/standings"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/05_standings_r3.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/05_standings_r3.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/05_standings_r3.png"
 
 # ---- Step 10: Reports ----
 uvx showboat note "$DEMO_FILE" "## Step 10: AI Reports"
@@ -146,7 +151,8 @@ uvx showboat note "$DEMO_FILE" "Narrative reports that reference specific teams 
 uvx rodney open "http://localhost:$PORT/reports"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/06_reports.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/06_reports.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/06_reports.png"
 
 # ---- Step 11: Submit a proposal ----
 uvx showboat note "$DEMO_FILE" "## Step 11: Governance -- Submit a Proposal"
@@ -157,7 +163,8 @@ uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py propose 
 uvx rodney open "http://localhost:$PORT/governance"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/07_governance.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/07_governance.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/07_governance.png"
 
 # ---- Step 12: Rules page ----
 uvx showboat note "$DEMO_FILE" "## Step 12: Current Ruleset"
@@ -166,7 +173,8 @@ uvx showboat note "$DEMO_FILE" "The rules page shows all current parameters and 
 uvx rodney open "http://localhost:$PORT/rules"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/08_rules.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/08_rules.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/08_rules.png"
 
 # ---- Step 13: Team page ----
 uvx showboat note "$DEMO_FILE" "## Step 13: Team Profile"
@@ -190,7 +198,8 @@ asyncio.run(get_first_team())
 uvx rodney open "http://localhost:$PORT/teams/$TEAM_ID"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/09_team.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/09_team.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/09_team.png"
 
 # ---- Step 14: Evals Dashboard ----
 uvx showboat note "$DEMO_FILE" "## Step 14: Evals Dashboard"
@@ -199,7 +208,8 @@ uvx showboat note "$DEMO_FILE" "The admin-facing evals dashboard shows aggregate
 uvx rodney open "http://localhost:$PORT/admin/evals"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/10_evals.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/10_evals.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/10_evals.png"
 
 # ---- Step 15: Verify ----
 uvx showboat note "$DEMO_FILE" "## Verification"

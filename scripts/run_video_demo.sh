@@ -74,7 +74,8 @@ uvx rodney start
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_01_arena_hook.png -w 1280 -h 1400"
+uvx rodney screenshot "$DEMO_DIR/video_01_arena_hook.png" -w 1280 -h 1400
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_01_arena_hook.png"
 
 # ============================================================
 # BEAT 2: GOVERN (0:15–0:35) — Proposal flow
@@ -96,7 +97,8 @@ uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py propose 
 uvx rodney open "http://localhost:$PORT/governance"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_02_governance_propose.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/video_02_governance_propose.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_02_governance_propose.png"
 
 uvx showboat note "$DEMO_FILE" "### Multilingual Moment
 
@@ -130,7 +132,8 @@ uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py step 1"
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_03_arena_games.png -w 1280 -h 1400"
+uvx rodney screenshot "$DEMO_DIR/video_03_arena_games.png" -w 1280 -h 1400
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_03_arena_games.png"
 
 # Game detail — box score + rule context
 GAME_ID=$(uv run python -c "
@@ -152,13 +155,15 @@ asyncio.run(get_first_game())
 uvx rodney open "http://localhost:$PORT/games/$GAME_ID"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_04_game_detail.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/video_04_game_detail.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_04_game_detail.png"
 
 # Standings — consequences are visible
 uvx rodney open "http://localhost:$PORT/standings"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_05_standings.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/video_05_standings.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_05_standings.png"
 
 # ============================================================
 # BEAT 4: REFLECT (0:55–1:15) — Reports
@@ -179,7 +184,8 @@ uvx showboat note "$DEMO_FILE" "## Beat 4: Reflect (0:55–1:15)
 uvx rodney open "http://localhost:$PORT/reports"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_06_reports.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/video_06_reports.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_06_reports.png"
 
 # ============================================================
 # BEAT 5: ARCHITECTURE (1:15–1:35) — Agent-native
@@ -204,7 +210,8 @@ uvx showboat exec "$DEMO_FILE" bash "uv run pytest --tb=short -q 2>&1 | tail -5"
 uvx rodney open "http://localhost:$PORT/rules"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_07_rules.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/video_07_rules.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_07_rules.png"
 
 # ============================================================
 # BEAT 6: FOUR ROLES (1:35–1:55) — Opus usage
@@ -240,7 +247,8 @@ asyncio.run(get_first_team())
 uvx rodney open "http://localhost:$PORT/teams/$TEAM_ID"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_08_team.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/video_08_team.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_08_team.png"
 
 # ============================================================
 # BEAT 7: IMPACT (1:55–2:40) — Amplify Human Judgment
@@ -264,7 +272,8 @@ uvx showboat note "$DEMO_FILE" "## Beat 7: Impact — Amplify Human Judgment (1:
 uvx rodney open "http://localhost:$PORT/admin/evals"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_09_evals.png -w 1280 -h 1200"
+uvx rodney screenshot "$DEMO_DIR/video_09_evals.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_09_evals.png"
 
 # ============================================================
 # BEAT 8: CLOSE (2:40–3:00) — Home + tagline
@@ -281,7 +290,8 @@ uvx showboat note "$DEMO_FILE" "## Beat 8: Close (2:40–3:00)
 uvx rodney open "http://localhost:$PORT/"
 uvx rodney waitstable
 sleep 1
-uvx showboat image "$DEMO_FILE" "uvx rodney screenshot $DEMO_DIR/video_10_home_close.png -w 1280 -h 900"
+uvx rodney screenshot "$DEMO_DIR/video_10_home_close.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_10_home_close.png"
 
 # ============================================================
 # DONE

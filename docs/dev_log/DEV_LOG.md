@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1925 tests**, zero lint errors (Session 87)
+- **1964 tests**, zero lint errors (Session 89)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -27,7 +27,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 16 (cont):** Interpreter fix for conditional mechanics, Amplify Human Judgment roadmap
 - **Day 16 (cont):** Amplify Human Judgment — all 9 features (sim editorial, governance coalitions, private insights, smart Discord embeds, commentary threading, rules dashboard, narrative standings, team trajectory, what-changed + game context)
 - **Day 16 (cont):** P0/P1 security hardening — auth gates, XSS fix, fail-closed admin, dead code removal
-- **Latest commit:** `c2d2c9e` — fix: P0/P1 security hardening — auth gates, XSS fix, dead code removal
+- **Day 16 (cont):** Doc reconciliation, Messages API phases 1-2, performance optimization, video demo pipeline
+- **Latest commit:** `017835a` — docs: add demo screenshots, AI ideas doc, video outline, and utility scripts
 
 ## Today's Agenda
 
@@ -735,7 +736,7 @@ In Pinwheel, this means: every output surface should make the *system* visible t
   - `docs/product/ACCEPTANCE_CRITERIA.md` still references `/admin/perf`; current admin cost surface is `/admin/costs`.
 
 **Performance and memory suggestions (next 8, prioritized):**
-1. [ ] Add repository helpers for latest round / recent rounds and remove `range(1, 100)` scans in `api/pages.py`.
+1. [x] Add repository helpers for latest round / recent rounds and remove `range(1, 100)` scans in `api/pages.py`. (Session 89)
 2. [ ] Add lightweight summary query paths (scores/ids only) for pages that do not need full `play_by_play` payloads.
 3. [ ] Replace per-governor full-season vote scans in `ai/insights.py` with one season-level prefetch/index per round.
 4. [ ] Compute leverage + behavioral profiles from shared precomputed vote/proposal maps instead of repeated filtering loops.
@@ -749,3 +750,49 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 - Phase B (CPU/query reduction): items 3, 4, 7.
 - Phase C (latency under load): item 5.
 - Phase D (guardrail): item 8.
+
+---
+
+## Session 89 — Doc Reconciliation, Messages API, Performance Optimization
+
+**What was asked:** Execute multiple improvements in parallel background agents: (1) close/carry forward 52 open dev log agenda items, (2) reconcile product docs with shipped behavior (item 19), (3) Messages API phases 1-2 (prompt caching + structured output), (4) replace `range(1,100)` round scans with `get_latest_round_number()`, (5) create plan doc for Messages API phases 3-6. Also run `/post-commit` and the video demo script.
+
+**What was built:**
+
+### Dev Log Checkbox Cleanup
+- Checked off 52 open agenda items across all archived dev logs
+- Annotated 11 carry-forward items with `[carry forward]` tags
+- Removed 3 obsolete items no longer relevant
+
+### Doc Reconciliation (Item 19)
+- Updated 8 documentation files with 67 fixes:
+  - `docs/product/GLOSSARY.md` — added 7 missing terms, fixed contradictions
+  - `docs/product/PLAYER.md` — global terminology fix, commands rewrite
+  - `docs/SIMULATION.md` — parameter tables rewritten to match shipped RuleSet
+  - `docs/INTERFACE_CONTRACTS.md` — mirrors→reports, SSE events tagged
+  - `docs/GAME_LOOP.md` — defaults fixed, round counts updated
+  - `docs/product/ACCEPTANCE_CRITERIA.md` — parameter values fixed
+  - `docs/product/PRODUCT_OVERVIEW.md` — report types updated
+  - `CLAUDE.md` — 6 missing Discord commands added
+
+### Messages API Phases 1-2
+- **Phase 1 — Prompt Caching:** `cacheable_system(text)` helper wraps system prompts with `cache_control: {"type": "ephemeral"}` for ~90% input token savings on repeated calls. Applied to all 7 AI call sites (interpreter ×3, commentary ×2, report, search, rule evaluator).
+- **Phase 2 — Structured Output:** `pydantic_to_response_format(model_class, name)` generates JSON schemas from Pydantic models. Applied to classifier and interpreter. `ClassificationResult` converted from `@dataclass(frozen=True)` to Pydantic `BaseModel` with `ConfigDict(frozen=True)`.
+- `extract_usage()` returns 4-tuple (added `cache_creation_input_tokens`), `compute_cost()` includes cache write pricing.
+- Added `cache_creation_tokens` column to `AIUsageLogRow`.
+- 38 new tests in `test_messages_api.py`.
+
+### Performance: `get_latest_round_number()`
+- New repository method: `SELECT MAX(round_number) WHERE season_id = ?` — O(1) vs O(100)
+- Replaced 10 `for rn in range(1, 100)` loops across `pages.py` and `bot.py`
+- Replaced `_get_standings()` round-by-round collection with `repo.get_all_games()`
+- 3 new tests in `test_db.py`
+
+### Messages API Phases 3-6 Plan
+- Created `docs/plans/2026-02-16-messages-api-phases-3-6.md` documenting deferred work: streaming context manager, token budget middleware, batch API integration, tool dispatch
+
+**Files modified (25+):** `src/pinwheel/ai/usage.py`, `src/pinwheel/ai/classifier.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/ai/commentary.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/ai/search.py`, `src/pinwheel/evals/rule_evaluator.py`, `src/pinwheel/api/pages.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/db/models.py`, `src/pinwheel/discord/bot.py`, `docs/product/GLOSSARY.md`, `docs/product/PLAYER.md`, `docs/SIMULATION.md`, `docs/INTERFACE_CONTRACTS.md`, `docs/GAME_LOOP.md`, `docs/product/ACCEPTANCE_CRITERIA.md`, `docs/product/PRODUCT_OVERVIEW.md`, `CLAUDE.md`, `tests/test_messages_api.py` (new), `tests/test_db.py`, `tests/test_classifier.py`, `tests/test_ai_costs.py`, `tests/test_pages.py`, `tests/test_reports.py`
+
+**1964 tests (39 new), zero lint errors.**
+
+**What could have gone better:** All 5 background agents ran cleanly in parallel with no conflicts. The `extract_usage()` 3→4 tuple change broke existing tests that unpacked as 3 values — should have anticipated this cross-cutting change. The `ClassificationResult` dataclass→Pydantic conversion changed the frozen exception type from `AttributeError` to `ValidationError`, requiring a test fix.
