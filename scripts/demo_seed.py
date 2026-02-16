@@ -541,6 +541,91 @@ async def add_bench(db_url: str | None = None):
     await engine.dispose()
 
 
+async def regen_report(db_url: str | None = None):
+    """Regenerate the simulation report for the latest round."""
+    url = db_url or DEMO_DB
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY not set")
+        return
+
+    engine = create_engine(url)
+    async with get_session(engine) as session:
+        repo = Repository(session)
+        season = await repo.get_active_season()
+        if not season:
+            print("No active season found.")
+            return
+
+        latest_round = await repo.get_latest_round_number(season.id)
+        if not latest_round:
+            print("No rounds played yet.")
+            return
+
+        print(f"Regenerating simulation report for season={season.name} round={latest_round}")
+
+        # Build round_data from game results
+        games = await repo.get_games_for_round(season.id, latest_round)
+        if not games:
+            print("No games found for this round.")
+            return
+
+        teams = await repo.get_teams_for_season(season.id)
+        team_map = {t.id: t for t in teams}
+
+        game_dicts = []
+        for g in games:
+            home = team_map.get(g.home_team_id)
+            away = team_map.get(g.away_team_id)
+            game_dicts.append({
+                "home_team": home.name if home else g.home_team_id,
+                "away_team": away.name if away else g.away_team_id,
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "winner_team_id": g.winner_team_id,
+            })
+
+        round_data = {
+            "round": latest_round,
+            "season_id": season.id,
+            "games": game_dicts,
+        }
+
+        # Build narrative context
+        from pinwheel.core.narrative import compute_narrative_context
+
+        narrative = await compute_narrative_context(repo, season.id, latest_round)
+
+        # Generate the report
+        from pinwheel.ai.report import generate_simulation_report
+
+        report = await generate_simulation_report(
+            round_data=round_data,
+            season_id=season.id,
+            round_number=latest_round,
+            api_key=api_key,
+            narrative=narrative,
+            db_session=session,
+        )
+
+        # Save to DB (new row — get_latest_report orders by created_at desc)
+        await repo.store_report(
+            season_id=season.id,
+            report_type="simulation",
+            round_number=latest_round,
+            content=report.content,
+        )
+
+        print(f"Report regenerated ({len(report.content)} chars):")
+        print("-" * 60)
+        print(report.content[:500])
+        if len(report.content) > 500:
+            print("...")
+        print("-" * 60)
+
+    await engine.dispose()
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -562,6 +647,9 @@ def main():
     elif cmd == "add-bench":
         db = sys.argv[2] if len(sys.argv) > 2 else None
         asyncio.run(add_bench(db))
+    elif cmd == "regen-report":
+        db = sys.argv[2] if len(sys.argv) > 2 else None
+        asyncio.run(regen_report(db))
     else:
         print(f"Unknown command: {cmd}")
         print(__doc__)
