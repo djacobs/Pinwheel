@@ -1,11 +1,18 @@
 """Tests for report generation (mock) and report models."""
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
+
 from pinwheel.ai.report import (
+    PARAMETER_CATEGORIES,
     _compute_rule_correlations,
     _compute_rule_correlations_with_history,
     build_system_context,
+    categorize_parameter,
+    compute_category_distribution,
     compute_governance_velocity,
     compute_pairwise_alignment,
+    compute_private_report_context,
     compute_proposal_parameter_clustering,
     detect_governance_blind_spots,
     generate_governance_report_mock,
@@ -13,6 +20,9 @@ from pinwheel.ai.report import (
     generate_simulation_report_mock,
 )
 from pinwheel.core.narrative import NarrativeContext
+from pinwheel.db.engine import create_engine, get_session
+from pinwheel.db.models import Base
+from pinwheel.db.repository import Repository
 from pinwheel.models.report import Report, ReportUpdate
 
 
@@ -1310,3 +1320,535 @@ class TestGovernanceMockHistoricalClustering:
         report = generate_governance_report_mock(data, "s-1", 4)
         # Should mention the total (2 this round + 2 from history = 4 total)
         assert "total this season" in report.content.lower() or "fixated" in report.content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Parameter categorization tests
+# ---------------------------------------------------------------------------
+
+
+class TestCategorizeParameter:
+    """Tests for categorize_parameter() — maps governance parameters to categories."""
+
+    def test_offense_parameters(self) -> None:
+        assert categorize_parameter("three_point_value") == "offense"
+        assert categorize_parameter("two_point_value") == "offense"
+        assert categorize_parameter("max_shot_share") == "offense"
+
+    def test_defense_parameters(self) -> None:
+        assert categorize_parameter("personal_foul_limit") == "defense"
+        assert categorize_parameter("foul_rate_modifier") == "defense"
+        assert categorize_parameter("crowd_pressure") == "defense"
+
+    def test_pace_parameters(self) -> None:
+        assert categorize_parameter("quarter_minutes") == "pace"
+        assert categorize_parameter("shot_clock_seconds") == "pace"
+        assert categorize_parameter("stamina_drain_rate") == "pace"
+
+    def test_endgame_parameters(self) -> None:
+        assert categorize_parameter("elam_trigger_quarter") == "endgame"
+        assert categorize_parameter("elam_margin") == "endgame"
+
+    def test_environment_parameters(self) -> None:
+        assert categorize_parameter("home_court_enabled") == "environment"
+        assert categorize_parameter("away_fatigue_factor") == "environment"
+
+    def test_structure_parameters(self) -> None:
+        assert categorize_parameter("teams_count") == "structure"
+        assert categorize_parameter("playoff_teams") == "structure"
+
+    def test_meta_governance_parameters(self) -> None:
+        assert categorize_parameter("proposals_per_window") == "meta-governance"
+        assert categorize_parameter("vote_threshold") == "meta-governance"
+
+    def test_unknown_parameter(self) -> None:
+        assert categorize_parameter("unknown_thing") == "other"
+        assert categorize_parameter("completely_new") == "other"
+
+    def test_none_parameter(self) -> None:
+        assert categorize_parameter(None) == "other"
+
+    def test_all_categories_covered(self) -> None:
+        """Every entry in PARAMETER_CATEGORIES maps to a known category."""
+        known = {
+            "offense", "defense", "pace", "endgame",
+            "environment", "structure", "meta-governance",
+        }
+        for param, cat in PARAMETER_CATEGORIES.items():
+            assert cat in known, f"{param} mapped to unknown category {cat}"
+
+
+class TestComputeCategoryDistribution:
+    """Tests for compute_category_distribution() — counts proposals per category."""
+
+    def test_basic_distribution(self) -> None:
+        proposals = [
+            {"parameter": "three_point_value"},
+            {"parameter": "two_point_value"},
+            {"parameter": "personal_foul_limit"},
+        ]
+        dist = compute_category_distribution(proposals)
+        assert dist["offense"] == 2
+        assert dist["defense"] == 1
+        assert "pace" not in dist
+
+    def test_sorted_by_count_descending(self) -> None:
+        proposals = [
+            {"parameter": "quarter_minutes"},
+            {"parameter": "shot_clock_seconds"},
+            {"parameter": "stamina_drain_rate"},
+            {"parameter": "three_point_value"},
+        ]
+        dist = compute_category_distribution(proposals)
+        keys = list(dist.keys())
+        assert keys[0] == "pace"  # 3 count
+        assert keys[1] == "offense"  # 1 count
+
+    def test_empty_proposals(self) -> None:
+        dist = compute_category_distribution([])
+        assert dist == {}
+
+    def test_unknown_parameters(self) -> None:
+        proposals = [
+            {"parameter": "made_up_thing"},
+            {"parameter": None},
+        ]
+        dist = compute_category_distribution(proposals)
+        assert dist["other"] == 2
+
+    def test_mixed_known_and_unknown(self) -> None:
+        proposals = [
+            {"parameter": "three_point_value"},
+            {"parameter": None},
+            {"parameter": "elam_margin"},
+        ]
+        dist = compute_category_distribution(proposals)
+        assert dist["offense"] == 1
+        assert dist["endgame"] == 1
+        assert dist["other"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Enriched private report mock tests
+# ---------------------------------------------------------------------------
+
+
+class TestPrivateReportMockEnriched:
+    """Tests for generate_private_report_mock with enriched context data."""
+
+    def test_enriched_blind_spot_surfacing(self) -> None:
+        """When enriched data has blind spots, report mentions them."""
+        data = {
+            "proposals_submitted": 2,
+            "votes_cast": 3,
+            "governor_proposal_categories": {"offense": 2},
+            "league_rule_change_categories": {"defense": 3, "pace": 1},
+            "blind_spots": ["defense", "pace"],
+            "voting_outcomes": [],
+            "alignment_rate": 0.0,
+            "swing_votes": 0,
+            "total_league_proposals": 5,
+        }
+        report = generate_private_report_mock(data, "gov-enrich-1", "s-1", 5)
+        assert report.report_type == "private"
+        # Should mention the governor's focus area and the blind spot
+        content = report.content.lower()
+        assert "offense" in content
+        assert "defense" in content
+
+    def test_enriched_voting_outcomes(self) -> None:
+        """When enriched data has voting outcomes, report mentions alignment."""
+        data = {
+            "proposals_submitted": 1,
+            "votes_cast": 3,
+            "governor_proposal_categories": {"pace": 1},
+            "league_rule_change_categories": {"pace": 2},
+            "blind_spots": [],
+            "voting_outcomes": [
+                {
+                    "vote": "yes", "outcome": "passed", "category": "pace",
+                    "parameter": "quarter_minutes",
+                    "proposal_text": "increase quarter time",
+                },
+                {
+                    "vote": "yes", "outcome": "failed", "category": "offense",
+                    "parameter": "three_point_value",
+                    "proposal_text": "boost threes",
+                },
+                {
+                    "vote": "no", "outcome": "passed", "category": "defense",
+                    "parameter": "foul_rate_modifier",
+                    "proposal_text": "reduce fouls",
+                },
+            ],
+            "alignment_rate": 0.333,
+            "swing_votes": 0,
+            "total_league_proposals": 4,
+        }
+        report = generate_private_report_mock(data, "gov-votes-1", "s-1", 6)
+        content = report.content.lower()
+        # Should mention voting outcomes
+        assert "voted yes" in content or "passed" in content
+        # Should mention alignment rate
+        assert "aligned" in content or "33%" in content
+
+    def test_enriched_swing_votes(self) -> None:
+        """When governor was a swing vote, report highlights it."""
+        data = {
+            "proposals_submitted": 0,
+            "votes_cast": 2,
+            "governor_proposal_categories": {},
+            "league_rule_change_categories": {"offense": 1},
+            "blind_spots": ["offense"],
+            "voting_outcomes": [
+                {
+                    "vote": "yes", "outcome": "passed", "category": "offense",
+                    "parameter": "three_point_value",
+                    "proposal_text": "boost threes",
+                },
+            ],
+            "alignment_rate": 1.0,
+            "swing_votes": 1,
+            "total_league_proposals": 3,
+        }
+        report = generate_private_report_mock(data, "gov-swing-1", "s-1", 7)
+        content = report.content.lower()
+        assert "swing vote" in content
+
+    def test_enriched_no_blind_spots_same_focus(self) -> None:
+        """When governor and league share focus, report notes alignment."""
+        data = {
+            "proposals_submitted": 2,
+            "votes_cast": 1,
+            "governor_proposal_categories": {"offense": 2},
+            "league_rule_change_categories": {"offense": 3},
+            "blind_spots": [],
+            "voting_outcomes": [],
+            "alignment_rate": 0.0,
+            "swing_votes": 0,
+            "total_league_proposals": 3,
+        }
+        report = generate_private_report_mock(data, "gov-aligned-1", "s-1", 4)
+        content = report.content.lower()
+        # Should note that governor is in the current
+        assert "offense" in content
+        assert "current" in content or "same" in content or "focused" in content
+
+    def test_enriched_inactive_with_league_context(self) -> None:
+        """Inactive governor with enriched data gets league context."""
+        data = {
+            "proposals_submitted": 0,
+            "votes_cast": 0,
+            "governor_proposal_categories": {},
+            "league_rule_change_categories": {"defense": 2},
+            "blind_spots": [],
+            "voting_outcomes": [],
+            "alignment_rate": 0.0,
+            "swing_votes": 0,
+            "total_league_proposals": 4,
+        }
+        report = generate_private_report_mock(data, "gov-quiet-1", "s-1", 3)
+        content = report.content.lower()
+        assert "quiet" in content
+        # Should mention league activity they missed
+        assert "4" in content or "proposal" in content
+
+    def test_enriched_opposed_rule_that_passed(self) -> None:
+        """When governor opposed rules that passed anyway, report mentions it."""
+        data = {
+            "proposals_submitted": 0,
+            "votes_cast": 2,
+            "governor_proposal_categories": {},
+            "league_rule_change_categories": {"pace": 1},
+            "blind_spots": ["pace"],
+            "voting_outcomes": [
+                {
+                    "vote": "no", "outcome": "passed", "category": "pace",
+                    "parameter": "quarter_minutes",
+                    "proposal_text": "longer quarters",
+                },
+                {
+                    "vote": "no", "outcome": "passed", "category": "offense",
+                    "parameter": "three_point_value",
+                    "proposal_text": "boost threes",
+                },
+            ],
+            "alignment_rate": 0.0,
+            "swing_votes": 0,
+            "total_league_proposals": 3,
+        }
+        report = generate_private_report_mock(data, "gov-oppose-1", "s-1", 5)
+        content = report.content.lower()
+        assert "opposed" in content
+
+
+# ---------------------------------------------------------------------------
+# compute_private_report_context integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def report_engine() -> AsyncEngine:
+    eng = create_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng  # type: ignore[misc]
+    await eng.dispose()
+
+
+@pytest.fixture
+async def report_repo(report_engine: AsyncEngine) -> Repository:
+    async with get_session(report_engine) as session:
+        yield Repository(session)  # type: ignore[misc]
+
+
+async def _setup_governance_scenario(
+    repo: Repository,
+) -> tuple[str, str, str]:
+    """Set up a minimal season with governance events for context computation.
+
+    Returns (season_id, governor_id_a, governor_id_b).
+    """
+    league = await repo.create_league("Context Test League")
+    season = await repo.create_season(league.id, "Season 1")
+
+    gov_a = "gov-alice"
+    gov_b = "gov-bob"
+
+    # Governor A submits 2 offense proposals
+    await repo.append_event(
+        event_type="proposal.submitted",
+        aggregate_id="prop-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_a,
+        payload={
+            "id": "prop-1",
+            "raw_text": "Make threes worth 4 points",
+            "interpretation": {"parameter": "three_point_value", "new_value": 4},
+            "tier": 1,
+        },
+    )
+    await repo.append_event(
+        event_type="proposal.submitted",
+        aggregate_id="prop-2",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=2,
+        governor_id=gov_a,
+        payload={
+            "id": "prop-2",
+            "raw_text": "Increase shot share cap",
+            "interpretation": {"parameter": "max_shot_share", "new_value": 0.6},
+            "tier": 1,
+        },
+    )
+
+    # Governor B submits 1 defense proposal
+    await repo.append_event(
+        event_type="proposal.submitted",
+        aggregate_id="prop-3",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_b,
+        payload={
+            "id": "prop-3",
+            "raw_text": "Reduce foul rate",
+            "interpretation": {"parameter": "foul_rate_modifier", "new_value": 0.5},
+            "tier": 2,
+        },
+    )
+
+    # Votes: Alice votes yes on all, Bob votes no on prop-1
+    await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="prop-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_a,
+        payload={"proposal_id": "prop-1", "vote": "yes", "weight": 1.0},
+    )
+    await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="prop-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_b,
+        payload={"proposal_id": "prop-1", "vote": "no", "weight": 1.0},
+    )
+    await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="prop-3",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_a,
+        payload={"proposal_id": "prop-3", "vote": "yes", "weight": 1.0},
+    )
+    await repo.append_event(
+        event_type="vote.cast",
+        aggregate_id="prop-3",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        governor_id=gov_b,
+        payload={"proposal_id": "prop-3", "vote": "yes", "weight": 1.0},
+    )
+
+    # Outcomes: prop-1 failed (tie at 50%), prop-3 passed
+    await repo.append_event(
+        event_type="proposal.failed",
+        aggregate_id="prop-1",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        payload={"proposal_id": "prop-1"},
+    )
+    await repo.append_event(
+        event_type="proposal.passed",
+        aggregate_id="prop-3",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        payload={"proposal_id": "prop-3"},
+    )
+
+    # Rule enacted from prop-3
+    await repo.append_event(
+        event_type="rule.enacted",
+        aggregate_id="prop-3",
+        aggregate_type="proposal",
+        season_id=season.id,
+        round_number=1,
+        payload={"parameter": "foul_rate_modifier", "new_value": 0.5},
+    )
+
+    return season.id, gov_a, gov_b
+
+
+class TestComputePrivateReportContext:
+    """Integration tests for compute_private_report_context against a real DB."""
+
+    async def test_governor_proposal_categories(
+        self, report_repo: Repository,
+    ) -> None:
+        """Governor's proposals are categorized correctly."""
+        season_id, gov_a, _gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_a, season_id, 2,
+        )
+
+        assert ctx["proposals_submitted"] == 2
+        cats = ctx["governor_proposal_categories"]
+        assert cats == {"offense": 2}
+
+    async def test_league_proposal_categories(
+        self, report_repo: Repository,
+    ) -> None:
+        """League-wide proposal categories include all governors."""
+        season_id, gov_a, _gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_a, season_id, 2,
+        )
+
+        league_cats = ctx["league_proposal_categories"]
+        assert league_cats["offense"] == 2
+        assert league_cats["defense"] == 1
+
+    async def test_blind_spots_detected(
+        self, report_repo: Repository,
+    ) -> None:
+        """Governor A never proposed defense, but defense rules changed."""
+        season_id, gov_a, _gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_a, season_id, 2,
+        )
+
+        assert "defense" in ctx["blind_spots"]
+
+    async def test_no_blind_spots_when_covering_all(
+        self, report_repo: Repository,
+    ) -> None:
+        """Governor B proposed defense and defense rules changed."""
+        season_id, _gov_a, gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_b, season_id, 2,
+        )
+
+        assert "defense" not in ctx["blind_spots"]
+
+    async def test_voting_outcomes_tracked(
+        self, report_repo: Repository,
+    ) -> None:
+        """Governor A's voting record is tracked with outcomes."""
+        season_id, gov_a, _gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_a, season_id, 2,
+        )
+
+        outcomes = ctx["voting_outcomes"]
+        assert len(outcomes) == 2
+        # Alice voted yes on prop-1 (failed) and yes on prop-3 (passed)
+        prop1_vo = [
+            vo for vo in outcomes
+            if vo["proposal_text"].startswith("Make threes")
+        ]
+        prop3_vo = [
+            vo for vo in outcomes
+            if vo["proposal_text"].startswith("Reduce foul")
+        ]
+        assert len(prop1_vo) == 1
+        assert prop1_vo[0]["vote"] == "yes"
+        assert prop1_vo[0]["outcome"] == "failed"
+        assert len(prop3_vo) == 1
+        assert prop3_vo[0]["vote"] == "yes"
+        assert prop3_vo[0]["outcome"] == "passed"
+
+    async def test_alignment_rate_computed(
+        self, report_repo: Repository,
+    ) -> None:
+        """Alignment rate reflects proportion of votes matching outcomes."""
+        season_id, gov_a, _gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_a, season_id, 2,
+        )
+
+        # Alice: yes on prop-1 (failed) = wrong, yes on prop-3 (passed) = right
+        assert ctx["alignment_rate"] == 0.5
+
+    async def test_swing_vote_detection(
+        self, report_repo: Repository,
+    ) -> None:
+        """Swing votes detected when removing governor's vote flips outcome."""
+        season_id, _gov_a, gov_b = await _setup_governance_scenario(report_repo)
+        ctx = await compute_private_report_context(
+            report_repo, gov_b, season_id, 2,
+        )
+
+        # Bob voted no on prop-1 (failed). Without Bob: only Alice yes = passed.
+        # So Bob was swing vote on prop-1.
+        # Bob voted yes on prop-3 (passed). Without Bob: Alice yes = passed.
+        # Not a swing vote on prop-3.
+        assert ctx["swing_votes"] == 1
+
+    async def test_empty_governor_no_crash(
+        self, report_repo: Repository,
+    ) -> None:
+        """Governor with no activity returns valid context."""
+        season_id, _gov_a, _gov_b = await _setup_governance_scenario(
+            report_repo,
+        )
+        ctx = await compute_private_report_context(
+            report_repo, "gov-ghost", season_id, 2,
+        )
+
+        assert ctx["proposals_submitted"] == 0
+        assert ctx["votes_cast"] == 0
+        # Defense changed but ghost didn't propose
+        assert "defense" in ctx["blind_spots"]
+        assert ctx["alignment_rate"] == 0.0
+        assert ctx["swing_votes"] == 0
