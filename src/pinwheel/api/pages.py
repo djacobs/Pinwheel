@@ -89,21 +89,15 @@ templates.env.filters["light_safe"] = _light_safe
 
 
 def _prose_to_html(text: str) -> str:
-    """Convert plain prose paragraphs to HTML.
+    """Convert markdown/prose text to HTML.
 
-    Splits on double newlines into <p> tags. Single newlines become <br>.
-    HTML-escapes content for safety.
+    Uses the markdown library to render headings, bold, italic, lists, etc.
+    Falls back to paragraph wrapping for plain prose.
     """
-    import html
+    import markdown
 
     text = text.strip()
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    parts = []
-    for p in paragraphs:
-        escaped = html.escape(p)
-        escaped = escaped.replace("\n", "<br>")
-        parts.append(f"<p>{escaped}</p>")
-    return "\n".join(parts)
+    return markdown.markdown(text, extensions=["nl2br", "smarty"])
 
 
 templates.env.filters["prose"] = _prose_to_html

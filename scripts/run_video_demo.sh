@@ -3,7 +3,7 @@
 # Pinwheel Fates — Video Demo Script (Showboat/Rodney)
 #
 # Captures the visual beats for the 3-minute hackathon video.
-# Each step maps to a section of docs/DEMO_VIDEO_OUTLINE.md.
+# Each beat maps to demo/teleprompter.md (the final script).
 #
 # Produces: demo/video_demo.md — storyboard with embedded screenshots
 #           demo/video_*.png   — individual frames for video editing
@@ -37,6 +37,7 @@ trap cleanup EXIT
 
 mkdir -p "$DEMO_DIR"
 rm -f demo_pinwheel.db
+rm -f "$DEMO_FILE"
 
 # ============================================================
 # INIT
@@ -44,25 +45,19 @@ rm -f demo_pinwheel.db
 
 uvx showboat init "$DEMO_FILE" "Pinwheel Fates -- Video Demo Storyboard"
 
-uvx showboat note "$DEMO_FILE" "Visual storyboard for the 3-minute hackathon video. Each section maps to a beat in \`docs/DEMO_VIDEO_OUTLINE.md\`. Every screenshot was captured live from a running instance.
+uvx showboat note "$DEMO_FILE" "Visual storyboard for the 3-minute hackathon video. Each beat maps to \`demo/teleprompter.md\`. Every screenshot was captured live from a running instance.
 
-**Production principle:** Show, don't tell. Every voiceover claim has a corresponding visual below."
+**Judging criteria:** Demo 30% | Opus 4.6 Use 25% | Impact 25% | Depth & Execution 20%"
 
 # ============================================================
-# BEAT 1: HOOK (0:00–0:15) — Arena with live games
+# SEED + SERVER
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 1: Opening Hook (0:00–0:15)
+uvx showboat note "$DEMO_FILE" "## Setup: Seed the League"
 
-**Voiceover:** *This is Pinwheel Fates — a basketball league where humans don't play basketball. They govern it. Rule changes in plain language, interpreted by AI, cascading through dozens of simulated games. A governance lab disguised as a sport.*
-
-**Visual:** Arena page — live games in progress, AI commentary scrolling."
-
-# Seed league and run 2 rounds so the arena has content
 uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py seed"
 uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py step 2"
 
-# Start the server
 DATABASE_URL="sqlite+aiosqlite:///demo_pinwheel.db" \
     uv run uvicorn pinwheel.main:app --port "$PORT" --log-level warning &
 SERVER_PID=$!
@@ -70,7 +65,16 @@ sleep 2
 
 uvx rodney start
 
-# Arena — the opening image
+# ============================================================
+# HOOK (0:00–0:25)
+# ============================================================
+
+uvx showboat note "$DEMO_FILE" "## Hook (0:00–0:25)
+
+**Voiceover:** *Pinwheel Fates — a basketball simulation game where players choose teams and govern the rules together. Sports drives fierce opinions and loyalty — the perfect arena to test whether AI can help groups make better decisions together. They play through Discord and on the web. After each round of games, players propose and vote on rule changes — and Opus interprets the proposals, simulates consequences, and transparently shares what it sees.*
+
+**Visual:** Arena page — live games in progress, commentary scrolling."
+
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
 sleep 1
@@ -78,62 +82,64 @@ uvx rodney screenshot "$DEMO_DIR/video_01_arena_hook.png" -w 1280 -h 1400
 uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_01_arena_hook.png"
 
 # ============================================================
-# BEAT 2: GOVERN (0:15–0:35) — Proposal flow
+# WHY A GAME (0:25–0:55)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 2: Govern (0:15–0:35)
+uvx showboat note "$DEMO_FILE" "## Why a Game (0:25–0:55)
 
-**Voiceover:** *The AI interprets what you mean — in whatever language you say it. You decide whether that interpretation is right. Then the community votes.*
+**Voiceover:** *Games are where humanity prototypes its next societies — low stakes, high reps, fast feedback. Coalition detection, power concentration, participation gaps — these are the same patterns that matter in newsrooms, neighborhood associations, and city councils.*
 
-**Visual:** Discord \`/propose\` flow. In the video, this is a screen recording of Discord. Here we capture the governance page showing proposals.
+*Pinwheel is a place to experiment with direct democracy and understand what AI-augmented decision-making can actually do. Not a finished handbook — a step.*
 
-**Player need:** I have an idea for how this game should work, and I want to say it in my own words.
-**Feature:** Natural language interpreter — Opus reads free text, classifies tier, explains mechanical meaning, asks for confirmation."
+**Visual:** Standings page, governance page — showing the patterns in action."
 
-# Submit a proposal via CLI
-uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py propose Make three-pointers worth 5 points"
+uvx rodney open "http://localhost:$PORT/standings"
+uvx rodney waitstable
+sleep 1
+uvx rodney screenshot "$DEMO_DIR/video_02_standings.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_02_standings.png"
 
-# Capture the governance page showing the proposal
 uvx rodney open "http://localhost:$PORT/governance"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_02_governance_propose.png" -w 1280 -h 900
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_02_governance_propose.png"
-
-uvx showboat note "$DEMO_FILE" "### Multilingual Moment
-
-**Visual:** A second proposal in Spanish (or another language). The interpreter handles it natively.
-
-**Player need:** I don't think in English.
-**Feature:** Multilingual interpretation — same flow, any language. Opus handles this natively.
-
-*Note: For the video, screen-record a Discord \`/propose\` in Spanish. The interpreter returns structured English; the governor confirms.*"
-
-# Submit a Spanish-language proposal
-uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py propose Los triples deben valer 4 puntos cuando el equipo va perdiendo"
+uvx rodney screenshot "$DEMO_DIR/video_03_governance.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_03_governance.png"
 
 # ============================================================
-# BEAT 3: SIMULATE + OBSERVE (0:35–0:55) — Games + rule context
+# DEMO: PROPOSE (0:55–1:05)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 3: Simulate + Observe (0:35–0:55)
+uvx showboat note "$DEMO_FILE" "## Demo: Propose (0:55–1:05)
 
-**Voiceover:** *Propose a rule at noon, watch it reshape the league by 1pm. The feedback loop is tight enough to feel in your gut.*
+**Voiceover:** *Here, a player proposes a rule change. Opus interprets the proposal, and confirms with the player. The community votes on rules between rounds.*
 
-**Visual:** Arena with games under the new rule. Game detail with rule context panel.
+**Visual:** Discord \`/propose\` flow. Here we capture the governance page after a proposal."
 
-**Player need:** I voted for this rule — did it actually do anything?
-**Feature:** Rule context panel on every game. Causation, not just correlation."
+uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py propose Make three-pointers worth 5 points"
 
-# Run another round so games reflect the new state
+uvx rodney open "http://localhost:$PORT/governance"
+uvx rodney waitstable
+sleep 1
+uvx rodney screenshot "$DEMO_DIR/video_04_governance_propose.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_04_governance_propose.png"
+
+# ============================================================
+# DEMO: SIMULATE + REFLECT (1:05–1:30)
+# ============================================================
+
+uvx showboat note "$DEMO_FILE" "## Demo: Simulate + Reflect (1:05–1:30)
+
+**Voiceover:** *The rule proposed at noon impacts the next round of games, starting at 1pm. Opus reports feedback to the league about the impact of the rules, and gives direct, private feedback to players — visible only to them — surfacing patterns in their governance behavior. The shared report surfaces league-wide dynamics: coalitions forming, power concentrating, voices going silent.*
+
+**Visual:** Arena with games under new rules. Game detail with rule context. Reports page."
+
 uvx showboat exec "$DEMO_FILE" bash "uv run python scripts/demo_seed.py step 1"
 
-# Arena — games in progress
 uvx rodney open "http://localhost:$PORT/arena"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_03_arena_games.png" -w 1280 -h 1400
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_03_arena_games.png"
+uvx rodney screenshot "$DEMO_DIR/video_05_arena_games.png" -w 1280 -h 1400
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_05_arena_games.png"
 
 # Game detail — box score + rule context
 GAME_ID=$(uv run python -c "
@@ -155,82 +161,52 @@ asyncio.run(get_first_game())
 uvx rodney open "http://localhost:$PORT/games/$GAME_ID"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_04_game_detail.png" -w 1280 -h 1200
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_04_game_detail.png"
-
-# Standings — consequences are visible
-uvx rodney open "http://localhost:$PORT/standings"
-uvx rodney waitstable
-sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_05_standings.png" -w 1280 -h 900
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_05_standings.png"
-
-# ============================================================
-# BEAT 4: REFLECT (0:55–1:15) — Reports
-# ============================================================
-
-uvx showboat note "$DEMO_FILE" "## Beat 4: Reflect (0:55–1:15)
-
-**Voiceover:** *The AI never decides. It illuminates. Each governor gets a private mirror — honest feedback delivered directly, visible only to them.*
-
-**Visual:** Private report DM (screen recording from Discord). Shared governance report on web.
-
-**Player need:** Am I actually governing well, or just going along with my friends?
-**Feature:** Private reports via DM — behavioral profiling, coalition detection, participation gaps. Only you see yours.
-
-**Player need:** What's happening in the league that I can't see from my position?
-**Feature:** Shared governance report — coalition formation, power concentration, rule drift."
+uvx rodney screenshot "$DEMO_DIR/video_06_game_detail.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_06_game_detail.png"
 
 uvx rodney open "http://localhost:$PORT/reports"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_06_reports.png" -w 1280 -h 1200
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_06_reports.png"
+uvx rodney screenshot "$DEMO_DIR/video_07_reports.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_07_reports.png"
 
 # ============================================================
-# BEAT 5: ARCHITECTURE (1:15–1:35) — Agent-native
+# IMPACT (1:30–1:40)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 5: Agent-Native Architecture (1:15–1:35)
+uvx showboat note "$DEMO_FILE" "## Impact (1:30–1:40)
 
-**Voiceover:** *Opus 4.6 isn't just inside the game — it built the game. Agent-native from the ground up: 83 sessions, 1515 tests, every decision traceable.*
+**Voiceover:** *Opus helps to illuminate hidden dynamics, amplifying human judgment by making collective decisions legible. Human players always have the last word.*
 
-**Visual:** Architecture diagram, dev log scrolling, test output.
+**Visual:** Reuse governance → standings cut from earlier screenshots."
 
-**Builder need:** How do I build a human-in-the-loop AI system without drowning in ops overhead?
-**Approach:** Agent-native — AI is a first-class participant at every layer. Prompts treated as code.
+# ============================================================
+# WHY DISCORD (1:40–1:55)
+# ============================================================
 
-**Builder need:** What if my community doesn't use Discord?
-**Approach:** API-first. REST API and CLI exist as proof any chat client can connect."
+uvx showboat note "$DEMO_FILE" "## Why Discord (1:40–1:55)
 
-# Show the test suite as proof of depth
-uvx showboat exec "$DEMO_FILE" bash "uv run pytest --tb=short -q 2>&1 | tail -5"
+**Voiceover:** *On top of a basketball simulator and Opus-powered rules engine, I chose Discord for user interaction. Any chat app with persistent memory can sit on the same stack. Discord is only the proof of concept, and different communities will choose different tools.*
 
-# Rules page — shows how the rule system works
+**Visual:** Rules page — showing how governance shapes the system."
+
 uvx rodney open "http://localhost:$PORT/rules"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_07_rules.png" -w 1280 -h 900
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_07_rules.png"
+uvx rodney screenshot "$DEMO_DIR/video_08_rules.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_08_rules.png"
 
 # ============================================================
-# BEAT 6: FOUR ROLES (1:35–1:55) — Opus usage
+# OPUS: FOUR ROLES (1:55–2:10)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 6: Four Roles for Opus 4.6 (1:35–1:55)
+uvx showboat note "$DEMO_FILE" "## Opus: Four Roles (1:55–2:10)
 
-**Voiceover:** *Four roles: build partner, interpreter, reporter, broadcaster. It shaped both the code and the gameplay — without making a single governance decision.*
+**Voiceover:** *Opus played four roles. First, build partner — 200 commits over six days. Constitutional interpreter, social reporter — behavioral profiling, coalition detection, private reflections, and broadcaster — game commentary woven with league context.*
 
-**Visual:** Quick cuts between code snippets and outputs.
+**Visual:** Team page showing AI-interpreted strategy. Quick cuts of code files."
 
-1. **Build Partner** — 83 sessions, pair-programmed. Dev log is the evidence.
-2. **Constitutional Interpreter** — free text in, structured rules out, sandboxed.
-3. **Social Reporter** — simulation, governance, and private reports.
-4. **Broadcaster** — contextual game commentary with rule and rivalry awareness.
-
-*Note: For the video, show code from \`ai/interpreter.py\`, \`ai/report.py\`, \`ai/commentary.py\` alongside their outputs.*"
-
-# Team page — shows agent detail and team strategy (AI-interpreted)
+# Team page
 TEAM_ID=$(uv run python -c "
 import asyncio
 from pinwheel.db.engine import create_engine, get_session
@@ -247,51 +223,54 @@ asyncio.run(get_first_team())
 uvx rodney open "http://localhost:$PORT/teams/$TEAM_ID"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_08_team.png" -w 1280 -h 1200
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_08_team.png"
+uvx rodney screenshot "$DEMO_DIR/video_09_team.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_09_team.png"
 
 # ============================================================
-# BEAT 7: IMPACT (1:55–2:40) — Amplify Human Judgment
+# OPUS: AGENT-NATIVE (2:10–2:30)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 7: Impact — Amplify Human Judgment (1:55–2:40)
+uvx showboat note "$DEMO_FILE" "## Opus: Agent-Native (2:10–2:30)
 
-**Voiceover:** *Most groups have no tools for seeing their own social dynamics while those dynamics are happening. Coalitions form. Power concentrates. Voices go silent. And nobody inside the system can see it.*
+**Voiceover:** *Nearly 2,000 tests measure how much code exists — and that is too many. The vision: ship narrative, not code. Replace classes and validators with a product document describing input and output. The dev environment looks less like an IDE and more like the narrative design tools game makers use.*
 
-*Pinwheel is a governance lab through basketball. The AI makes invisible dynamics legible to the people inside the system. Visibility improves governance.*
+*With the model of six months from now, each component shrinks from hundreds of lines to a prompt.*
 
-*We will need completely new, verified means of communication and negotiation. Pinwheel is a rehearsal space for that future.*
+**Visual:** Test suite output as evidence of depth."
 
-**Visual:** Montage of gameplay moments. Text overlay of real-world applications. Resonant Computing principles.
+uvx showboat exec "$DEMO_FILE" bash "uv run pytest --tb=short -q 2>&1 | tail -5"
 
-**The real-world connection:** The patterns surfaced in Pinwheel — coalition detection, power concentration, free-riding, participation gaps — are the same patterns that matter in newsrooms, fan communities, neighborhood associations, city councils, and federal agencies.
+# ============================================================
+# DEPTH: MAKE IT TAKE IT (2:30–2:55)
+# ============================================================
 
-**Accessibility:** Open source (financial), multilingual proposals (linguistic), agent-native (operational)."
+uvx showboat note "$DEMO_FILE" "## Depth: Make It Take It (2:30–2:55)
 
-# Evals dashboard — shows the measurement infrastructure
+**Voiceover:** *Our biggest challenge was convincing Opus to expand its scope: a player proposed 'make it take it' — a real basketball rule meaning the scoring team keeps possession. Opus knows this, and in open conversation, it explains the rule perfectly. But our structured interpreter was unable to modify the game, because the pipeline was optimized for schema-compatible fields. The model knew the answer. Our code prevented it from using what it knew.*
+
+**Visual:** Evals dashboard — measurement infrastructure."
+
 uvx rodney open "http://localhost:$PORT/admin/evals"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_09_evals.png" -w 1280 -h 1200
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_09_evals.png"
+uvx rodney screenshot "$DEMO_DIR/video_10_evals.png" -w 1280 -h 1200
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_10_evals.png"
 
 # ============================================================
-# BEAT 8: CLOSE (2:40–3:00) — Home + tagline
+# CLOSE (2:55–3:05)
 # ============================================================
 
-uvx showboat note "$DEMO_FILE" "## Beat 8: Close (2:40–3:00)
+uvx showboat note "$DEMO_FILE" "## Close (2:55–3:05)
 
-**Voiceover:** *Pinwheel is built for what comes next — where any community can see its own dynamics clearly enough to change them.*
+**Voiceover:** *Pinwheel is my expression of Opus helping groups make better decisions together by amplifying what we already do well: negotiate, change minds, and form coalitions.*
 
-*Pinwheel Fates. The game where AI doesn't play — it helps you see.*
-
-**Visual:** Home page with league activity. URL: pinwheel.fly.dev"
+**Visual:** Home page with league activity. URL: **pinwheel.fly.dev**"
 
 uvx rodney open "http://localhost:$PORT/"
 uvx rodney waitstable
 sleep 1
-uvx rodney screenshot "$DEMO_DIR/video_10_home_close.png" -w 1280 -h 900
-uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_10_home_close.png"
+uvx rodney screenshot "$DEMO_DIR/video_11_home_close.png" -w 1280 -h 900
+uvx showboat image "$DEMO_FILE" "$DEMO_DIR/video_11_home_close.png"
 
 # ============================================================
 # DONE
@@ -306,8 +285,7 @@ echo "Screenshots in: $DEMO_DIR/video_*.png"
 echo "================================================"
 echo ""
 echo "Next steps:"
-echo "  1. Screen-record Discord /propose flows (English + Spanish)"
+echo "  1. Screen-record Discord /propose flow"
 echo "  2. Screen-record a private report DM"
-echo "  3. Create architecture diagram"
-echo "  4. Assemble in video editor using storyboard beats"
+echo "  3. Assemble in video editor using storyboard beats"
 echo ""
