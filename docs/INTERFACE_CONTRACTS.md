@@ -55,53 +55,62 @@ GET /api/events/stream?team_id={id}          # team-specific events
 
 ### Game Events (`?games=true` or `?game_id={id}`)
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `game.possession` | `PossessionEvent` | One possession resolved. Contains updated score, box score delta, play description. |
-| `game.move` | `MoveEvent` | An Agent's Move activated during a possession. Includes move name, agent, effect. |
-| `game.highlight` | `HighlightEvent` | A dramatic moment (lead change, run, clutch play). Triggers visual treatment. |
-| `game.commentary` | `CommentaryEvent` | AI commentary line. Includes `energy` field (low/medium/high/peak) and `tags`. |
-| `game.quarter_end` | `QuarterEndEvent` | Quarter completed. Contains quarter scores. |
-| `game.elam_start` | `ElamStartEvent` | Elam Ending activated. Contains target score. Triggers scoreboard transformation. |
-| `game.boxscore` | `BoxScoreEvent` | Full box score snapshot. Sent periodically and at game end. |
-| `game.result` | `GameResultEvent` | Game finished. Final score, winner, link to full box score. |
+| Event | Payload | Description | Status |
+|-------|---------|-------------|--------|
+| `presentation.possession` | `PossessionEvent` | One possession resolved. Contains updated score, box score delta, play description. | Shipped |
+| `presentation.game_starting` | `GameStartEvent` | Game presentation begins. | Shipped |
+| `presentation.game_finished` | `GameFinishedEvent` | Game presentation complete. Triggers Discord notifications. | Shipped |
+| `presentation.round_finished` | `RoundFinishedEvent` | Round presentation complete. Triggers Discord standings update. | Shipped |
+| `game.completed` | `GameCompletedEvent` | Game simulation finished (internal, before presentation). | Shipped |
+| `round.completed` | `RoundCompletedEvent` | Round simulation finished (internal). | Shipped |
+| `game.move` | `MoveEvent` | A Hooper's Move activated during a possession. | Aspirational |
+| `game.highlight` | `HighlightEvent` | A dramatic moment (lead change, run, clutch play). | Aspirational |
+| `game.commentary` | `CommentaryEvent` | AI commentary line. | Aspirational |
+| `game.quarter_end` | `QuarterEndEvent` | Quarter completed. | Aspirational |
+| `game.elam_start` | `ElamStartEvent` | Elam Ending activated. | Aspirational |
+| `game.boxscore` | `BoxScoreEvent` | Full box score snapshot. | Aspirational |
+| `game.result` | `GameResultEvent` | Game finished. Final score, winner. | Aspirational |
 
 ### Governance Events (`?governance=true`)
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `governance.window_closed` | `GovernanceTallyEvent` | Governance tally complete on an interval round. Results available. Contains proposals resolved, vote tallies. |
+| Event | Payload | Description | Status |
+|-------|---------|-------------|--------|
+| `governance.window_closed` | `GovernanceTallyEvent` | Governance tally complete on an interval round. Results available. | Shipped |
 
 ### Report Events (`?reports=true`)
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `report.simulation` | `ReportEvent` | New simulation report available for the completed round. |
-| `report.governance` | `ReportEvent` | Governance report after window close. |
-| `report.private` | `PrivateReportEvent` | Private report updated (filtered per-governor via auth). |
-| `report.series` | `ReportEvent` | Playoff series report after a series game. |
-| `report.season` | `ReportEvent` | Full-season narrative report (post-championship). |
-| `report.league` | `ReportEvent` | State of the League periodic report. |
+| Event | Payload | Description | Status |
+|-------|---------|-------------|--------|
+| `report.generated` | `ReportEvent` | A report (any type) was generated. Includes report_type and round_number. | Shipped |
+| `report.simulation` | `ReportEvent` | New simulation report available for the completed round. | Aspirational (use `report.generated` with type filter) |
+| `report.governance` | `ReportEvent` | Governance report after tally. | Aspirational (use `report.generated` with type filter) |
+| `report.private` | `PrivateReportEvent` | Private report updated (filtered per-governor via auth). | Aspirational (use `report.generated` with type filter) |
+| `report.series` | `ReportEvent` | Playoff series report after a series game. | Aspirational |
+| `report.season` | `ReportEvent` | Full-season narrative report (post-championship). | Aspirational |
+| `report.league` | `ReportEvent` | State of the League periodic report. | Aspirational |
 
 ### Season Events (always delivered)
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `season.round` | `RoundEvent` | Round completed, standings updated. |
-| `season.tiebreaker` | `TiebreakerEvent` | Tiebreaker game scheduled. |
-| `season.playoffs` | `PlayoffsEvent` | Playoff bracket set. |
-| `season.series` | `SeriesEvent` | Series update (game result within a series). |
-| `season.champion` | `ChampionEvent` | Championship decided. |
-| `season.awards` | `AwardsEvent` | Season awards announced. |
-| `season.offseason` | `OffseasonEvent` | Offseason governance window opened. |
+| Event | Payload | Description | Status |
+|-------|---------|-------------|--------|
+| `season.regular_season_complete` | `SeasonEvent` | All scheduled rounds played. | Shipped |
+| `season.playoffs_complete` | `PlayoffsEvent` | Playoff bracket completed. | Shipped |
+| `season.semifinals_complete` | `SemifinalsEvent` | Semifinal round completed. | Shipped |
+| `season.round` | `RoundEvent` | Round completed, standings updated. | Aspirational |
+| `season.tiebreaker` | `TiebreakerEvent` | Tiebreaker game scheduled. | Aspirational |
+| `season.playoffs` | `PlayoffsEvent` | Playoff bracket set. | Aspirational |
+| `season.series` | `SeriesEvent` | Series update (game result within a series). | Aspirational |
+| `season.champion` | `ChampionEvent` | Championship decided. | Aspirational |
+| `season.awards` | `AwardsEvent` | Season awards announced. | Aspirational |
+| `season.offseason` | `OffseasonEvent` | Offseason governance window opened. | Aspirational |
 
 ### Standings Events (always delivered)
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `standings.update` | `StandingsEvent` | Standings changed (after game result or tiebreaker). |
+| Event | Payload | Description | Status |
+|-------|---------|-------------|--------|
+| `standings.update` | `StandingsEvent` | Standings changed (after game result or tiebreaker). | Aspirational |
 
-**Total: 22 SSE event types** across 5 categories.
+**Total: 11 shipped event types, 16 aspirational** across 5 categories.
 
 ---
 
@@ -238,6 +247,11 @@ All REST responses use this shape:
 | GET | `/api/governance/proposals` | `list[Proposal]` | None |
 | GET | `/api/governance/proposals/{id}` | `ProposalDetail` | None |
 
+> **Note (Session 87):** The following governance POST endpoints have been removed. All governance actions (proposals, votes, confirmations) now flow exclusively through Discord slash commands:
+> - ~~`POST /api/governance/proposals`~~ — removed
+> - ~~`POST /api/governance/proposals/{id}/confirm`~~ — removed
+> - ~~`POST /api/governance/votes`~~ — removed
+
 ### Reports (Public)
 
 | Method | Path | Response Model | Auth |
@@ -245,15 +259,15 @@ All REST responses use this shape:
 | GET | `/api/reports/latest` | `dict[str, Report]` | None |
 | GET | `/api/reports/{type}/{round}` | `Report` | None |
 
-### Mirrors (AI Reports API)
+### Reports API (AI-Generated Reports)
 
 | Method | Path | Response Model | Auth |
 |--------|------|---------------|------|
-| GET | `/api/mirrors/round/{season_id}/{round_number}` | `dict` (list of public mirrors) | None |
-| GET | `/api/mirrors/private/{season_id}/{governor_id}` | `dict` (list of private mirrors) | Governor (trust-based for hackathon) |
-| GET | `/api/mirrors/latest/{season_id}` | `dict` (latest simulation + governance mirrors) | None |
+| GET | `/api/reports/round/{season_id}/{round_number}` | `dict` (list of public reports) | None |
+| GET | `/api/reports/private/{season_id}/{governor_id}` | `dict` (list of private reports) | Governor (trust-based for hackathon) |
+| GET | `/api/reports/latest/{season_id}` | `dict` (latest simulation + governance reports) | None |
 
-The mirrors API provides access to AI-generated reports. Public mirrors (simulation, governance) are returned from the round endpoint. Private mirrors are governor-scoped -- in production this would verify the requester is the governor; for the hackathon, the `governor_id` parameter is trusted. Optional `mirror_type` and `round_number` query parameters filter results.
+The reports API provides access to AI-generated reports. Public reports (simulation, governance) are returned from the round endpoint. Private reports are governor-scoped -- in production this would verify the requester is the governor; for the hackathon, the `governor_id` parameter is trusted. Optional `report_type` and `round_number` query parameters filter results.
 
 ### Charts (SVG Helpers)
 

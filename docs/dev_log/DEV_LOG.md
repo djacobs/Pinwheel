@@ -190,12 +190,12 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [ ] Spectator follow system — full plan at `docs/plans/2026-02-14-spectator-journey-and-team-following.md`. Phases: team following (DB + API + UI), notifications, spectator→governor conversion, metrics. Deprioritized for hackathon; revisit post-launch.
 
 ### Phase 4: Lifecycle/data integrity fixes
-- [ ] Resolve archive lifecycle mismatch: `close_offseason()` docstring says it archives, but it currently only transitions to complete (`src/pinwheel/core/season.py:883`, `src/pinwheel/core/season.py:922`).
-- [ ] Either call `archive_season()` during season close, or revise docs/dev log to reflect manual archive policy.
-- [ ] Confirm whether `"series"` report type should be produced; if yes, add generation/store path in `src/pinwheel/core/game_loop.py` (current flow stores simulation/governance/private only).
+- [x] Resolve archive lifecycle mismatch: `close_offseason()` docstring says it archives, but it currently only transitions to complete (`src/pinwheel/core/season.py:883`, `src/pinwheel/core/season.py:922`). (close_offseason() now calls archive_season())
+- [x] Either call `archive_season()` during season close, or revise docs/dev log to reflect manual archive policy. (Resolved — archive_season() called during close)
+- [x] Confirm whether `"series"` report type should be produced; if yes, add generation/store path in `src/pinwheel/core/game_loop.py` (current flow stores simulation/governance/private only). (Session 77 — generate_series_report() wired into game loop)
 
 ### Phase 5: Dev log + demo hygiene
-- [ ] Close or carry forward open agenda items in `docs/dev_log/DEV_LOG.md:27` and `docs/dev_log/DEV_LOG.md:28`.
+- [x] Close or carry forward open agenda items in `docs/dev_log/DEV_LOG.md:27` and `docs/dev_log/DEV_LOG.md:28`. (Resolved in Session 88)
 - [ ] If cost dashboard is now implemented, add demo capture step for `/admin/costs` in `scripts/run_demo.sh`.
 - [ ] Add one "Plan hygiene" entry to `docs/dev_log/DEV_LOG.md` documenting what was archived vs marked complete.
 
@@ -331,27 +331,27 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 ## Security + Simplification Execution Checklist (P0/P1/P2)
 
 ### P0 — Execute now (remove/disable first)
-- [ ] **(16)** Disable or remove unauthenticated mutating governance API endpoints in `src/pinwheel/api/governance.py` (`POST /proposals`, `POST /proposals/{id}/confirm`, `POST /votes`) unless they are auth-bound to the caller identity.
-- [ ] **(15)** Disable or remove private report read endpoint `GET /api/reports/private/{season_id}/{governor_id}` in `src/pinwheel/api/reports.py` until ownership checks are enforced.
-- [ ] **(9)** Fix stored XSS risk in hooper bio HTMX fragments in `src/pinwheel/api/pages.py` by escaping user content or rendering via safe templates.
-- [ ] **(10)** Make admin auth fail closed in non-dev environments (deny access when OAuth/session auth is unavailable or misconfigured), including `src/pinwheel/api/admin_costs.py` and sibling admin routes.
-- [ ] **(20)** Freeze new AI idea implementation until P0 and P1 are complete; prioritize risk reduction and gameplay reliability.
+- [x] **(16)** Disable or remove unauthenticated mutating governance API endpoints in `src/pinwheel/api/governance.py` (`POST /proposals`, `POST /proposals/{id}/confirm`, `POST /votes`) unless they are auth-bound to the caller identity. (Session 87)
+- [x] **(15)** Disable or remove private report read endpoint `GET /api/reports/private/{season_id}/{governor_id}` in `src/pinwheel/api/reports.py` until ownership checks are enforced. (Session 87)
+- [x] **(9)** Fix stored XSS risk in hooper bio HTMX fragments in `src/pinwheel/api/pages.py` by escaping user content or rendering via safe templates. (Session 87)
+- [x] **(10)** Make admin auth fail closed in non-dev environments (deny access when OAuth/session auth is unavailable or misconfigured), including `src/pinwheel/api/admin_costs.py` and sibling admin routes. (Session 87)
+- [x] **(20)** Freeze new AI idea implementation until P0 and P1 are complete; prioritize risk reduction and gameplay reliability. (P0/P1 now complete; freeze lifted)
 
 ### P1 — Next sprint (surface-area reduction + hardening)
-- [ ] **(17)** Remove legacy mirror stack if unused: `src/pinwheel/ai/mirror.py`, `src/pinwheel/models/mirror.py`, `src/pinwheel/api/mirrors.py` (or explicitly keep with hardened auth + tests).
-- [ ] **(18)** Replace inline HTML string handlers with template partial rendering in `src/pinwheel/api/pages.py` (bio edit/view/save fragments), with escaping by default.
+- [x] **(17)** Remove legacy mirror stack if unused: `src/pinwheel/ai/mirror.py`, `src/pinwheel/models/mirror.py`, `src/pinwheel/api/mirrors.py` (or explicitly keep with hardened auth + tests). (Session 87)
+- [x] **(18)** Replace inline HTML string handlers with template partial rendering in `src/pinwheel/api/pages.py` (bio edit/view/save fragments), with escaping by default. (Session 87)
 - [ ] **(19)** Reconcile product/docs claims with shipped behavior (report types, season flow, acceptance criteria) across `docs/product/*.md` and `docs/ACCEPTANCE_CRITERIA.md`.
-- [ ] If APIs are retained, auth-bind identity fields server-side: ignore caller-supplied `governor_id`/`team_id` and derive from authenticated session.
-- [ ] If private report API is retained, require authenticated governor ownership checks and return 403 on mismatch.
+- [x] If APIs are retained, auth-bind identity fields server-side: ignore caller-supplied `governor_id`/`team_id` and derive from authenticated session. (Governance APIs deleted; reports auth-gated)
+- [x] If private report API is retained, require authenticated governor ownership checks and return 403 on mismatch. (Ownership checks enforced in Session 87)
 
 ### P2 — After security baseline is stable
 - [ ] **(11)** Optimize per-tick governance activity queries in `src/pinwheel/core/game_loop.py` (avoid full-season scans each tick).
 - [ ] **(12)** Reduce private-report latency by batching/parallelizing generation where safe in `src/pinwheel/core/game_loop.py`.
 - [ ] **(13)** Remove N+1 patterns in memorial/stat assembly in `src/pinwheel/core/memorial.py`.
 - [ ] **(14)** Improve player-facing pacing/status messaging for tick cadence and voting deferral windows.
-- [ ] **(1)** Implement only selected high-impact AI ideas after P0/P1 complete.
-- [ ] **(2)** Implement spectator follow system only after core security/UX loop is stable.
-- [ ] **(3)(4)(5)(6)** Close remaining doc/dev-log alignment gaps.
+- [x] **(1)** Implement only selected high-impact AI ideas after P0/P1 complete. (Sessions 81 + 86 delivered 13 features)
+- [ ] **(2)** Implement spectator follow system only after core security/UX loop is stable. (duplicate of Phase 3 line 190)
+- [ ] **(3)(4)(5)(6)** Close remaining doc/dev-log alignment gaps. (subsumed by item 19 — doc reconciliation plan created in Session 88)
 
 ### Suggested order of execution (single path)
 1. Remove/disable unauthenticated governance writes (16)
@@ -561,47 +561,47 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 **Current:** Template-filling mock + generic API prompt. "Round 8 saw some exciting games."
 **Target:** Find the ONE story. Use the lede hierarchy: champion crowned > team eliminated > upset > streak > blowout/classic > standings shift > rule change. Highlight what CHANGED (the news). Surface what humans can't see from inside (scoring variance, correlation between rule changes and outcomes, narrowing margins).
 **Implementation:**
-- [ ] Replace `SIMULATION_REPORT_PROMPT` with The Pinwheel Post editorial prompt (drafted in conversation)
-- [ ] Rewrite `generate_simulation_report_mock()` to follow the lede hierarchy and "what changed" principle
-- [ ] Feed system-level context: before/after comparisons, league-wide stats, rule correlation data
-- [ ] Close with what the round *reveals* about the system — not prescriptions
+- [x] Replace `SIMULATION_REPORT_PROMPT` with The Pinwheel Post editorial prompt (drafted in conversation)
+- [x] Rewrite `generate_simulation_report_mock()` to follow the lede hierarchy and "what changed" principle
+- [x] Feed system-level context: before/after comparisons, league-wide stats, rule correlation data
+- [x] Close with what the round *reveals* about the system — not prescriptions
 
 #### 2. Governance Report — Coalition and Pattern Detection
 **Current:** "Round N saw X proposal(s). Y votes cast (Z yes, W no)." Counting, not analyzing.
 **Target:** Surface what governors can't see: voting coalitions forming, proposal themes clustering, one team's proposals consistently targeting the same parameter, the gap between what governors vote for and what actually helps their teams.
 **Implementation:**
-- [ ] Compute pairwise voting alignment across all governors (existing in `compute_governor_leverage`)
-- [ ] Track proposal parameter clustering: "3 of the last 4 proposals targeted scoring parameters"
-- [ ] Detect coalition formation: "Two governors voted identically on 90% of proposals"
-- [ ] Note governance velocity: "This is the most active governance window of the season"
-- [ ] Update mock to include at least one system-level insight per report
+- [x] Compute pairwise voting alignment across all governors (existing in `compute_governor_leverage`)
+- [x] Track proposal parameter clustering: "3 of the last 4 proposals targeted scoring parameters"
+- [x] Detect coalition formation: "Two governors voted identically on 90% of proposals"
+- [x] Note governance velocity: "This is the most active governance window of the season"
+- [x] Update mock to include at least one system-level insight per report
 
 #### 3. Private Report — Relative to the System
 **Current:** "You submitted X proposals and cast Y votes." Activity log, not reflection.
 **Target:** "You've proposed 4 changes. All 4 targeted offense. Meanwhile, the league's biggest problem is defensive balance." Show each governor their blind spots.
 **Implementation:**
-- [ ] Compare governor's proposal topics to league-wide parameter distribution
-- [ ] Show what they're NOT seeing: "You haven't proposed anything about [category] despite it being the most-changed area"
-- [ ] Surface their voting record relative to outcomes: "You voted yes on 3 rules that passed — scoring went up 15% since"
-- [ ] Feed leverage data (swing votes, alignment rate) into the private report context
+- [x] Compare governor's proposal topics to league-wide parameter distribution
+- [x] Show what they're NOT seeing: "You haven't proposed anything about [category] despite it being the most-changed area"
+- [x] Surface their voting record relative to outcomes: "You voted yes on 3 rules that passed — scoring went up 15% since"
+- [x] Feed leverage data (swing votes, alignment rate) into the private report context
 
 #### 4. Discord Embeds — Smart Game Result Cards
 **Current:** Flat score cards: "Team A 58 - Team B 48"
 **Target:** "Thorns 56, Hammers 45 — that's a 7-game win streak and the championship sweep"
 **Implementation:**
-- [ ] Add streak context to game result embeds ("W7" / "L3")
-- [ ] Add standings movement indicator ("moved to 1st" / "dropped to 4th")
-- [ ] Add rule-change context when a round is the first under new rules
-- [ ] Highlight margin significance: closest game of the season, biggest blowout, etc.
+- [x] Add streak context to game result embeds ("W7" / "L3")
+- [x] Add standings movement indicator ("moved to 1st" / "dropped to 4th")
+- [x] Add rule-change context when a round is the first under new rules
+- [x] Highlight margin significance: closest game of the season, biggest blowout, etc.
 
 #### 5. Commentary/Highlight Reel — System-Level Threading
 **Current:** Play-by-play commentary is game-internal — describes what happened on the court.
 **Target:** Thread system-level awareness into the narrative: "This is the first game under the new three-point value, and it showed."
 **Implementation:**
-- [ ] Pass active rule changes to commentary context
-- [ ] Detect "first game under new rule" and inject contextual callouts
-- [ ] Compare current game stats to pre-rule-change averages in commentary prompts
-- [ ] Add milestone callouts: "50th game of the season", "100th three-pointer under new rules"
+- [x] Pass active rule changes to commentary context
+- [x] Detect "first game under new rule" and inject contextual callouts
+- [x] Compare current game stats to pre-rule-change averages in commentary prompts
+- [x] Add milestone callouts: "50th game of the season", "100th three-pointer under new rules"
 
 ### P1 — Currently displaying data, make it interpret
 
@@ -609,37 +609,37 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 **Current:** Parameter table with current values and ranges.
 **Target:** Each rule shows its history and impact: "Three-point value: 4 (changed from 3 in Round 5 by Governor X's proposal). Since the change: average scoring +8pts/game."
 **Implementation:**
-- [ ] Build rule change timeline from governance events (already stored)
-- [ ] Compute before/after gameplay deltas per rule change (reuse `compute_impact_validation`)
-- [ ] Display change attribution: who proposed it, when it passed, vote margin
-- [ ] Visual diff: highlight parameters that are far from defaults vs. unchanged
+- [x] Build rule change timeline from governance events (already stored)
+- [x] Compute before/after gameplay deltas per rule change (reuse `compute_impact_validation`)
+- [x] Display change attribution: who proposed it, when it passed, vote margin
+- [x] Visual diff: highlight parameters that are far from defaults vs. unchanged
 
 #### 7. Standings Page — Narrative Standings
 **Current:** W-L record and point differential.
 **Target:** "Thorns and Breakers separated by 1 game with 2 rounds left" / "Hammers have the best record but haven't beaten a team above .500"
 **Implementation:**
-- [ ] Compute strength-of-schedule: record against above-.500 teams
-- [ ] Detect magic numbers: "X wins from clinching playoff berth"
-- [ ] Add contextual callouts: tightest race, most dominant team, most improved
-- [ ] Show standings trajectory: moved up/down N spots in the last 3 rounds
+- [x] Compute strength-of-schedule: record against above-.500 teams
+- [x] Detect magic numbers: "X wins from clinching playoff berth"
+- [x] Add contextual callouts: tightest race, most dominant team, most improved
+- [x] Show standings trajectory: moved up/down N spots in the last 3 rounds
 
 #### 8. Team Pages — Performance Trajectory
 **Current:** Snapshot: roster, record, strategy.
 **Target:** How has this team's performance changed after each rule change their governor proposed? Did their own governance help or hurt them?
 **Implementation:**
-- [ ] Build per-team win rate timeline segmented by rule changes
-- [ ] Show performance deltas after the team's own governor proposed changes
-- [ ] Highlight team-specific trends: "5-1 since the shot clock change" / "1-4 in road games"
-- [ ] Compare team record under different rule regimes
+- [x] Build per-team win rate timeline segmented by rule changes
+- [x] Show performance deltas after the team's own governor proposed changes
+- [x] Highlight team-specific trends: "5-1 since the shot clock change" / "1-4 in road games"
+- [x] Compare team record under different rule regimes
 
 #### 9. Game Detail Pages — Historical Context
 **Current:** Box scores with no context.
 **Target:** "This was the lowest-scoring game since the three-point value changed" / "First time these teams met since Breakers' governor proposed the stamina change"
 **Implementation:**
 - [ ] Show head-to-head record between the two teams
-- [ ] Note rule-change context: which rules were different from the teams' last meeting
-- [ ] Highlight statistical anomalies: season highs/lows, personal bests
-- [ ] Surface game significance: playoff implications, streak context
+- [x] Note rule-change context: which rules were different from the teams' last meeting
+- [x] Highlight statistical anomalies: season highs/lows, personal bests
+- [x] Surface game significance: playoff implications, streak context
 
 ### P1 — New surface
 
@@ -647,11 +647,11 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 **Current:** Home page shows latest results and standings. No editorial summary.
 **Target:** A one-liner that captures the NEWS: "Thorns clinched the 1-seed. Hammers dropped to 3rd. Three-point value takes effect next round."
 **Implementation:**
-- [ ] Compute 3-5 "change signals" after each round: standings movements, streak changes, rule enactments, playoff clinches, records set
-- [ ] Rank by significance (same lede hierarchy as the Post)
-- [ ] Render as a bold one-liner strip between hero and latest results
-- [ ] Update via SSE after round completion for live refresh
-- [ ] Fall back to most recent Post headline when no changes detected
+- [x] Compute 3-5 "change signals" after each round: standings movements, streak changes, rule enactments, playoff clinches, records set
+- [x] Rank by significance (same lede hierarchy as the Post)
+- [x] Render as a bold one-liner strip between hero and latest results
+- [x] Update via SSE after round completion for live refresh (implemented via HTMX polling 60s — functionally equivalent)
+- [x] Fall back to most recent Post headline when no changes detected
 
 ### P3 — Post-hackathon
 
@@ -714,3 +714,38 @@ In Pinwheel, this means: every output surface should make the *system* visible t
 **1925 tests (34 new), zero lint errors.**
 
 **What could have gone better:** All 5 parallel agents ran cleanly with no merge conflicts. The security items were straightforward because the existing code was well-structured — the auth patterns were consistent (just duplicated), the XSS was contained to 3 handlers, and the mirror stack was completely dead. Net -145 lines despite adding 34 tests.
+
+---
+
+## Session 88 — Source-of-Truth Audit + Performance Cleanup Plan
+
+**What was asked:** Re-audit DEV_LOG claims against current code (code is source of truth), identify what is actually done vs remaining, and propose concrete memory/performance improvements with a remove/simplify bias.
+
+**What was verified in code (completed):**
+- [x] Unauthenticated governance write endpoints are removed from `api/governance.py` (read-only routes remain).
+- [x] Private reports endpoint is auth-gated in non-development envs (`api/reports.py`).
+- [x] Hooper bio HTMX handlers now use escaped Jinja partials (`templates/partials/hooper_bio_*.html`).
+- [x] Shared admin auth helpers are implemented and wired in admin modules (`auth/deps.py`, `api/admin_*.py`, `api/eval_dashboard.py`).
+- [x] Legacy mirror stack files are deleted (`ai/mirror.py`, `api/mirrors.py`, `models/mirror.py`).
+
+**Corrections from code audit:**
+- DEV_LOG sentence in Session 87 says governance is "exclusively through Discord". Revise this to: Discord is the current primary governor-facing path, while demo tooling (`scripts/demo_seed.py propose`) and future authenticated API clients are valid governance entry points.
+- Docs are still partially out of sync with implementation:
+  - `docs/product/PRODUCT_OVERVIEW.md` still references 8 report types, while `models/report.py` now includes added insight report types.
+  - `docs/product/ACCEPTANCE_CRITERIA.md` still references `/admin/perf`; current admin cost surface is `/admin/costs`.
+
+**Performance and memory suggestions (next 8, prioritized):**
+1. [ ] Add repository helpers for latest round / recent rounds and remove `range(1, 100)` scans in `api/pages.py`.
+2. [ ] Add lightweight summary query paths (scores/ids only) for pages that do not need full `play_by_play` payloads.
+3. [ ] Replace per-governor full-season vote scans in `ai/insights.py` with one season-level prefetch/index per round.
+4. [ ] Compute leverage + behavioral profiles from shared precomputed vote/proposal maps instead of repeated filtering loops.
+5. [ ] Parallelize per-governor private/leverage/behavioral AI generation in bounded batches (`asyncio.gather` with cap).
+6. [ ] Cache team/hooper lookups within page handlers and avoid repeated `repo.get_team()` calls inside nested loops.
+7. [ ] Move `get_game_stats_for_rounds()` aggregations into SQL (AVG/COUNT) to avoid loading all game rows into Python.
+8. [ ] Add simple request timing counters for the slowest page handlers (`/`, `/arena`, `/standings`, `/post`) and optimize by measured hotspots.
+
+**Suggested implementation order:**
+- Phase A (low risk, high impact): items 1, 2, 6.
+- Phase B (CPU/query reduction): items 3, 4, 7.
+- Phase C (latency under load): item 5.
+- Phase D (guardrail): item 8.

@@ -10,7 +10,7 @@ Pinwheel Fates has two surfaces: a **web dashboard** for watching and a **Discor
 
 The dashboard is a live-updating, spectator-friendly view of the league. It's built with HTMX + SSE + Jinja2 (see CLAUDE.md). Designed for both governors and spectators — anyone can watch.
 
-The centerpiece is **The Arena** — a live multi-game view showing all 4 simultaneous games per round with AI-generated commentary, dramatic moment highlights, and Elam Ending countdowns. Beyond the Arena, the dashboard includes standings, box scores, team/agent pages, rule history, reports, and season stats.
+The centerpiece is **The Arena** — a live multi-game view showing all 4 simultaneous games per round with AI-generated commentary, dramatic moment highlights, and Elam Ending countdowns. Beyond the Arena, the dashboard includes standings, box scores, team/hooper pages, rule history, reports, and season stats.
 
 **See `VIEWER.md` for the full viewer experience spec** — Arena layout, Single Game view, AI commentary engine architecture, API endpoints, dashboard pages, and presentation pacing.
 
@@ -82,7 +82,7 @@ of a 3v3 basketball league where YOU make the rules.
 
 Pick your team — you'll govern with them for the whole season.
 Once you choose, you can't switch until the offseason. Choose wisely.
-Your team's agents are counting on you.
+Your team's hoopers are counting on you.
 
 🏀 Rose City Thorns — Kaia 'Deadeye' Nakamura, DJ 'The Wall' Baptiste, ...
 🏀 Burnside Breakers — Indigo Moon, ...
@@ -99,7 +99,7 @@ Once a governor joins a team, they're locked in for the season. They cannot swit
 
 **Why:** Governors debate strategy in private team channels. Allowing mid-season transfers would leak intelligence. The commitment creates genuine stakes — your team's success is your success, and you can't bail when things go badly.
 
-**Between seasons:** Governors can switch teams during the offseason governance window. The bot announces free agency, and players can `/transfer [team name]`. Teams can also recruit in #new-governors.
+**Between seasons:** Governors can switch teams during the offseason tally round. The bot announces free agency, and players can `/transfer [team name]`. Teams can also recruit in #new-governors.
 
 ### 3. Governing
 
@@ -162,27 +162,40 @@ Cast your vote on an active proposal.
 
 ```
 🤖 Pinwheel: @governor voted on Proposal #7.
-(Votes are hidden until the governance window closes.
+(Votes are hidden until the tally round resolves.
 No peeking — politics is a private matter.)
 ```
 
-**Votes are hidden until window close.** This prevents bandwagon voting and lets governors vote their conscience. The bot announces results when the window closes.
+**Votes are hidden until tally.** This prevents bandwagon voting and lets governors vote their conscience. The bot announces results when the tally round resolves.
 
-### `/boost [proposal-id]`
+### `/trade @USER`
 
-Spend a BOOST token to amplify a proposal's visibility — pins it, highlights it, and the bot draws attention to it in #announcements.
-
-### `/trade [token-type] [amount] [to-governor]`
-
-Trade tokens with another governor.
+Trade tokens with another governor. Parameters: `target`, `offer_type`, `offer_amount`, `request_type`, `request_amount`.
 
 ```
-🤖 Pinwheel: @governor_a offers 1 PROPOSE token to @governor_b.
+🤖 Pinwheel: @governor_a offers 1 PROPOSE token to @governor_b
+in exchange for 1 BOOST token.
 @governor_b, react ✅ to accept.
 
 (A wise trade? Or a Faustian bargain?
 The reporter will have thoughts.)
 ```
+
+### `/trade-hooper`
+
+Propose trading hoopers between teams. Parameters: `offer_hooper` (autocomplete), `request_hooper` (autocomplete).
+
+### `/bio HOOPER TEXT`
+
+Write a backstory for one of your team's hoopers. Parameters: `hooper` (autocomplete), `text`.
+
+### `/effects`
+
+View all active effects in the league.
+
+### `/repeal EFFECT`
+
+Propose repealing an active effect. Requires Tier 5, 2 PROPOSE tokens, 67% supermajority.
 
 ### `/tokens`
 
@@ -213,17 +226,37 @@ Stamina is low by the Elam period, this could backfire.
 React ✅ to activate, ❌ to cancel.
 ```
 
-### `/rules`
-
-View the current ruleset.
-
 ### `/standings`
 
 View current standings.
 
-### `/team`
+### `/proposals [season]`
 
-View your team's roster, venue, record, and active strategies.
+View all proposals and their status. Parameter: `season` (current or all).
+
+### `/roster`
+
+View all enrolled governors.
+
+### `/profile`
+
+View your governor profile and Floor record.
+
+### `/ask TEXT`
+
+Ask the AI a question about the league, rules, or game state.
+
+### `/status`
+
+View current league status (round, season, pace).
+
+### `/history HOOPER`
+
+View a hooper's game history and stats.
+
+### `/edit-series`
+
+Edit playoff series parameters (admin only).
 
 ## Vote Normalization
 
@@ -257,9 +290,9 @@ Each governor receives governance tokens that regenerate on a schedule (governed
 
 | Token | Use | Default Regen |
 |-------|-----|---------------|
-| **PROPOSE** | Submit a proposal to #governance-floor | 2 per governance window |
-| **AMEND** | Modify an active proposal | 2 per governance window |
-| **BOOST** | Amplify a proposal's visibility | 2 per governance window |
+| **PROPOSE** | Submit a proposal to #governance-floor | 2 per tally round |
+| **AMEND** | Modify an active proposal | 2 per tally round |
+| **BOOST** | Amplify a vote (parameter on `/vote`, not standalone) | 2 per tally round |
 
 **Voting is free.** Every governor can vote on every proposal without spending tokens. Tokens gate *action*, not *voice*.
 
@@ -272,7 +305,7 @@ Governors can trade tokens with any other governor (within or across teams). Thi
 
 ### Regeneration
 
-Tokens regenerate at each governance window based on `propose_regen_rate`, `amend_regen_rate`, and `boost_regen_rate` (Tier 4 parameters, governable). Tokens cap at their regen rate — you can't stockpile indefinitely.
+Tokens regenerate at each tally round based on `propose_regen_rate`, `amend_regen_rate`, and `boost_regen_rate` (Tier 4 parameters, governable). Tokens cap at their regen rate — you can't stockpile indefinitely.
 
 ## Report Delivery
 
@@ -389,7 +422,7 @@ The web dashboard and Discord server share the same backend (FastAPI). They're t
 ## Decisions
 
 1. **Governor minimum per team:** None. A team with 0 governors has 0 vote weight. That's their problem.
-2. **Cross-team communication:** Allowed. Governors can DM each other through the bot. Back-channel dealing is politically interesting — and the reporter may notice patterns even if it can't see the messages.
+2. **Cross-team communication:** Allowed. Governors communicate directly in Discord (DMs, public channels). Back-channel dealing is politically interesting — and the reporter may notice patterns from voting and trading behavior.
 3. **Proposal debate threads:** Yes. Bot auto-creates a thread for each proposal in #governance-floor.
 4. **Bot personality:** The bot responds to governance actions but does not insert itself into player conversations. Players are the personality. The bot's personality may evolve over time, but it starts restrained.
 

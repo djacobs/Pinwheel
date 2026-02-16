@@ -1,5 +1,7 @@
 # Pinwheel Fates: Acceptance Criteria
 
+> **Note:** This document was written for an 8-team league. Production currently runs with 4 teams. Parameter defaults reference the `RuleSet` model in `models/rules.py`.
+
 Each criterion is tagged with its automation feasibility:
 
 - **`[AUTO]`** — Fully automatable with Playwright (browser tests) or pytest (API/unit tests)
@@ -31,7 +33,7 @@ Criteria are organized by hackathon day to align with the build plan.
 | 1.2.3 | `Agent` model includes name, archetype, attributes, moves, and backstory fields | `[AUTO]` pytest: instantiate, assert all fields present |
 | 1.2.4 | `Team` model includes name, agents (exactly 4), venue, and strategy fields | `[AUTO]` pytest: instantiate with 3 agents (should fail), 4 agents (should pass), 5 agents (should fail) |
 | 1.2.5 | `GameResult` model includes home_team, away_team, home_score, away_score, possessions (list), box_scores, quarter_scores, elam_target, seed, and rules_hash | `[AUTO]` pytest: instantiate, assert all fields present and typed |
-| 1.2.6 | `RuleSet` model includes all Tier 1 parameters with defaults matching SIMULATION.md (three_point_value=3, quarter_possessions=15, elam_margin=13, etc.) | `[AUTO]` pytest: instantiate default RuleSet, assert each parameter's default value |
+| 1.2.6 | `RuleSet` model includes all Tier 1 parameters with defaults matching SIMULATION.md (three_point_value=3, quarter_minutes=10, elam_margin=15, etc.) | `[AUTO]` pytest: instantiate default RuleSet, assert each parameter's default value |
 | 1.2.7 | `RuleSet` rejects parameter values outside their defined ranges (e.g., three_point_value < 1 or > 10) | `[AUTO]` pytest: attempt out-of-range values, assert ValidationError |
 | 1.2.8 | All 9 archetypes are defined and each totals exactly 360 attribute points | `[AUTO]` pytest: iterate archetypes, assert sum == 360 for each |
 | 1.2.9 | `Move` model includes name, trigger_condition, effect, stamina_cost, and attribute_gate fields | `[AUTO]` pytest: instantiate, assert all fields present |
@@ -43,8 +45,8 @@ Criteria are organized by hackathon day to align with the build plan.
 | 1.3.1 | `simulate_game(home, away, rules, seed)` returns a `GameResult` | `[AUTO]` pytest: call with valid inputs, assert return type |
 | 1.3.2 | Simulation is deterministic: the same inputs (teams, rules, seed) always produce the same GameResult | `[AUTO]` pytest: run the same game 10 times, assert all results identical |
 | 1.3.3 | Simulation is a pure function: no database access, no API calls, no side effects | `[AUTO]` pytest: mock database and network; run simulation; assert zero calls to mocked resources |
-| 1.3.4 | A game has exactly 4 quarters of `quarter_possessions` possessions each (default 60 total), unless the Elam Ending triggers early | `[AUTO]` pytest: count possessions in GameResult, assert 60 or fewer (Elam can end early) |
-| 1.3.5 | The Elam Ending activates at the end of Q3: target score = leading team's score + `elam_margin` (default 13) | `[AUTO]` pytest: inspect GameResult.elam_target, verify it equals Q3 leader's score + 13 |
+| 1.3.4 | A game has exactly 4 quarters of `quarter_minutes` minutes each (default 10 min/quarter), unless the Elam Ending triggers early | `[AUTO]` pytest: count possessions in GameResult, verify game runs within expected time budget |
+| 1.3.5 | The Elam Ending activates at the end of Q3: target score = leading team's score + `elam_margin` (default 15) | `[AUTO]` pytest: inspect GameResult.elam_target, verify it equals Q3 leader's score + 15 |
 | 1.3.6 | A game always ends on a made basket when the Elam Ending is active (the winning team's final possession is a score) | `[AUTO]` pytest: inspect the final possession in GameResult, assert it's a scoring play for the winning team |
 | 1.3.7 | Box scores are internally consistent: team scores equal the sum of individual agent scoring plays | `[AUTO]` pytest: sum agent points from play-by-play, assert equals team score |
 | 1.3.8 | Agent stamina degrades over the course of the game; stamina at end of Q4 is lower than stamina at start of Q1 | `[AUTO]` pytest: inspect stamina values across possessions, assert decreasing trend |
@@ -89,7 +91,7 @@ Criteria are organized by hackathon day to align with the build plan.
 
 | # | Criterion | Auto |
 |---|-----------|------|
-| 1.7.1 | `alembic upgrade head` applies all migrations to a fresh SQLite database without errors | `[AUTO]` pytest: run migrations, assert no errors |
+| 1.7.1 | `auto_migrate_schema()` applies additive column migrations to the SQLite database at startup without errors (no Alembic) | `[AUTO]` pytest: run startup migration, assert no errors |
 | 1.7.2 | A GameResult can be stored and retrieved, and the retrieved result matches the original | `[AUTO]` pytest: store result, retrieve by ID, assert equality |
 | 1.7.3 | Standings can be computed from stored GameResults and match manual calculation | `[AUTO]` pytest: store 10 game results, compute standings, verify against hand-calculated expected output |
 | 1.7.4 | SQLite database works correctly in both development and production (Fly.io volume mount) | `[AUTO]` pytest: run test suite against SQLite backend |

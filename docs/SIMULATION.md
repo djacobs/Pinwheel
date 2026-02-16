@@ -545,17 +545,17 @@ The game must *feel* like basketball to an observer. The narrative leaps Pinwhee
 
 ### Periods
 
-- **4 quarters.** Each quarter is `quarter_possessions` possessions long (default 15, so ~60 possessions per regulation game).
-- **Halftime** between Q2 and Q3. Substitutions happen at halftime (P0). Stamina partially recovers.
-- **Quarter breaks** between Q1/Q2 and Q3/Q4. Shorter pauses. Team fouls reset per half (Q1+Q2 share a foul count, Q3+Q4 share a foul count).
-- **Game clock:** Each possession consumes `possession_duration_seconds` of fictional game time (default 24, matches real shot clock). A 15-possession quarter = 6 fictional minutes. A full game ≈ 24 fictional minutes. The presenter uses this clock for display, tension, and pacing.
+- **4 quarters.** Each quarter is `quarter_minutes` minutes long (default 10, so 40 minutes per regulation game). Possessions are generated dynamically within the time budget.
+- **Halftime** between Q2 and Q3. Substitutions happen at halftime (P0). Stamina partially recovers (`halftime_stamina_recovery`, default 0.40).
+- **Quarter breaks** between Q1/Q2 and Q3/Q4. Shorter pauses with partial stamina recovery (`quarter_break_stamina_recovery`, default 0.15). Team fouls reset per half (Q1+Q2 share a foul count, Q3+Q4 share a foul count).
+- **Game clock:** Derived from `quarter_minutes` and `dead_ball_time_seconds`. The presenter uses this clock for display, tension, and pacing.
 
 ### Elam Ending
 
 At the **end of the 3rd quarter** (configurable via `elam_trigger_quarter`), the game clock turns off:
 
 1. Take the leading team's score at end of Q3.
-2. Add `elam_margin` (default 13).
+2. Add `elam_margin` (default 15).
 3. That's the **target score.** First team to reach it wins.
 4. If tied at end of Q3, target = tied score + `elam_margin`.
 5. No more quarter structure — just possessions until someone hits the target.
@@ -564,14 +564,14 @@ At the **end of the 3rd quarter** (configurable via `elam_trigger_quarter`), the
 **Why the Elam Ending serves governance:**
 - `elam_trigger_quarter` — when does the endgame begin? Move it to Q2 for fast games. Governable.
 - `elam_margin` — how big is the final stretch? +7 means quick sprints. +20 means marathon endings. Governable.
-- `quarter_possessions` — longer quarters mean more regulation play before the Elam kicks in. Governable.
+- `quarter_minutes` — longer quarters mean more regulation play before the Elam kicks in. Governable.
 - The interaction between scoring rule changes and the Elam Ending is rich: if governance votes to make 3-pointers worth 5, the endgame gets explosive.
 - Stamina matters more in close games where the Elam Ending extends play past regulation length.
 
 ### Game Timeline
 
 ```
-Q1 (15 poss)  →  Break  →  Q2 (15 poss)  →  HALFTIME  →  Q3 (15 poss)  →  ELAM ENDING
+Q1 (10 min)  →  Break  →  Q2 (10 min)  →  HALFTIME  →  Q3 (10 min)  →  ELAM ENDING
                                                   │                              │
                                             Subs happen                   Clock off.
                                             Stamina recovery              Target score set.
@@ -583,12 +583,12 @@ Q1 (15 poss)  →  Break  →  Q2 (15 poss)  →  HALFTIME  →  Q3 (15 poss)  �
 
 ### Summary
 
-- **Periods:** 4 quarters of `quarter_possessions` (default 15) possessions each.
+- **Periods:** 4 quarters of `quarter_minutes` (default 10) minutes each.
 - **Halftime:** Between Q2 and Q3. Subs, partial stamina recovery.
-- **Elam trigger:** End of `elam_trigger_quarter` (default 3). Target = leader + `elam_margin` (default 13).
-- **Safety cap:** Max `safety_cap_possessions` (default 200) total possessions. If reached, highest score wins. If tied, sudden death.
+- **Elam trigger:** End of `elam_trigger_quarter` (default 3). Target = leader + `elam_margin` (default 15).
+- **Safety cap:** Max `safety_cap_possessions` (default 300) total possessions. If reached, highest score wins. If tied, sudden death.
 - **Home court advantage:** Venue modifiers applied per [Venue & Home Court](#venue--home-court). Governable via Tier 2 parameters.
-- **Game clock:** Fictional, derived from possession count × `possession_duration_seconds`. For display and narrative, not simulation logic.
+- **Game clock:** Derived from `quarter_minutes` and `dead_ball_time_seconds`. For display and narrative, not simulation logic.
 
 ## Rule Expressiveness: From Parameters to Effects
 
@@ -623,87 +623,21 @@ This is the current system. Typed parameters with ranges and defaults. The inter
 
 **~60% of proposals will map here.** "Make 3-pointers worth 5." "Extend quarters to 20 possessions." "Allow press defense only in the Elam period." These are the bread and butter of governance.
 
-### Layer 2: Game Effects (Day 2-3)
+### Layer 2: Effects (Shipped)
 
-Game Effects are conditional modifications that fire during a game. They're more expressive than parameters but still operate within a single game's simulation — no cross-game state.
+Effects are non-parameter rule changes enacted through the hooks/effects system. The shipped architecture uses three core components:
 
-**The model:**
+- **`core/hooks.py`** — Defines `HookPoint` enum (legacy: `PRE_POSSESSION`, `POST_SHOT_RESOLUTION`, `QUARTER_END`, `ELAM_START`, `GAME_END`, etc.) and the newer string-based hierarchical hooks (`sim.possession.pre`, `sim.shot.pre`, `round.game.post`, `report.simulation.pre`, etc.). Effects register against hook points and fire when the simulation reaches them.
+- **`core/effects.py`** — `EffectRegistry` manages active effects loaded from the governance event store. Effects are registered with `hook_points` and fire at matching hook points during simulation. `get_effects_for_hook(hook)` returns all active effects for a given hook point.
+- **`core/meta.py`** — `MetaStore` provides key-value metadata storage used by effects for cross-possession state tracking.
 
-```python
-class GameEffect(BaseModel):
-    """A conditional modification to game behavior, enacted by governance."""
-    name: str                           # human-readable name
-    trigger: EffectTrigger              # WHEN does this fire?
-    condition: EffectCondition | None    # WHAT must be true? (None = always)
-    action: EffectAction                # WHAT happens?
-    scope: EffectScope                  # WHO is affected?
-    duration: EffectDuration            # HOW LONG does it last?
-    source_proposal: str                # which proposal created this
+**Effect types:** parameter modifications, custom mechanics (descriptive, no hooks), stat modifiers (fire at `round.game.post`), and narrative effects (fire at `report.simulation.pre` / `report.commentary.pre`).
 
-class EffectTrigger(str, Enum):
-    on_score = "on_score"               # any made basket
-    on_miss = "on_miss"                 # any missed shot
-    on_steal = "on_steal"               # turnover via steal
-    on_foul = "on_foul"                 # foul called
-    on_move_trigger = "on_move_trigger" # a Move activates
-    on_quarter_end = "on_quarter_end"
-    on_halftime = "on_halftime"
-    on_elam_start = "on_elam_start"
-    on_lead_change = "on_lead_change"
-    on_possession_start = "on_possession_start"
+**Lifecycle:** Governors create effects via `/propose`. Effects can be repealed via `/repeal` (Tier 5, 2 PROPOSE tokens, 67% supermajority). The `EffectRegistry` loads active effects at round start.
 
-class EffectCondition(BaseModel):
-    """Structured conditions the simulation can evaluate."""
-    score_differential_gte: int | None = None
-    score_differential_lte: int | None = None
-    quarter: int | None = None
-    elam_active: bool | None = None
-    shot_type: Literal["two", "three", "drive", "free_throw"] | None = None
-    agent_attribute_gte: tuple[str, int] | None = None  # ("scoring", 70)
-    streak_gte: int | None = None       # consecutive makes/misses
-    move_name: str | None = None        # specific Move triggered
+**Stacking and conflicts:** Multiple effects can be active simultaneously. They compose according to their hook point and execution order. Effect chain depth is limited to prevent infinite loops.
 
-class EffectAction(str, Enum):
-    modify_score = "modify_score"               # add/subtract points
-    modify_attribute = "modify_attribute"        # temporary attribute buff/debuff
-    grant_possession = "grant_possession"        # extra possession
-    force_substitution = "force_substitution"    # trigger a sub
-    modify_probability = "modify_probability"    # adjust shot/steal/etc probability
-    apply_stamina = "apply_stamina"              # stamina drain/recovery
-    modify_foul_count = "modify_foul_count"      # add/remove fouls
-
-class EffectScope(str, Enum):
-    scoring_agent = "scoring_agent"
-    defending_agent = "defending_agent"
-    ball_handler = "ball_handler"
-    team = "team"                       # whole team
-    opponent = "opponent"               # opposing team
-    all_agents = "all_agents"           # everyone on floor
-
-class EffectDuration(str, Enum):
-    this_possession = "this_possession"
-    this_quarter = "this_quarter"
-    this_game = "this_game"
-    next_n_possessions = "next_n_possessions"   # paired with a count
-    until_lead_change = "until_lead_change"
-```
-
-**Examples of proposals → Game Effects:**
-
-| Proposal | Effect |
-|----------|--------|
-| "Dunking gives you an extra possession" | `trigger=on_score, condition={shot_type: "drive"}, action=grant_possession, scope=team` |
-| "The losing team at halftime gets +10% shooting" | `trigger=on_halftime, condition={score_differential_lte: -1}, action=modify_probability, scope=team, duration=this_game` |
-| "Every lead change drains 5 stamina from all players" | `trigger=on_lead_change, action=apply_stamina, scope=all_agents` |
-| "Players with Ego > 70 score double on contested shots" | `trigger=on_score, condition={agent_attribute_gte: ("ego", 70)}, action=modify_score, scope=scoring_agent` |
-| "A 10-0 run triggers a mandatory substitution" | `trigger=on_score, condition={streak_gte: 10}, action=force_substitution, scope=opponent` |
-| "Heat Check activates for the ENTIRE team after a buzzer beater" | `trigger=on_move_trigger, condition={move_name: "heat_check", quarter_end: true}, action=modify_probability, scope=team, duration=next_n_possessions` |
-
-**Validation:** Each component (trigger, condition, action, scope, duration) is an enum or structured type. The interpreter can only compose from this vocabulary — it can't invent new triggers or actions. Pydantic validates the full Effect. The simulation engine has explicit hooks at each trigger point.
-
-**Stacking and conflicts:** Multiple Effects can be active simultaneously. They compose multiplicatively for probability modifiers, additively for score/stamina modifiers. Conflicting effects (one grants possession, another forces substitution on the same trigger) resolve by priority order (proposal enactment order, or a `priority` field).
-
-**Why this is safe:** The simulation engine has a fixed set of hooks (the EffectTrigger enum). Effects can only modify things the engine knows how to modify (the EffectAction enum). Conditions can only test things the engine can evaluate (the EffectCondition fields). The vocabulary is finite and validated. A creative proposal is expressed through composition, not through arbitrary code.
+**Why this is safe:** Effects fire at predefined hook points in the simulation. The vocabulary of hooks is finite. Pydantic validates effect specifications. The AI interpreter maps creative proposals into this constrained vocabulary.
 
 ### Layer 3: League Effects (Post-Hackathon, but model now)
 
@@ -831,13 +765,13 @@ For the hackathon, this is manual. Post-hackathon, this could be semi-automated 
 
 | Tier | Scope | Approval | Token Cost | Examples |
 |------|-------|----------|------------|---------|
-| **Tier 1** | Game mechanics (parameters) | Simple majority | 1 PROPOSE | Shot clock, point values, foul limits |
-| **Tier 2** | Agent/behavior constraints (parameters) | Simple majority | 1 PROPOSE | Max shot share, venue modifiers, defensive schemes |
-| **Tier 3** | League structure (parameters) | Simple majority | 1 PROPOSE | Schedule format, trade window, salary cap |
-| **Tier 4** | Meta-governance (parameters) | Simple majority | 1 PROPOSE | Token regen, vote threshold, Fate toggle |
-| **Tier 5** | Game Effects (conditional) | **Supermajority (60%)** | **2 PROPOSE** | Extra possessions, attribute buffs, stamina effects |
-| **Tier 6** | League Effects (cross-game) | **Supermajority (66%)** | **2 PROPOSE** | Score modification, roster effects, schedule changes |
-| **Tier 7** | Rule Space Expansion | **Supermajority (75%)** | **3 PROPOSE** | New triggers, new actions, new parameters |
+| **Tier 1** | Game mechanics (parameters) | Simple majority | 1 PROPOSE | Shot clock, point values, foul limits, quarter length |
+| **Tier 2** | Hooper behavior constraints (parameters) | Simple majority | 1 PROPOSE | Max shot share, venue modifiers |
+| **Tier 3** | League structure (parameters) | Simple majority | 1 PROPOSE | Teams count, round-robins, playoff format |
+| **Tier 4** | Meta-governance (parameters) | Simple majority | 1 PROPOSE | Vote threshold, proposals per window |
+| **Tier 5** | Effects (hooks-based) / Repeals | **Supermajority (67%)** | **2 PROPOSE** | Custom mechanics, stat modifiers, narrative effects, repealing active effects |
+| **Tier 6** | League Effects (cross-game) | **Supermajority (66%)** | **2 PROPOSE** | Score modification, roster effects, schedule changes (aspirational) |
+| **Tier 7** | Rule Space Expansion | **Supermajority (75%)** | **3 PROPOSE** | New triggers, new actions, new parameters (aspirational) |
 
 Higher tiers require more consensus and more tokens. This creates a natural pressure: simple parameter changes are easy to pass. Wild structural changes require broad coalition support. The wildest proposals — expanding the rule space itself — require near-unanimous agreement.
 
@@ -862,29 +796,32 @@ These are the typed, validated parameters that governance can modify. Each has a
 
 | Parameter | Type | Range | Default | Description |
 |-----------|------|-------|---------|-------------|
-| `quarter_possessions` | int | 5–30 | 15 | Possessions per quarter (4 quarters per game) |
-| `possession_duration_seconds` | int | 10–60 | 24 | Fictional seconds per possession (for display/clock) |
-| `shot_clock_seconds` | int | 10–60 | 15 | Possessions exceeding this → forced bad shot |
+| `quarter_minutes` | int | 3–20 | 10 | Minutes per quarter (4 quarters per game) |
+| `shot_clock_seconds` | int | 10–60 | 15 | Possessions exceeding this trigger a forced bad shot |
 | `three_point_value` | int | 1–10 | 3 | Points awarded for shots beyond the arc |
 | `two_point_value` | int | 1–10 | 2 | Points awarded for shots inside the arc |
 | `free_throw_value` | int | 1–5 | 1 | Points per made free throw |
-| `personal_foul_limit` | int | 3–10 | 5 | Fouls before agent ejection |
+| `personal_foul_limit` | int | 3–10 | 5 | Fouls before hooper ejection |
 | `team_foul_bonus_threshold` | int | 3–10 | 4 | Team fouls per half before bonus free throws |
 | `three_point_distance` | float | 15.0–30.0 | 22.15 | Feet from basket to three-point line |
 | `elam_trigger_quarter` | int | 1–4 | 3 | Quarter after which Elam Ending activates |
-| `elam_margin` | int | 5–25 | 13 | Points added to leading score to set target |
+| `elam_margin` | int | 5–40 | 15 | Points added to leading score to set target |
 | `halftime_stamina_recovery` | float | 0.0–0.6 | 0.40 | Fraction of max stamina recovered at halftime |
-| `safety_cap_possessions` | int | 50–500 | 200 | Max total possessions before forced resolution |
+| `quarter_break_stamina_recovery` | float | 0.0–0.3 | 0.15 | Fraction of max stamina recovered at quarter breaks |
+| `safety_cap_possessions` | int | 50–500 | 300 | Max total possessions before forced resolution |
+| `substitution_stamina_threshold` | float | 0.1–0.8 | 0.35 | Stamina threshold triggering substitution |
+| `turnover_rate_modifier` | float | 0.2–3.0 | 1.0 | Multiplier on base turnover probability |
+| `foul_rate_modifier` | float | 0.2–3.0 | 1.0 | Multiplier on base foul probability |
+| `offensive_rebound_weight` | float | 1.0–15.0 | 5.0 | Weight for offensive rebound probability |
+| `stamina_drain_rate` | float | 0.001–0.03 | 0.007 | Base stamina drain per possession |
+| `dead_ball_time_seconds` | float | 2.0–20.0 | 9.0 | Seconds consumed by dead-ball stoppages |
 
-<!-- TODO: Add more parameters as the simulation model solidifies -->
-
-### Tier 2: Agent Behavior Constraints
+### Tier 2: Hooper Behavior Constraints
 
 | Parameter | Type | Range | Default | Description |
 |-----------|------|-------|---------|-------------|
-| `max_shot_share` | float | 0.2–1.0 | 1.0 | Max % of team shots any single agent can take |
+| `max_shot_share` | float | 0.2–1.0 | 1.0 | Max % of team shots any single hooper can take |
 | `min_pass_per_possession` | int | 0–5 | 0 | Minimum passes before a shot attempt is allowed |
-| `max_minutes_share` | float | 0.5–1.0 | 1.0 | Max % of game any agent can play (for bench rotation) |
 | `home_court_enabled` | bool | — | true | Whether venue modifiers apply |
 | `home_crowd_boost` | float | 0.0–0.15 | 0.05 | Shooting % bonus for home team, scaled by venue capacity |
 | `away_fatigue_factor` | float | 0.0–0.10 | 0.02 | Extra stamina drain modifier for away team |
@@ -892,35 +829,23 @@ These are the typed, validated parameters that governance can modify. Each has a
 | `altitude_stamina_penalty` | float | 0.0–0.05 | 0.01 | Stamina penalty per 1000ft altitude differential |
 | `travel_fatigue_enabled` | bool | — | true | Whether distance between venues affects stamina |
 | `travel_fatigue_per_mile` | float | 0.0–0.005 | 0.001 | Stamina penalty scaled by distance between venues |
-| `allowed_schemes` | list[enum] | man_tight, man_switch, zone, press | all | Which defensive schemes teams are allowed to use |
-| `press_allowed_quarters` | list[int] | 1–4, elam | all | When press defense is permitted |
-| `team_strategy_enabled` | bool | — | false | Whether teams can submit strategic overrides (Day 1–2) |
 
 ### Tier 3: League Structure
 
 | Parameter | Type | Range | Default | Description |
 |-----------|------|-------|---------|-------------|
-| `schedule_format` | enum | round_robin, divisions, random | round_robin | How matchups are generated |
-| `games_per_round` | int | 1–6 | 3 | Games each team plays per simulation block |
-| `trade_window_open` | bool | — | true | Whether agent trades between teams are allowed |
-| `salary_cap` | int | 0–1000 | 0 | Total attribute points allowed per team (0 = no cap) |
-
-<!-- TODO: Draft system, promotion/relegation, playoff format -->
+| `teams_count` | int | 4–16 | 8 | Number of teams in the league |
+| `round_robins_per_season` | int | 1–5 | 3 | Full round-robins per regular season |
+| `playoff_teams` | int | 2–8 | 4 | Teams qualifying for playoffs |
+| `playoff_semis_best_of` | int | 1–7 | 3 | Semifinal series length |
+| `playoff_finals_best_of` | int | 1–7 | 5 | Finals series length |
 
 ### Tier 4: Meta-Governance
 
 | Parameter | Type | Range | Default | Description |
 |-----------|------|-------|---------|-------------|
-| `propose_regen_rate` | int | 1–5 | 2 | PROPOSE tokens regenerated per day |
-| `amend_regen_rate` | int | 1–5 | 2 | AMEND tokens regenerated per day |
-| `boost_regen_rate` | int | 1–5 | 2 | BOOST tokens regenerated per day |
-| `vote_threshold` | float | 0.5–1.0 | 0.5 | Fraction of votes needed to pass a proposal |
-| `proposal_limit_per_window` | int | 1–10 | 3 | Max proposals per governance window |
-| `governance_rounds_interval` | int | 1–7 | 1 | Governance window opens every N rounds (1 = every round) |
-| `report_scope` | enum | full, limited, off | full | What the AI is allowed to report on |
-| `fate_enabled` | bool | — | false | Whether Fate events can trigger |
-| `fate_trigger_rate` | float | 0.001–0.10 | 0.02 | Base probability of Fate event per game per agent, scaled by Fate attribute |
-| `fate_bypass_governance` | bool | — | false | If true, Fate events enact immediately. If false, they create auto-proposals that go through voting. |
+| `proposals_per_window` | int | 1–10 | 3 | Max proposals per tally round |
+| `vote_threshold` | float | 0.3–0.8 | 0.5 | Fraction of weighted votes needed to pass a proposal |
 
 ## Output: GameResult
 
@@ -1004,7 +929,7 @@ Resolved questions, captured for the record.
 |---|----------|----------|
 | 1 | Rebounding attribute | Derive from Speed + Defense. No separate attribute. |
 | 2 | Substitutions | P0: 1 sub at the half. P1: configurable, stamina-triggered, rule-changeable. |
-| 3 | Game format | 4 quarters of 15 possessions each. Elam Ending after Q3. Build from Day 1. |
+| 3 | Game format | 4 quarters of 10 minutes each (`quarter_minutes`). Elam Ending after Q3. Build from Day 1. |
 | 4 | Agent generation | 9 archetypes, 360 budget, ±10 variance, AI-generated names/backstories. Teams start roughly balanced; governors trade. |
 | 5 | Roster size | 4 (3 active + 1 bench). Expect to expand to 5. |
 | 6 | Bench archetype | Random. Governors will trade. |
@@ -1016,10 +941,10 @@ Resolved questions, captured for the record.
 | 12 | Name | Pinwheel Fates. |
 | 13 | Move acquisition | All of the above: seeded at creation (1-2 from archetype), earned through play, and governed by players. Moves have a `source` field tracking origin. |
 | 14 | Home court advantage | Included from Day 1. Venue model on each team (name, capacity, altitude, surface, location). Crowd boost, crowd pressure, altitude penalty, travel fatigue as Tier 2 rule-changeable parameters. Every modifier is a governance surface. |
-| 15 | Game ending format | Elam Ending triggered at end of `elam_trigger_quarter` (default Q3). Target = leader + `elam_margin` (default 13). First to target wins on a made bucket. Replaces play-to-21 / win-by-margin. |
-| 16 | Game periods | 4 quarters, `quarter_possessions` each (default 15). Halftime between Q2/Q3 with subs and stamina recovery. Team fouls reset per half. Fictional game clock: `possession_duration_seconds` (default 24) × possessions. Game must feel like basketball. |
+| 15 | Game ending format | Elam Ending triggered at end of `elam_trigger_quarter` (default Q3). Target = leader + `elam_margin` (default 15). First to target wins on a made bucket. Replaces play-to-21 / win-by-margin. |
+| 16 | Game periods | 4 quarters, `quarter_minutes` each (default 10). Halftime between Q2/Q3 with subs and stamina recovery. Team fouls reset per half. Game clock derived from `quarter_minutes` + `dead_ball_time_seconds`. Game must feel like basketball. |
 | 17 | Defensive model | Full strategic model, not simple matching. 4 schemes (man-tight, man-switch, zone, press). Matchup assignment via cost function (threat × containment × stamina economics × game context). Adaptive per possession. All 9 attributes contribute. Scheme governance (Tier 2: `allowed_schemes`, `press_allowed_quarters`). Strategy overrides (Day 1–2): natural language instructions parsed into structured `TeamStrategy` objects. |
-| 18 | Season structure | 8 teams, 3 round-robins (21 rounds, 4 games/round, 21 games/team). Governance between rounds (frequency governable via `governance_rounds_interval`). Tiebreakers: head-to-head game with extra governance round. Playoffs: top 4, best-of-5 semis, best-of-7 finals. Governance active during playoffs. Offseason governance session between seasons. |
+| 18 | Season structure | 8 teams, 3 round-robins (21 rounds, 4 games/round, 21 games/team). Governance between rounds (frequency governable via `PINWHEEL_GOVERNANCE_INTERVAL`). Tiebreakers: head-to-head game with extra governance round. Playoffs: top 4, best-of-3 semis, best-of-5 finals (governable via `playoff_semis_best_of` and `playoff_finals_best_of`). Governance active during playoffs. Offseason governance session between seasons. |
 | 19 | Team count | 8 teams (up from 6). 4 games per round, 7 rounds per round-robin. |
 | 20 | Viewer experience | Three viewer surfaces: Arena (live 2x2 multi-game dashboard), Single Game (full play-by-play + commentary), Discord bot search (natural language stat queries). AI Commentary Engine uses Opus 4.6 as omniscient narrator — receives full GameResult, generates batch commentary ahead of presenter, cached for replay. ~30 REST API endpoints. Single SSE endpoint with query param filtering. See VIEWER.md. |
 | 21 | Rule expressiveness | Three layers: (1) Parameter Changes (typed values, Day 0), (2) Game Effects (conditional modifications within a game, Day 2-3), (3) League Effects (cross-game modifications post-simulation, post-hackathon). AI interpreter acts as constitutional court — translates creative intent into expressible changes. Higher tiers require supermajority + more tokens. 6 safety boundaries (no code execution, no info leakage, no retroactivity, no infinite loops, no breaking determinism, no modifying AI). Rule space itself is expandable via Tier 7 supermajority vote. |

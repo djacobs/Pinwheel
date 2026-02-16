@@ -299,6 +299,12 @@ The simulation has the data — make sure the outputs use it. When adding or mod
 | `/profile` | View your governor profile and Floor record | — |
 | `/proposals [season]` | View all proposals and their status | `season` (current\|all) |
 | `/roster` | View all enrolled governors | — |
+| `/effects` | View all active effects in the league | — |
+| `/repeal EFFECT` | Propose repealing an active effect | `effect` (autocomplete) |
+| `/ask TEXT` | Ask the AI a question about the league | `text` (natural language) |
+| `/status` | View current league status (round, season, pace) | — |
+| `/history HOOPER` | View a hooper's game history and stats | `hooper` (autocomplete) |
+| `/edit-series` | Edit playoff series parameters (admin only) | series params |
 | `/new-season NAME [carry_rules]` | Start a new season (admin only) | `name`, `carry_rules` (bool, default true) |
 
 ## Environment Variables

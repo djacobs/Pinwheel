@@ -229,9 +229,9 @@ A season is the complete competitive arc: regular season → tiebreakers → pla
 
 ### Regular Season
 
-**Format:** 3 full round-robins across 21 rounds.
+**Format:** `round_robins_per_season` full round-robins (default 3). Total rounds depend on team count.
 
-With 8 teams, each round has 4 simultaneous games (every team plays once per round). A full round-robin = 7 rounds (each team faces every other team once). 3 round-robins = 21 rounds, 21 games per team, 3 games against each opponent. Home/away alternates — venue matters.
+With N teams, each round has N/2 simultaneous games (every team plays once per round). A full round-robin = (N-1) rounds. With the default 8 teams: 3 round-robins = 21 rounds, 21 games per team. With 4 teams (current production): 3 round-robins = 9 rounds, 9 games per team. Home/away alternates — venue matters.
 
 ```
 Round-Robin 1 (Rounds 1-7)     Round-Robin 2 (Rounds 8-14)    Round-Robin 3 (Rounds 15-21)
@@ -239,7 +239,7 @@ Every team plays every other   Repeat, flipped home/away      Repeat, original h
 team once. 4 games per round.  assignments.                    assignments.
 
   ↕ governance tally every       ↕ governance tally every        ↕ governance tally every
-  N rounds (default 3,           N rounds                        N rounds
+  N rounds (default 1,           N rounds                        N rounds
   configurable)
 ```
 
@@ -274,7 +274,7 @@ The tiebreaker game uses the current ruleset (including any changes from the ext
 **Bracket:**
 
 ```
-SEMIFINALS (Best-of-5)                    CHAMPIONSHIP (Best-of-7)
+SEMIFINALS (Best-of-3)                    CHAMPIONSHIP (Best-of-5)
 ┌─────────────────┐
 │ #1 Seed         │
 │   vs.           ├───┐
@@ -284,14 +284,14 @@ SEMIFINALS (Best-of-5)                    CHAMPIONSHIP (Best-of-7)
 ┌─────────────────┐   │     │   vs.           │
 │ #2 Seed         │   │     │ Champion        │
 │   vs.           ├───┘     └─────────────────┘
-│ #3 Seed         │              Best-of-7
+│ #3 Seed         │              Best-of-5
 └─────────────────┘
-     Best-of-5
+     Best-of-3
 ```
 
-**Home court:** Higher seed has home court advantage (more games at their venue). In a best-of-5: games 1, 2, 5 at higher seed's venue. In a best-of-7: games 1, 2, 5, 7 at higher seed's venue.
+**Home court:** Higher seed has home court advantage (more games at their venue). In a best-of-3: games 1, 3 at higher seed's venue. In a best-of-5: games 1, 2, 5 at higher seed's venue. Series lengths are governable via `playoff_semis_best_of` (default 3) and `playoff_finals_best_of` (default 5).
 
-**Governance during playoffs:** Active. This is where Pinwheel gets truly strange — the rules can change between playoff games. A governance window opens between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI reporter tracks every move.
+**Governance during playoffs:** Active. This is where Pinwheel gets truly strange — the rules can change between playoff games. A governance tally round occurs between each game in a series. Your opponent's sharpshooter is destroying you? Propose moving the 3-point line back. Your team has high stamina? Propose longer quarters. The stakes are higher, the changes are more targeted, and the AI reporter tracks every move.
 
 ### Championship & End of Season
 
@@ -309,28 +309,27 @@ Between seasons, a special governance session opens. This is where the meta-game
 - **Ruleset carry-forward:** Do current rules persist into next season, or reset to defaults? This is a governance vote.
 - **Roster changes:** Trades, draft picks, free agency — the mechanisms depend on what governance has enacted.
 - **New agents:** If roster expansion or player retirement has been governed, new agents are generated.
-- **Season parameters:** Players can vote on next season's structure — number of round-robins, playoff format, governance window frequency.
+- **Season parameters:** Players can vote on next season's structure — number of round-robins, playoff format, tally round frequency.
 - **Rule reset scope:** Maybe some tiers reset and others don't. Tier 1 (game mechanics) might reset while Tier 4 (meta-governance) persists. This is itself a governance decision.
 
-The offseason governance window is longer than regular windows. It's the constitutional convention between seasons.
+The offseason governance session is longer than regular tally rounds. It's the constitutional convention between seasons.
 
 ### Season Timeline (Production Mode)
 
 ```
-REGULAR SEASON (21 rounds × ~1 hour = ~21 hours)
+REGULAR SEASON (round count depends on teams — 21 rounds with 8 teams, 9 rounds with 4 teams)
 │
-├── Round 1:  4 games → reports
-├── Round 2:  4 games → reports
-├── Round 3:  4 games → governance tally → token regen → reports (tally round)
+├── Round 1:  N/2 games → governance tally → token regen → reports (every round is a tally round at default interval=1)
+├── Round 2:  N/2 games → governance tally → token regen → reports
 ├── ...
-├── Round 21: 4 games → governance tally → reports (tally round)
+├── Round R:  N/2 games → governance tally → reports (final regular season round)
 │
 ├── STANDINGS FINALIZED
 │   └── Tiebreakers if needed (extra governance round + tiebreaker game)
 │
 ├── PLAYOFFS
-│   ├── Semifinals: Best-of-5 (up to 10 games, governance between each)
-│   └── Finals: Best-of-7 (up to 7 games, governance between each)
+│   ├── Semifinals: Best-of-3 (up to 6 games total, governance between each)
+│   └── Finals: Best-of-5 (up to 5 games, governance between each)
 │
 ├── CHAMPIONSHIP
 │   └── Season reports, awards, narrative
@@ -339,7 +338,7 @@ REGULAR SEASON (21 rounds × ~1 hour = ~21 hours)
     └── Extended window: carry-forward vote, roster changes, next season params
 ```
 
-Total season duration in production mode: ~25-30 hours of active play (21 rounds + up to 17 playoff games). Spread across days, this means a season could run Monday through Friday with games every hour during active periods.
+Total season duration in production mode depends on team count and pace. With 8 teams: ~25-30 hours of active play (21 rounds + up to 11 playoff games). With 4 teams: significantly shorter (~10-15 hours). Spread across days at slow pace, or compressed for demos at fast pace.
 
 ## Dev/Staging vs. Production Mode
 
@@ -351,7 +350,7 @@ Total season duration in production mode: ~25-30 hours of active play (21 rounds
 | Teams | 4-8 | 8 |
 | Round-robins per season | 1 (7 rounds) | 3 (21 rounds) |
 | Games per round | 2-4 (every team plays once) | 4 (every team plays once) |
-| Playoffs | Best-of-1 semis, best-of-3 finals | Best-of-5 semis, best-of-7 finals |
+| Playoffs | Best-of-1 semis, best-of-3 finals | Best-of-3 semis, best-of-5 finals |
 | Report latency target | <5s | <15s (can batch) |
 | Token regen | Every tally round | Every tally round |
 | Full season duration | ~30 minutes | ~25-30 hours |
@@ -367,6 +366,6 @@ Dev/staging mode runs a complete season (regular season → tiebreakers → play
 
 ## Resolved Questions
 
-1. ~~**Governance window timing:**~~ **Resolved (Session 37).** Governance is interval-based, not window-based. Tallying happens every Nth round (`PINWHEEL_GOVERNANCE_INTERVAL`, default 3). No separate governance clock.
+1. ~~**Governance window timing:**~~ **Resolved (Session 37).** Governance is interval-based, not window-based. Tallying happens every Nth round (`PINWHEEL_GOVERNANCE_INTERVAL`, default 1). No separate governance clock.
 2. **Concurrent simulation blocks:** If a game clock fires while the previous block is still simulating, should we queue, skip, or run concurrently? Queue is safest.
 3. **Report priority:** If report generation is slow, should simulation reports take priority over private reports? Shared content serves more players.

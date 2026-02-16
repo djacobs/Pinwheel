@@ -166,7 +166,7 @@ The operator. Sets up the league, seeds teams, manages the Discord server, monit
 **The moment:** A governance window closes. Shared reports post to #reports. A private report arrives via DM.
 
 **What exists:**
-- 8 report types: simulation, governance, private, tiebreaker, series, season, offseason, State of the League (GAME_LOOP.md)
+- 11 report types: simulation, governance, private, tiebreaker, series, season, offseason, state_of_the_league, impact_validation, leverage, behavioral (GAME_LOOP.md). Note: offseason and state_of_the_league types exist in the `ReportType` enum but are not yet generated.
 - Shared report delivery to Discord channels and web dashboard (PLAYER.md)
 - Private report delivery via DM and personalized dashboard (PLAYER.md)
 - Report tone: observational, pointed, never prescriptive (PLAYER.md)
@@ -250,7 +250,7 @@ The operator. Sets up the league, seeds teams, manages the Discord server, monit
 **What exists:**
 - Regular season: 3 round-robins, 21 rounds (GAME_LOOP.md)
 - Tiebreakers: head-to-head game + extra governance round (GAME_LOOP.md)
-- Playoffs: top 4 qualify, best-of-5 semis, best-of-7 finals (GAME_LOOP.md)
+- Playoffs: top 4 qualify, best-of-3 semis, best-of-5 finals (GAME_LOOP.md). Series lengths governable via `playoff_semis_best_of` and `playoff_finals_best_of`.
 - Governance between every playoff game (GAME_LOOP.md)
 - Season report, awards, championship narrative (GAME_LOOP.md)
 - Offseason governance: carry-forward vote, roster changes, next season params (GAME_LOOP.md)
