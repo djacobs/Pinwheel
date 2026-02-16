@@ -60,6 +60,7 @@ def settings_discord_enabled() -> Settings:
     return Settings(
         pinwheel_env="production",
         database_url="sqlite+aiosqlite:///:memory:",
+        anthropic_api_key="",
         discord_bot_token="test-token-not-real",
         discord_channel_id="123456789",
         discord_guild_id="987654321",

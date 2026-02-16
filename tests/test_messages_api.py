@@ -252,27 +252,27 @@ class TestPydanticToResponseFormat:
     """Verify pydantic_to_response_format() produces valid API spec."""
 
     def test_basic_model(self) -> None:
-        """Simple Pydantic model produces the right structure."""
+        """Simple Pydantic model produces the right output_config structure."""
 
         class Simple(BaseModel):
             name: str
             value: int
 
         result = pydantic_to_response_format(Simple, "simple_model")
-        assert result["type"] == "json_schema"
-        json_schema = result["json_schema"]
-        assert json_schema["name"] == "simple_model"
-        schema = json_schema["schema"]
+        fmt = result["format"]
+        assert fmt["type"] == "json_schema"
+        schema = fmt["schema"]
         assert "properties" in schema
         assert "name" in schema["properties"]
         assert "value" in schema["properties"]
+        assert schema.get("additionalProperties") is False
 
     def test_classification_result_schema(self) -> None:
         """ClassificationResult generates a valid JSON schema."""
         result = pydantic_to_response_format(
             ClassificationResult, "classification_result"
         )
-        schema = result["json_schema"]["schema"]
+        schema = result["format"]["schema"]
         props = schema["properties"]
         assert "classification" in props
         assert "confidence" in props
@@ -285,7 +285,7 @@ class TestPydanticToResponseFormat:
         result = pydantic_to_response_format(
             RuleInterpretation, "rule_interpretation"
         )
-        schema = result["json_schema"]["schema"]
+        schema = result["format"]["schema"]
         props = schema["properties"]
         assert "parameter" in props
         assert "confidence" in props
@@ -298,7 +298,7 @@ class TestPydanticToResponseFormat:
         result = pydantic_to_response_format(
             TeamStrategy, "team_strategy"
         )
-        schema = result["json_schema"]["schema"]
+        schema = result["format"]["schema"]
         props = schema["properties"]
         assert "three_point_bias" in props
         assert "pace_modifier" in props
@@ -310,7 +310,7 @@ class TestPydanticToResponseFormat:
         result = pydantic_to_response_format(
             ProposalInterpretation, "proposal_interpretation"
         )
-        schema = result["json_schema"]["schema"]
+        schema = result["format"]["schema"]
         assert "properties" in schema
 
     def test_query_plan_schema(self) -> None:
@@ -318,7 +318,7 @@ class TestPydanticToResponseFormat:
         from pinwheel.ai.search import QueryPlan
 
         result = pydantic_to_response_format(QueryPlan, "query_plan")
-        schema = result["json_schema"]["schema"]
+        schema = result["format"]["schema"]
         props = schema["properties"]
         assert "query_type" in props
         assert "team_name" in props
@@ -414,11 +414,11 @@ class TestQueryPlanPydantic:
         assert "properties" in schema
 
 
-class TestCallSitesResponseFormat:
-    """Verify structured output call sites pass response_format."""
+class TestCallSitesOutputConfig:
+    """Verify structured output call sites pass output_config."""
 
-    async def test_classifier_uses_response_format(self) -> None:
-        """classify_injection passes response_format."""
+    async def test_classifier_uses_output_config(self) -> None:
+        """classify_injection passes output_config."""
         from pinwheel.ai.classifier import classify_injection
 
         payload = (
@@ -438,13 +438,13 @@ class TestCallSitesResponseFormat:
             await classify_injection("Test", "fake-key")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "response_format" in call_kwargs
-        rf = call_kwargs["response_format"]
-        assert rf["type"] == "json_schema"
-        assert rf["json_schema"]["name"] == "classification_result"
+        assert "output_config" in call_kwargs
+        fmt = call_kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        assert "properties" in fmt["schema"]
 
-    async def test_interpreter_v1_uses_response_format(self) -> None:
-        """interpret_proposal passes response_format."""
+    async def test_interpreter_v1_uses_output_config(self) -> None:
+        """interpret_proposal passes output_config."""
         from pinwheel.ai.interpreter import interpret_proposal
         from pinwheel.models.rules import RuleSet
 
@@ -472,14 +472,14 @@ class TestCallSitesResponseFormat:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "response_format" in call_kwargs
-        name = call_kwargs["response_format"]["json_schema"]["name"]
-        assert name == "rule_interpretation"
+        assert "output_config" in call_kwargs
+        fmt = call_kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
 
-    async def test_interpreter_strategy_uses_response_format(
+    async def test_interpreter_strategy_uses_output_config(
         self,
     ) -> None:
-        """interpret_strategy passes response_format."""
+        """interpret_strategy passes output_config."""
         from pinwheel.ai.interpreter import interpret_strategy
 
         payload = json.dumps({
@@ -506,12 +506,12 @@ class TestCallSitesResponseFormat:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "response_format" in call_kwargs
-        name = call_kwargs["response_format"]["json_schema"]["name"]
-        assert name == "team_strategy"
+        assert "output_config" in call_kwargs
+        fmt = call_kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
 
-    async def test_interpreter_v2_uses_response_format(self) -> None:
-        """interpret_proposal_v2 passes response_format."""
+    async def test_interpreter_v2_uses_output_config(self) -> None:
+        """interpret_proposal_v2 passes output_config."""
         from pinwheel.ai.interpreter import interpret_proposal_v2
         from pinwheel.models.rules import RuleSet
 
@@ -538,12 +538,12 @@ class TestCallSitesResponseFormat:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "response_format" in call_kwargs
-        name = call_kwargs["response_format"]["json_schema"]["name"]
-        assert name == "proposal_interpretation"
+        assert "output_config" in call_kwargs
+        fmt = call_kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
 
-    async def test_search_parser_uses_response_format(self) -> None:
-        """parse_query_ai passes response_format."""
+    async def test_search_parser_uses_output_config(self) -> None:
+        """parse_query_ai passes output_config."""
         from pinwheel.ai.search import parse_query_ai
 
         payload = '{"query_type":"standings","limit":5}'
@@ -565,9 +565,9 @@ class TestCallSitesResponseFormat:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "response_format" in call_kwargs
-        name = call_kwargs["response_format"]["json_schema"]["name"]
-        assert name == "query_plan"
+        assert "output_config" in call_kwargs
+        fmt = call_kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
 
 
 class TestFenceStrippingFallback:

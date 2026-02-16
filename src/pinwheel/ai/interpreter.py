@@ -115,7 +115,7 @@ async def interpret_proposal(
                 max_tokens=500,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
-                response_format=pydantic_to_response_format(
+                output_config=pydantic_to_response_format(
                     RuleInterpretation, "rule_interpretation"
                 ),
             )
@@ -283,7 +283,7 @@ async def interpret_strategy(
                 max_tokens=300,
                 system=cacheable_system(STRATEGY_SYSTEM_PROMPT),
                 messages=[{"role": "user", "content": f"Strategy: {raw_text}"}],
-                response_format=pydantic_to_response_format(
+                output_config=pydantic_to_response_format(
                     TeamStrategy, "team_strategy"
                 ),
             )
@@ -552,7 +552,7 @@ async def interpret_proposal_v2(
                 max_tokens=2000,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
-                response_format=pydantic_to_response_format(
+                output_config=pydantic_to_response_format(
                     ProposalInterpretation, "proposal_interpretation"
                 ),
             )

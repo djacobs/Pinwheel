@@ -205,16 +205,21 @@ def cacheable_system(text: str) -> list[dict[str, object]]:
 def pydantic_to_response_format(
     model_class: type[BaseModel], name: str
 ) -> dict[str, object]:
-    """Convert a Pydantic model to a Messages API ``response_format`` dict.
+    """Convert a Pydantic model to a Messages API ``output_config`` dict.
 
-    Uses Pydantic's ``model_json_schema()`` to generate the JSON schema
-    directly from the model. The API guarantees the response conforms
+    Uses ``anthropic.transform_schema()`` to sanitize Pydantic's JSON schema
+    (adds ``additionalProperties: false``, strips unsupported constraints like
+    ``minimum``/``maximum``, etc.). The API guarantees the response conforms
     to the schema, eliminating JSON parsing failures.
+
+    Returns a dict suitable for the ``output_config`` parameter
+    (SDK v0.79+ uses ``output_config.format``).
     """
+    from anthropic import transform_schema
+
     return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": name,
-            "schema": model_class.model_json_schema(),
+        "format": {
+            "type": "json_schema",
+            "schema": transform_schema(model_class),
         },
     }

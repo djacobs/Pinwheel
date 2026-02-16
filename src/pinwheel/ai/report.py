@@ -552,16 +552,17 @@ phase, and game results. Read all of it before writing a word. A championship up
 the same story as a regular-season win. A team 7 games back beating the league leader is not \
 the same as the leader winning again. The context tells you what matters — react to it.
 
-## Three Questions
-Before you write, answer these:
-1. **What was surprising?** What result would shock someone who only knew the standings? \
-What happened that has never happened before in this league?
-2. **What changed?** What is different about the league now versus before this round?
-3. **Why should anyone care?** What makes THIS round different from every other round?
+## Before You Write
+Ask yourself three questions — but do NOT include them in your output:
+1. What was surprising? What result would shock someone who only knew the standings?
+2. What changed? What is different about the league now versus before this round?
+3. Why should anyone care? What makes THIS round different from every other round?
 
 The answer to #1 is your lede. Write it so a fan texts it to a friend.
 
 ## How to Write
+- Output plain prose paragraphs only. No markdown headers, no bold, no numbered lists, \
+no horizontal rules. Just paragraphs separated by blank lines.
 - This is an editorial, not a recap. Do NOT summarize each game in sequence.
 - Open with the most exciting thing that happened. Make the reader feel it.
 - Use the full context: if it's the finals, write about the finals. If there's a streak, \

@@ -171,10 +171,26 @@ class TestWhatChangedWidget:
 class TestComputeWhatChanged:
     """Unit tests for _compute_what_changed helper."""
 
-    def test_champion_signal(self):
+    def test_champion_signal_from_config(self):
         from pinwheel.api.pages import _compute_what_changed
 
-        standings = [{"team_id": "a", "team_name": "Champions"}]
+        standings = [{"team_id": "a", "team_name": "Regular Season Leaders"}]
+        signals = _compute_what_changed(
+            standings=standings,
+            prev_standings=[],
+            streaks={},
+            prev_streaks={},
+            rule_changes=[],
+            season_phase="championship",
+            champion_team_name="Actual Champions",
+        )
+        assert len(signals) == 1
+        assert "Actual Champions are your champions" in signals[0]
+
+    def test_champion_signal_fallback_to_standings(self):
+        from pinwheel.api.pages import _compute_what_changed
+
+        standings = [{"team_id": "a", "team_name": "Top Team"}]
         signals = _compute_what_changed(
             standings=standings,
             prev_standings=[],
@@ -184,7 +200,7 @@ class TestComputeWhatChanged:
             season_phase="championship",
         )
         assert len(signals) == 1
-        assert "Champions are your champions" in signals[0]
+        assert "Top Team are your champions" in signals[0]
 
     def test_standings_climb_small(self):
         from pinwheel.api.pages import _compute_what_changed

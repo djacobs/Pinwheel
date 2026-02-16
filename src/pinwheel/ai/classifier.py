@@ -94,7 +94,7 @@ async def classify_injection(
                 max_tokens=200,
                 system=cacheable_system(CLASSIFIER_PROMPT),
                 messages=[{"role": "user", "content": text}],
-                response_format=pydantic_to_response_format(
+                output_config=pydantic_to_response_format(
                     ClassificationResult, "classification_result"
                 ),
             )

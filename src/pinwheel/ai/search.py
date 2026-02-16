@@ -352,7 +352,7 @@ async def parse_query_ai(
             max_tokens=300,
             system=cacheable_system(system),
             messages=[{"role": "user", "content": question}],
-            response_format=pydantic_to_response_format(QueryPlan, "query_plan"),
+            output_config=pydantic_to_response_format(QueryPlan, "query_plan"),
         )
 
         text = response.content[0].text.strip()

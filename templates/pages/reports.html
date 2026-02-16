@@ -25,7 +25,7 @@
     <span style="color: var(--accent-score); font-weight: 700; font-size: 0.8em; margin-left: 0.5rem;">CHAMPIONSHIP FINALS</span>
     {% endif %}
   </div>
-  <div class="report-content">{{ m.content }}</div>
+  <div class="report-content">{{ m.content | prose | safe }}</div>
   <div class="report-meta">
     {{ m.created_at[:19] if m.created_at else '' }}
   </div>

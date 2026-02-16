@@ -19,6 +19,7 @@ async def app_client():
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         pinwheel_env="development",
+        anthropic_api_key="",
         discord_client_id="",
         discord_client_secret="",
     )
