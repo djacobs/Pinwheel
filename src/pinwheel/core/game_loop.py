@@ -37,6 +37,7 @@ from pinwheel.ai.insights import (
     generate_leverage_report_mock,
 )
 from pinwheel.ai.report import (
+    compute_private_report_context,
     generate_governance_report,
     generate_governance_report_mock,
     generate_private_report,
@@ -1397,7 +1398,8 @@ async def _phase_simulate_and_govern(
                 regen_count,
             )
 
-    # Query governor activity for private reports
+    # Query governor activity for private reports — enriched with blind spots,
+    # voting outcomes, and swing vote data from compute_private_report_context.
     active_governor_events = await repo.get_events_by_type(
         season_id=season_id,
         event_types=["proposal.submitted", "vote.cast"],
@@ -1406,22 +1408,33 @@ async def _phase_simulate_and_govern(
 
     governor_activity: dict[str, dict] = {}
     for gov_id in active_governor_ids:
-        gov_proposals = [
-            e
-            for e in active_governor_events
-            if e.governor_id == gov_id and e.event_type == "proposal.submitted"
-        ]
-        gov_votes = [
-            e
-            for e in active_governor_events
-            if e.governor_id == gov_id and e.event_type == "vote.cast"
-        ]
-        governor_activity[gov_id] = {
-            "governor_id": gov_id,
-            "proposals_submitted": len(gov_proposals),
-            "votes_cast": len(gov_votes),
-            "tokens_spent": len(gov_proposals),
-        }
+        try:
+            enriched = await compute_private_report_context(
+                repo, gov_id, season_id, round_number,
+            )
+            governor_activity[gov_id] = enriched
+        except Exception:
+            logger.exception(
+                "private_report_context_failed gov=%s season=%s round=%d",
+                gov_id, season_id, round_number,
+            )
+            # Fallback to basic counts so private report still generates
+            gov_proposals = [
+                e
+                for e in active_governor_events
+                if e.governor_id == gov_id and e.event_type == "proposal.submitted"
+            ]
+            gov_votes = [
+                e
+                for e in active_governor_events
+                if e.governor_id == gov_id and e.event_type == "vote.cast"
+            ]
+            governor_activity[gov_id] = {
+                "governor_id": gov_id,
+                "proposals_submitted": len(gov_proposals),
+                "votes_cast": len(gov_votes),
+                "tokens_spent": len(gov_proposals),
+            }
 
     # Compute narrative context for output systems
     narrative_ctx: NarrativeContext | None = None
@@ -1536,7 +1549,14 @@ async def _phase_ai(
     governance report, and private reports per active governor.
     """
     commentaries: dict[str, str] = {}
-    round_data = {"round_number": sim.round_number, "games": sim.game_summaries}
+    round_data: dict[str, object] = {
+        "round_number": sim.round_number,
+        "games": sim.game_summaries,
+    }
+    # Inject rule changes so the simulation report can correlate rules to outcomes
+    rules_changed = sim.governance_data.get("rules_changed", [])
+    if rules_changed:
+        round_data["rule_changes"] = rules_changed
     narrative = sim.narrative_context
 
     # Fire report hooks using the effect_registry snapshot from Phase 1.

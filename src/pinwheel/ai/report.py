@@ -14,58 +14,594 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections import defaultdict
+from typing import TYPE_CHECKING
 
 import anthropic
 
 from pinwheel.core.narrative import NarrativeContext, format_narrative_for_prompt
 from pinwheel.models.report import Report
 
+if TYPE_CHECKING:
+    from pinwheel.db.repository import Repository
+
 logger = logging.getLogger(__name__)
 
 
-SIMULATION_REPORT_PROMPT = """\
-You are the beat writer for Pinwheel Fates. You've watched every game. You know the standings, \
-the streaks, the rule changes, the drama. After each round, you write one report — 3 to 5 \
-paragraphs — that tells the story of what just happened.
+def compute_pairwise_alignment(
+    votes: list[dict],
+) -> list[dict[str, str | int | float]]:
+    """Compute pairwise voting agreement between governors.
 
-Your job is to find the story, not fill in a template.
+    For each pair of governors who voted on at least one common proposal,
+    computes the number of shared proposals and the agreement percentage.
+
+    Args:
+        votes: List of vote dicts, each with at least "governor_id",
+            "proposal_id", and "vote" keys.
+
+    Returns:
+        List of dicts sorted by agreement_pct descending, each with:
+        - governor_a: str
+        - governor_b: str
+        - shared_proposals: int (number of proposals both voted on)
+        - agreed: int (number they voted the same way)
+        - agreement_pct: float (0.0-100.0)
+    """
+    # Build a mapping: governor_id -> {proposal_id: vote_choice}
+    governor_votes: dict[str, dict[str, str]] = defaultdict(dict)
+    for v in votes:
+        gov_id = v.get("governor_id", "")
+        prop_id = v.get("proposal_id", "")
+        choice = v.get("vote", "")
+        if gov_id and prop_id and choice:
+            governor_votes[gov_id][prop_id] = choice
+
+    governor_ids = sorted(governor_votes.keys())
+    pairs: list[dict[str, str | int | float]] = []
+
+    for i, gov_a in enumerate(governor_ids):
+        for gov_b in governor_ids[i + 1 :]:
+            # Find proposals both voted on
+            shared = set(governor_votes[gov_a].keys()) & set(
+                governor_votes[gov_b].keys()
+            )
+            if not shared:
+                continue
+            agreed = sum(
+                1
+                for pid in shared
+                if governor_votes[gov_a][pid] == governor_votes[gov_b][pid]
+            )
+            pct = (agreed / len(shared)) * 100.0
+            pairs.append({
+                "governor_a": gov_a,
+                "governor_b": gov_b,
+                "shared_proposals": len(shared),
+                "agreed": agreed,
+                "agreement_pct": round(pct, 1),
+            })
+
+    # Sort by agreement_pct descending, then shared_proposals descending
+    pairs.sort(
+        key=lambda p: (-float(p["agreement_pct"]), -int(p["shared_proposals"]))
+    )
+    return pairs
+
+
+def compute_proposal_parameter_clustering(
+    proposals: list[dict[str, str | int | float | None]],
+    history: list[dict[str, str | int | float | None]] | None = None,
+) -> list[dict[str, str | int]]:
+    """Detect proposal parameter clustering within a round and across history.
+
+    Groups proposals by parameter category prefix (e.g. "three_point_value"
+    -> "three_point", "elam_margin" -> "elam") and counts how many proposals
+    target each category.
+
+    When ``history`` is provided (proposals from earlier rounds), also checks
+    for recurring category focus across rounds.
+
+    Args:
+        proposals: Current round's proposals, each with an optional
+            "parameter" key.
+        history: Optional list of proposals from previous rounds, each with
+            an optional "parameter" key and optional "round_number" key.
+
+    Returns:
+        List of dicts sorted by count descending, each with:
+        - category: str (the parameter category prefix)
+        - count: int (number of proposals targeting this category this round)
+        - historical_count: int (total from history targeting this category)
+    """
+
+    def _extract_category(param: str) -> str:
+        """Extract category prefix from a parameter name."""
+        parts = param.split("_")
+        if len(parts) >= 2:
+            # Compound prefixes like "three_point", "shot_clock", "dead_ball", "home_court"
+            if parts[0] in ("three", "shot", "dead", "home"):
+                return "_".join(parts[:2])
+            return parts[0]
+        return param
+
+    # Current round categories
+    current_categories: dict[str, int] = {}
+    for p in proposals:
+        param = p.get("parameter")
+        if param and isinstance(param, str):
+            cat = _extract_category(param)
+            current_categories[cat] = current_categories.get(cat, 0) + 1
+
+    # Historical categories
+    historical_categories: dict[str, int] = {}
+    if history:
+        for p in history:
+            param = p.get("parameter")
+            if param and isinstance(param, str):
+                cat = _extract_category(param)
+                historical_categories[cat] = historical_categories.get(cat, 0) + 1
+
+    results: list[dict[str, str | int]] = []
+    for cat in current_categories:
+        results.append({
+            "category": cat,
+            "count": current_categories[cat],
+            "historical_count": historical_categories.get(cat, 0),
+        })
+
+    results.sort(key=lambda r: -int(r["count"]))
+    return results
+
+
+def compute_governance_velocity(
+    current_round_proposals: int,
+    current_round_votes: int,
+    season_proposals_by_round: dict[int, int] | None = None,
+    season_votes_by_round: dict[int, int] | None = None,
+) -> dict[str, str | float | int | bool]:
+    """Assess governance velocity -- is this the most/least active window?
+
+    Compares the current round's activity to historical averages.
+
+    Args:
+        current_round_proposals: Number of proposals this round.
+        current_round_votes: Number of votes this round.
+        season_proposals_by_round: Optional dict mapping round_number to
+            proposal count across the full season.
+        season_votes_by_round: Optional dict mapping round_number to vote
+            count across the full season.
+
+    Returns:
+        Dict with:
+        - velocity_label: str ("peak", "high", "normal", "low", "silent")
+        - proposals_this_round: int
+        - votes_this_round: int
+        - avg_proposals_per_round: float
+        - avg_votes_per_round: float
+        - is_season_peak: bool (True if this is the most active round so far)
+    """
+    total_activity = current_round_proposals + current_round_votes
+
+    # Compute historical averages
+    avg_proposals = 0.0
+    avg_votes = 0.0
+    is_peak = False
+
+    if season_proposals_by_round:
+        total_proposals = sum(season_proposals_by_round.values())
+        avg_proposals = total_proposals / len(season_proposals_by_round)
+        max_proposals = max(season_proposals_by_round.values())
+        if current_round_proposals > max_proposals:
+            is_peak = True
+
+    if season_votes_by_round:
+        total_votes = sum(season_votes_by_round.values())
+        avg_votes = total_votes / len(season_votes_by_round)
+        max_votes = max(season_votes_by_round.values())
+        if current_round_votes > max_votes:
+            is_peak = True
+
+    # Classify velocity
+    avg_total = avg_proposals + avg_votes
+    if total_activity == 0:
+        label = "silent"
+    elif avg_total > 0 and total_activity >= avg_total * 2.0:
+        label = "peak"
+    elif avg_total > 0 and total_activity >= avg_total * 1.3:
+        label = "high"
+    elif avg_total > 0 and total_activity <= avg_total * 0.5:
+        label = "low"
+    else:
+        label = "normal"
+
+    return {
+        "velocity_label": label,
+        "proposals_this_round": current_round_proposals,
+        "votes_this_round": current_round_votes,
+        "avg_proposals_per_round": round(avg_proposals, 1),
+        "avg_votes_per_round": round(avg_votes, 1),
+        "is_season_peak": is_peak,
+    }
+
+
+def detect_governance_blind_spots(
+    proposals: list[dict[str, str | int | float | None]],
+    rules_changed: list[dict[str, str | int | float | None]],
+    all_parameter_categories: list[str] | None = None,
+) -> list[str]:
+    """Identify areas of the game NOT being targeted by governance.
+
+    Compares what categories proposals target against the full parameter
+    space. Returns categories that have never been proposed against.
+
+    Args:
+        proposals: All proposals from the season (or recent window), each
+            with an optional "parameter" key.
+        rules_changed: All rule changes enacted, each with an optional
+            "parameter" key.
+        all_parameter_categories: Optional explicit list of all parameter
+            categories in the game. Defaults to a standard set.
+
+    Returns:
+        List of parameter category names that have NOT been targeted.
+    """
+    if all_parameter_categories is None:
+        all_parameter_categories = [
+            "scoring",
+            "defense",
+            "pace",
+            "three_point",
+            "elam",
+            "foul",
+            "stamina",
+            "shot_clock",
+            "rebound",
+            "turnover",
+        ]
+
+    # Collect all categories that have been targeted
+    targeted: set[str] = set()
+    for p in list(proposals) + list(rules_changed):
+        param = p.get("parameter")
+        if param and isinstance(param, str):
+            param_lower = param.lower()
+            for cat in all_parameter_categories:
+                if cat in param_lower:
+                    targeted.add(cat)
+
+    # Return untargeted categories
+    return [cat for cat in all_parameter_categories if cat not in targeted]
+
+
+# ---------------------------------------------------------------------------
+# Parameter categorization — maps governance parameters to human-readable
+# gameplay categories for blind-spot analysis in private reports.
+# ---------------------------------------------------------------------------
+
+PARAMETER_CATEGORIES: dict[str, str] = {
+    # Offense
+    "three_point_value": "offense",
+    "two_point_value": "offense",
+    "free_throw_value": "offense",
+    "three_point_distance": "offense",
+    "max_shot_share": "offense",
+    "min_pass_per_possession": "offense",
+    "offensive_rebound_weight": "offense",
+    # Defense
+    "personal_foul_limit": "defense",
+    "team_foul_bonus_threshold": "defense",
+    "foul_rate_modifier": "defense",
+    "turnover_rate_modifier": "defense",
+    "crowd_pressure": "defense",
+    # Pace
+    "quarter_minutes": "pace",
+    "shot_clock_seconds": "pace",
+    "stamina_drain_rate": "pace",
+    "halftime_stamina_recovery": "pace",
+    "quarter_break_stamina_recovery": "pace",
+    "dead_ball_time_seconds": "pace",
+    "safety_cap_possessions": "pace",
+    "substitution_stamina_threshold": "pace",
+    # Endgame
+    "elam_trigger_quarter": "endgame",
+    "elam_margin": "endgame",
+    # Environment
+    "home_court_enabled": "environment",
+    "home_crowd_boost": "environment",
+    "away_fatigue_factor": "environment",
+    "altitude_stamina_penalty": "environment",
+    "travel_fatigue_enabled": "environment",
+    "travel_fatigue_per_mile": "environment",
+    # Structure
+    "teams_count": "structure",
+    "round_robins_per_season": "structure",
+    "playoff_teams": "structure",
+    "playoff_semis_best_of": "structure",
+    "playoff_finals_best_of": "structure",
+    # Meta-governance
+    "proposals_per_window": "meta-governance",
+    "vote_threshold": "meta-governance",
+}
+
+
+def categorize_parameter(param: str | None) -> str:
+    """Map a governance parameter name to a human-readable category.
+
+    Returns the category name (e.g. "offense", "defense", "pace") or
+    "other" if the parameter is unknown or None.
+    """
+    if param is None:
+        return "other"
+    return PARAMETER_CATEGORIES.get(param, "other")
+
+
+def compute_category_distribution(
+    proposals: list[dict[str, str | int | None]],
+) -> dict[str, int]:
+    """Count proposals per gameplay category.
+
+    Args:
+        proposals: List of dicts, each with at least a "parameter" key
+            (str or None).
+
+    Returns:
+        Dict mapping category name to count, sorted by count descending.
+    """
+    counts: dict[str, int] = defaultdict(int)
+    for p in proposals:
+        cat = categorize_parameter(p.get("parameter"))  # type: ignore[arg-type]
+        counts[cat] += 1
+    return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+
+
+async def compute_private_report_context(
+    repo: Repository,
+    governor_id: str,
+    season_id: str,
+    round_number: int,
+) -> dict[str, object]:
+    """Assemble rich context data for a governor's private report.
+
+    Computes the governor's proposal focus vs league-wide activity, surfaces
+    blind spots (categories they haven't touched but the league has changed),
+    and connects their voting record to actual outcomes.
+    """
+    # 1. Governor's own proposals
+    gov_submitted = await repo.get_events_by_type_and_governor(
+        season_id=season_id,
+        governor_id=governor_id,
+        event_types=["proposal.submitted"],
+    )
+    gov_proposal_details: list[dict[str, str | int | None]] = []
+    for e in gov_submitted:
+        p_data = e.payload
+        interp = p_data.get("interpretation")
+        parameter = None
+        if interp and isinstance(interp, dict):
+            parameter = interp.get("parameter")
+        gov_proposal_details.append({
+            "raw_text": p_data.get("raw_text", ""),
+            "parameter": parameter,
+            "tier": p_data.get("tier", 1),
+        })
+
+    gov_categories = compute_category_distribution(gov_proposal_details)
+
+    # 2. All proposals in the season (league-wide)
+    all_submitted = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.submitted"],
+    )
+    all_proposal_details: list[dict[str, str | int | None]] = []
+    for e in all_submitted:
+        p_data = e.payload
+        interp = p_data.get("interpretation")
+        parameter = None
+        if interp and isinstance(interp, dict):
+            parameter = interp.get("parameter")
+        all_proposal_details.append({"parameter": parameter})
+
+    league_categories = compute_category_distribution(all_proposal_details)
+
+    # 3. Rule changes that actually enacted (league-wide)
+    rule_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["rule.enacted"],
+    )
+    rule_change_details: list[dict[str, str | int | None]] = []
+    for e in rule_events:
+        rule_change_details.append({"parameter": e.payload.get("parameter")})
+
+    rule_change_categories = compute_category_distribution(rule_change_details)
+
+    # 4. Blind spots
+    blind_spots: list[str] = []
+    for cat in rule_change_categories:
+        if cat != "other" and cat not in gov_categories:
+            blind_spots.append(cat)
+
+    # 5. Voting outcomes
+    gov_votes = await repo.get_events_by_type_and_governor(
+        season_id=season_id,
+        governor_id=governor_id,
+        event_types=["vote.cast"],
+    )
+
+    outcome_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.passed", "proposal.failed"],
+    )
+    outcome_map: dict[str, str] = {}
+    for e in outcome_events:
+        pid = e.payload.get("proposal_id", e.aggregate_id)
+        outcome_map[pid] = "passed" if e.event_type == "proposal.passed" else "failed"
+
+    proposal_text_map: dict[str, str] = {}
+    proposal_param_map: dict[str, str | None] = {}
+    for e in all_submitted:
+        pid = e.payload.get("id", e.aggregate_id)
+        proposal_text_map[pid] = str(e.payload.get("raw_text", ""))[:100]
+        interp = e.payload.get("interpretation")
+        if interp and isinstance(interp, dict):
+            proposal_param_map[pid] = interp.get("parameter")
+        else:
+            proposal_param_map[pid] = None
+
+    voting_outcomes: list[dict[str, str]] = []
+    correct = 0
+    total_decided = 0
+    for v in gov_votes:
+        pid = v.payload.get("proposal_id", "")
+        vote_choice = v.payload.get("vote", "")
+        outcome = outcome_map.get(pid, "pending")
+        proposal_text = proposal_text_map.get(pid, "")
+        param = proposal_param_map.get(pid)
+        category = categorize_parameter(param)
+        voting_outcomes.append({
+            "proposal_text": proposal_text,
+            "vote": vote_choice,
+            "outcome": outcome,
+            "parameter": param or "unknown",
+            "category": category,
+        })
+        if outcome in ("passed", "failed"):
+            total_decided += 1
+            voted_yes = vote_choice == "yes"
+            passed = outcome == "passed"
+            if voted_yes == passed:
+                correct += 1
+
+    alignment_rate = correct / total_decided if total_decided > 0 else 0.0
+
+    # 6. Swing vote detection
+    all_votes = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["vote.cast"],
+    )
+    swing_count = 0
+    for pid, outcome in outcome_map.items():
+        pid_votes = [
+            v for v in all_votes if v.payload.get("proposal_id") == pid
+        ]
+        gov_vote_in_pid = [
+            v for v in pid_votes if v.governor_id == governor_id
+        ]
+        if not gov_vote_in_pid:
+            continue
+
+        weighted_yes = sum(
+            float(v.payload.get("weight", 1.0))
+            for v in pid_votes
+            if v.payload.get("vote") == "yes"
+        )
+        weighted_no = sum(
+            float(v.payload.get("weight", 1.0))
+            for v in pid_votes
+            if v.payload.get("vote") == "no"
+        )
+
+        gv = gov_vote_in_pid[0]
+        gov_weight = float(gv.payload.get("weight", 1.0))
+        gov_voted_yes = gv.payload.get("vote") == "yes"
+
+        if gov_voted_yes:
+            new_yes = weighted_yes - gov_weight
+            new_no = weighted_no
+        else:
+            new_yes = weighted_yes
+            new_no = weighted_no - gov_weight
+
+        total_without = new_yes + new_no
+        if total_without == 0:
+            continue
+
+        original_passed = outcome == "passed"
+        would_pass_without = new_yes / total_without > 0.5
+        if original_passed != would_pass_without:
+            swing_count += 1
+
+    # 7. Governor's proposals with outcomes
+    gov_activity = await repo.get_governor_activity(governor_id, season_id)
+
+    return {
+        "governor_id": governor_id,
+        "proposals_submitted": len(gov_submitted),
+        "votes_cast": len(gov_votes),
+        "governor_proposal_categories": gov_categories,
+        "league_proposal_categories": league_categories,
+        "league_rule_change_categories": rule_change_categories,
+        "blind_spots": blind_spots,
+        "voting_outcomes": voting_outcomes,
+        "alignment_rate": round(alignment_rate, 3),
+        "swing_votes": swing_count,
+        "total_league_proposals": len(all_submitted),
+        "proposals_voted_on": len(gov_votes),
+        "proposal_details": gov_activity.get("proposal_list", []),
+    }
+
+
+
+
+SIMULATION_REPORT_PROMPT = """\
+You are the editor of The Pinwheel Post. You've watched every game, tracked every rule change, \
+and studied the standings since opening day. After each round, you write one report — 3 to 5 \
+paragraphs — that tells the story of what just happened and what the system reveals.
+
+Your job is to find the ONE story, then surface what humans can't see from inside.
 
 ## Finding the Lede
-Every round has one story. Find it. The hierarchy:
-1. A champion was crowned — everything else is context for that moment.
-2. A team was eliminated — a sweep, a series loss, a season ending.
-3. An upset — the last-place team beat the first-place team.
-4. A streak lives or dies — seven straight wins means something.
-5. A blowout or a classic — a 20-point demolition or 2-point thriller.
-6. The standings shifted — two teams swapped positions, a playoff berth clinched.
-7. The rules changed — governance reshaped the game, first round under new parameters.
+Every round has one story. Find it. The hierarchy is strict — the first match wins:
+1. Champion crowned — everything else is context for that moment.
+2. Team eliminated — a sweep, a series loss, a season ending.
+3. Upset — the last-place team beat the first-place team. Check the standings: rank matters.
+4. Streak lives or dies — five or more straight wins/losses is a story.
+5. Blowout or classic — a 15+ point demolition or a game decided by 3 or fewer.
+6. Standings shifted — two teams swapped positions, a playoff berth clinched or slipping.
+7. Rules changed — governance reshaped the game; this is the first round under new parameters.
 
-Only ONE leads the piece. The rest are supporting details.
+Only ONE of these leads the piece. Everything else is supporting detail.
+
+## Leading With What Changed
+The report is NEWS. What is different after this round than before?
+
+- Before/after: "The Thorns were 6-4 coming in. They're 7-4 now and alone in first."
+- Rule correlation: If a rule changed recently, connect it to outcomes. "Scoring averaged 58 \
+per game in the three rounds since three_point_value moved from 3 to 4 — up from 47 before."
+- Narrowing margins: "The gap between first and last was 6 games entering the round. It's 4 now."
+- Scoring variance: If all games were blowouts, say so. If all were close, say so. Compare to \
+the season trend if system_context data is available.
+
+## Surfacing the Invisible
+This is what separates The Pinwheel Post from a box score. Governors control the rules but \
+can't see the whole system. You can.
+
+- Scoring trends: Is league-wide scoring rising, falling, or steady? Compare this round's \
+average total to the season average if system_context provides it.
+- Rule impact: If rules changed, look for correlation in the data. Did the parameter change \
+produce the expected effect? Did it produce an unexpected one?
+- Competitive balance: Are margins narrowing or widening? Is one team pulling away?
+- Streak patterns: Which teams are trending up vs. down? A 3-game win streak after a 4-game \
+losing streak is a reversal worth naming.
 
 ## Composing the Story
-- Open with the lede — vivid, specific. Not "Round 8 saw some exciting games." Instead: \
-"Rose City Thorns are your champions."
-- Highlight what changed — the NEWS. What is different after this round than before?
-- Surface what humans can't see from inside — scoring variance dropped 40% since a rule passed, \
-a win streak correlates with the new three-point value, the margin between first and last \
-narrowed from 6 to 2.
+- Open with the lede — vivid, specific. Not "Round 8 saw some exciting games." \
+Instead: "Rose City Thorns are your champions."
 - Name the players — connect stats to their games. "Rosa Vex poured in 27 to close out the Hammers."
-- Read the standings — a 10-4 team winning is expected, a 4-10 team winning is an upset.
+- Read the standings — a 10-4 team winning is expected; a 4-10 team winning is an upset.
 - Detect the sweep — 3-0 in a series is a sweep, say so.
-- Know where you are — regular season vs championship are different universes.
-- Close with what the round reveals — not prescriptions, but patterns newly visible.
+- Know where you are — regular season and championship are different universes.
+- Close with what the round REVEALS about the system — not prescriptions, but patterns \
+newly visible. What does this round tell us about where the league is heading? What dynamic \
+just became visible that wasn't before?
 
 ## What You Never Do
 - Never prescribe — describe only. "The Thorns have won seven straight" not "Teams need to adjust."
-- Never be generic — name a team, a score, a streak, or a player.
+- Never be generic — every sentence names a team, a score, a streak, or a player.
 - Never contradict the data.
 - Never lead with the loser.
-- Never pad.
-
-This is AI that amplifies human judgment. Governors control the rules but can't see the \
-whole system. This report IS the whole. It surfaces patterns and dynamics no single governor \
-can see. It doesn't tell them what to do — it makes them dramatically more capable of \
-deciding for themselves.
+- Never pad. If three paragraphs tell the story, stop at three.
+- Never open with "Round N saw..." or any template-filling language.
 
 The AI observes. Humans decide.
 
@@ -77,26 +613,61 @@ The AI observes. Humans decide.
 GOVERNANCE_REPORT_PROMPT = """\
 You are the Governance Mirror for Pinwheel Fates, a 3v3 basketball governance game.
 
-Your job: reflect on governance activity this round. Surface voting coalitions, proposal patterns, \
-and how the rule space is evolving. Show governors what they can't see from inside the system.
+Your job: surface what governors cannot see from inside the system. Individual governors see \
+their own votes and proposals. You see ALL of them. Your report reveals the hidden patterns, \
+emergent coalitions, and systemic blind spots that no single governor can perceive.
 
-## Rules
-1. You DESCRIBE. You never PRESCRIBE. Never say "governors should" or "the league needs to."
-2. Be thorough (3-5 paragraphs). Look for patterns that individual governors might miss:
-   - Voting coalitions: which governors consistently vote together?
-   - Proposal themes: are multiple proposals targeting the same parameter category?
-   - The gap between what passes and what helps teams win
-3. If rules changed this round, connect them to game impact. State parameter name, old value, \
-new value explicitly (e.g., "three_point_value changed from 3 to 4"), then describe the \
-expected effect on gameplay.
-4. If proposals failed, analyze what that reveals. Is it disagreement, or shared priority \
+## What to Surface
+
+### 1. Voting Coalitions
+The pairwise_voting_alignment data shows which governors vote together and how often. \
+This is the most important insight you provide -- governors do not know who their natural \
+allies are until you tell them.
+- Strong coalitions (80%+ agreement on 3+ proposals): Name both governors, state the \
+agreement rate, and note what they tend to agree ON.
+- Notable splits: If two governors on the same team vote differently, that is a fracture \
+worth naming.
+- Bloc formation: If 3+ governors all align above 70%, they are a voting bloc. Say so.
+- Isolation: A governor who agrees with nobody above 50% is a lone voice. Note it.
+
+### 2. Proposal Parameter Clustering
+The parameter_clustering data shows which game dimensions governors are focused on. \
+Surface the concentration:
+- "3 of the last 4 proposals targeted scoring parameters -- the Floor is fixated on offense."
+- "No proposals have touched defense, fouls, or stamina this season." (blind spots)
+- If one team's governors consistently propose in the same category, that is coordinated \
+strategy worth naming.
+
+### 3. Governance Velocity
+The velocity data tells you whether this is unusually active or quiet governance. \
+Use it to set context:
+- "This is the most active governance window of the season."
+- "The Floor has gone quiet -- the fewest votes in any tally window."
+- Compare to season averages when provided.
+
+### 4. The Gap Between Votes and Outcomes
+If rules changed, connect them to game impact. State parameter name, old value, new value \
+explicitly (e.g., "three_point_value changed from 3 to 4"), then describe the expected \
+effect on gameplay.
+- If proposals failed, analyze what that reveals. Is it disagreement, or shared priority \
 to keep things as they are?
-5. Note governance velocity: is this the most active window of the season? Unusual silence?
-6. Surface what's NOT being proposed — if defense stats are declining but no proposals \
-target defense, that's a story.
-7. Close with governance window status: next tally round, pending proposals, window state.
-8. End with a "what the Floor is building" summary — describe the trajectory of governance \
-decisions, not just the count.
+
+### 5. Blind Spots
+Surface what governance is NOT doing. The blind_spots data lists game categories that \
+have never been targeted by proposals. If defense stats are declining but no proposals \
+target defense, that is a story.
+
+## Composition Rules
+1. You DESCRIBE. You never PRESCRIBE. Never say "governors should" or "the league needs to."
+2. Write 3-5 paragraphs. Lead with the most interesting pattern -- coalitions forming, \
+a parameter being targeted repeatedly, or a dramatic silence.
+3. Name specific governors when discussing coalitions and voting patterns.
+4. Close with governance window status and a "what the Floor is building" summary -- \
+the trajectory of governance decisions, not just the count.
+5. Every paragraph must contain at least one specific insight that individual governors \
+cannot see from their own perspective.
+
+The AI observes. Humans decide.
 
 ## Governance Activity
 
@@ -183,6 +754,108 @@ This is private — only they see it. Show them their pattern.
 """
 
 
+def build_system_context(
+    round_data: dict,
+    narrative: NarrativeContext | None,
+) -> dict[str, object]:
+    """Compute system-level context for the simulation report.
+
+    Produces before/after comparisons, league-wide stats, rule correlation
+    data, and competitive balance metrics that the AI prompt or mock report
+    can use to surface invisible patterns.
+
+    Args:
+        round_data: Dict with ``games`` list and optional ``rule_changes``.
+        narrative: Optional NarrativeContext with standings, streaks, rules.
+
+    Returns:
+        Dict with keys: ``round_avg_total``, ``round_avg_margin``,
+        ``all_games_close`` (margin <= 5 for every game),
+        ``all_games_blowout`` (margin >= 15 for every game),
+        ``standings_gap`` (wins diff between first and last),
+        ``recent_rule_changes`` (list of {parameter, old_value, new_value, round_enacted}),
+        ``leader_team``, ``trailer_team``, ``streaks_summary`` (list of
+        {team, streak} for streaks >= 3 in absolute value).
+    """
+    games = round_data.get("games", [])
+    ctx: dict[str, object] = {}
+
+    if not games:
+        return ctx
+
+    # --- Per-round scoring stats ---
+    totals: list[int] = []
+    margins: list[int] = []
+    for g in games:
+        hs: int = g.get("home_score", 0)
+        aws: int = g.get("away_score", 0)
+        totals.append(hs + aws)
+        margins.append(abs(hs - aws))
+
+    if totals:
+        ctx["round_avg_total"] = sum(totals) // len(totals)
+        ctx["round_avg_margin"] = sum(margins) // len(margins)
+        ctx["all_games_close"] = all(m <= 5 for m in margins)
+        ctx["all_games_blowout"] = all(m >= 15 for m in margins)
+
+    # --- Standings gap (first vs last) ---
+    if narrative and narrative.standings and len(narrative.standings) >= 2:
+        first = narrative.standings[0]
+        last = narrative.standings[-1]
+        first_wins = int(first.get("wins", 0))
+        last_wins = int(last.get("wins", 0))
+        ctx["standings_gap"] = first_wins - last_wins
+        ctx["leader_team"] = str(first.get("team_name", ""))
+        ctx["trailer_team"] = str(last.get("team_name", ""))
+
+    # --- Recent rule changes ---
+    if narrative and narrative.active_rule_changes:
+        ctx["recent_rule_changes"] = [
+            {
+                "parameter": str(rc.get("parameter", "")),
+                "old_value": rc.get("old_value"),
+                "new_value": rc.get("new_value"),
+                "round_enacted": rc.get("round_enacted"),
+            }
+            for rc in narrative.active_rule_changes
+        ]
+
+    # Also pick up rule_changes from round_data (governance results this round)
+    round_rule_changes = round_data.get("rule_changes", [])
+    if round_rule_changes:
+        ctx["this_round_rule_changes"] = [
+            {
+                "parameter": rc.get("parameter", ""),
+                "old_value": rc.get("old_value"),
+                "new_value": rc.get("new_value"),
+            }
+            for rc in round_rule_changes
+            if rc.get("parameter")
+        ]
+
+    # --- Streaks summary (|streak| >= 3) ---
+    if narrative and narrative.streaks:
+        # Build team_id -> name map from standings
+        id_to_name: dict[str, str] = {}
+        if narrative.standings:
+            for s in narrative.standings:
+                tid = str(s.get("team_id", ""))
+                if tid:
+                    id_to_name[tid] = str(s.get("team_name", tid))
+
+        streaks_summary: list[dict[str, object]] = []
+        for tid, streak in narrative.streaks.items():
+            if abs(streak) >= 3:
+                streaks_summary.append({
+                    "team": id_to_name.get(tid, tid),
+                    "streak": streak,
+                })
+        if streaks_summary:
+            ctx["streaks_summary"] = streaks_summary
+
+    return ctx
+
+
 async def generate_report_with_prompt(
     prompt_template: str,
     data: dict,
@@ -223,8 +896,18 @@ async def generate_simulation_report(
     narrative: NarrativeContext | None = None,
     db_session: object | None = None,
 ) -> Report:
-    """Generate a simulation report using Claude."""
-    data_str = json.dumps(round_data, indent=2)
+    """Generate a simulation report using Claude.
+
+    Enriches the round data with system-level context (scoring trends,
+    rule correlations, competitive balance) before passing it to the prompt.
+    """
+    # Compute system-level context and inject it into the round data
+    sys_ctx = build_system_context(round_data, narrative)
+    enriched_data = dict(round_data)
+    if sys_ctx:
+        enriched_data["system_context"] = sys_ctx
+
+    data_str = json.dumps(enriched_data, indent=2)
     if narrative:
         narrative_block = format_narrative_for_prompt(narrative)
         data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
@@ -253,8 +936,42 @@ async def generate_governance_report(
     narrative: NarrativeContext | None = None,
     db_session: object | None = None,
 ) -> Report:
-    """Generate a governance report using Claude."""
-    data_str = json.dumps(governance_data, indent=2)
+    """Generate a governance report using Claude.
+
+    Enriches the governance data with computed pairwise voting alignment,
+    parameter clustering, governance velocity, and blind spots before
+    passing it to the prompt, so Claude can surface coalition patterns
+    and system-level insights.
+    """
+    # Compute pairwise alignment from votes and include in the data for Claude
+    enriched_data = dict(governance_data)
+    votes = enriched_data.get("votes", [])
+    if votes:
+        alignment = compute_pairwise_alignment(votes)
+        if alignment:
+            enriched_data["pairwise_voting_alignment"] = alignment
+
+    # Compute parameter clustering
+    proposals = enriched_data.get("proposals", [])
+    if proposals:
+        clustering = compute_proposal_parameter_clustering(proposals)
+        if clustering:
+            enriched_data["parameter_clustering"] = clustering
+
+    # Compute governance velocity
+    velocity = compute_governance_velocity(
+        current_round_proposals=len(proposals),
+        current_round_votes=len(votes),
+    )
+    enriched_data["velocity"] = velocity
+
+    # Compute blind spots
+    rules_changed = enriched_data.get("rules_changed", [])
+    blind_spots = detect_governance_blind_spots(proposals, rules_changed)
+    if blind_spots:
+        enriched_data["blind_spots"] = blind_spots
+
+    data_str = json.dumps(enriched_data, indent=2)
     if narrative:
         narrative_block = format_narrative_for_prompt(narrative)
         data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
@@ -273,6 +990,103 @@ async def generate_governance_report(
         round_number=round_number,
         content=content,
     )
+
+
+def _compute_rule_correlations(
+    round_data: dict[str, object],
+    narrative: NarrativeContext,
+) -> list[dict[str, object]]:
+    """Compute rule-change correlation data from round games.
+
+    Returns a list of dicts with parameter, old/new values, avg total score
+    this round, rounds since change, and a human-readable summary.
+    Pre-computed data in round_data["rule_correlations"] takes precedence.
+    """
+    precomputed = round_data.get("rule_correlations")
+    if isinstance(precomputed, list) and precomputed:
+        return precomputed
+
+    if not narrative.active_rule_changes:
+        return []
+
+    games = round_data.get("games", [])
+    if not isinstance(games, list) or not games:
+        return []
+
+    # Compute current round average total score
+    totals: list[float] = []
+    for g in games:
+        if isinstance(g, dict):
+            hs = g.get("home_score", 0)
+            aws = g.get("away_score", 0)
+            if isinstance(hs, (int, float)) and isinstance(aws, (int, float)):
+                totals.append(float(hs) + float(aws))
+    if not totals:
+        return []
+    avg_total_after = sum(totals) / len(totals)
+
+    correlations: list[dict[str, object]] = []
+    for rc in narrative.active_rule_changes:
+        enacted = rc.get("round_enacted")
+        if not isinstance(enacted, (int, float)) or isinstance(enacted, bool):
+            continue
+        enacted_int = int(enacted)
+        if enacted_int >= narrative.round_number:
+            continue  # Future or same-round change
+
+        param = str(rc.get("parameter", "")).replace("_", " ")
+        old_val = rc.get("old_value")
+        new_val = rc.get("new_value")
+        rounds_since = narrative.round_number - enacted_int
+
+        summary = (
+            f"Since {param} changed to {new_val} (from {old_val}, "
+            f"Round {enacted_int}): this round averaged "
+            f"{avg_total_after:.0f} total points per game "
+            f"({rounds_since} round{'s' if rounds_since != 1 else ''} "
+            f"under new rules)"
+        )
+        correlations.append({
+            "parameter": str(rc.get("parameter", "")),
+            "old_value": old_val,
+            "new_value": new_val,
+            "round_enacted": enacted_int,
+            "avg_total_after": round(avg_total_after, 1),
+            "summary": summary,
+        })
+
+    return correlations
+
+
+def _compute_rule_correlations_with_history(
+    round_data: dict[str, object],
+    narrative: NarrativeContext,
+    avg_total_before: float,
+) -> list[dict[str, object]]:
+    """Compute rule correlations with pre-computed before/after comparison.
+
+    Like _compute_rule_correlations but includes percentage change
+    when historical avg_total_before is provided.
+    """
+    base = _compute_rule_correlations(round_data, narrative)
+    if not base or avg_total_before <= 0:
+        return base
+
+    for corr in base:
+        avg_after = float(corr.get("avg_total_after", 0))
+        pct = round(((avg_after - avg_total_before) / avg_total_before) * 100)
+        param = str(corr.get("parameter", "")).replace("_", " ")
+        new_val = corr.get("new_value")
+        direction = "up" if pct >= 0 else "down"
+        corr["avg_total_before"] = avg_total_before
+        corr["pct_change"] = abs(pct)
+        corr["summary"] = (
+            f"Since {param} changed to {new_val}: "
+            f"scoring {direction} {abs(pct)}% "
+            f"(avg {avg_total_before:.0f} -> {avg_after:.0f})"
+        )
+
+    return base
 
 
 async def generate_private_report(
@@ -583,37 +1397,79 @@ def generate_simulation_report_mock(
         else:
             supporting.append(f"{w} beat {lo} {ws}-{ls}.")
 
-    # --- WHAT CHANGED (system-level observation) ---
-    what_changed: str = ""
-    if narrative and len(entries) > 1:
-        # Check for scoring variance
-        totals = [int(e["total"]) for e in entries]  # type: ignore[arg-type]
-        avg_total = sum(totals) // len(totals)
-        if avg_total >= 80:
-            what_changed = f"Scoring surged to {avg_total} per game across the slate."
-        elif avg_total <= 35:
-            what_changed = f"Defense dominated — just {avg_total} points per game."
+    # --- WHAT CHANGED (system-level patterns) ---
+    sys_ctx = build_system_context(round_data, narrative)
+    what_changed_lines: list[str] = []
 
-        # Check for margin compression
-        if not what_changed:
-            margins = [int(e["margin"]) for e in entries]  # type: ignore[arg-type]
-            avg_margin = sum(margins) // len(margins)
-            if avg_margin <= 5:
-                what_changed = f"Every game was close — average margin just {avg_margin} points."
+    # Scoring trend — extreme averages are the story
+    round_avg = int(sys_ctx.get("round_avg_total", 0))
+    if round_avg >= 80:
+        what_changed_lines.append(
+            f"Scoring surged to {round_avg} per game across the slate."
+        )
+    elif 0 < round_avg <= 35:
+        what_changed_lines.append(
+            f"Defense dominated — just {round_avg} points per game."
+        )
 
-        # Streaks context
-        if not what_changed and narrative.streaks:
-            active_streaks = [
-                (team_id_to_name.get(tid, tid), s)
-                for tid, s in narrative.streaks.items()
-                if tid in played_ids and abs(s) >= 3
-            ]
-            if active_streaks:
-                streak_team, streak_val = active_streaks[0]
-                if streak_val > 0:
-                    what_changed = f"{streak_team} are riding a {streak_val}-game win streak."
-                else:
-                    what_changed = f"{streak_team} have lost {abs(streak_val)} straight."
+    # Margin compression — tight or lopsided slate
+    round_avg_margin = int(sys_ctx.get("round_avg_margin", 99))
+    if sys_ctx.get("all_games_close") and len(entries) > 1:
+        what_changed_lines.append(
+            f"Every game was decided by 5 or fewer — "
+            f"average margin just {round_avg_margin} points."
+        )
+    elif sys_ctx.get("all_games_blowout") and len(entries) > 1:
+        what_changed_lines.append(
+            f"No contest was close — every game was decided by "
+            f"{round_avg_margin}+ points."
+        )
+    elif round_avg_margin <= 5 and len(entries) > 1:
+        what_changed_lines.append(
+            f"The average margin was just {round_avg_margin} points."
+        )
+
+    # Competitive balance — standings gap
+    standings_gap = sys_ctx.get("standings_gap")
+    leader = str(sys_ctx.get("leader_team", ""))
+    trailer = str(sys_ctx.get("trailer_team", ""))
+    if isinstance(standings_gap, int) and standings_gap > 0 and leader and trailer:
+        if standings_gap <= 2:
+            what_changed_lines.append(
+                f"Just {standings_gap} game{'s' if standings_gap != 1 else ''} "
+                f"separate {leader} in first from {trailer} in last — "
+                f"the league is compressed."
+            )
+        elif standings_gap >= 6:
+            what_changed_lines.append(
+                f"{leader} lead the league by {standings_gap} games over "
+                f"{trailer} — the gap is widening."
+            )
+
+    # Streaks context — only if nothing better surfaced
+    if not what_changed_lines and narrative and narrative.streaks:
+        active_streaks = [
+            (team_id_to_name.get(tid, tid), s)
+            for tid, s in narrative.streaks.items()
+            if tid in played_ids and abs(s) >= 3
+        ]
+        if active_streaks:
+            streak_team, streak_val = active_streaks[0]
+            if streak_val > 0:
+                what_changed_lines.append(
+                    f"{streak_team} are riding a {streak_val}-game win streak."
+                )
+            else:
+                what_changed_lines.append(
+                    f"{streak_team} have lost {abs(streak_val)} straight."
+                )
+
+    # --- RULE CORRELATION DATA ---
+    rule_correlation_lines: list[str] = []
+    if narrative and narrative.active_rule_changes and entries:
+        correlations = _compute_rule_correlations(round_data, narrative)
+        for corr in correlations:
+            rule_correlation_lines.append(str(corr["summary"]))
 
     # --- HOT PLAYERS ---
     hot_player_lines: list[str] = []
@@ -640,38 +1496,61 @@ def generate_simulation_report_mock(
                         f"{hp_name} scored {hp_pts} for {hp_team} in a losing effort."
                     )
 
-    # --- SURFACE THE INVISIBLE (closing observation) ---
+    # --- WHAT THE ROUND REVEALS (closing — system-level pattern) ---
     closing: str = ""
     if narrative:
-        # Phase context
-        if phase in ("semifinals", "finals") and not is_playoff:
+        # Rule correlation: governance is showing up in the numbers
+        if rule_correlation_lines:
+            closing = (
+                "The data is starting to speak — governance decisions "
+                "are showing up in the box scores."
+            )
+        # Competitive balance: league is compressed
+        elif (
+            isinstance(standings_gap, int)
+            and standings_gap <= 2
+            and leader
+            and trailer
+        ):
+            closing = (
+                "The league is as tight as it has ever been. "
+                "One bad round changes the standings entirely."
+            )
+        # Phase: late season or playoffs coming into focus
+        elif phase in ("semifinals", "finals") and not is_playoff:
             closing = "Playoff seeding is coming into focus."
         elif narrative.season_arc == "late" and narrative.total_rounds > 0:
             closing = (
                 f"Round {narrative.round_number} of {narrative.total_rounds}. "
-                f"The regular season is winding down."
+                f"The regular season is winding down — "
+                f"every result carries playoff weight now."
             )
-
-        # Governance context
-        if not closing and narrative.pending_proposals > 0:
-            plural = 's' if narrative.pending_proposals != 1 else ''
-            verb = 'awaits' if narrative.pending_proposals == 1 else 'await'
-            closing = f"{narrative.pending_proposals} proposal{plural} {verb} the governors' vote."
+        # Governance pendency: the game may change next round
+        elif narrative.pending_proposals > 0:
+            plural = "s" if narrative.pending_proposals != 1 else ""
+            verb = "awaits" if narrative.pending_proposals == 1 else "await"
+            closing = (
+                f"{narrative.pending_proposals} proposal{plural} {verb} "
+                f"the governors' vote — the game these teams are playing "
+                f"may not be the same game next round."
+            )
 
     # --- COMPOSE THE REPORT ---
     lines = [lede]
 
-    # Add supporting games (max 2)
+    # Supporting games (max 2)
     lines.extend(supporting[:2])
 
-    # Add what changed
-    if what_changed:
-        lines.append(what_changed)
+    # System-level "what changed" observations (max 2)
+    lines.extend(what_changed_lines[:2])
 
-    # Add hot players
+    # Rule correlation data
+    lines.extend(rule_correlation_lines)
+
+    # Hot players
     lines.extend(hot_player_lines)
 
-    # Add closing
+    # Closing — what the round reveals
     if closing:
         lines.append(closing)
 
@@ -690,14 +1569,23 @@ def generate_governance_report_mock(
     round_number: int,
     narrative: NarrativeContext | None = None,
 ) -> Report:
-    """Mock governance report — surfaces coalitions, patterns, trajectory."""
+    """Mock governance report -- surfaces coalitions, patterns, velocity, blind spots."""
     proposals = governance_data.get("proposals", [])
     votes = governance_data.get("votes", [])
     rules_changed = governance_data.get("rules_changed", [])
+    proposal_history: list[dict[str, str | int | float | None]] = (
+        governance_data.get("proposal_history", [])
+    )
+    season_proposals_by_round: dict[int, int] | None = governance_data.get(
+        "season_proposals_by_round"
+    )
+    season_votes_by_round: dict[int, int] | None = governance_data.get(
+        "season_votes_by_round"
+    )
 
-    lines = []
+    lines: list[str] = []
 
-    # Playoff phase opener — governance during playoffs carries different weight
+    # Playoff phase opener -- governance during playoffs carries different weight
     if narrative and narrative.phase in ("semifinal", "finals", "championship"):
         if narrative.phase == "finals":
             lines.append(
@@ -710,35 +1598,66 @@ def generate_governance_report_mock(
                 "Rule changes enacted now land on elimination games."
             )
 
-    # Proposal activity — count + velocity analysis
+    # Governance velocity (system-level insight)
+    velocity = compute_governance_velocity(
+        current_round_proposals=len(proposals),
+        current_round_votes=len(votes),
+        season_proposals_by_round=season_proposals_by_round,
+        season_votes_by_round=season_votes_by_round,
+    )
+    velocity_label = str(velocity["velocity_label"])
+
+    # Proposal activity -- count + velocity analysis
     if proposals:
+        velocity_qualifier = ""
+        if velocity_label == "peak":
+            velocity_qualifier = (
+                " This is the most active governance window of the season."
+            )
+        elif velocity_label == "high":
+            velocity_qualifier = " Governance activity is running above average."
+        elif velocity_label == "low":
+            velocity_qualifier = " Activity is below the season average."
+
         lines.append(
             f"Round {round_number} saw {len(proposals)} proposal(s) "
-            "enter the governance arena."
+            f"enter the governance arena.{velocity_qualifier}"
         )
-        # Detect proposal clustering by parameter category
-        params = [p.get("parameter", "") for p in proposals if p.get("parameter")]
-        if len(params) > 1:
-            # Group by category prefix (e.g., "three_point_" or "elam_")
-            categories: dict[str, int] = {}
-            for p in params:
-                # Extract category from parameter name
-                parts = p.split("_")
-                category = parts[0] if parts else p
-                categories[category] = categories.get(category, 0) + 1
-            # If multiple proposals target the same category, note it
-            for cat, count in categories.items():
-                if count > 1:
+
+        # Parameter clustering (system-level insight)
+        clustering = compute_proposal_parameter_clustering(
+            proposals, history=proposal_history or None
+        )
+        for cluster in clustering:
+            cat = str(cluster["category"])
+            count = int(cluster["count"])
+            hist_count = int(cluster["historical_count"])
+            if count > 1:
+                cat_label = cat.replace("_", " ")
+                if hist_count > 0:
+                    total = count + hist_count
                     lines.append(
-                        f"{count} proposals targeted {cat.replace('_', ' ')} parameters — "
+                        f"{count} proposals targeted {cat_label} parameters "
+                        f"this round, {total} total this season -- "
+                        "the Floor is fixated on this dimension of the game."
+                    )
+                else:
+                    lines.append(
+                        f"{count} proposals targeted {cat_label} parameters -- "
                         "the Floor is focused on this dimension of the game."
                     )
-                    break
+                break  # Only note the top cluster
     else:
-        lines.append(
-            f"Round {round_number} was quiet on the governance front "
-            "— no proposals filed."
-        )
+        if velocity_label == "silent" and season_proposals_by_round:
+            lines.append(
+                f"Round {round_number} was silent on the governance front "
+                "-- no proposals filed. The Floor has gone quiet."
+            )
+        else:
+            lines.append(
+                f"Round {round_number} was quiet on the governance front "
+                "-- no proposals filed."
+            )
 
     # Voting analysis — add alignment patterns
     if votes:
@@ -756,7 +1675,41 @@ def generate_governance_report_mock(
         elif yes_count > 0 and no_count > 0:
             lines.append("The Floor was split on this decision — voting coalitions are emerging.")
 
-    # Rule changes — connect to game impact
+        # Pairwise coalition detection (system-level insight)
+        alignment = compute_pairwise_alignment(votes)
+        for pair in alignment:
+            shared = int(pair["shared_proposals"])
+            pct = float(pair["agreement_pct"])
+            if pct >= 80.0 and shared >= 3:
+                gov_a = str(pair["governor_a"])
+                gov_b = str(pair["governor_b"])
+                agreed = int(pair["agreed"])
+                lines.append(
+                    f"Governors {gov_a} and {gov_b} have voted together "
+                    f"on {agreed} of {shared} proposals "
+                    f"({pct:.0f}% agreement)."
+                )
+
+        # Detect isolated governors (no agreement > 50% with anyone)
+        if len(alignment) > 1:
+            all_govs_in_votes: set[str] = set()
+            for v in votes:
+                gid = v.get("governor_id", "")
+                if gid:
+                    all_govs_in_votes.add(gid)
+            for gid in sorted(all_govs_in_votes):
+                max_agr = 0.0
+                for pair in alignment:
+                    if gid in (pair["governor_a"], pair["governor_b"]):
+                        max_agr = max(max_agr, float(pair["agreement_pct"]))
+                if max_agr <= 50.0 and len(all_govs_in_votes) >= 3:
+                    lines.append(
+                        f"Governor {gid} stands alone -- "
+                        "no voting alignment above 50% with any other governor."
+                    )
+                    break  # Only note the most isolated
+
+    # Rule changes -- connect to game impact
     if rules_changed:
         lines.append(f"{len(rules_changed)} rule(s) changed this round:")
         for rc in rules_changed:
@@ -784,6 +1737,18 @@ def generate_governance_report_mock(
                     f"(proposal {rc.get('proposal_id', '?')})."
                 )
         lines.append("The next round plays under these new conditions.")
+
+    # Blind spots (system-level insight)
+    blind_spots = detect_governance_blind_spots(
+        proposals + (proposal_history or []),
+        rules_changed,
+    )
+    if blind_spots and len(blind_spots) <= 5:
+        spot_labels = [s.replace("_", " ") for s in blind_spots[:3]]
+        lines.append(
+            f"Untouched by governance: {', '.join(spot_labels)}. "
+            "No proposals have targeted these game dimensions."
+        )
 
     # Narrative context enrichment
     if narrative:
@@ -838,36 +1803,54 @@ def generate_private_report_mock(
     season_id: str,
     round_number: int,
 ) -> Report:
-    """Mock private report — shows governor behavior relative to the system."""
-    import random as _rng
+    """Mock private report — shows governor behavior relative to the system.
 
+    When ``governor_data`` contains enriched context from
+    ``compute_private_report_context`` (governor_proposal_categories,
+    league_rule_change_categories, blind_spots, voting_outcomes,
+    alignment_rate, swing_votes), the mock uses real data for blind-spot
+    surfacing and voting-outcome analysis.  Falls back to randomized
+    context when enriched data is absent (backward compatibility).
+    """
     proposals = governor_data.get("proposals_submitted", 0)
     votes = governor_data.get("votes_cast", 0)
+    total_league = governor_data.get("total_league_proposals", 0)
 
-    # Seed for deterministic mock content based on governor and round
-    rng = _rng.Random(hash((governor_id, round_number)))
-
-    # Simulated league context (in production, this would be real data)
-    total_proposals_this_round = rng.randint(3, 8)
-    league_focus_areas = ["offense", "defense", "pace", "three-point"]
-    governor_focus = rng.choice(league_focus_areas)
-    league_focus = rng.choice(
-        [a for a in league_focus_areas if a != governor_focus]
+    # Enriched data (present when compute_private_report_context ran)
+    gov_categories: dict[str, int] = governor_data.get(
+        "governor_proposal_categories", {}
     )
+    league_rule_cats: dict[str, int] = governor_data.get(
+        "league_rule_change_categories", {}
+    )
+    blind_spots: list[str] = governor_data.get("blind_spots", [])
+    voting_outcomes: list[dict[str, str]] = governor_data.get(
+        "voting_outcomes", []
+    )
+    alignment_rate: float = governor_data.get("alignment_rate", 0.0)
+    swing_votes: int = governor_data.get("swing_votes", 0)
 
-    lines = []
+    lines: list[str] = []
 
     # --- Activity summary with context ---
     if proposals == 0 and votes == 0:
-        # Inactive governor — contextualize what they missed
-        lines.append(
-            f"You were quiet this round. "
-            f"The Floor saw {total_proposals_this_round} "
-            f"proposals debated — most focused on {league_focus} adjustments. "
-            "Your absence is noted, not judged."
-        )
+        if total_league > 0:
+            top_league_cat = (
+                next(iter(league_rule_cats)) if league_rule_cats else "unknown"
+            )
+            lines.append(
+                f"You were quiet this round. "
+                f"The Floor saw {total_league} "
+                f"proposals debated — most changes landed in {top_league_cat}. "
+                "Your absence is noted, not judged."
+            )
+        else:
+            lines.append(
+                "You were quiet this round. "
+                "The Floor was quiet too — no proposals filed. "
+                "Your absence is noted, not judged."
+            )
     else:
-        # Active governor — frame activity level
         total_activity = proposals + votes
         if total_activity <= 2:
             activity_level = "light"
@@ -890,40 +1873,117 @@ def generate_private_report_mock(
             )
 
         if votes > 0:
+            vote_denominator = total_league if total_league > 0 else votes
             vote_context = (
-                "selective"
-                if votes < total_proposals_this_round // 2
-                else "engaged"
+                "selective" if votes < vote_denominator // 2 else "engaged"
             )
             plural = "s" if votes != 1 else ""
             lines[-1] += (
                 f"You cast {votes} vote{plural} out of "
-                f"{total_proposals_this_round} proposals — "
+                f"{vote_denominator} proposals — "
                 f"{vote_context} participation."
             )
 
-    # --- Blind spot surfacing ---
-    if proposals > 0:
+    # --- Blind spot surfacing (real data when available) ---
+    if gov_categories and league_rule_cats:
+        governor_focus = next(iter(gov_categories), "")
+        if blind_spots:
+            top_blind = blind_spots[0]
+            if governor_focus:
+                lines.append(
+                    f"Your proposals have focused on {governor_focus}. "
+                    f"Meanwhile, the league\'s biggest shifts have been "
+                    f"in {top_blind} — an area you haven\'t addressed yet."
+                )
+            else:
+                lines.append(
+                    f"You voted but didn\'t propose. "
+                    f"The league\'s most-changed area is {top_blind} — "
+                    f"a dimension where your voice hasn\'t shaped the agenda."
+                )
+        elif governor_focus and league_rule_cats:
+            top_league_cat = next(iter(league_rule_cats))
+            if governor_focus == top_league_cat:
+                lines.append(
+                    f"Your proposals target {governor_focus} — "
+                    "the same area the league has been changing most. "
+                    "You\'re in the current."
+                )
+            else:
+                lines.append(
+                    f"Your proposals target {governor_focus}. "
+                    f"The league has focused more on {top_league_cat}."
+                )
+    elif proposals > 0:
+        import random as _rng
+
+        rng = _rng.Random(hash((governor_id, round_number)))
+        areas = ["offense", "defense", "pace", "endgame"]
+        gov_focus = rng.choice(areas)
+        league_focus = rng.choice([a for a in areas if a != gov_focus])
         lines.append(
-            f"Your proposals have focused on {governor_focus}. "
+            f"Your proposals have focused on {gov_focus}. "
             f"Meanwhile, the league has seen more changes in {league_focus} — "
-            f"an area you haven't addressed yet."
+            f"an area you haven\'t addressed yet."
         )
-    elif votes > 0:
+    elif votes > 0 and not blind_spots:
+        import random as _rng
+
+        rng = _rng.Random(hash((governor_id, round_number)))
+        areas = ["offense", "defense", "pace", "endgame"]
+        league_focus = rng.choice(areas)
         lines.append(
-            f"You voted but didn't propose. "
-            f"The league's biggest debates this round "
-            f"centered on {league_focus} — "
-            f"an area where your voice hasn't shaped the agenda."
+            f"You voted but didn\'t propose. "
+            f"The league\'s biggest debates centered on {league_focus} — "
+            f"an area where your voice hasn\'t shaped the agenda."
         )
 
-    # --- Engagement trajectory ---
-    if proposals + votes > 0:
+    # --- Voting outcomes relative to results ---
+    if voting_outcomes:
+        yes_passed = sum(
+            1
+            for vo in voting_outcomes
+            if vo.get("vote") == "yes" and vo.get("outcome") == "passed"
+        )
+        no_passed = sum(
+            1
+            for vo in voting_outcomes
+            if vo.get("vote") == "no" and vo.get("outcome") == "passed"
+        )
+
+        if yes_passed > 0:
+            lines.append(
+                f"You voted yes on {yes_passed} rule(s) that passed — "
+                "those changes are now shaping the game."
+            )
+        if no_passed > 0:
+            lines.append(
+                f"You opposed {no_passed} rule(s) that passed anyway."
+            )
+        if alignment_rate > 0:
+            lines.append(
+                f"Your votes aligned with outcomes "
+                f"{alignment_rate:.0%} of the time."
+            )
+
+    # --- Swing vote power ---
+    if swing_votes > 0:
+        lines.append(
+            f"You were the swing vote on {swing_votes} "
+            f"proposal{'s' if swing_votes != 1 else ''} — "
+            "your vote alone determined the outcome."
+        )
+
+    # --- Engagement trajectory (fallback for un-enriched data) ---
+    if not voting_outcomes and (proposals + votes > 0):
+        import random as _rng
+
+        rng = _rng.Random(hash((governor_id, round_number)))
         trajectory = rng.choice(["increasing", "steady", "declining"])
         if trajectory == "increasing":
             lines.append(
                 "Your participation is trending up — "
-                "you're more engaged than in earlier rounds."
+                "you\'re more engaged than in earlier rounds."
             )
         elif trajectory == "steady":
             lines.append(
