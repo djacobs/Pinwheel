@@ -107,50 +107,73 @@ async def interpret_proposal(
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
     model = "claude-sonnet-4-5-20250929"
-    try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        async with track_latency() as timing:
-            response = await client.messages.create(
-                model=model,
-                max_tokens=500,
-                system=cacheable_system(system),
-                messages=[{"role": "user", "content": user_msg}],
-                output_config=pydantic_to_response_format(
-                    RuleInterpretation, "rule_interpretation"
-                ),
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            async with track_latency() as timing:
+                response = await client.messages.create(
+                    model=model,
+                    max_tokens=500,
+                    system=cacheable_system(system),
+                    messages=[{"role": "user", "content": user_msg}],
+                    output_config=pydantic_to_response_format(
+                        RuleInterpretation, "rule_interpretation"
+                    ),
+                )
+
+            if db_session is not None:
+                input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(
+                    response
+                )
+                await record_ai_usage(
+                    session=db_session,
+                    call_type="interpreter.v1",
+                    model=model,
+                    input_tokens=input_tok,
+                    output_tokens=output_tok,
+                    cache_read_tokens=cache_tok,
+                    cache_creation_tokens=cache_create_tok,
+                    latency_ms=timing["latency_ms"],
+                    season_id=season_id,
+                    round_number=round_number,
+                )
+
+            text = response.content[0].text
+            # Fallback: handle markdown code fences (belt and suspenders)
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+            data = json.loads(text)
+            return RuleInterpretation(**data)
+
+        except anthropic.APIError as e:
+            last_error = e
+            logger.warning(
+                "AI interpretation attempt %d failed (API error): %s", attempt + 1, e
             )
+            if attempt == 0:
+                import asyncio
 
-        if db_session is not None:
-            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
-            await record_ai_usage(
-                session=db_session,
-                call_type="interpreter.v1",
-                model=model,
-                input_tokens=input_tok,
-                output_tokens=output_tok,
-                cache_read_tokens=cache_tok,
-                cache_creation_tokens=cache_create_tok,
-                latency_ms=timing["latency_ms"],
-                season_id=season_id,
-                round_number=round_number,
-            )
+                await asyncio.sleep(1)
+                continue
+            # Both attempts failed — fall back to mock
+            break
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            last_error = e
+            logger.error("AI interpretation failed (parse error): %s", e)
+            break
 
-        text = response.content[0].text
-        # Fallback: handle markdown code fences (belt and suspenders)
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-        data = json.loads(text)
-        return RuleInterpretation(**data)
-
-    except (json.JSONDecodeError, anthropic.APIError, KeyError, IndexError) as e:
-        logger.error("AI interpretation failed: %s", e)
-        return RuleInterpretation(
-            confidence=0.0,
-            clarification_needed=True,
-            impact_analysis=f"Interpretation failed: {e}",
+    # Fallback to mock interpreter so the player still gets a useful response
+    logger.info("Falling back to mock interpreter for: %s", raw_text)
+    result = interpret_proposal_mock(raw_text, ruleset)
+    if last_error is not None and result.confidence < 0.5:
+        result.impact_analysis = (
+            "The AI interpreter is temporarily unavailable. "
+            "Your proposal will be interpreted using basic pattern matching."
         )
+    return result
 
 
 def interpret_proposal_mock(
@@ -544,50 +567,75 @@ async def interpret_proposal_v2(
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
     model = "claude-sonnet-4-5-20250929"
-    try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        async with track_latency() as timing:
-            response = await client.messages.create(
-                model=model,
-                max_tokens=2000,
-                system=cacheable_system(system),
-                messages=[{"role": "user", "content": user_msg}],
-                output_config=pydantic_to_response_format(
-                    ProposalInterpretation, "proposal_interpretation"
-                ),
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            async with track_latency() as timing:
+                response = await client.messages.create(
+                    model=model,
+                    max_tokens=2000,
+                    system=cacheable_system(system),
+                    messages=[{"role": "user", "content": user_msg}],
+                    output_config=pydantic_to_response_format(
+                        ProposalInterpretation, "proposal_interpretation"
+                    ),
+                )
+
+            if db_session is not None:
+                input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(
+                    response
+                )
+                await record_ai_usage(
+                    session=db_session,
+                    call_type="interpreter.v2",
+                    model=model,
+                    input_tokens=input_tok,
+                    output_tokens=output_tok,
+                    cache_read_tokens=cache_tok,
+                    cache_creation_tokens=cache_create_tok,
+                    latency_ms=timing["latency_ms"],
+                    season_id=season_id,
+                    round_number=round_number,
+                )
+
+            text = response.content[0].text
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+            data = json.loads(text)
+            return ProposalInterpretation(**data)
+
+        except anthropic.APIError as e:
+            last_error = e
+            logger.warning(
+                "AI v2 interpretation attempt %d failed (API error): %s",
+                attempt + 1,
+                e,
             )
+            if attempt == 0:
+                import asyncio
 
-        if db_session is not None:
-            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
-            await record_ai_usage(
-                session=db_session,
-                call_type="interpreter.v2",
-                model=model,
-                input_tokens=input_tok,
-                output_tokens=output_tok,
-                cache_read_tokens=cache_tok,
-                cache_creation_tokens=cache_create_tok,
-                latency_ms=timing["latency_ms"],
-                season_id=season_id,
-                round_number=round_number,
-            )
+                await asyncio.sleep(1)
+                continue
+            # Both attempts failed — fall back to mock
+            break
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            last_error = e
+            logger.error("AI v2 interpretation failed (parse error): %s", e)
+            break
 
-        text = response.content[0].text
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-        data = json.loads(text)
-        return ProposalInterpretation(**data)
-
-    except (json.JSONDecodeError, anthropic.APIError, KeyError, IndexError) as e:
-        logger.error("AI v2 interpretation failed: %s", e)
-        return ProposalInterpretation(
-            confidence=0.0,
-            clarification_needed=True,
-            impact_analysis=f"V2 interpretation failed: {e}",
-            original_text_echo=raw_text,
+    # Fallback to mock interpreter so the player still gets a useful response
+    logger.info("Falling back to v2 mock interpreter for: %s", raw_text)
+    result = interpret_proposal_v2_mock(raw_text, ruleset)
+    if last_error is not None and result.confidence < 0.5:
+        result.impact_analysis = (
+            "The AI interpreter is temporarily unavailable. "
+            "Your proposal will be interpreted using basic pattern matching."
         )
+    result.original_text_echo = raw_text
+    return result
 
 
 def _split_compound_clauses(raw_text: str) -> list[str]:
