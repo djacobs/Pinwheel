@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `fc2e588` — fix: render markdown in reports page instead of raw syntax
+- **Latest commit:** `4b428d1` — docs: session 101 — markdown rendering fix, hackathon submission
 
 ## Today's Agenda
 
@@ -251,3 +251,19 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** Nothing — straightforward fix. The `prose` filter was written early on when reports were plain paragraphs; once the AI started outputting markdown, the filter didn't keep up.
+
+---
+
+## Session 102 — Final Retrospective + API Limit Diagnosis
+
+**What was asked:** Evaluate all "What could have gone better" entries across dev logs, synthesize patterns, and recommend structural improvements. Also diagnose why AI features were showing "temporarily unavailable" on production.
+
+**What was built:**
+- **`docs/final_retro.md`** — comprehensive retrospective synthesizing ~60 sessions of failure patterns into 5 recurring themes (Day-1 debt, cross-cutting blast radius, prompt-as-instruction, deploy context, parallel agent coordination) with 6 structural recommendations
+- **Production diagnosis** — identified via Fly logs that the Anthropic API key hit its monthly spending limit (`You have reached your specified API usage limits. You will regain access on 2026-03-01`). The Session 100 graceful fallback was working correctly, surfacing the mock interpreter instead of raw errors.
+
+**Files modified (2):** `docs/final_retro.md`, `docs/dev_log/DEV_LOG.md`
+
+**1967 tests, zero lint errors.**
+
+**What could have gone better:** Nothing — the retro surfaced real patterns and the API limit was a billing issue, not a code bug. The Session 100 fallback worked exactly as designed.
