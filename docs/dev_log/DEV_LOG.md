@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1976 tests**, zero lint errors (Session 105)
+- **1976 tests**, zero lint errors (Session 106)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `7535c5b` — feat: precise game phase tracking + Haiku-powered series descriptions
+- **Latest commit:** `8ebbca5` — perf: trim interpreter v2 prompt ~1600 tokens
 
 ## Today's Agenda
 
@@ -328,3 +328,22 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1976 tests, zero lint errors.**
 
 **What could have gone better:** The plan originally proposed changing all `phase="playoff"` to `"semifinal"`/`"finals"` without accounting for the ~20 callers that query `get_full_schedule(phase="playoff")`. This would have been a breaking change. The backward-compatible approach (making `phase="playoff"` match all sub-phases) was identified during implementation and avoided a much larger change.
+
+---
+
+## Session 106 — Trim Interpreter V2 Prompt
+
+**What was asked:** The interpreter timed out on a proposal ("blocks are worth one point"). Logs showed all 3 models (Sonnet x2, Haiku) timed out — API congestion. User wanted the prompt trimmed for speed regardless.
+
+**What was built:**
+- **Removed Response Format JSON template** (35 lines) — completely redundant since `output_config=pydantic_to_response_format(ProposalInterpretation)` already enforces the schema at the API level
+- **Compressed Basketball Intelligence** (30 lines → 12 lines) — 8 multi-paragraph concept entries → single-line definitions
+- **Reduced Conditional Mechanics examples** (9 lines → 3 lines) — cut from 3 verbose examples to 1
+- **Collapsed clarification guidance** (7 lines → 2 lines) — essential instruction only
+- Net: ~1600 fewer prompt tokens, same mechanical vocabulary
+
+**Files modified (1):** `src/pinwheel/ai/interpreter.py`
+
+**1976 tests, zero lint errors.**
+
+**What could have gone better:** The Response Format section was obviously redundant since Session 104 when `output_config` was added — should have been stripped then. The basketball intelligence compression is a reasonable trade: the model doesn't need multi-sentence explanations of what "momentum" means.
