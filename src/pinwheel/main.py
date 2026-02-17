@@ -136,6 +136,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             settings.pinwheel_presentation_pace,
         )
 
+    # Deferred interpreter — retries failed AI interpretations every 60s.
+    # Runs unconditionally (even in manual pace) because proposals should
+    # retry regardless of game advancement mode.
+    if settings.anthropic_api_key:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        from pinwheel.core.deferred_interpreter import tick_deferred_interpretations
+
+        if scheduler is None:
+            scheduler = AsyncIOScheduler()
+            scheduler.start()
+            app.state.scheduler = scheduler
+
+        scheduler.add_job(
+            tick_deferred_interpretations,
+            trigger=IntervalTrigger(seconds=60),
+            kwargs={
+                "engine": engine,
+                "api_key": settings.anthropic_api_key,
+                "bot": getattr(app.state, "discord_bot", None),
+                "settings": settings,
+            },
+            id="tick_deferred_interpretations",
+            name="Retry deferred proposal interpretations",
+            replace_existing=True,
+        )
+        logger.info("deferred_interpreter_scheduler_registered")
+
     yield
 
     # Shutdown scheduler

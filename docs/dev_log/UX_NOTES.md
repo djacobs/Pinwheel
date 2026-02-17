@@ -781,3 +781,15 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 121. [DONE] Full markdown rendering on /reports page
 **Problem:** The /reports page still showed raw markdown syntax (headings, bold, lists) because the `prose` filter only wrapped paragraphs in `<p>` tags and HTML-escaped everything else. Follow-up to #120.
 **Fix:** Replaced the `_prose_to_html` filter with `markdown.markdown()` using `nl2br` (preserves line breaks) and `smarty` (smart quotes/dashes) extensions. Added `markdown>=3.5` to project dependencies. Reports now render all markdown formatting as proper HTML.
+
+### 122. [DONE] Queued proposal message when interpreter times out
+**Problem:** When the AI interpreter timed out, `/propose` showed a mock keyword-matched interpretation that was often wrong — "on fire" became a stamina drain, creative proposals got literal interpretations. Players saw bad results and lost trust.
+**Fix:** When the interpreter falls back to mock, the proposal is queued for background retry instead. Player sees: "The Constitutional Interpreter is overwhelmed right now. Your proposal has been queued — you'll get a DM when it's ready. Your PROPOSE token is reserved." Governor is blocked from submitting another proposal while one is pending.
+
+### 123. [DONE] DM player when deferred interpretation is ready
+**Problem:** Queued proposals needed a way to reach the player once the background retry succeeded.
+**Fix:** Background retry job (60s tick) retries pending interpretations. On success, sends a DM with the interpretation embed and Confirm/Revise/Cancel buttons. If the player doesn't respond within 5 minutes, `on_timeout` refunds their PROPOSE token. If the player left the server or has DMs closed, the interpretation expires and the token is refunded.
+
+### 124. [DONE] `/activate-mechanic` admin command
+**Problem:** `custom_mechanic` effects registered as "PENDING MECHANIC" and did nothing mechanically — players who proposed creative rules saw no gameplay impact.
+**Fix:** Added `/activate-mechanic` admin slash command with autocomplete from pending custom_mechanic effects. Admin provides a hook_point + action_code for the real implementation, or confirms the approximation effects are sufficient. Updates the RegisteredEffect and posts an announcement. Meanwhile, custom_mechanic effects now fire at report hooks so `mechanic_observable_behavior` appears in commentary even before activation.

@@ -77,6 +77,38 @@ class ProposalConfirmView(discord.ui.View):
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
 
+    async def on_timeout(self) -> None:
+        """Refund PROPOSE token if it was already spent and the view timed out."""
+        if not self.token_already_spent:
+            return
+
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                await repo.append_event(
+                    event_type="token.regenerated",
+                    aggregate_id=self.governor_info.player_id,
+                    aggregate_type="token",
+                    season_id=self.governor_info.season_id,
+                    governor_id=self.governor_info.player_id,
+                    payload={
+                        "token_type": "propose",
+                        "amount": self.token_cost,
+                        "reason": "view_timeout_refund",
+                    },
+                )
+                await session.commit()
+            logger.info(
+                "proposal_view_timeout_refund governor=%s cost=%d",
+                self.governor_info.player_id,
+                self.token_cost,
+            )
+        except Exception:
+            logger.exception("proposal_view_timeout_refund_failed")
+
     @discord.ui.button(
         label="Confirm",
         style=discord.ButtonStyle.green,

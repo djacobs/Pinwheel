@@ -20,6 +20,9 @@ GovernanceEventType = Literal[
     "proposal.vetoed",
     "proposal.flagged_for_review",
     "proposal.first_tally_seen",
+    "proposal.pending_interpretation",
+    "proposal.interpretation_ready",
+    "proposal.interpretation_expired",
     "vote.cast",
     "vote.revealed",
     "proposal.passed",
@@ -35,6 +38,8 @@ GovernanceEventType = Literal[
     "effect.registered",
     "effect.expired",
     "effect.repealed",
+    "effect.activated",
+    "effect.implementation_requested",
 ]
 
 
@@ -226,6 +231,7 @@ class ProposalInterpretation(BaseModel):
     injection_flagged: bool = False
     rejection_reason: str | None = None
     original_text_echo: str = ""
+    is_mock_fallback: bool = False
 
     def to_rule_interpretation(self) -> RuleInterpretation:
         """Convert to legacy RuleInterpretation for backward compatibility.

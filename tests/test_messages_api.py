@@ -443,8 +443,8 @@ class TestCallSitesOutputConfig:
         assert fmt["type"] == "json_schema"
         assert "properties" in fmt["schema"]
 
-    async def test_interpreter_v1_uses_output_config(self) -> None:
-        """interpret_proposal passes output_config."""
+    async def test_interpreter_v1_no_output_config(self) -> None:
+        """interpret_proposal does NOT pass output_config (dropped for reliability)."""
         from pinwheel.ai.interpreter import interpret_proposal
         from pinwheel.models.rules import RuleSet
 
@@ -467,19 +467,18 @@ class TestCallSitesOutputConfig:
             "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
-            await interpret_proposal(
+            result = await interpret_proposal(
                 "Make threes worth 4", RuleSet(), "fake-key"
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "output_config" in call_kwargs
-        fmt = call_kwargs["output_config"]["format"]
-        assert fmt["type"] == "json_schema"
+        assert "output_config" not in call_kwargs
+        assert result.parameter == "three_point_value"
 
-    async def test_interpreter_strategy_uses_output_config(
+    async def test_interpreter_strategy_no_output_config(
         self,
     ) -> None:
-        """interpret_strategy passes output_config."""
+        """interpret_strategy does NOT pass output_config."""
         from pinwheel.ai.interpreter import interpret_strategy
 
         payload = json.dumps({
@@ -501,17 +500,16 @@ class TestCallSitesOutputConfig:
             "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
-            await interpret_strategy(
+            result = await interpret_strategy(
                 "Shoot more threes", "fake-key"
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "output_config" in call_kwargs
-        fmt = call_kwargs["output_config"]["format"]
-        assert fmt["type"] == "json_schema"
+        assert "output_config" not in call_kwargs
+        assert result.three_point_bias == 5.0
 
-    async def test_interpreter_v2_uses_output_config(self) -> None:
-        """interpret_proposal_v2 passes output_config."""
+    async def test_interpreter_v2_no_output_config(self) -> None:
+        """interpret_proposal_v2 does NOT pass output_config."""
         from pinwheel.ai.interpreter import interpret_proposal_v2
         from pinwheel.models.rules import RuleSet
 
@@ -539,14 +537,13 @@ class TestCallSitesOutputConfig:
             "pinwheel.ai.interpreter._get_client",
             return_value=mock_client,
         ):
-            await interpret_proposal_v2(
+            result = await interpret_proposal_v2(
                 "Make the ball lava", RuleSet(), "fake-key"
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "output_config" in call_kwargs
-        fmt = call_kwargs["output_config"]["format"]
-        assert fmt["type"] == "json_schema"
+        assert "output_config" not in call_kwargs
+        assert result.confidence == pytest.approx(0.8)
 
     async def test_search_parser_uses_output_config(self) -> None:
         """parse_query_ai passes output_config."""

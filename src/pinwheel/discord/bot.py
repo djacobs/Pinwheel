@@ -439,6 +439,34 @@ class PinwheelBot(commands.Bot):
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_series_reports(interaction, current)
 
+        @self.tree.command(
+            name="activate-mechanic",
+            description="Activate a pending custom mechanic (admin only)",
+        )
+        @app_commands.describe(
+            effect="The pending mechanic to activate",
+            hook_point="Hook point for the real implementation (optional)",
+            action_type="Action type: modify_score, modify_probability, modify_stamina (optional)",
+            modifier="Numeric modifier for the action (optional)",
+        )
+        async def activate_mechanic_command(
+            interaction: discord.Interaction,
+            effect: str,
+            hook_point: str = "",
+            action_type: str = "",
+            modifier: float = 0.0,
+        ) -> None:
+            await self._handle_activate_mechanic(
+                interaction, effect, hook_point, action_type, modifier,
+            )
+
+        @activate_mechanic_command.autocomplete("effect")
+        async def _mechanic_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_pending_mechanics(interaction, current)
+
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
         if self.settings.discord_guild_id:
@@ -2109,6 +2137,27 @@ class PinwheelBot(commands.Bot):
             from pinwheel.db.repository import Repository
             from pinwheel.models.rules import RuleSet
 
+            # Guard: check if governor already has a pending interpretation
+            async with get_session(self.engine) as guard_session:
+                guard_repo = Repository(guard_session)
+                from pinwheel.core.deferred_interpreter import (
+                    get_pending_interpretations,
+                )
+
+                pending = await get_pending_interpretations(
+                    guard_repo, gov.season_id,
+                )
+                governor_pending = [
+                    p for p in pending if p.governor_id == gov.player_id
+                ]
+                if governor_pending:
+                    await interaction.followup.send(
+                        "You already have a proposal queued for interpretation. "
+                        "You'll get a DM when it's ready.",
+                        ephemeral=True,
+                    )
+                    return
+
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 if not await has_token(
@@ -2246,6 +2295,61 @@ class PinwheelBot(commands.Bot):
             else:
                 tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
+
+            # If the interpretation fell back to mock (all AI models failed),
+            # queue it for background retry instead of showing a bad mock result.
+            if interpretation_v2 is not None and interpretation_v2.is_mock_fallback:
+                # Spend token now — reserved for the deferred attempt
+                async with get_session(self.engine) as spend_session:
+                    spend_repo = Repository(spend_session)
+                    await spend_repo.append_event(
+                        event_type="token.spent",
+                        aggregate_id=gov.player_id,
+                        aggregate_type="token",
+                        season_id=gov.season_id,
+                        governor_id=gov.player_id,
+                        team_id=gov.team_id,
+                        payload={
+                            "token_type": "propose",
+                            "amount": cost,
+                            "reason": "proposal:pending_interpretation",
+                        },
+                    )
+                    # Queue the pending interpretation event
+                    import uuid as _uuid
+
+                    pending_id = str(_uuid.uuid4())
+                    await spend_repo.append_event(
+                        event_type="proposal.pending_interpretation",
+                        aggregate_id=pending_id,
+                        aggregate_type="proposal",
+                        season_id=gov.season_id,
+                        governor_id=gov.player_id,
+                        team_id=gov.team_id,
+                        payload={
+                            "raw_text": text,
+                            "discord_user_id": str(interaction.user.id),
+                            "discord_channel_id": str(
+                                interaction.channel_id or ""
+                            ),
+                            "governor_id": gov.player_id,
+                            "team_id": gov.team_id,
+                            "token_cost": cost,
+                            "ruleset": ruleset.model_dump(mode="json"),
+                        },
+                    )
+                    await spend_session.commit()
+
+                self._proposal_cooldowns[gov.player_id] = time.monotonic()
+
+                await thinking_msg.edit(
+                    content=(
+                        "The Interpreter is overwhelmed right now. "
+                        "Your proposal has been **queued** \u2014 you'll get a DM "
+                        "when it's ready. Your PROPOSE token is reserved."
+                    ),
+                )
+                return
 
             # Spend PROPOSE token NOW (before confirm UI) to prevent race conditions.
             # Two rapid /propose calls can no longer both pass the has_token() check
@@ -3900,6 +4004,145 @@ class PinwheelBot(commands.Bot):
                 "If it keeps failing, check the server logs for details.",
                 ephemeral=True,
             )
+
+    async def _handle_activate_mechanic(
+        self,
+        interaction: discord.Interaction,
+        effect_id: str,
+        hook_point: str,
+        action_type: str,
+        modifier: float,
+    ) -> None:
+        """Handle /activate-mechanic — admin activates a pending custom mechanic."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True,
+            )
+            return
+
+        # Admin check
+        is_admin = (
+            interaction.user.guild_permissions.administrator  # type: ignore[union-attr]
+            if hasattr(interaction.user, "guild_permissions")
+            else False
+        )
+        admin_id = self.settings.pinwheel_admin_discord_id
+        if not is_admin and str(interaction.user.id) != admin_id:
+            await interaction.response.send_message(
+                "`/activate-mechanic` is restricted to administrators.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database unavailable.", ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.core.effects import activate_custom_mechanic, load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    await interaction.followup.send("No active season.", ephemeral=True)
+                    return
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+
+                action_code = None
+                if action_type and modifier != 0.0:
+                    action_code = {"type": action_type, "modifier": modifier}
+
+                success = await activate_custom_mechanic(
+                    repo=repo,
+                    registry=registry,
+                    effect_id=effect_id,
+                    season_id=season.id,
+                    hook_point=hook_point or None,
+                    action_code=action_code,
+                )
+                await session.commit()
+
+            if success:
+                effect = registry.get_effect(effect_id)
+                desc = effect.description if effect else effect_id
+                embed = discord.Embed(
+                    title="Mechanic Activated",
+                    description=f"**{desc}** is now live.",
+                    color=0x2ECC71,
+                )
+                embed.set_footer(text="Pinwheel Fates")
+                await interaction.followup.send(embed=embed)
+
+                # Announce in main channel
+                channel = self._get_channel_for("play_by_play")
+                if not channel:
+                    channel = self._get_channel_for("main")
+                if channel:
+                    announce = discord.Embed(
+                        title="New Mechanic Activated",
+                        description=f"A new mechanic is now live: **{desc}**",
+                        color=0x2ECC71,
+                    )
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                        await channel.send(embed=announce)
+            else:
+                await interaction.followup.send(
+                    "Effect not found or not a pending custom mechanic.",
+                    ephemeral=True,
+                )
+        except Exception:
+            logger.exception("activate_mechanic_failed")
+            await interaction.followup.send(
+                "Could not activate the mechanic. Check the server logs.",
+                ephemeral=True,
+            )
+
+    async def _autocomplete_pending_mechanics(
+        self,
+        interaction: discord.Interaction,  # noqa: ARG002
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete for /activate-mechanic — list pending custom_mechanic effects."""
+        if not self.engine:
+            return []
+
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    return []
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+
+            choices: list[app_commands.Choice[str]] = []
+            for effect in registry.get_all_active():
+                if effect.effect_type != "custom_mechanic":
+                    continue
+                label = effect.description[:100] or effect.effect_id[:100]
+                if current and current.lower() not in label.lower():
+                    continue
+                choices.append(app_commands.Choice(name=label, value=effect.effect_id))
+                if len(choices) >= 25:
+                    break
+            return choices
+        except Exception:
+            logger.debug("mechanic_autocomplete_failed", exc_info=True)
+            return []
 
     async def _send_private_report(self, data: dict) -> None:
         """DM a private report to the governor."""

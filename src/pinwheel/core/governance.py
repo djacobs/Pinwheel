@@ -883,6 +883,27 @@ async def tally_governance_with_effects(
             for mg in move_grant_effects:
                 await _enact_move_grant(repo, season_id, mg)
 
+            # 2c. Notify admin when custom_mechanic effects are enacted
+            custom_effects = [
+                e for e in v2_effects if e.effect_type == "custom_mechanic"
+            ]
+            for ce in custom_effects:
+                await repo.append_event(
+                    event_type="effect.implementation_requested",
+                    aggregate_id=proposal.id,
+                    aggregate_type="effect",
+                    season_id=season_id,
+                    governor_id=proposal.governor_id,
+                    payload={
+                        "proposal_id": proposal.id,
+                        "mechanic_description": ce.mechanic_description or "",
+                        "mechanic_hook_point": ce.mechanic_hook_point or "",
+                        "mechanic_observable_behavior": ce.mechanic_observable_behavior or "",
+                        "mechanic_implementation_spec": ce.mechanic_implementation_spec or "",
+                        "description": ce.description,
+                    },
+                )
+
             # 3. Handle repeal proposals — remove the target effect
             repeal_target_id = repeal_targets.get(proposal.id)
             if repeal_target_id and effect_registry is not None:

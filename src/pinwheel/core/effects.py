@@ -159,8 +159,9 @@ def effect_spec_to_registered(
     # Determine hook points based on effect type
     hook_points: list[str] = []
     if spec.effect_type == "custom_mechanic":
-        # Custom mechanics are descriptive only — they don't fire hooks
-        hook_points = []
+        # Custom mechanics fire at report hooks so their observable behavior
+        # appears in commentary even before full implementation.
+        hook_points = ["report.simulation.pre", "report.commentary.pre"]
     elif spec.hook_point:
         hook_points = [spec.hook_point]
     elif spec.effect_type == "meta_mutation":
@@ -176,6 +177,11 @@ def effect_spec_to_registered(
         # Wrap meta mutation as action_code for uniform handling
         action_code = None  # meta_mutation effects use their own fields
 
+    # For custom_mechanic, use mechanic_observable_behavior as narrative
+    narrative = spec.narrative_instruction or ""
+    if spec.effect_type == "custom_mechanic" and spec.mechanic_observable_behavior:
+        narrative = spec.mechanic_observable_behavior
+
     return RegisteredEffect(
         effect_id=effect_id,
         proposal_id=proposal_id,
@@ -186,7 +192,7 @@ def effect_spec_to_registered(
         effect_type=spec.effect_type,
         condition=spec.condition or "",
         action_code=action_code,
-        narrative_instruction=spec.narrative_instruction or "",
+        narrative_instruction=narrative,
         description=spec.description,
         target_type=spec.target_type or "",
         target_selector=spec.target_selector or "",
@@ -297,6 +303,54 @@ async def persist_expired_effects(
             season_id=season_id,
             payload={"effect_id": effect_id, "reason": "lifetime_expired"},
         )
+
+
+async def activate_custom_mechanic(
+    repo: Repository,
+    registry: EffectRegistry,
+    effect_id: str,
+    season_id: str,
+    hook_point: str | None = None,
+    action_code: dict[str, object] | None = None,
+) -> bool:
+    """Activate a pending custom_mechanic effect with real hook/action implementation.
+
+    Called by admin via /activate-mechanic. If hook_point and action_code
+    are provided, the effect becomes a real hook_callback. If not, the
+    approximation (already live) is confirmed as good enough.
+
+    Returns True if the effect was found and activated.
+    """
+    effect = registry.get_effect(effect_id)
+    if effect is None or effect.effect_type != "custom_mechanic":
+        return False
+
+    if hook_point and action_code:
+        # Upgrade to a real hook_callback
+        effect.effect_type = "hook_callback"
+        effect._hook_points = [hook_point]
+        effect.action_code = action_code
+
+    # Persist activation event
+    await repo.append_event(
+        event_type="effect.activated",
+        aggregate_id=effect_id,
+        aggregate_type="effect",
+        season_id=season_id,
+        payload={
+            "effect_id": effect_id,
+            "hook_point": hook_point,
+            "action_code": action_code,
+            "description": effect.description,
+        },
+    )
+
+    logger.info(
+        "custom_mechanic_activated id=%s hook=%s",
+        effect_id,
+        hook_point or "approximation_confirmed",
+    )
+    return True
 
 
 async def repeal_effect(
