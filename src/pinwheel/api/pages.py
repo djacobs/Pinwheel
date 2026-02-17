@@ -238,14 +238,28 @@ def build_series_context(
         phase_label = "SEMIFINAL SERIES"
         clinch_text = f"First to {wins_needed} wins advances"
 
-    if home_wins == away_wins:
-        record_text = f"Series tied {home_wins}-{away_wins}"
-    elif home_wins > away_wins:
-        record_text = f"{home_team_name} lead {home_wins}-{away_wins}"
-    else:
-        record_text = f"{away_team_name} lead {away_wins}-{home_wins}"
+    # Check if a team has clinched the series
+    if home_wins >= wins_needed:
+        outcome = "championship" if phase == "finals" else "series"
+        description = (
+            f"{phase_label} · {home_team_name} win"
+            f" {outcome} {home_wins}-{away_wins}"
+        )
+    elif away_wins >= wins_needed:
+        outcome = "championship" if phase == "finals" else "series"
+        description = (
+            f"{phase_label} · {away_team_name} win"
+            f" {outcome} {away_wins}-{home_wins}"
+        )
 
-    description = f"{phase_label} \u00b7 {record_text} \u00b7 {clinch_text}"
+    else:
+        if home_wins == away_wins:
+            record_text = f"Series tied {home_wins}-{away_wins}"
+        elif home_wins > away_wins:
+            record_text = f"{home_team_name} lead {home_wins}-{away_wins}"
+        else:
+            record_text = f"{away_team_name} lead {away_wins}-{home_wins}"
+        description = f"{phase_label} · {record_text} · {clinch_text}"
 
     return {
         "phase": phase,

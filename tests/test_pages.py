@@ -1275,6 +1275,47 @@ class TestBuildSeriesContext:
         )
         assert "Thorns lead 2-1" in ctx["description"]
 
+    def test_semifinal_clinched_home(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="semifinal",
+            home_team_name="Breakers",
+            away_team_name="Herons",
+            home_wins=2,
+            away_wins=0,
+            best_of=3,
+        )
+        assert "Breakers win series 2-0" in ctx["description"]
+        assert "First to" not in ctx["description"]
+
+    def test_semifinal_clinched_away(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="semifinal",
+            home_team_name="Herons",
+            away_team_name="Thorns",
+            home_wins=0,
+            away_wins=2,
+            best_of=3,
+        )
+        assert "Thorns win series 2-0" in ctx["description"]
+
+    def test_finals_clinched(self):
+        from pinwheel.api.pages import build_series_context
+
+        ctx = build_series_context(
+            phase="finals",
+            home_team_name="Thorns",
+            away_team_name="Storm",
+            home_wins=3,
+            away_wins=1,
+            best_of=5,
+        )
+        assert "Thorns win championship 3-1" in ctx["description"]
+        assert "First to" not in ctx["description"]
+
 
 class TestArenaSeriesContextLive:
     """Tests for series context display in the live arena."""
