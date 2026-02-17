@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **1967 tests**, zero lint errors (Session 101)
+- **1976 tests**, zero lint errors (Session 105)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror→report rename
@@ -18,7 +18,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Live at:** https://pinwheel.fly.dev
 - **Day 17:** Repo cleanup — excluded demo PNGs from git, showboat image fix, deployed
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
-- **Latest commit:** `c6f7f23` — fix: prevent interpreter v2 timeouts — trim prompt, disable SDK retries, bump timeout
+- **Latest commit:** `7535c5b` — feat: precise game phase tracking + Haiku-powered series descriptions
 
 ## Today's Agenda
 
@@ -307,3 +307,24 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **1967 tests, zero lint errors.**
 
 **What could have gone better:** The mock interpreter was always the wrong fallback for production — it takes everything literally, which is the opposite of what the game needs. The Haiku fallback should have been there from the start. Also, the v2 prompt was written for expressiveness without considering that token count directly impacts generation latency.
+
+---
+
+## Session 105 — Precise Game Phase Tracking + Haiku Series Descriptions
+
+**What was asked:** The series description banner said "lead 2-0" even when the series was clinched. The deeper issue: schedule entries stored `phase="playoff"` for everything, and descriptions used rigid templates. Also, unnecessary playoff games (game 3 when a team already won 2-0 in a best-of-3) should be skipped.
+
+**What was built:**
+- **Precise phase storage** — schedule entries now store `"semifinal"` or `"finals"` instead of generic `"playoff"`. `get_full_schedule(phase="playoff")` updated to match all playoff sub-phases (`"playoff"`, `"semifinal"`, `"finals"`) for backward compatibility with ~20 existing callers.
+- **`phase` column on GameResultRow** — nullable `String(20)`, auto-migrated. Game results now carry the precise phase from their schedule entry. Existing rows get NULL (regular season).
+- **DB-driven `_get_game_phase()`** — reads precise phase from schedule entry directly; falls back to pair-comparison inference for legacy `"playoff"` entries.
+- **Haiku-powered series descriptions** — `build_series_context()` is now async. Calls `_generate_series_description()` (Haiku, `max_tokens=100`, 10s timeout) for natural language. Falls back to `_build_series_description_fallback()` when API unavailable.
+- **Skip unnecessary playoff games** — before simulating a playoff game, checks if the series is already clinched. If so, logs and skips.
+- **Game loop playoff context inference** — uses precise phase from schedule when available, falls back to legacy inference for old entries.
+- **9 new/updated tests** — 8 existing `TestBuildSeriesContext` tests converted from sync to async, 2 new `TestBuildSeriesDescriptionFallback` tests, 1 test assertion updated for precise phases.
+
+**Files modified (7):** `src/pinwheel/db/models.py`, `src/pinwheel/db/repository.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/narrative.py`, `src/pinwheel/api/pages.py`, `tests/test_game_loop.py`, `tests/test_pages.py`
+
+**1976 tests, zero lint errors.**
+
+**What could have gone better:** The plan originally proposed changing all `phase="playoff"` to `"semifinal"`/`"finals"` without accounting for the ~20 callers that query `get_full_schedule(phase="playoff")`. This would have been a breaking change. The backward-compatible approach (making `phase="playoff"` match all sub-phases) was identified during implementation and avoided a much larger change.
