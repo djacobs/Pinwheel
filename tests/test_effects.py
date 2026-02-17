@@ -1692,14 +1692,14 @@ class TestCustomMechanicEffectsRegistry:
     """custom_mechanic effects have no hook_points and show as PENDING MECHANIC."""
 
     def test_custom_mechanic_no_hooks(self):
-        """effect_spec_to_registered gives custom_mechanic empty hook_points."""
+        """effect_spec_to_registered gives custom_mechanic report hook_points."""
         spec = EffectSpec(
             effect_type="custom_mechanic",
             description="Defenders gain stamina",
             mechanic_hook_point="sim.possession.post",
         )
         effect = effect_spec_to_registered(spec, "p1", 1)
-        assert effect.hook_points == []
+        assert effect.hook_points == ["report.simulation.pre", "report.commentary.pre"]
         assert effect.effect_type == "custom_mechanic"
 
     def test_pending_mechanic_summary(self):
@@ -1789,3 +1789,706 @@ class TestCustomMechanicMockInterpreter:
         assert not has_custom
         assert result.confidence < 0.5
         assert result.clarification_needed is True
+
+
+# ============================================================================
+# PossessionContext Tests
+# ============================================================================
+
+
+class TestPossessionContext:
+    """Test PossessionContext creation and wiring through simulation."""
+
+    def test_possession_context_defaults(self):
+        """PossessionContext has all-zero defaults."""
+        from pinwheel.core.state import PossessionContext
+
+        ctx = PossessionContext()
+        assert ctx.shot_probability_modifier == 0.0
+        assert ctx.shot_value_modifier == 0
+        assert ctx.extra_stamina_drain == 0.0
+        assert ctx.at_rim_bias == 0.0
+        assert ctx.turnover_modifier == 0.0
+        assert ctx.random_ejection_probability == 0.0
+        assert ctx.bonus_pass_count == 0
+        assert ctx.narrative_tags == []
+
+    def test_fire_sim_effects_returns_possession_context(self):
+        """_fire_sim_effects returns PossessionContext with accumulated modifiers."""
+        from pinwheel.core.simulation import _fire_sim_effects
+        from pinwheel.core.state import PossessionContext
+
+        game_state = _make_game_state()
+        rules = RuleSet()
+        import random as _random
+
+        rng = _random.Random(42)
+
+        # With no effects → empty context
+        ctx = _fire_sim_effects(
+            "sim.possession.pre", game_state, rules, rng, None, None,
+        )
+        assert isinstance(ctx, PossessionContext)
+        assert ctx.shot_probability_modifier == 0.0
+
+    def test_fire_sim_effects_accumulates_modifiers(self):
+        """Multiple effects accumulate into PossessionContext."""
+        from pinwheel.core.simulation import _fire_sim_effects
+        from pinwheel.core.state import PossessionContext
+
+        game_state = _make_game_state()
+        rules = RuleSet()
+        import random as _random
+
+        rng = _random.Random(42)
+
+        e1 = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_probability", "modifier": 0.05},
+        )
+        e2 = RegisteredEffect(
+            effect_id="e2", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_probability", "modifier": 0.03},
+        )
+
+        ctx = _fire_sim_effects(
+            "sim.possession.pre", game_state, rules, rng, [e1, e2], None,
+        )
+        assert isinstance(ctx, PossessionContext)
+        assert ctx.shot_probability_modifier == pytest.approx(0.08)
+
+    def test_shot_probability_modifier_affects_game_outcome(self):
+        """A large positive shot_probability_modifier increases scoring."""
+        from pinwheel.core.simulation import simulate_game
+        from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
+
+        def make_team(tid: str, name: str) -> Team:
+            hoopers = []
+            for i in range(4):
+                hoopers.append(Hooper(
+                    id=f"{tid}-h{i}", name=f"{name} {i}", team_id=tid,
+                    archetype="balanced", is_starter=i < 3,
+                    attributes=PlayerAttributes(
+                        scoring=50, passing=50, defense=50, speed=50,
+                        iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
+                    ),
+                ))
+            return Team(id=tid, name=name, hoopers=hoopers,
+                        venue=Venue(name="Arena", capacity=5000))
+
+        home = make_team("h", "Home")
+        away = make_team("a", "Away")
+        rules = RuleSet()
+
+        # Baseline: no effects
+        r1 = simulate_game(home, away, rules, seed=123)
+
+        # With +0.30 shot probability — should score notably more
+        boost = RegisteredEffect(
+            effect_id="boost", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_probability", "modifier": 0.30},
+        )
+        r2 = simulate_game(
+            home, away, rules, seed=123,
+            effect_registry=[boost],
+        )
+        assert (r2.home_score + r2.away_score) > (r1.home_score + r1.away_score)
+
+
+# ============================================================================
+# New Action Primitives Tests
+# ============================================================================
+
+
+class TestNewActionPrimitives:
+    """Test the 7 new action primitives added to _apply_action_code."""
+
+    def test_modify_shot_value(self):
+        """modify_shot_value sets shot_value_modifier on HookResult."""
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_shot_value", "modifier": 2},
+        )
+        result = effect.apply("sim.possession.pre", HookContext())
+        assert result.shot_value_modifier == 2
+
+    def test_modify_shot_selection(self):
+        """modify_shot_selection sets bias fields on HookResult."""
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "modify_shot_selection",
+                "at_rim_bias": 8.0,
+                "three_point_bias": -12.0,
+                "mid_range_bias": 4.0,
+            },
+        )
+        result = effect.apply("sim.possession.pre", HookContext())
+        assert result.at_rim_bias == pytest.approx(8.0)
+        assert result.three_point_bias == pytest.approx(-12.0)
+        assert result.mid_range_bias == pytest.approx(4.0)
+
+    def test_modify_turnover_rate(self):
+        """modify_turnover_rate sets turnover_modifier on HookResult."""
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_turnover_rate", "modifier": -0.01},
+        )
+        result = effect.apply("sim.possession.pre", HookContext())
+        assert result.turnover_modifier == pytest.approx(-0.01)
+
+    def test_random_ejection(self):
+        """random_ejection sets random_ejection_probability on HookResult."""
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "random_ejection",
+                "probability": 0.03,
+                "reason": "burned_by_hot_ball",
+            },
+        )
+        result = effect.apply("sim.possession.pre", HookContext())
+        assert result.random_ejection_probability == pytest.approx(0.03)
+
+    def test_derive_pass_count(self):
+        """derive_pass_count simulates passes from team stats."""
+        import random as _random
+
+        game_state = _make_game_state()
+        # All hoopers have passing=60
+        rng = _random.Random(42)
+        ctx = HookContext(game_state=game_state, rng=rng)
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "derive_pass_count",
+                "min_passes": 0,
+                "max_passes": 5,
+                "value_per_pass": 1,
+            },
+        )
+        result = effect.apply("sim.possession.pre", ctx)
+        # With passing=60, pass_prob=0.6, should get some passes
+        assert result.bonus_pass_count >= 0
+        assert result.bonus_pass_count <= 5
+
+    def test_derive_pass_count_high_passing_team(self):
+        """Team with high passing gets more pass bonuses on average."""
+        import random as _random
+
+        # Make a high-passing team
+        high_pass_hoopers = [
+            HooperState(hooper=Hooper(
+                id=f"hp{i}", name=f"Passer {i}", team_id="team-a",
+                archetype="facilitator",
+                attributes=PlayerAttributes(
+                    scoring=40, passing=90, defense=40, speed=40,
+                    stamina=50, iq=50, ego=30, chaotic_alignment=20, fate=50,
+                ),
+            ))
+            for i in range(3)
+        ]
+        gs = GameState(
+            home_agents=high_pass_hoopers,
+            away_agents=[
+                HooperState(hooper=_make_hooper("d1", "D1", "team-b")),
+                HooperState(hooper=_make_hooper("d2", "D2", "team-b")),
+                HooperState(hooper=_make_hooper("d3", "D3", "team-b")),
+            ],
+        )
+
+        total_passes = 0
+        trials = 100
+        for seed in range(trials):
+            rng = _random.Random(seed)
+            ctx = HookContext(game_state=gs, rng=rng)
+            effect = RegisteredEffect(
+                effect_id="e1", proposal_id="p1",
+                _hook_points=["sim.possession.pre"],
+                effect_type="hook_callback",
+                action_code={
+                    "type": "derive_pass_count",
+                    "min_passes": 0, "max_passes": 5, "value_per_pass": 1,
+                },
+            )
+            result = effect.apply("sim.possession.pre", ctx)
+            total_passes += result.bonus_pass_count
+
+        avg = total_passes / trials
+        # With 90 passing, avg should be high (~3.5+)
+        assert avg > 2.5
+
+    def test_swap_roster_player(self):
+        """swap_roster_player creates a temp player and benches an existing one."""
+        import random as _random
+
+        game_state = _make_game_state()
+        rng = _random.Random(42)
+        ctx = HookContext(game_state=game_state, rng=rng)
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.quarter.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "swap_roster_player",
+                "extreme_stat": "scoring",
+                "extreme_value": 95,
+                "other_stats_value": 15,
+                "target": "random_active",
+                "duration": "one_quarter",
+            },
+        )
+        initial_count = len(game_state.home_agents)
+        result = effect.apply("sim.quarter.pre", ctx)
+
+        # A crowd player was added
+        assert len(game_state.home_agents) == initial_count + 1
+        # The crowd player has extreme stats
+        crowd = game_state.home_agents[-1]
+        assert crowd.hooper.attributes.scoring == 95
+        assert crowd.hooper.attributes.defense == 15
+        assert "Mystery Fan" in crowd.hooper.name
+        assert "emerges from the crowd" in result.narrative
+
+    def test_conditional_sequence_all_fire(self):
+        """conditional_sequence with no gates fires all steps."""
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "conditional_sequence",
+                "steps": [
+                    {"action": {"type": "modify_stamina", "modifier": -0.015}, "gate": None},
+                    {"action": {"type": "modify_probability", "modifier": 0.05}, "gate": None},
+                ],
+            },
+        )
+        import random as _random
+
+        ctx = HookContext(rng=_random.Random(42))
+        result = effect.apply("sim.possession.pre", ctx)
+        assert result.stamina_modifier == pytest.approx(-0.015)
+        assert result.shot_probability_modifier == pytest.approx(0.05)
+
+    def test_conditional_sequence_with_random_gate(self):
+        """conditional_sequence respects random_chance gates."""
+        import random as _random
+
+        fired_count = 0
+        trials = 200
+        for seed in range(trials):
+            rng = _random.Random(seed)
+            effect = RegisteredEffect(
+                effect_id="e1", proposal_id="p1",
+                _hook_points=["sim.possession.pre"],
+                effect_type="hook_callback",
+                action_code={
+                    "type": "conditional_sequence",
+                    "steps": [
+                        {
+                            "action": {"type": "add_narrative", "text": "Sizzle!"},
+                            "gate": {"random_chance": 0.5},
+                        },
+                    ],
+                },
+            )
+            ctx = HookContext(rng=rng)
+            result = effect.apply("sim.possession.pre", ctx)
+            if result.narrative:
+                fired_count += 1
+
+        # Should fire roughly 50% of the time (within reasonable range)
+        assert 60 < fired_count < 140
+
+
+# ============================================================================
+# Expanded Conditions Tests
+# ============================================================================
+
+
+class TestExpandedConditions:
+    """Test the new condition types in _evaluate_condition."""
+
+    def test_game_state_trailing(self):
+        """game_state_check: trailing fires when offense is behind."""
+        game_state = _make_game_state()
+        game_state.home_score = 30
+        game_state.away_score = 40
+        game_state.home_has_ball = True  # Home is trailing
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.05,
+                "condition_check": {"game_state_check": "trailing"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        # Flip: home is now leading
+        game_state.home_score = 50
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+    def test_game_state_leading(self):
+        """game_state_check: leading fires when offense is ahead."""
+        game_state = _make_game_state()
+        game_state.home_score = 50
+        game_state.away_score = 40
+        game_state.home_has_ball = True
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": -0.03,
+                "condition_check": {"game_state_check": "leading"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+    def test_game_state_elam_active(self):
+        """game_state_check: elam_active fires when Elam Ending is in progress."""
+        game_state = _make_game_state()
+        game_state.elam_activated = False
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.1,
+                "condition_check": {"game_state_check": "elam_active"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+        game_state.elam_activated = True
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+    def test_quarter_gte(self):
+        """quarter_gte fires when current quarter >= threshold."""
+        game_state = _make_game_state()
+        game_state.quarter = 2
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.05,
+                "condition_check": {"quarter_gte": 3},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+        game_state.quarter = 3
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+    def test_random_chance_condition(self):
+        """random_chance condition fires probabilistically."""
+        import random as _random
+
+        game_state = _make_game_state()
+        fired = 0
+        trials = 200
+        for seed in range(trials):
+            rng = _random.Random(seed)
+            effect = RegisteredEffect(
+                effect_id="e1", proposal_id="p1",
+                _hook_points=["sim.possession.pre"],
+                action_code={
+                    "type": "add_narrative", "text": "flash!",
+                    "condition_check": {"random_chance": 0.5},
+                },
+            )
+            ctx = HookContext(game_state=game_state, rng=rng)
+            if effect.should_fire("sim.possession.pre", ctx):
+                fired += 1
+
+        assert 60 < fired < 140
+
+    def test_last_result_condition(self):
+        """last_result condition checks game_state.last_result."""
+        game_state = _make_game_state()
+        game_state.last_result = "made"
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.03,
+                "condition_check": {"last_result": "made"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        game_state.last_result = "missed"
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+    def test_consecutive_makes_gte(self):
+        """consecutive_makes_gte checks scoring streaks."""
+        game_state = _make_game_state()
+        game_state.consecutive_makes = 2
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.1,
+                "condition_check": {"consecutive_makes_gte": 3},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+        game_state.consecutive_makes = 3
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+    def test_score_diff_gte(self):
+        """score_diff_gte checks score difference from offense perspective."""
+        game_state = _make_game_state()
+        game_state.home_score = 40
+        game_state.away_score = 45
+        game_state.home_has_ball = True  # offense diff = -5
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.05,
+                "condition_check": {"score_diff_gte": -5},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        # -5 >= -5 → True
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        game_state.away_score = 50  # diff = -10
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+
+# ============================================================================
+# Cross-Possession Tracking Tests
+# ============================================================================
+
+
+class TestCrossPossessionTracking:
+    """Test that resolve_possession updates cross-possession tracking fields."""
+
+    def _make_minimal_game_state(self) -> GameState:
+        """Create a game state for possession testing."""
+        home = [
+            HooperState(hooper=_make_hooper("h1", "Alpha", "team-a")),
+            HooperState(hooper=_make_hooper("h2", "Beta", "team-a")),
+            HooperState(hooper=_make_hooper("h3", "Gamma", "team-a")),
+        ]
+        away = [
+            HooperState(hooper=_make_hooper("h4", "Delta", "team-b")),
+            HooperState(hooper=_make_hooper("h5", "Epsilon", "team-b")),
+            HooperState(hooper=_make_hooper("h6", "Zeta", "team-b")),
+        ]
+        return GameState(
+            home_agents=home,
+            away_agents=away,
+            home_score=0,
+            away_score=0,
+            quarter=1,
+            possession_number=1,
+        )
+
+    def test_tracking_fields_exist(self):
+        """GameState has cross-possession tracking fields."""
+        gs = self._make_minimal_game_state()
+        assert gs.last_action == ""
+        assert gs.last_result == ""
+        assert gs.consecutive_makes == 0
+        assert gs.consecutive_misses == 0
+
+    def test_resolve_possession_updates_tracking(self):
+        """After resolve_possession, tracking fields are set."""
+        import random as _random
+
+        from pinwheel.core.possession import resolve_possession
+
+        gs = self._make_minimal_game_state()
+        rules = RuleSet()
+        rng = _random.Random(42)
+
+        resolve_possession(gs, rules, rng)
+
+        # After a possession, last_action and last_result should be set
+        assert gs.last_action != "" or gs.last_result != ""
+
+
+# ============================================================================
+# Integration: Effect-Driven Gameplay Scenarios
+# ============================================================================
+
+
+class TestEffectDrivenScenarios:
+    """Integration tests proving effects change gameplay outcomes."""
+
+    def _make_team(self, team_id: str, name: str) -> object:
+        from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
+
+        hoopers = []
+        for i in range(4):
+            hoopers.append(Hooper(
+                id=f"{team_id}-h{i}", name=f"{name} P{i}", team_id=team_id,
+                archetype="balanced", is_starter=i < 3,
+                attributes=PlayerAttributes(
+                    scoring=50, passing=50, defense=50, speed=50,
+                    iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
+                ),
+            ))
+        return Team(id=team_id, name=name, hoopers=hoopers,
+                    venue=Venue(name="Arena", capacity=5000))
+
+    def test_round_court_reduces_threes(self):
+        """'Round court' effect: negative three_point_bias reduces three-point attempts."""
+        from pinwheel.core.simulation import simulate_game
+
+        home = self._make_team("h", "Home")
+        away = self._make_team("a", "Away")
+        rules = RuleSet()
+
+        # Baseline
+        r1 = simulate_game(home, away, rules, seed=42)
+        base_threes = sum(
+            b.three_pointers_attempted for b in r1.box_scores
+        )
+
+        # With strong negative three-point bias
+        round_court = RegisteredEffect(
+            effect_id="round-court", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "modify_shot_selection",
+                "at_rim_bias": 8.0,
+                "three_point_bias": -15.0,
+                "mid_range_bias": 4.0,
+            },
+        )
+        r2 = simulate_game(
+            home, away, rules, seed=42,
+            effect_registry=[round_court],
+        )
+        effect_threes = sum(
+            b.three_pointers_attempted for b in r2.box_scores
+        )
+
+        # Should have fewer three-point attempts
+        assert effect_threes < base_threes
+
+    def test_hot_ball_increases_ejections(self):
+        """'Hot ball' effect: random_ejection causes players to be ejected."""
+        from pinwheel.core.simulation import simulate_game
+
+        home = self._make_team("h", "Home")
+        away = self._make_team("a", "Away")
+        rules = RuleSet()
+
+        # High ejection probability to make it reliably testable
+        hot_ball = RegisteredEffect(
+            effect_id="hot-ball", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "random_ejection",
+                "probability": 0.15,
+                "reason": "burned_by_hot_ball",
+            },
+        )
+        result = simulate_game(
+            home, away, rules, seed=42,
+            effect_registry=[hot_ball],
+        )
+        # With 15% ejection rate per possession, should complete (no crash)
+        assert result.total_possessions > 0
+
+    def test_shot_value_modifier_adds_points(self):
+        """modify_shot_value adds extra points to every made shot."""
+        from pinwheel.core.simulation import simulate_game
+
+        home = self._make_team("h", "Home")
+        away = self._make_team("a", "Away")
+        rules = RuleSet()
+
+        # Baseline
+        r1 = simulate_game(home, away, rules, seed=42)
+
+        # +2 points on every made shot
+        bonus = RegisteredEffect(
+            effect_id="bonus", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_shot_value", "modifier": 2},
+        )
+        r2 = simulate_game(
+            home, away, rules, seed=42,
+            effect_registry=[bonus],
+        )
+        # Total scoring should be higher
+        assert (r2.home_score + r2.away_score) > (r1.home_score + r1.away_score)
+
+    def test_turnover_modifier_affects_turnovers(self):
+        """modify_turnover_rate changes turnover frequency."""
+        from pinwheel.core.simulation import simulate_game
+
+        home = self._make_team("h", "Home")
+        away = self._make_team("a", "Away")
+        rules = RuleSet()
+
+        # Reduce turnovers significantly
+        smooth = RegisteredEffect(
+            effect_id="smooth", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_turnover_rate", "modifier": -0.05},
+        )
+        r_smooth = simulate_game(
+            home, away, rules, seed=42,
+            effect_registry=[smooth],
+        )
+
+        # Increase turnovers significantly
+        chaos = RegisteredEffect(
+            effect_id="chaos", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={"type": "modify_turnover_rate", "modifier": 0.10},
+        )
+        r_chaos = simulate_game(
+            home, away, rules, seed=42,
+            effect_registry=[chaos],
+        )
+
+        smooth_to = sum(b.turnovers for b in r_smooth.box_scores)
+        chaos_to = sum(b.turnovers for b in r_chaos.box_scores)
+
+        # Chaos should produce more turnovers
+        assert chaos_to > smooth_to

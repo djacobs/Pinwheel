@@ -15,7 +15,6 @@ from pinwheel.core.hooks import (
     GameEffect,
     HookContext,
     HookPoint,
-    HookResult,
     RegisteredEffect,
     apply_hook_results,
     fire_effects,
@@ -23,7 +22,7 @@ from pinwheel.core.hooks import (
 )
 from pinwheel.core.meta import MetaStore
 from pinwheel.core.possession import resolve_possession
-from pinwheel.core.state import GameState, HooperState
+from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team, TeamStrategy
@@ -38,13 +37,15 @@ def _fire_sim_effects(
     rng: random.Random,
     effect_registry: list[RegisteredEffect] | None,
     meta_store: MetaStore | None,
-) -> list[HookResult]:
+) -> PossessionContext:
     """Fire new-style effects at a simulation hook point.
 
-    Returns the list of HookResults. The caller decides whether to apply them.
+    Applies score/stamina modifiers immediately. Returns a PossessionContext
+    with accumulated modifiers for the possession engine to consume.
     """
+    empty = PossessionContext()
     if not effect_registry:
-        return []
+        return empty
 
     ctx = HookContext(
         game_state=game_state,
@@ -55,7 +56,30 @@ def _fire_sim_effects(
     results = fire_effects(hook, ctx, effect_registry)
     if results:
         apply_hook_results(results, ctx)
-    return results
+
+    if not results:
+        return empty
+
+    # Accumulate possession-level modifiers from all results
+    narratives: list[str] = []
+    for r in results:
+        if r.narrative:
+            narratives.append(r.narrative)
+
+    return PossessionContext(
+        shot_probability_modifier=sum(r.shot_probability_modifier for r in results),
+        shot_value_modifier=sum(r.shot_value_modifier for r in results),
+        extra_stamina_drain=sum(r.extra_stamina_drain for r in results),
+        at_rim_bias=sum(r.at_rim_bias for r in results),
+        mid_range_bias=sum(r.mid_range_bias for r in results),
+        three_point_bias=sum(r.three_point_bias for r in results),
+        turnover_modifier=sum(r.turnover_modifier for r in results),
+        random_ejection_probability=sum(
+            r.random_ejection_probability for r in results
+        ),
+        bonus_pass_count=sum(r.bonus_pass_count for r in results),
+        narrative_tags=narratives,
+    )
 
 
 def _build_hooper_states(team: Team) -> list[HooperState]:
@@ -171,9 +195,11 @@ def _run_quarter(
         game_state.total_possessions += 1
 
         fire_hooks(HookPoint.PRE_POSSESSION, game_state, effects)
-        _fire_sim_effects("sim.possession.pre", game_state, rules, rng, new_effects, meta_store)
+        poss_ctx = _fire_sim_effects(
+            "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
+        )
 
-        result = resolve_possession(game_state, rules, rng, last_three)
+        result = resolve_possession(game_state, rules, rng, last_three, poss_ctx)
 
         # Decrement game clock
         game_state.game_clock_seconds -= result.time_used
@@ -230,7 +256,10 @@ def _run_elam(
         game_state.possession_number = poss
         game_state.total_possessions += 1
 
-        result = resolve_possession(game_state, rules, rng, last_three)
+        poss_ctx = _fire_sim_effects(
+            "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
+        )
+        result = resolve_possession(game_state, rules, rng, last_three, poss_ctx)
         if result.log:
             possession_log.append(result.log)
         last_three = result.shot_made and result.shot_type == "three_point"

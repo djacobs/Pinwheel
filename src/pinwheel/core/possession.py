@@ -20,7 +20,7 @@ from pinwheel.core.defense import (
 )
 from pinwheel.core.moves import apply_move_modifier, get_triggered_moves
 from pinwheel.core.scoring import ShotType, resolve_shot
-from pinwheel.core.state import GameState, HooperState
+from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import PossessionLog
 from pinwheel.models.rules import RuleSet
 
@@ -62,6 +62,7 @@ def select_action(
     game_state: GameState,
     rules: RuleSet,
     rng: random.Random,
+    effect_biases: PossessionContext | None = None,
 ) -> ShotType:
     """Select shot type based on handler attributes and game state."""
     scoring = handler.current_attributes.scoring
@@ -81,6 +82,12 @@ def select_action(
         weights["mid_range"] += strategy.mid_range_bias
         weights["three_point"] += strategy.three_point_bias
 
+    # Apply effect-derived biases
+    if effect_biases:
+        weights["at_rim"] += effect_biases.at_rim_bias
+        weights["mid_range"] += effect_biases.mid_range_bias
+        weights["three_point"] += effect_biases.three_point_bias
+
     # Elam: trailing team takes more threes
     if game_state.elam_activated and game_state.elam_target_score:
         my_score = game_state.home_score if game_state.home_has_ball else game_state.away_score
@@ -99,17 +106,25 @@ def check_turnover(
     scheme: DefensiveScheme,
     rng: random.Random,
     rules: RuleSet | None = None,
+    effect_turnover_modifier: float = 0.0,
 ) -> bool:
     """Check if the offense turns the ball over.
 
     The base turnover rate is scaled by rules.turnover_rate_modifier (default 1.0).
+    effect_turnover_modifier is additive from PossessionContext.
     """
     base_to_rate = 0.08
     modifier = rules.turnover_rate_modifier if rules else 1.0
     iq_reduction = handler.current_attributes.iq / 1000.0
     scheme_bonus = SCHEME_TURNOVER_BONUS[scheme]
     stamina_penalty = (1.0 - handler.current_stamina) * 0.05
-    to_prob = (base_to_rate * modifier) - iq_reduction + scheme_bonus + stamina_penalty
+    to_prob = (
+        (base_to_rate * modifier)
+        - iq_reduction
+        + scheme_bonus
+        + stamina_penalty
+        + effect_turnover_modifier
+    )
     return rng.random() < max(0.01, min(0.25, to_prob))
 
 
@@ -248,8 +263,16 @@ def resolve_possession(
     rules: RuleSet,
     rng: random.Random,
     last_possession_three: bool = False,
+    context: PossessionContext | None = None,
 ) -> PossessionResult:
-    """Resolve one complete possession."""
+    """Resolve one complete possession.
+
+    Args:
+        context: Effect-derived modifiers for this possession. Built by
+            _fire_sim_effects from accumulated HookResults.
+    """
+    ctx = context or PossessionContext()
+
     # Extract strategy parameters once for use throughout the possession
     off_strategy = game_state.offense_strategy
     def_strategy = game_state.defense_strategy
@@ -265,6 +288,34 @@ def resolve_possession(
     if not offense or not defense:
         return PossessionResult(time_used=time_used)
 
+    # 0. Random ejection check (effect-driven: "ball is red hot")
+    if ctx.random_ejection_probability > 0.0 and rng.random() < ctx.random_ejection_probability:
+        active_all = offense + defense
+        if active_all:
+            victim = rng.choice(active_all)
+            victim.ejected = True
+            team_id = (
+                game_state.home_agents[0].hooper.team_id
+                if game_state.home_has_ball
+                else game_state.away_agents[0].hooper.team_id
+            )
+            log = PossessionLog(
+                quarter=game_state.quarter,
+                possession_number=game_state.possession_number,
+                offense_team_id=team_id,
+                ball_handler_id=victim.hooper.id,
+                action="ejection",
+                result=f"effect_ejection:{victim.hooper.name}",
+                defensive_scheme="",
+                home_score=game_state.home_score,
+                away_score=game_state.away_score,
+            )
+            # Refresh offense/defense lists after ejection
+            offense = game_state.offense
+            defense = game_state.defense
+            if not offense or not defense:
+                return PossessionResult(time_used=time_used, log=log)
+
     # 1. Select scheme and matchups (strategy influences scheme selection)
     scheme = select_scheme(offense, defense, game_state, rules, rng, strategy=def_strategy)
     matchups = assign_matchups(offense, defense, scheme, rng)
@@ -277,8 +328,11 @@ def resolve_possession(
     # 2. Select ball handler
     handler = select_ball_handler(offense, rng)
 
-    # 3. Check turnover (live-ball: steal)
-    if check_turnover(handler, scheme, rng, rules=rules):
+    # 3. Check turnover (live-ball: steal) — with effect modifier
+    if check_turnover(
+        handler, scheme, rng, rules=rules,
+        effect_turnover_modifier=ctx.turnover_modifier,
+    ):
         stealer = rng.choice(defense)
         stealer.steals += 1
         handler.turnovers += 1
@@ -290,6 +344,12 @@ def resolve_possession(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
         )
+
+        # Update cross-possession tracking
+        game_state.last_action = "turnover"
+        game_state.last_result = "turnover"
+        game_state.consecutive_makes = 0
+        game_state.consecutive_misses += 1
 
         log = PossessionLog(
             quarter=game_state.quarter,
@@ -327,6 +387,12 @@ def resolve_possession(
             defensive_intensity=def_intensity, pace_modifier=pace,
         )
 
+        # Update cross-possession tracking
+        game_state.last_action = "shot_clock_violation"
+        game_state.last_result = "turnover"
+        game_state.consecutive_makes = 0
+        game_state.consecutive_misses += 1
+
         log = PossessionLog(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
@@ -350,8 +416,8 @@ def resolve_possession(
             log=log,
         )
 
-    # 4. Select action
-    shot_type = select_action(handler, game_state, rules, rng)
+    # 4. Select action — with effect biases
+    shot_type = select_action(handler, game_state, rules, rng, effect_biases=ctx)
 
     # 5. Check moves
     triggered = get_triggered_moves(
@@ -371,18 +437,30 @@ def resolve_possession(
         move = triggered[0]
         move_name = move.name
         handler.moves_activated.append(move_name)
-        # Compute base probability so move can modify it
         from pinwheel.core.scoring import compute_shot_probability, points_for_shot
 
         base_prob = compute_shot_probability(
             handler, primary_defender, shot_type, scheme_mod, rules
         )
+        # Apply effect-driven shot probability modifier
+        base_prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier))
         modified_prob = apply_move_modifier(move, base_prob, rng)
-        # Single roll with modified probability
         made = rng.random() < modified_prob
         pts = points_for_shot(shot_type, rules) if made else 0
     else:
-        made, pts = resolve_shot(handler, primary_defender, shot_type, scheme_mod, rules, rng)
+        from pinwheel.core.scoring import compute_shot_probability, points_for_shot
+
+        base_prob = compute_shot_probability(
+            handler, primary_defender, shot_type, scheme_mod, rules
+        )
+        # Apply effect-driven shot probability modifier
+        final_prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier))
+        made = rng.random() < final_prob
+        pts = points_for_shot(shot_type, rules) if made else 0
+
+    # Apply effect-driven shot value modifier and pass bonus
+    if made:
+        pts += ctx.shot_value_modifier + ctx.bonus_pass_count
 
     # 8. Update shooter stats
     handler.field_goals_attempted += 1
@@ -444,7 +522,7 @@ def resolve_possession(
         else:
             game_state.away_score += pts
 
-    # 13. Drain stamina
+    # 13. Drain stamina — with extra drain from effects
     drain_stamina(
         offense, scheme, is_defense=False, rules=rules,
         pace_modifier=pace,
@@ -453,6 +531,22 @@ def resolve_possession(
         defense, scheme, is_defense=True, rules=rules,
         defensive_intensity=def_intensity, pace_modifier=pace,
     )
+    # Extra stamina drain on ball handler from effects
+    if ctx.extra_stamina_drain > 0.0:
+        handler.current_stamina = max(
+            0.15, handler.current_stamina - ctx.extra_stamina_drain
+        )
+
+    # 14. Update cross-possession tracking
+    game_state.last_action = shot_type
+    if made:
+        game_state.last_result = "made"
+        game_state.consecutive_makes += 1
+        game_state.consecutive_misses = 0
+    else:
+        game_state.last_result = "missed"
+        game_state.consecutive_makes = 0
+        game_state.consecutive_misses += 1
 
     # Build log
     team_id = (

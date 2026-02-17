@@ -132,6 +132,14 @@ class HookResult:
     score_modifier: int = 0
     stamina_modifier: float = 0.0
     shot_probability_modifier: float = 0.0
+    shot_value_modifier: int = 0
+    extra_stamina_drain: float = 0.0
+    at_rim_bias: float = 0.0
+    mid_range_bias: float = 0.0
+    three_point_bias: float = 0.0
+    turnover_modifier: float = 0.0
+    random_ejection_probability: float = 0.0
+    bonus_pass_count: int = 0
 
     # Flow control
     block_action: bool = False
@@ -246,31 +254,120 @@ class RegisteredEffect:
     ) -> bool:
         """Evaluate a structured condition against the current context.
 
-        Supports meta field checks: {"meta_field": "swagger", "entity_type": "team", "gte": 5}
+        Supports:
+        - Meta field checks: {"meta_field": "swagger", "entity_type": "team", "gte": 5}
+        - Game state: {"game_state_check": "trailing|leading|elam_active"}
+        - Quarter: {"quarter_gte": 3}
+        - Random: {"random_chance": 0.15}
+        - Previous possession: {"last_result": "made|missed|turnover"}
+        - Streak: {"consecutive_makes_gte": 3}
+        - Ball handler attribute: {"ball_handler_attr": "scoring", "gte": 70}
         """
-        if not context.meta_store:
+        gs = context.game_state
+
+        # Game state conditions
+        if "game_state_check" in condition:
+            check = str(condition["game_state_check"])
+            if not gs:
+                return False
+            if check == "trailing":
+                off_score = gs.home_score if gs.home_has_ball else gs.away_score
+                def_score = gs.away_score if gs.home_has_ball else gs.home_score
+                return off_score < def_score
+            if check == "leading":
+                off_score = gs.home_score if gs.home_has_ball else gs.away_score
+                def_score = gs.away_score if gs.home_has_ball else gs.home_score
+                return off_score > def_score
+            if check == "elam_active":
+                return gs.elam_activated
             return False
 
+        # Quarter conditions
+        if "quarter_gte" in condition:
+            threshold = condition["quarter_gte"]
+            if gs and isinstance(threshold, (int, float)):
+                return gs.quarter >= int(threshold)
+            return False
+
+        # Score difference conditions
+        if "score_diff_gte" in condition:
+            threshold = condition["score_diff_gte"]
+            if gs and isinstance(threshold, (int, float)):
+                off_score = gs.home_score if gs.home_has_ball else gs.away_score
+                def_score = gs.away_score if gs.home_has_ball else gs.home_score
+                return (off_score - def_score) >= int(threshold)
+            return False
+
+        # Random probability
+        if "random_chance" in condition:
+            chance = condition["random_chance"]
+            if isinstance(chance, (int, float)) and context.rng:
+                return context.rng.random() < chance
+            return False
+
+        # Previous possession state
+        if "last_result" in condition:
+            if not gs:
+                return False
+            return gs.last_result == str(condition["last_result"])
+
+        # Streak conditions
+        if "consecutive_makes_gte" in condition:
+            threshold = condition["consecutive_makes_gte"]
+            if gs and isinstance(threshold, (int, float)):
+                return gs.consecutive_makes >= int(threshold)
+            return False
+
+        if "consecutive_misses_gte" in condition:
+            threshold = condition["consecutive_misses_gte"]
+            if gs and isinstance(threshold, (int, float)):
+                return gs.consecutive_misses >= int(threshold)
+            return False
+
+        # Ball handler attribute check
+        if "ball_handler_attr" in condition:
+            # Requires a hooper on context to check
+            if not context.hooper:
+                return False
+            attr_name = str(condition["ball_handler_attr"])
+            attrs = context.hooper.current_attributes
+            val = getattr(attrs, attr_name, None)
+            if val is None:
+                return False
+            if "gte" in condition:
+                threshold = condition["gte"]
+                if isinstance(val, (int, float)) and isinstance(threshold, (int, float)):
+                    return val >= threshold
+            if "lte" in condition:
+                threshold = condition["lte"]
+                if isinstance(val, (int, float)) and isinstance(threshold, (int, float)):
+                    return val <= threshold
+            return True
+
+        # Meta field checks (original system)
         meta_field = str(condition.get("meta_field", ""))
         entity_type = str(condition.get("entity_type", ""))
 
         if not meta_field or not entity_type:
             return True  # No condition to check — always fire
 
+        if not context.meta_store:
+            return False
+
         # Determine which entity to check
         entity_id = ""
-        if context.game_state and entity_type == "team":
+        if gs and entity_type == "team":
             # Check offense team during sim hooks
-            if context.game_state.home_has_ball:
+            if gs.home_has_ball:
                 entity_id = (
-                    context.game_state.home_agents[0].hooper.team_id
-                    if context.game_state.home_agents
+                    gs.home_agents[0].hooper.team_id
+                    if gs.home_agents
                     else ""
                 )
             else:
                 entity_id = (
-                    context.game_state.away_agents[0].hooper.team_id
-                    if context.game_state.away_agents
+                    gs.away_agents[0].hooper.team_id
+                    if gs.away_agents
                     else ""
                 )
         elif context.winner_team_id and entity_type == "team":
@@ -393,6 +490,143 @@ class RegisteredEffect:
             text = self.action_code.get("text", "")
             if isinstance(text, str):
                 result.narrative = text
+
+        elif action_type == "modify_shot_value":
+            modifier = self.action_code.get("modifier", 0)
+            if isinstance(modifier, (int, float)):
+                result.shot_value_modifier = int(modifier)
+
+        elif action_type == "modify_shot_selection":
+            for bias_key in ("at_rim_bias", "mid_range_bias", "three_point_bias"):
+                val = self.action_code.get(bias_key, 0.0)
+                if isinstance(val, (int, float)):
+                    setattr(result, bias_key, float(val))
+
+        elif action_type == "modify_turnover_rate":
+            modifier = self.action_code.get("modifier", 0.0)
+            if isinstance(modifier, (int, float)):
+                result.turnover_modifier = float(modifier)
+
+        elif action_type == "random_ejection":
+            prob = self.action_code.get("probability", 0.0)
+            if isinstance(prob, (int, float)):
+                result.random_ejection_probability = float(prob)
+
+        elif action_type == "derive_pass_count":
+            # Simulates passes from team stats — requires game_state + rng
+            if context.game_state and context.rng:
+                gs = context.game_state
+                off = gs.offense
+                if off:
+                    avg_passing = sum(
+                        h.current_attributes.passing for h in off
+                    ) / len(off)
+                    pass_prob = avg_passing / 100.0
+                    min_p = int(self.action_code.get("min_passes", 0))
+                    max_p = int(self.action_code.get("max_passes", 5))
+                    val_per = int(self.action_code.get("value_per_pass", 1))
+                    pass_count = 0
+                    for _ in range(max_p):
+                        if context.rng.random() < pass_prob:
+                            pass_count += 1
+                        else:
+                            break
+                    pass_count = max(min_p, pass_count)
+                    result.bonus_pass_count = pass_count * val_per
+
+        elif action_type == "swap_roster_player":
+            # Generate a temporary player with extreme stats, swap onto offense
+            if context.game_state and context.rng:
+                gs = context.game_state
+                off_agents = gs.home_agents if gs.home_has_ball else gs.away_agents
+                active = [a for a in off_agents if a.on_court and not a.ejected]
+                if active:
+                    extreme_stat = str(self.action_code.get("extreme_stat", "scoring"))
+                    extreme_val = int(self.action_code.get("extreme_value", 95))
+                    other_val = int(self.action_code.get("other_stats_value", 15))
+
+                    if extreme_stat == "random":
+                        extreme_stat = context.rng.choice(
+                            ["scoring", "passing", "defense", "speed"]
+                        )
+
+                    # Build extreme attributes
+                    attr_kwargs: dict[str, int] = {
+                        "scoring": other_val, "passing": other_val,
+                        "defense": other_val, "speed": other_val,
+                        "stamina": other_val, "iq": other_val,
+                        "ego": 50, "chaotic_alignment": 80, "fate": 50,
+                    }
+                    if extreme_stat in attr_kwargs:
+                        attr_kwargs[extreme_stat] = extreme_val
+
+                    from pinwheel.models.team import Hooper, PlayerAttributes
+
+                    crowd_hooper = Hooper(
+                        id=f"crowd-{context.rng.randint(1000, 9999)}",
+                        name="Mystery Fan",
+                        team_id=active[0].hooper.team_id,
+                        archetype="wildcard",
+                        attributes=PlayerAttributes(**attr_kwargs),
+                        is_starter=True,
+                    )
+                    target = context.rng.choice(active)
+                    from pinwheel.core.state import HooperState
+
+                    crowd_state = HooperState(hooper=crowd_hooper, on_court=True)
+                    # Swap: bench the target, add crowd player
+                    target.on_court = False
+                    off_agents.append(crowd_state)
+                    result.narrative = (
+                        f"A mysterious figure emerges from the crowd, replacing "
+                        f"{target.hooper.name}!"
+                    )
+
+        elif action_type == "conditional_sequence":
+            steps = self.action_code.get("steps")
+            if isinstance(steps, list):
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    gate = step.get("gate")
+                    # Evaluate gate
+                    if gate and isinstance(gate, dict) and "random_chance" in gate:
+                        chance = gate["random_chance"]
+                        if (
+                            isinstance(chance, (int, float))
+                            and context.rng
+                            and context.rng.random() >= chance
+                        ):
+                            continue
+                    action = step.get("action")
+                    if isinstance(action, dict):
+                        # Recursively apply inner action
+                        inner_code = self.action_code
+                        self.action_code = action
+                        inner_result = self._apply_action_code(context, HookResult())
+                        self.action_code = inner_code
+                        # Merge inner result into main result
+                        result.score_modifier += inner_result.score_modifier
+                        result.stamina_modifier += inner_result.stamina_modifier
+                        result.shot_probability_modifier += (
+                            inner_result.shot_probability_modifier
+                        )
+                        result.shot_value_modifier += inner_result.shot_value_modifier
+                        result.extra_stamina_drain += inner_result.extra_stamina_drain
+                        result.turnover_modifier += inner_result.turnover_modifier
+                        result.random_ejection_probability += (
+                            inner_result.random_ejection_probability
+                        )
+                        result.bonus_pass_count += inner_result.bonus_pass_count
+                        result.at_rim_bias += inner_result.at_rim_bias
+                        result.mid_range_bias += inner_result.mid_range_bias
+                        result.three_point_bias += inner_result.three_point_bias
+                        if inner_result.narrative:
+                            existing = result.narrative
+                            if existing:
+                                result.narrative = f"{existing} {inner_result.narrative}"
+                            else:
+                                result.narrative = inner_result.narrative
 
         return result
 

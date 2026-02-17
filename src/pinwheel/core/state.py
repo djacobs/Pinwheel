@@ -12,6 +12,26 @@ from pinwheel.models.team import Hooper, PlayerAttributes, TeamStrategy
 
 
 @dataclass
+class PossessionContext:
+    """Effect-derived modifiers applied to this possession.
+
+    Built from HookResult accumulation at sim.possession.pre,
+    consumed by resolve_possession(). Ephemeral — one per possession.
+    """
+
+    shot_probability_modifier: float = 0.0
+    shot_value_modifier: int = 0
+    extra_stamina_drain: float = 0.0
+    at_rim_bias: float = 0.0
+    mid_range_bias: float = 0.0
+    three_point_bias: float = 0.0
+    turnover_modifier: float = 0.0
+    random_ejection_probability: float = 0.0
+    bonus_pass_count: int = 0
+    narrative_tags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class HooperState:
     """Mutable state of a Hooper during a game."""
 
@@ -89,6 +109,12 @@ class GameState:
     game_over: bool = False
     home_strategy: TeamStrategy | None = None
     away_strategy: TeamStrategy | None = None
+
+    # Cross-possession tracking (for condition evaluation)
+    last_action: str = ""
+    last_result: str = ""
+    consecutive_makes: int = 0
+    consecutive_misses: int = 0
 
     @property
     def home_active(self) -> list[HooperState]:
