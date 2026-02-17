@@ -223,10 +223,14 @@ async def _schedule_next_series_game(
     games_played: int,
     round_number: int,
     matchup_index: int,
+    phase: str = "semifinal",
 ) -> None:
     """Schedule the next game in a playoff series with alternating home court.
 
     Higher seed has home court in odd-numbered games (1, 3, 5, ...).
+
+    Args:
+        phase: Precise playoff phase — ``"semifinal"`` or ``"finals"``.
     """
     if games_played % 2 == 0:
         home_team_id = higher_seed_id
@@ -241,7 +245,7 @@ async def _schedule_next_series_game(
         matchup_index=matchup_index,
         home_team_id=home_team_id,
         away_team_id=away_team_id,
-        phase="playoff",
+        phase=phase,
     )
 
 
@@ -359,6 +363,7 @@ async def _advance_playoff_series(
                 games_played,
                 next_round,
                 0,
+                phase="finals",
             )
 
         return playoffs_complete, finals_matchup, deferred_events
@@ -412,6 +417,7 @@ async def _advance_playoff_series(
                 games_played,
                 next_round,
                 semi_idx,
+                phase="semifinal",
             )
             needs_more_semi_games = True
 
@@ -432,7 +438,7 @@ async def _advance_playoff_series(
             matchup_index=0,
             home_team_id=home_team_id,
             away_team_id=away_team_id,
-            phase="playoff",
+            phase="finals",
         )
 
         finals_matchup = {
@@ -531,6 +537,7 @@ async def _advance_playoff_series(
                 games_played,
                 next_round,
                 0,
+                phase="finals",
             )
 
     return playoffs_complete, finals_matchup, deferred_events
@@ -616,7 +623,7 @@ async def generate_playoff_bracket(
                 matchup_index=idx,
                 home_team_id=higher_seed["team_id"],
                 away_team_id=lower_seed["team_id"],
-                phase="playoff",
+                phase="semifinal",
             )
         # Finals placeholder (round_number = semis + 1)
         bracket.append(
@@ -648,7 +655,7 @@ async def generate_playoff_bracket(
             matchup_index=0,
             home_team_id=playoff_teams[0]["team_id"],
             away_team_id=playoff_teams[1]["team_id"],
-            phase="playoff",
+            phase="finals",
         )
 
     return bracket
@@ -1068,30 +1075,33 @@ async def _phase_simulate_and_govern(
                 break
 
     # 4. Simulate games
+    _PLAYOFF_PHASES = ("playoff", "semifinal", "finals")
     playoff_context: str | None = None
-    if schedule and schedule[0].phase == "playoff":
-        # Determine if these are semi or finals games by checking the bracket.
-        # The initial playoff round has the semi matchups; any games between
-        # teams NOT in the initial round are finals.
-        full_playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
-        if full_playoff_schedule:
-            earliest_round = min(s.round_number for s in full_playoff_schedule)
-            initial_pairs = [
-                frozenset({s.home_team_id, s.away_team_id})
-                for s in full_playoff_schedule
-                if s.round_number == earliest_round
-            ]
-            current_pairs = [
-                frozenset({s.home_team_id, s.away_team_id}) for s in schedule
-            ]
-            if len(initial_pairs) >= 2 and all(
-                p in initial_pairs for p in current_pairs
-            ):
-                playoff_context = "semifinal"
-            else:
-                playoff_context = "finals"
+    if schedule and schedule[0].phase in _PLAYOFF_PHASES:
+        # Use precise phase if stored; fall back to inference for legacy entries.
+        if schedule[0].phase in ("semifinal", "finals"):
+            playoff_context = schedule[0].phase
         else:
-            playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
+            # Legacy: determine semi vs finals by checking the bracket.
+            full_playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
+            if full_playoff_schedule:
+                earliest_round = min(s.round_number for s in full_playoff_schedule)
+                initial_pairs = [
+                    frozenset({s.home_team_id, s.away_team_id})
+                    for s in full_playoff_schedule
+                    if s.round_number == earliest_round
+                ]
+                current_pairs = [
+                    frozenset({s.home_team_id, s.away_team_id}) for s in schedule
+                ]
+                if len(initial_pairs) >= 2 and all(
+                    p in initial_pairs for p in current_pairs
+                ):
+                    playoff_context = "semifinal"
+                else:
+                    playoff_context = "finals"
+            else:
+                playoff_context = "semifinal" if len(schedule) >= 2 else "finals"
 
     # Fire round.pre effects
     _round_effects = (
@@ -1132,6 +1142,31 @@ async def _phase_simulate_and_govern(
             )
             continue
 
+        # Skip unnecessary playoff games — if the series is already clinched,
+        # this game doesn't need to be played.
+        if playoff_context and entry.phase in _PLAYOFF_PHASES:
+            pair_key = ":".join(sorted([home.id, away.id]))
+            pre_wins = _pre_round_series.get(pair_key, (0, 0))
+            _best_of_check = (
+                ruleset.playoff_finals_best_of
+                if playoff_context == "finals"
+                else ruleset.playoff_semis_best_of
+            )
+            _wins_needed = _series_wins_needed(_best_of_check)
+            sorted_ids = sorted([home.id, away.id])
+            if sorted_ids[0] == home.id:
+                _h_pre, _a_pre = pre_wins
+            else:
+                _a_pre, _h_pre = pre_wins
+            if _h_pre >= _wins_needed or _a_pre >= _wins_needed:
+                logger.info(
+                    "skipping_unnecessary_game round=%d matchup=%d %s vs %s "
+                    "series_already_clinched=%d-%d",
+                    round_number, entry.matchup_index, home.name, away.name,
+                    _h_pre, _a_pre,
+                )
+                continue
+
         seed = int(uuid.uuid4().int % (2**31))
         game_id = f"g-{round_number}-{entry.matchup_index}"
 
@@ -1169,7 +1204,10 @@ async def _phase_simulate_and_govern(
             meta_store=meta_store,
         )
 
-        # Store result
+        # Store result — carry the precise phase from the schedule entry
+        _game_phase: str | None = None
+        if entry.phase in _PLAYOFF_PHASES:
+            _game_phase = entry.phase if entry.phase != "playoff" else playoff_context
         game_row = await repo.store_game_result(
             season_id=season_id,
             round_number=round_number,
@@ -1185,6 +1223,7 @@ async def _phase_simulate_and_govern(
             quarter_scores=[qs.model_dump() for qs in result.quarter_scores],
             elam_target=result.elam_target_score,
             play_by_play=[p.model_dump() for p in result.possession_log],
+            phase=_game_phase,
         )
 
         game_row_ids.append(game_row.id)

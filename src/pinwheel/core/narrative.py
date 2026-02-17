@@ -124,7 +124,8 @@ async def compute_narrative_context(
 
     # Check if this round has playoff games
     round_schedule = await repo.get_schedule_for_round(season_id, round_number)
-    if round_schedule and round_schedule[0].phase == "playoff":
+    _playoff_phases = ("playoff", "semifinal", "finals")
+    if round_schedule and round_schedule[0].phase in _playoff_phases:
         # Determine if semifinal or finals
         full_playoff = await repo.get_full_schedule(season_id, phase="playoff")
         if full_playoff:

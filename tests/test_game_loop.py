@@ -738,7 +738,7 @@ class TestPlayoffBracket:
         assert len(playoff_schedule) == 2  # 2 semifinal matchups stored
 
         for entry in playoff_schedule:
-            assert entry.phase == "playoff"
+            assert entry.phase in ("semifinal", "finals")
             # Playoff rounds should be after regular season
             assert entry.round_number > bt_total_rounds
 

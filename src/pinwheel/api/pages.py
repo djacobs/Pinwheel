@@ -185,10 +185,21 @@ async def _get_season_phase(repo: RepoDep, season_id: str) -> str:
 
 
 async def _get_game_phase(repo: RepoDep, season_id: str, round_number: int) -> str | None:
-    """Return the phase for a specific round's games ('semifinal', 'finals', or None)."""
+    """Return the phase for a specific round's games ('semifinal', 'finals', or None).
+
+    Reads the precise phase directly from the schedule entry when available.
+    Falls back to inference (comparing team pairs against the initial playoff
+    round) for legacy entries stored as ``"playoff"``.
+    """
     schedule = await repo.get_schedule_for_round(season_id, round_number)
-    if not schedule or schedule[0].phase != "playoff":
+    if not schedule:
         return None
+    entry_phase = schedule[0].phase
+    if entry_phase in ("semifinal", "finals"):
+        return entry_phase
+    if entry_phase != "playoff":
+        return None
+    # Legacy fallback: infer from team pairs
     full_playoff = await repo.get_full_schedule(season_id, phase="playoff")
     if not full_playoff:
         return "semifinal"
@@ -207,7 +218,115 @@ async def _get_game_phase(repo: RepoDep, season_id: str, round_number: int) -> s
     return "finals"
 
 
-def build_series_context(
+async def _generate_series_description(
+    phase: str,
+    home_team_name: str,
+    away_team_name: str,
+    home_wins: int,
+    away_wins: int,
+    best_of: int,
+    wins_needed: int,
+) -> str | None:
+    """Call Haiku to generate a natural-language series description.
+
+    Returns None on any failure (caller falls back to template).
+    """
+    import os
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
+
+    clinched = home_wins >= wins_needed or away_wins >= wins_needed
+    if home_wins > away_wins:
+        leader = home_team_name
+        leader_wins, trailer_wins = home_wins, away_wins
+    elif away_wins > home_wins:
+        leader = away_team_name
+        leader_wins, trailer_wins = away_wins, home_wins
+    else:
+        leader = ""
+        leader_wins, trailer_wins = home_wins, away_wins
+
+    phase_label = "Championship Finals" if phase == "finals" else "Semifinal Series"
+    is_sweep = clinched and min(home_wins, away_wins) == 0
+
+    situation = (
+        f"Phase: {phase_label}\n"
+        f"Teams: {home_team_name} vs {away_team_name}\n"
+        f"Series record: {home_team_name} {home_wins}, {away_team_name} {away_wins}\n"
+        f"Best of {best_of} (first to {wins_needed} wins)\n"
+        f"Clinched: {clinched}\n"
+        f"Sweep: {is_sweep}\n"
+    )
+    if leader:
+        situation += f"Leader: {leader} ({leader_wins}-{trailer_wins})\n"
+
+    prompt = (
+        "Write a short (1 sentence, max 15 words) series description banner "
+        "for a basketball playoff game. Be natural and situationally aware. "
+        "If clinched, describe the outcome. If tied, describe the tension. "
+        "If someone leads, describe the stakes. No quotes. No period at the end."
+    )
+
+    try:
+        import anthropic
+        import httpx
+
+        _timeout = httpx.Timeout(10.0, connect=3.0)
+        client = anthropic.AsyncAnthropic(api_key=api_key, timeout=_timeout)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            system=[{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": situation}],
+        )
+        text = response.content[0].text.strip().strip('"').strip(".")
+        # Sanity check: not empty, not absurdly long
+        if text and len(text) < 200:
+            return text
+        return None
+    except Exception:
+        return None
+
+
+def _build_series_description_fallback(
+    phase: str,
+    phase_label: str,
+    home_team_name: str,
+    away_team_name: str,
+    home_wins: int,
+    away_wins: int,
+    wins_needed: int,
+) -> str:
+    """Template fallback for series descriptions (used when Haiku unavailable)."""
+    if home_wins >= wins_needed:
+        outcome = "championship" if phase == "finals" else "series"
+        return (
+            f"{phase_label} · {home_team_name} win"
+            f" {outcome} {home_wins}-{away_wins}"
+        )
+    if away_wins >= wins_needed:
+        outcome = "championship" if phase == "finals" else "series"
+        return (
+            f"{phase_label} · {away_team_name} win"
+            f" {outcome} {away_wins}-{home_wins}"
+        )
+    if home_wins == away_wins:
+        record_text = f"Series tied {home_wins}-{away_wins}"
+    elif home_wins > away_wins:
+        record_text = f"{home_team_name} lead {home_wins}-{away_wins}"
+    else:
+        record_text = f"{away_team_name} lead {away_wins}-{home_wins}"
+    clinch_text = (
+        f"First to {wins_needed} wins is champion"
+        if phase == "finals"
+        else f"First to {wins_needed} wins advances"
+    )
+    return f"{phase_label} · {record_text} · {clinch_text}"
+
+
+async def build_series_context(
     phase: str,
     home_team_name: str,
     away_team_name: str,
@@ -216,6 +335,9 @@ def build_series_context(
     best_of: int,
 ) -> dict:
     """Build a series context dict for display in the arena template.
+
+    Calls Haiku to generate a natural-language description; falls back to
+    a rigid template when the API is unavailable.
 
     Args:
         phase: 'semifinal' or 'finals'.
@@ -230,36 +352,17 @@ def build_series_context(
         wins_needed, description.
     """
     wins_needed = (best_of + 1) // 2
+    phase_label = "CHAMPIONSHIP FINALS" if phase == "finals" else "SEMIFINAL SERIES"
 
-    if phase == "finals":
-        phase_label = "CHAMPIONSHIP FINALS"
-        clinch_text = f"First to {wins_needed} wins is champion"
-    else:
-        phase_label = "SEMIFINAL SERIES"
-        clinch_text = f"First to {wins_needed} wins advances"
-
-    # Check if a team has clinched the series
-    if home_wins >= wins_needed:
-        outcome = "championship" if phase == "finals" else "series"
-        description = (
-            f"{phase_label} · {home_team_name} win"
-            f" {outcome} {home_wins}-{away_wins}"
-        )
-    elif away_wins >= wins_needed:
-        outcome = "championship" if phase == "finals" else "series"
-        description = (
-            f"{phase_label} · {away_team_name} win"
-            f" {outcome} {away_wins}-{home_wins}"
-        )
-
-    else:
-        if home_wins == away_wins:
-            record_text = f"Series tied {home_wins}-{away_wins}"
-        elif home_wins > away_wins:
-            record_text = f"{home_team_name} lead {home_wins}-{away_wins}"
-        else:
-            record_text = f"{away_team_name} lead {away_wins}-{home_wins}"
-        description = f"{phase_label} · {record_text} · {clinch_text}"
+    # Try Haiku for a natural description
+    haiku_desc = await _generate_series_description(
+        phase, home_team_name, away_team_name,
+        home_wins, away_wins, best_of, wins_needed,
+    )
+    description = haiku_desc or _build_series_description_fallback(
+        phase, phase_label, home_team_name, away_team_name,
+        home_wins, away_wins, wins_needed,
+    )
 
     return {
         "phase": phase,
@@ -310,7 +413,7 @@ async def _compute_series_context_for_game(
         repo, season_id, home_team_id, away_team_id
     )
 
-    return build_series_context(
+    return await build_series_context(
         phase=game_phase,
         home_team_name=home_team_name,
         away_team_name=away_team_name,

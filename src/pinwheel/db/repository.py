@@ -225,6 +225,7 @@ class Repository:
         quarter_scores: list | None = None,
         elam_target: int | None = None,
         play_by_play: list | None = None,
+        phase: str | None = None,
     ) -> GameResultRow:
         row = GameResultRow(
             season_id=season_id,
@@ -241,6 +242,7 @@ class Repository:
             quarter_scores=quarter_scores,
             elam_target=elam_target,
             play_by_play=play_by_play,
+            phase=phase,
         )
         self.session.add(row)
         await self.session.flush()
@@ -748,6 +750,9 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    # Phases that count as "playoff" for backward-compatible queries.
+    _PLAYOFF_PHASES = ("playoff", "semifinal", "finals")
+
     async def get_full_schedule(
         self,
         season_id: str,
@@ -757,14 +762,20 @@ class Repository:
 
         Args:
             season_id: The season to query.
-            phase: Filter by phase (e.g. "regular", "playoff"). None returns all.
+            phase: Filter by phase (e.g. "regular", "playoff"). When
+                ``"playoff"`` is passed, matches entries with phase
+                ``"playoff"``, ``"semifinal"``, or ``"finals"`` for
+                backward compatibility.  None returns all.
 
         Returns:
             Schedule entries ordered by round_number and matchup_index.
         """
         stmt = select(ScheduleRow).where(ScheduleRow.season_id == season_id)
         if phase:
-            stmt = stmt.where(ScheduleRow.phase == phase)
+            if phase == "playoff":
+                stmt = stmt.where(ScheduleRow.phase.in_(self._PLAYOFF_PHASES))
+            else:
+                stmt = stmt.where(ScheduleRow.phase == phase)
         stmt = stmt.order_by(ScheduleRow.round_number, ScheduleRow.matchup_index)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

@@ -1197,12 +1197,15 @@ class TestReportsPhaseContext:
 
 
 class TestBuildSeriesContext:
-    """Unit tests for build_series_context helper."""
+    """Unit tests for build_series_context helper.
 
-    def test_semifinal_tied(self):
+    These tests exercise the template fallback (no ANTHROPIC_API_KEY in test env).
+    """
+
+    async def test_semifinal_tied(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="semifinal",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1219,10 +1222,10 @@ class TestBuildSeriesContext:
         assert "Series tied 0-0" in ctx["description"]
         assert "First to 2 wins advances" in ctx["description"]
 
-    def test_semifinal_home_leads(self):
+    async def test_semifinal_home_leads(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="semifinal",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1233,10 +1236,10 @@ class TestBuildSeriesContext:
         assert "Thorns lead 1-0" in ctx["description"]
         assert "First to 2 wins advances" in ctx["description"]
 
-    def test_semifinal_away_leads(self):
+    async def test_semifinal_away_leads(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="semifinal",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1246,10 +1249,10 @@ class TestBuildSeriesContext:
         )
         assert "Storm lead 1-0" in ctx["description"]
 
-    def test_finals_tied(self):
+    async def test_finals_tied(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="finals",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1262,10 +1265,10 @@ class TestBuildSeriesContext:
         assert "First to 3 wins is champion" in ctx["description"]
         assert ctx["wins_needed"] == 3
 
-    def test_finals_near_clinch(self):
+    async def test_finals_near_clinch(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="finals",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1275,10 +1278,10 @@ class TestBuildSeriesContext:
         )
         assert "Thorns lead 2-1" in ctx["description"]
 
-    def test_semifinal_clinched_home(self):
+    async def test_semifinal_clinched_home(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="semifinal",
             home_team_name="Breakers",
             away_team_name="Herons",
@@ -1289,10 +1292,10 @@ class TestBuildSeriesContext:
         assert "Breakers win series 2-0" in ctx["description"]
         assert "First to" not in ctx["description"]
 
-    def test_semifinal_clinched_away(self):
+    async def test_semifinal_clinched_away(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="semifinal",
             home_team_name="Herons",
             away_team_name="Thorns",
@@ -1302,10 +1305,10 @@ class TestBuildSeriesContext:
         )
         assert "Thorns win series 2-0" in ctx["description"]
 
-    def test_finals_clinched(self):
+    async def test_finals_clinched(self):
         from pinwheel.api.pages import build_series_context
 
-        ctx = build_series_context(
+        ctx = await build_series_context(
             phase="finals",
             home_team_name="Thorns",
             away_team_name="Storm",
@@ -1315,6 +1318,32 @@ class TestBuildSeriesContext:
         )
         assert "Thorns win championship 3-1" in ctx["description"]
         assert "First to" not in ctx["description"]
+
+
+class TestBuildSeriesDescriptionFallback:
+    """Unit tests for the template fallback used when Haiku is unavailable."""
+
+    def test_fallback_semifinal_tied(self):
+        from pinwheel.api.pages import _build_series_description_fallback
+
+        desc = _build_series_description_fallback(
+            phase="semifinal", phase_label="SEMIFINAL SERIES",
+            home_team_name="Thorns", away_team_name="Storm",
+            home_wins=0, away_wins=0, wins_needed=2,
+        )
+        assert "Series tied 0-0" in desc
+        assert "First to 2 wins advances" in desc
+
+    def test_fallback_finals_clinched(self):
+        from pinwheel.api.pages import _build_series_description_fallback
+
+        desc = _build_series_description_fallback(
+            phase="finals", phase_label="CHAMPIONSHIP FINALS",
+            home_team_name="Thorns", away_team_name="Storm",
+            home_wins=3, away_wins=1, wins_needed=3,
+        )
+        assert "Thorns win championship 3-1" in desc
+        assert "First to" not in desc
 
 
 class TestArenaSeriesContextLive:
