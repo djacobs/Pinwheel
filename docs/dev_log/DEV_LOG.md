@@ -19,7 +19,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
 - **Day 19:** Resilient proposal pipeline — deferred interpreter, mock fallback detection, custom_mechanic activation
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `c3fdb5a` — docs: add proposal review queries to admin guide
+- **Latest commit:** `7bdb7c5` — feat: resilient proposal pipeline — deferred interpreter, mock fallback, custom_mechanic activation
 
 ## Today's Agenda
 
