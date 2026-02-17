@@ -331,6 +331,119 @@ Discord team roles must match team names exactly: `Rose City Thorns`, `Burnside 
 
 ---
 
+## Reviewing Proposal History
+
+Every proposal is permanently logged in the `governance_events` table as a `proposal.submitted` event. The `payload` JSON column contains the full `Proposal` object — raw text, sanitized text, AI interpretation, tier, confidence, effects, and governor/team info. AI call performance (model, tokens, latency) is logged separately in `ai_usage_log`.
+
+This is the primary quality control loop for the interpreter. Review proposals regularly to catch:
+- Misinterpretations (creative intent mapped to wrong mechanic)
+- Low-confidence results that should have been caught
+- Patterns in what players are asking for vs. what the system can express
+- Timeout/fallback frequency
+
+### Querying proposals on production
+
+SSH into the Fly machine and use SQLite directly:
+
+```bash
+# Open a SQLite shell on the production database
+fly ssh console -C "sqlite3 /data/pinwheel.db"
+```
+
+**All proposals, most recent first:**
+
+```sql
+SELECT
+  json_extract(payload, '$.raw_text') AS proposal,
+  json_extract(payload, '$.tier') AS tier,
+  json_extract(payload, '$.interpretation.confidence') AS confidence,
+  json_extract(payload, '$.interpretation.impact_analysis') AS impact,
+  created_at
+FROM governance_events
+WHERE event_type = 'proposal.submitted'
+ORDER BY created_at DESC;
+```
+
+**Proposals with full interpretation effects:**
+
+```sql
+SELECT
+  json_extract(payload, '$.raw_text') AS proposal,
+  json_extract(payload, '$.interpretation.effects') AS effects,
+  json_extract(payload, '$.interpretation.confidence') AS confidence,
+  json_extract(payload, '$.interpretation.clarification_needed') AS needs_clarification
+FROM governance_events
+WHERE event_type = 'proposal.submitted'
+ORDER BY created_at DESC;
+```
+
+**Low-confidence or flagged proposals (interpreter struggled):**
+
+```sql
+SELECT
+  json_extract(payload, '$.raw_text') AS proposal,
+  json_extract(payload, '$.interpretation.confidence') AS confidence,
+  json_extract(payload, '$.interpretation.impact_analysis') AS impact
+FROM governance_events
+WHERE event_type = 'proposal.submitted'
+  AND (json_extract(payload, '$.interpretation.confidence') < 0.7
+       OR json_extract(payload, '$.interpretation.clarification_needed') = 1)
+ORDER BY created_at DESC;
+```
+
+**Proposals by a specific governor:**
+
+```sql
+SELECT
+  json_extract(payload, '$.raw_text') AS proposal,
+  json_extract(payload, '$.tier') AS tier,
+  created_at
+FROM governance_events
+WHERE event_type = 'proposal.submitted'
+  AND governor_id = '<governor-uuid>'
+ORDER BY created_at DESC;
+```
+
+**Interpreter performance (latency and model usage):**
+
+```sql
+SELECT
+  model,
+  call_type,
+  round(latency_ms) AS latency_ms,
+  input_tokens,
+  output_tokens,
+  round(cost_usd, 4) AS cost,
+  created_at
+FROM ai_usage_log
+WHERE call_type LIKE 'interpreter%'
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+**Full proposal lifecycle (submitted → voted → passed/failed):**
+
+```sql
+SELECT
+  event_type,
+  json_extract(payload, '$.raw_text') AS proposal,
+  json_extract(payload, '$.status') AS status,
+  created_at
+FROM governance_events
+WHERE aggregate_id = '<proposal-uuid>'
+ORDER BY sequence_number;
+```
+
+### What to look for
+
+- **Confidence < 0.7 on clear proposals** — the prompt may need a new concept or example
+- **Repeated fallback to mock** — check `ai_usage_log` for timeout patterns; may need prompt trimming or timeout adjustment
+- **Players rewording and resubmitting** — same governor, similar `raw_text`, multiple attempts = friction signal
+- **Tier misclassification** — a simple parameter change classified as Tier 5+ wastes admin review time
+- **Effects that don't match intent** — the most important signal. If "blocks are worth one point" produces anything other than a `parameter_change` on `block_points`, the interpreter needs work
+
+---
+
 ## Things to Know
 
 - **Presentation survives restarts.** If a replay is in progress and the server redeploys, it picks up where it left off. Presentation state is persisted in the database.
