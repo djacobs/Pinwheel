@@ -137,9 +137,30 @@ async def _get_active_season(repo: RepoDep) -> tuple[str | None, str | None]:
     return None, None
 
 
-async def _get_standings(repo: RepoDep, season_id: str) -> list[dict]:
-    """Compute standings for a season."""
+async def _get_standings(
+    repo: RepoDep,
+    season_id: str,
+    phase_filter: str | None = None,
+) -> list[dict]:
+    """Compute standings for a season.
+
+    Args:
+        phase_filter: When ``"regular"``, include only regular-season games
+            (phase is ``None`` or ``"regular"``).  When ``"playoff"``, include
+            only post-season games (phase in ``"playoff"``, ``"semifinal"``,
+            ``"finals"``).  ``None`` includes all games (original behaviour).
+    """
     games = await repo.get_all_games(season_id)
+
+    if phase_filter == "regular":
+        games = [g for g in games if getattr(g, "phase", None) in (None, "regular")]
+    elif phase_filter == "playoff":
+        games = [
+            g
+            for g in games
+            if getattr(g, "phase", None) in ("playoff", "semifinal", "finals")
+        ]
+
     all_results: list[dict] = [
         {
             "home_team_id": g.home_team_id,
@@ -755,6 +776,8 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     team_colors: dict[str, str] = {}
     what_changed_signals: list[str] = []
 
+    playoff_standings: list[dict] = []
+
     if season_id:
         # Build standings
         standings = await _get_standings(repo, season_id)
@@ -878,6 +901,16 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     streaks: dict[str, int] = {}
     if season_id:
         season_phase = await _get_season_phase(repo, season_id)
+
+        # During playoffs, split standings into regular-season and playoff records
+        if season_phase in ("playoffs", "championship"):
+            playoff_standings = await _get_standings(
+                repo, season_id, phase_filter="playoff",
+            )
+            standings = await _get_standings(
+                repo, season_id, phase_filter="regular",
+            )
+
         all_games = await repo.get_all_games(season_id)
         if all_games:
             streaks = _compute_streaks_from_games(all_games)
@@ -1064,6 +1097,7 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "season_name": season_name or "Season",
         "latest_report": latest_report,
         "standings": standings,
+        "playoff_standings": playoff_standings,
         "latest_round_games": latest_round_games,
         "current_round": current_round,
         "total_games": total_games,

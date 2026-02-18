@@ -2788,3 +2788,155 @@ class TestHooperBioXSS:
         # The <img> tag must be escaped so the browser won't parse it as HTML
         assert "<img" not in r.text
         assert "&lt;img" in r.text
+
+
+class TestSplitStandings:
+    """Home page splits standings into regular-season and playoff during playoffs."""
+
+    async def test_get_standings_no_filter(self, app_client):
+        """_get_standings without filter returns all games."""
+        from pinwheel.api.pages import _get_standings
+
+        _, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        # Add a playoff game result
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=0,
+                home_team_id=team_ids[0],
+                away_team_id=team_ids[1],
+                home_score=55,
+                away_score=50,
+                winner_team_id=team_ids[0],
+                seed=999,
+                total_possessions=60,
+                phase="semifinal",
+            )
+            await session.commit()
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            standings = await _get_standings(repo, season_id)
+            total_wins = sum(s["wins"] for s in standings)
+            # Round 1 produced 2 regular games + 1 playoff = 3 wins total
+            assert total_wins == 3
+
+    async def test_get_standings_regular_filter(self, app_client):
+        """_get_standings with phase_filter='regular' excludes playoff games."""
+        from pinwheel.api.pages import _get_standings
+
+        _, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=0,
+                home_team_id=team_ids[0],
+                away_team_id=team_ids[1],
+                home_score=55,
+                away_score=50,
+                winner_team_id=team_ids[0],
+                seed=999,
+                total_possessions=60,
+                phase="semifinal",
+            )
+            await session.commit()
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            standings = await _get_standings(repo, season_id, phase_filter="regular")
+            total_wins = sum(s["wins"] for s in standings)
+            # Only the 2 regular-season games from round 1
+            assert total_wins == 2
+
+    async def test_get_standings_playoff_filter(self, app_client):
+        """_get_standings with phase_filter='playoff' includes only playoff games."""
+        from pinwheel.api.pages import _get_standings
+
+        _, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=0,
+                home_team_id=team_ids[0],
+                away_team_id=team_ids[1],
+                home_score=55,
+                away_score=50,
+                winner_team_id=team_ids[0],
+                seed=999,
+                total_possessions=60,
+                phase="semifinal",
+            )
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=11,
+                matchup_index=0,
+                home_team_id=team_ids[2],
+                away_team_id=team_ids[3],
+                home_score=60,
+                away_score=45,
+                winner_team_id=team_ids[2],
+                seed=1000,
+                total_possessions=65,
+                phase="finals",
+            )
+            await session.commit()
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            standings = await _get_standings(repo, season_id, phase_filter="playoff")
+            total_wins = sum(s["wins"] for s in standings)
+            # Only the 2 playoff games
+            assert total_wins == 2
+
+    async def test_home_page_shows_split_standings_during_playoffs(self, app_client):
+        """Home page shows separate Playoff Record and Regular Season sections."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            # Set season to playoffs
+            await repo.update_season_status(season_id, "playoffs")
+            # Add a playoff game
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=0,
+                home_team_id=team_ids[0],
+                away_team_id=team_ids[1],
+                home_score=55,
+                away_score=50,
+                winner_team_id=team_ids[0],
+                seed=999,
+                total_possessions=60,
+                phase="semifinal",
+            )
+            await session.commit()
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert "Playoff Record" in r.text
+        assert "Regular Season" in r.text
+
+    async def test_home_page_shows_single_standings_during_regular_season(self, app_client):
+        """Home page shows single 'Standings' heading during regular season."""
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert "Standings" in r.text
+        assert "Playoff Record" not in r.text
+        assert "Regular Season" not in r.text

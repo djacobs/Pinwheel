@@ -119,13 +119,36 @@
 {% endif %}
 
 {# ===== STANDINGS + THE FLOOR (Two columns) ===== #}
-{% if standings or post_gov_report %}
+{% if standings or playoff_standings or post_gov_report %}
 <div class="home-columns">
   {# Standings #}
-  {% if standings %}
+  {% if standings or playoff_standings %}
   <div class="home-section">
+    {# --- Playoff Record (shown only during playoffs) --- #}
+    {% if playoff_standings %}
     <div class="section-title-bar">
-      <span class="section-title-text">Standings</span>
+      <span class="section-title-text">Playoff Record</span>
+    </div>
+    <div class="mini-standings">
+      {% for s in playoff_standings %}
+      <a href="/teams/{{ s.team_id }}" class="ms-row">
+        <span class="ms-rank">{{ loop.index }}</span>
+        <span class="ms-dot tc-dot" style="--tc: {{ s.color|default('#888') }};"></span>
+        <span class="ms-name">{{ s.team_name }}</span>
+        <span class="ms-record mono">{{ s.wins }}-{{ s.losses }}</span>
+        {% set diff = s.points_for - s.points_against %}
+        <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
+          {{ '+' if diff > 0 else '' }}{{ diff }}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# --- Regular Season standings --- #}
+    {% if standings %}
+    <div class="section-title-bar"{% if playoff_standings %} style="margin-top: 1rem;"{% endif %}>
+      <span class="section-title-text">{% if playoff_standings %}Regular Season{% else %}Standings{% endif %}</span>
     </div>
     <div class="mini-standings">
       {% for s in standings %}
@@ -138,7 +161,7 @@
         <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
           {{ '+' if diff > 0 else '' }}{{ diff }}
         </span>
-        {% if streaks is defined %}
+        {% if streaks is defined and not playoff_standings %}
         {% set streak = streaks.get(s.team_id, 0) %}
         {% if streak > 0 %}
         <span class="mono diff-positive" style="font-size:0.75rem; min-width:2rem; text-align:right;">W{{ streak }}</span>
@@ -149,6 +172,7 @@
       </a>
       {% endfor %}
     </div>
+    {% endif %}
     <div class="section-more">
       <a href="/standings" class="more-link">Full standings &rarr;</a>
     </div>
