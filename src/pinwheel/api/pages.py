@@ -902,8 +902,8 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     if season_id:
         season_phase = await _get_season_phase(repo, season_id)
 
-        # During playoffs, show series matchups and regular-season-only standings
-        if season_phase in ("playoffs", "championship"):
+        # During/after playoffs, show series matchups and regular-season-only standings
+        if season_phase in ("playoffs", "championship", "offseason"):
             from pinwheel.api.games import _build_bracket_data
 
             bracket = await _build_bracket_data(repo)

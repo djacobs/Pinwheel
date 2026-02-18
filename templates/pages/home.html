@@ -119,13 +119,14 @@
 {% endif %}
 
 {# ===== STANDINGS + THE FLOOR (Two columns) ===== #}
-{% if standings or playoff_standings or post_gov_report %}
+{% set has_bracket = playoff_standings and (playoff_standings.get('semifinals') or playoff_standings.get('finals')) %}
+{% if standings or has_bracket or post_gov_report %}
 <div class="home-columns">
   {# Standings #}
-  {% if standings or playoff_standings %}
+  {% if standings or has_bracket %}
   <div class="home-section">
-    {# --- Playoff Series (shown only during playoffs) --- #}
-    {% if playoff_standings %}
+    {# --- Playoff Series (shown only when playoff matchups exist) --- #}
+    {% if has_bracket %}
     <div class="section-title-bar">
       <span class="section-title-text">Playoffs</span>
     </div>
@@ -168,8 +169,8 @@
 
     {# --- Regular Season standings --- #}
     {% if standings %}
-    <div class="section-title-bar"{% if playoff_standings %} style="margin-top: 1rem;"{% endif %}>
-      <span class="section-title-text">{% if playoff_standings %}Regular Season{% else %}Standings{% endif %}</span>
+    <div class="section-title-bar"{% if has_bracket %} style="margin-top: 1rem;"{% endif %}>
+      <span class="section-title-text">{% if has_bracket %}Regular Season{% else %}Standings{% endif %}</span>
     </div>
     <div class="mini-standings">
       {% for s in standings %}
@@ -182,7 +183,7 @@
         <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
           {{ '+' if diff > 0 else '' }}{{ diff }}
         </span>
-        {% if streaks is defined and not playoff_standings %}
+        {% if streaks is defined and not has_bracket %}
         {% set streak = streaks.get(s.team_id, 0) %}
         {% if streak > 0 %}
         <span class="mono diff-positive" style="font-size:0.75rem; min-width:2rem; text-align:right;">W{{ streak }}</span>
