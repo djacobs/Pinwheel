@@ -1745,6 +1745,180 @@ h3 { font-size: 1.05rem; }
   text-align: right;
 }
 
+/* Playoff bracket */
+.bracket {
+  display: grid;
+  grid-template-columns: 1fr 24px 1fr;
+  gap: 0;
+  margin-bottom: 0.75rem;
+}
+
+.bracket-finals-only {
+  grid-template-columns: 1fr;
+}
+
+.bracket-semis {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.bracket-matchup {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.6rem;
+}
+
+.bracket-round-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bracket-bestof {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.bracket-team {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0;
+  opacity: 0.55;
+}
+
+.bracket-team-lead {
+  opacity: 1;
+}
+
+.bracket-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bracket-name {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracket-wins {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-width: 1.5rem;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.bracket-team-lead .bracket-wins {
+  color: var(--accent-success);
+}
+
+.bracket-wins-label {
+  font-size: 0.6rem;
+  font-weight: 400;
+  opacity: 0.6;
+  margin-left: 1px;
+}
+
+/* Bracket connector lines */
+.bracket-connector {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.bracket-line-top {
+  flex: 1;
+  border-bottom: 2px solid var(--border);
+  border-right: 2px solid var(--border);
+  border-bottom-right-radius: 6px;
+}
+
+.bracket-line-mid {
+  flex: 0 0 2px;
+}
+
+.bracket-line-bot {
+  flex: 1;
+  border-top: 2px solid var(--border);
+  border-right: 2px solid var(--border);
+  border-top-right-radius: 6px;
+}
+
+.bracket-finals {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.bracket-finals .bracket-matchup {
+  border-left: 3px solid var(--accent-score);
+}
+
+/* Champion banner */
+.bracket-champion {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  margin-top: 0.5rem;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.08), rgba(255, 215, 0, 0.02));
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: var(--radius);
+}
+
+.bracket-champion-icon {
+  color: #ffd700;
+  font-size: 0.9rem;
+}
+
+.bracket-champion-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bracket-champion-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Mobile: stack bracket vertically */
+@media (max-width: 480px) {
+  .bracket {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .bracket-connector {
+    display: none;
+  }
+  .bracket-finals .bracket-matchup {
+    border-left: 1px solid var(--border);
+    border-top: 3px solid var(--accent-score);
+  }
+}
+
 /* Home report */
 .home-report {
   background: var(--bg-card);

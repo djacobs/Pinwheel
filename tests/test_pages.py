@@ -2945,7 +2945,7 @@ class TestSplitStandings:
         r = await client.get("/")
         assert r.status_code == 200
         assert "Playoffs" in r.text
-        assert "Semifinal" in r.text
+        assert "Semi 1" in r.text
         assert "Regular Season" in r.text
 
     async def test_home_page_shows_single_standings_during_regular_season(self, app_client):

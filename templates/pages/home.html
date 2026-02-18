@@ -125,46 +125,68 @@
   {# Standings #}
   {% if standings or has_bracket %}
   <div class="home-section">
-    {# --- Playoff Series (shown only when playoff matchups exist) --- #}
+    {# --- Playoff Bracket (shown only when playoff matchups exist) --- #}
     {% if has_bracket %}
     <div class="section-title-bar">
       <span class="section-title-text">Playoffs</span>
     </div>
-    <div class="mini-standings">
-      {# Semifinals #}
-      {% for semi in playoff_standings.get('semifinals', []) %}
-      <div class="ms-row" style="cursor: default; flex-direction: column; align-items: stretch; gap: 0.15rem; padding: 0.35rem 0.5rem;">
-        <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5;">Semifinal {{ loop.index }}</div>
-        <div style="display: flex; align-items: center; gap: 0.4rem;">
-          <span class="ms-dot tc-dot" style="--tc: {{ semi.seed_high.color }};"></span>
-          <span class="ms-name" style="flex: 1;">{{ semi.seed_high.team_name }}</span>
-          <span class="ms-record mono {% if semi.seed_high.wins > semi.seed_low.wins %}diff-positive{% endif %}">{{ semi.seed_high.wins }}</span>
+    {% set semis = playoff_standings.get('semifinals', []) %}
+    {% set fin = playoff_standings.get('finals') %}
+    {% set champ = playoff_standings.get('champion') %}
+
+    {# --- Bracket with connecting lines --- #}
+    <div class="bracket{% if not semis %} bracket-finals-only{% endif %}">
+      {% if semis %}
+      <div class="bracket-semis">
+        {% for semi in semis %}
+        <div class="bracket-matchup">
+          <div class="bracket-round-label">Semi {{ loop.index }}<span class="bracket-bestof">Bo{{ semis_best_of }}</span></div>
+          <div class="bracket-team{% if semi.seed_high.wins > semi.seed_low.wins %} bracket-team-lead{% endif %}">
+            <span class="bracket-dot tc-dot" style="--tc: {{ semi.seed_high.color }};"></span>
+            <span class="bracket-name">{{ semi.seed_high.team_name }}</span>
+            <span class="bracket-wins">{{ semi.seed_high.wins }}<span class="bracket-wins-label">w</span></span>
+          </div>
+          <div class="bracket-team{% if semi.seed_low.wins > semi.seed_high.wins %} bracket-team-lead{% endif %}">
+            <span class="bracket-dot tc-dot" style="--tc: {{ semi.seed_low.color }};"></span>
+            <span class="bracket-name">{{ semi.seed_low.team_name }}</span>
+            <span class="bracket-wins">{{ semi.seed_low.wins }}<span class="bracket-wins-label">w</span></span>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.4rem;">
-          <span class="ms-dot tc-dot" style="--tc: {{ semi.seed_low.color }};"></span>
-          <span class="ms-name" style="flex: 1;">{{ semi.seed_low.team_name }}</span>
-          <span class="ms-record mono {% if semi.seed_low.wins > semi.seed_high.wins %}diff-positive{% endif %}">{{ semi.seed_low.wins }}</span>
-        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
-      {# Finals #}
-      {% if playoff_standings.get('finals') %}
-      {% set fin = playoff_standings.finals %}
-      <div class="ms-row" style="cursor: default; flex-direction: column; align-items: stretch; gap: 0.15rem; padding: 0.35rem 0.5rem;">
-        <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5;">Finals</div>
-        <div style="display: flex; align-items: center; gap: 0.4rem;">
-          <span class="ms-dot tc-dot" style="--tc: {{ fin.team_a.color }};"></span>
-          <span class="ms-name" style="flex: 1;">{{ fin.team_a.team_name }}</span>
-          <span class="ms-record mono {% if fin.team_a.wins > fin.team_b.wins %}diff-positive{% endif %}">{{ fin.team_a.wins }}</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.4rem;">
-          <span class="ms-dot tc-dot" style="--tc: {{ fin.team_b.color }};"></span>
-          <span class="ms-name" style="flex: 1;">{{ fin.team_b.team_name }}</span>
-          <span class="ms-record mono {% if fin.team_b.wins > fin.team_a.wins %}diff-positive{% endif %}">{{ fin.team_b.wins }}</span>
+      <div class="bracket-connector">
+        <div class="bracket-line bracket-line-top"></div>
+        <div class="bracket-line bracket-line-mid"></div>
+        <div class="bracket-line bracket-line-bot"></div>
+      </div>
+      {% endif %}
+      {% if fin %}
+      <div class="bracket-finals">
+        <div class="bracket-matchup">
+          <div class="bracket-round-label">Finals<span class="bracket-bestof">Bo{{ finals_best_of }}</span></div>
+          <div class="bracket-team{% if fin.team_a.wins > fin.team_b.wins %} bracket-team-lead{% endif %}">
+            <span class="bracket-dot tc-dot" style="--tc: {{ fin.team_a.color }};"></span>
+            <span class="bracket-name">{{ fin.team_a.team_name }}</span>
+            <span class="bracket-wins">{{ fin.team_a.wins }}<span class="bracket-wins-label">w</span></span>
+          </div>
+          <div class="bracket-team{% if fin.team_b.wins > fin.team_a.wins %} bracket-team-lead{% endif %}">
+            <span class="bracket-dot tc-dot" style="--tc: {{ fin.team_b.color }};"></span>
+            <span class="bracket-name">{{ fin.team_b.team_name }}</span>
+            <span class="bracket-wins">{{ fin.team_b.wins }}<span class="bracket-wins-label">w</span></span>
+          </div>
         </div>
       </div>
       {% endif %}
     </div>
+
+    {% if champ %}
+    <div class="bracket-champion">
+      <span class="bracket-champion-icon">&#9733;</span>
+      <span class="bracket-dot tc-dot" style="--tc: {{ champ.color }};"></span>
+      <span class="bracket-champion-name">{{ champ.team_name }}</span>
+      <span class="bracket-champion-label">Champions</span>
+    </div>
+    {% endif %}
     {% endif %}
 
     {# --- Regular Season standings --- #}

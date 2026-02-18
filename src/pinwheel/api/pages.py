@@ -776,7 +776,9 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     team_colors: dict[str, str] = {}
     what_changed_signals: list[str] = []
 
-    playoff_standings: list[dict] = []
+    playoff_standings: dict = {}
+    semis_best_of = 3
+    finals_best_of = 5
 
     if season_id:
         # Build standings
@@ -911,6 +913,12 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
             standings = await _get_standings(
                 repo, season_id, phase_filter="regular",
             )
+            # Get best-of values from ruleset
+            _season_obj = await repo.get_season(season_id)
+            if _season_obj and _season_obj.current_ruleset:
+                _rs = RuleSet(**_season_obj.current_ruleset)
+                semis_best_of = _rs.playoff_semis_best_of
+                finals_best_of = _rs.playoff_finals_best_of
 
         all_games = await repo.get_all_games(season_id)
         if all_games:
@@ -1099,6 +1107,8 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         "latest_report": latest_report,
         "standings": standings,
         "playoff_standings": playoff_standings,
+        "semis_best_of": semis_best_of,
+        "finals_best_of": finals_best_of,
         "latest_round_games": latest_round_games,
         "current_round": current_round,
         "total_games": total_games,
