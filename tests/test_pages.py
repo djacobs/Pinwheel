@@ -2900,8 +2900,8 @@ class TestSplitStandings:
             # Only the 2 playoff games
             assert total_wins == 2
 
-    async def test_home_page_shows_split_standings_during_playoffs(self, app_client):
-        """Home page shows separate Playoff Record and Regular Season sections."""
+    async def test_home_page_shows_playoff_series_during_playoffs(self, app_client):
+        """Home page shows playoff series bracket and Regular Season sections."""
         client, engine = app_client
         season_id, team_ids = await _seed_season(engine)
 
@@ -2909,7 +2909,24 @@ class TestSplitStandings:
             repo = Repository(session)
             # Set season to playoffs
             await repo.update_season_status(season_id, "playoffs")
-            # Add a playoff game
+            # Create semifinal schedule entries (bracket builder needs these)
+            await repo.create_schedule_entry(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=0,
+                home_team_id=team_ids[0],
+                away_team_id=team_ids[1],
+                phase="semifinal",
+            )
+            await repo.create_schedule_entry(
+                season_id=season_id,
+                round_number=10,
+                matchup_index=1,
+                home_team_id=team_ids[2],
+                away_team_id=team_ids[3],
+                phase="semifinal",
+            )
+            # Add a playoff game result
             await repo.store_game_result(
                 season_id=season_id,
                 round_number=10,
@@ -2927,7 +2944,8 @@ class TestSplitStandings:
 
         r = await client.get("/")
         assert r.status_code == 200
-        assert "Playoff Record" in r.text
+        assert "Playoffs" in r.text
+        assert "Semifinal" in r.text
         assert "Regular Season" in r.text
 
     async def test_home_page_shows_single_standings_during_regular_season(self, app_client):
@@ -2938,5 +2956,5 @@ class TestSplitStandings:
         r = await client.get("/")
         assert r.status_code == 200
         assert "Standings" in r.text
-        assert "Playoff Record" not in r.text
+        assert "Playoffs" not in r.text
         assert "Regular Season" not in r.text

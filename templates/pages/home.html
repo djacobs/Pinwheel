@@ -124,24 +124,45 @@
   {# Standings #}
   {% if standings or playoff_standings %}
   <div class="home-section">
-    {# --- Playoff Record (shown only during playoffs) --- #}
+    {# --- Playoff Series (shown only during playoffs) --- #}
     {% if playoff_standings %}
     <div class="section-title-bar">
-      <span class="section-title-text">Playoff Record</span>
+      <span class="section-title-text">Playoffs</span>
     </div>
     <div class="mini-standings">
-      {% for s in playoff_standings %}
-      <a href="/teams/{{ s.team_id }}" class="ms-row">
-        <span class="ms-rank">{{ loop.index }}</span>
-        <span class="ms-dot tc-dot" style="--tc: {{ s.color|default('#888') }};"></span>
-        <span class="ms-name">{{ s.team_name }}</span>
-        <span class="ms-record mono">{{ s.wins }}-{{ s.losses }}</span>
-        {% set diff = s.points_for - s.points_against %}
-        <span class="ms-diff mono {% if diff > 0 %}diff-positive{% elif diff < 0 %}diff-negative{% endif %}">
-          {{ '+' if diff > 0 else '' }}{{ diff }}
-        </span>
-      </a>
+      {# Semifinals #}
+      {% for semi in playoff_standings.get('semifinals', []) %}
+      <div class="ms-row" style="cursor: default; flex-direction: column; align-items: stretch; gap: 0.15rem; padding: 0.35rem 0.5rem;">
+        <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5;">Semifinal {{ loop.index }}</div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+          <span class="ms-dot tc-dot" style="--tc: {{ semi.seed_high.color }};"></span>
+          <span class="ms-name" style="flex: 1;">{{ semi.seed_high.team_name }}</span>
+          <span class="ms-record mono {% if semi.seed_high.wins > semi.seed_low.wins %}diff-positive{% endif %}">{{ semi.seed_high.wins }}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+          <span class="ms-dot tc-dot" style="--tc: {{ semi.seed_low.color }};"></span>
+          <span class="ms-name" style="flex: 1;">{{ semi.seed_low.team_name }}</span>
+          <span class="ms-record mono {% if semi.seed_low.wins > semi.seed_high.wins %}diff-positive{% endif %}">{{ semi.seed_low.wins }}</span>
+        </div>
+      </div>
       {% endfor %}
+      {# Finals #}
+      {% if playoff_standings.get('finals') %}
+      {% set fin = playoff_standings.finals %}
+      <div class="ms-row" style="cursor: default; flex-direction: column; align-items: stretch; gap: 0.15rem; padding: 0.35rem 0.5rem;">
+        <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5;">Finals</div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+          <span class="ms-dot tc-dot" style="--tc: {{ fin.team_a.color }};"></span>
+          <span class="ms-name" style="flex: 1;">{{ fin.team_a.team_name }}</span>
+          <span class="ms-record mono {% if fin.team_a.wins > fin.team_b.wins %}diff-positive{% endif %}">{{ fin.team_a.wins }}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem;">
+          <span class="ms-dot tc-dot" style="--tc: {{ fin.team_b.color }};"></span>
+          <span class="ms-name" style="flex: 1;">{{ fin.team_b.team_name }}</span>
+          <span class="ms-record mono {% if fin.team_b.wins > fin.team_a.wins %}diff-positive{% endif %}">{{ fin.team_b.wins }}</span>
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
 

@@ -902,11 +902,12 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
     if season_id:
         season_phase = await _get_season_phase(repo, season_id)
 
-        # During playoffs, split standings into regular-season and playoff records
+        # During playoffs, show series matchups and regular-season-only standings
         if season_phase in ("playoffs", "championship"):
-            playoff_standings = await _get_standings(
-                repo, season_id, phase_filter="playoff",
-            )
+            from pinwheel.api.games import _build_bracket_data
+
+            bracket = await _build_bracket_data(repo)
+            playoff_standings = bracket  # series-based bracket data
             standings = await _get_standings(
                 repo, season_id, phase_filter="regular",
             )
@@ -1007,7 +1008,6 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         from pinwheel.db.models import BoxScoreRow, GameResultRow, HooperRow, TeamRow
 
         round_phase = await _get_game_phase(repo, season_id, current_round)
-        is_championship_round = round_phase in ("finals", "championship")
 
         # Simulation report
         sim_reports = await repo.get_reports_for_round(
@@ -1016,8 +1016,9 @@ async def home_page(request: Request, repo: RepoDep, current_user: OptionalUser)
         if sim_reports:
             post_sim_report = sim_reports[0].content
 
-        # Governance report
-        if is_championship_round:
+        # Governance report — only show "adjourned" when the season is
+        # actually finished, not merely because the current round is finals.
+        if season_phase in ("offseason",):
             post_gov_report = (
                 "The season has concluded. The Floor is adjourned "
                 "until a new season begins."
