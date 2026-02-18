@@ -130,3 +130,5 @@ curl https://pinwheel.fly.dev/health
 ## License
 
 MIT
+
+"Pinwheel" is a trademark of Samwise Projects. All rights reserved, 2026.
