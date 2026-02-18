@@ -793,3 +793,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 124. [DONE] `/activate-mechanic` admin command
 **Problem:** `custom_mechanic` effects registered as "PENDING MECHANIC" and did nothing mechanically — players who proposed creative rules saw no gameplay impact.
 **Fix:** Added `/activate-mechanic` admin slash command with autocomplete from pending custom_mechanic effects. Admin provides a hook_point + action_code for the real implementation, or confirms the approximation effects are sufficient. Updates the RegisteredEffect and posts an announcement. Meanwhile, custom_mechanic effects now fire at report hooks so `mechanic_observable_behavior` appears in commentary even before activation.
+
+### 125. [DONE] Separate regular-season and playoff standings on home page
+**Problem:** During playoffs, the home page mini-standings mixed regular-season and playoff W-L into one combined record, making it confusing to tell how teams were performing in the post-season vs regular season.
+**Fix:** Added `phase_filter` parameter to `_get_standings()`. During playoffs/championship, the home page now shows two sections: "Playoff Record" (playoff-only W-L) above "Regular Season" (regular-season-only W-L with streaks hidden). During regular season, the single "Standings" section is unchanged.

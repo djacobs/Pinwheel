@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2032 tests**, zero lint errors (Session 109)
+- **2037 tests**, zero lint errors (Session 110)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -19,7 +19,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
 - **Day 19:** Resilient proposal pipeline — deferred interpreter, mock fallback detection, custom_mechanic activation
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `7bdb7c5` — feat: resilient proposal pipeline — deferred interpreter, mock fallback, custom_mechanic activation
+- **Latest commit:** `c5030ec` — feat: separate regular-season and playoff standings on home page
 - **Day 20:** Smarter reporter — bedrock facts, playoff series context, prior-season memory, model switch to claude-sonnet-4-6
 
 ## Today's Agenda
@@ -93,3 +93,19 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **2032 tests, zero lint errors.**
 
 **What could have gone better:** The prior-season memory feature depends on `SeasonArchiveRow` data existing in the database. In production, the first season hasn't been archived yet, so this feature won't produce output until a season is completed and archived. The bedrock facts and playoff series context are immediately valuable — they'll prevent the hallucinations we saw in production reports during the current season's playoffs.
+
+## Session 110 — Separate Regular-Season and Playoff Standings on Home Page
+
+**What was asked:** The home page mini-standings mixed regular-season and playoff game results into one combined table. During playoffs this is confusing — a team's record includes playoff W-L mixed with regular-season W-L. Split them into two separate sections.
+
+**What was built:**
+- **`_get_standings()` phase filter** — Added `phase_filter` param (`"regular"`, `"playoff"`, or `None`). Regular filters to `phase in (None, "regular")`, playoff filters to `phase in ("playoff", "semifinal", "finals")`, None returns all (original behaviour)
+- **Home route split** — When `season_phase` is `"playoffs"` or `"championship"`, computes both `standings` (regular only) and `playoff_standings` (playoff only) and passes both to the template
+- **Template conditional layout** — During playoffs: "Playoff Record" section (playoff W-L) above "Regular Season" section (regular-season W-L). During regular season: unchanged single "Standings" section
+- **5 new tests** — `_get_standings` with no filter, regular filter, playoff filter; home page shows split during playoffs; home page shows single during regular season
+
+**Files modified (3):** `src/pinwheel/api/pages.py`, `templates/pages/home.html`, `tests/test_pages.py`
+
+**2037 tests, zero lint errors.**
+
+**What could have gone better:** Straightforward feature. No issues.
