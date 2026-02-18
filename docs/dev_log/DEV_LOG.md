@@ -19,7 +19,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
 - **Day 19:** Resilient proposal pipeline — deferred interpreter, mock fallback detection, custom_mechanic activation
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `c5030ec` — feat: separate regular-season and playoff standings on home page
+- **Latest commit:** `4a00558` — fix: playoff series bracket on home page, governance not adjourned during finals
 - **Day 20:** Smarter reporter — bedrock facts, playoff series context, prior-season memory, model switch to claude-sonnet-4-6
 
 ## Today's Agenda
@@ -94,18 +94,19 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 **What could have gone better:** The prior-season memory feature depends on `SeasonArchiveRow` data existing in the database. In production, the first season hasn't been archived yet, so this feature won't produce output until a season is completed and archived. The bedrock facts and playoff series context are immediately valuable — they'll prevent the hallucinations we saw in production reports during the current season's playoffs.
 
-## Session 110 — Separate Regular-Season and Playoff Standings on Home Page
+## Session 110 — Playoff Series Bracket + Governance Fix
 
-**What was asked:** The home page mini-standings mixed regular-season and playoff game results into one combined table. During playoffs this is confusing — a team's record includes playoff W-L mixed with regular-season W-L. Split them into two separate sections.
+**What was asked:** Three home page issues during playoffs: (1) standings mixed regular-season and playoff W-L into one table, (2) "The Floor is adjourned" message showed during active finals series, (3) playoff standings should show series-by-series bracket not a W-L table. Also investigated AI hallucination ("third title under a different name" — all 3 archived seasons were won by Rose City Thorns with the same name).
 
 **What was built:**
 - **`_get_standings()` phase filter** — Added `phase_filter` param (`"regular"`, `"playoff"`, or `None`). Regular filters to `phase in (None, "regular")`, playoff filters to `phase in ("playoff", "semifinal", "finals")`, None returns all (original behaviour)
-- **Home route split** — When `season_phase` is `"playoffs"` or `"championship"`, computes both `standings` (regular only) and `playoff_standings` (playoff only) and passes both to the template
-- **Template conditional layout** — During playoffs: "Playoff Record" section (playoff W-L) above "Regular Season" section (regular-season W-L). During regular season: unchanged single "Standings" section
-- **5 new tests** — `_get_standings` with no filter, regular filter, playoff filter; home page shows split during playoffs; home page shows single during regular season
+- **Playoff series bracket on home page** — During playoffs, the standings section now shows a mini bracket via `_build_bracket_data()`: Semifinal 1, Semifinal 2, and Finals — each with team colors, names, and series win counts. Replaced the W-L table approach with series-by-series display.
+- **Governance "adjourned" fix** — The hardcoded "Floor is adjourned" message was gated on `is_championship_round` (any finals-phase game). Changed to gate on `season_phase == "offseason"` so governance reports show during active finals series.
+- **Regular-season standings** — Shown separately below the bracket during playoffs, labeled "Regular Season". During regular season, the single "Standings" section is unchanged.
+- **5 new tests** — `_get_standings` with no filter, regular filter, playoff filter; home page shows bracket during playoffs; home page shows single standings during regular season
 
 **Files modified (3):** `src/pinwheel/api/pages.py`, `templates/pages/home.html`, `tests/test_pages.py`
 
 **2037 tests, zero lint errors.**
 
-**What could have gone better:** Straightforward feature. No issues.
+**What could have gone better:** The initial implementation used a W-L table for playoff standings, which the user immediately flagged as wrong — they wanted series-by-series. Should have asked about the desired format before implementing. The `_build_bracket_data()` function in `games.py` already had exactly the right data structure; reusing it was clean. The AI hallucination investigation confirmed all 3 archived seasons have the same champion team name — the "under a different name" claim was pure fabrication despite bedrock facts constraints.

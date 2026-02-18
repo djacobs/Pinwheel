@@ -794,6 +794,10 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 **Problem:** `custom_mechanic` effects registered as "PENDING MECHANIC" and did nothing mechanically — players who proposed creative rules saw no gameplay impact.
 **Fix:** Added `/activate-mechanic` admin slash command with autocomplete from pending custom_mechanic effects. Admin provides a hook_point + action_code for the real implementation, or confirms the approximation effects are sufficient. Updates the RegisteredEffect and posts an announcement. Meanwhile, custom_mechanic effects now fire at report hooks so `mechanic_observable_behavior` appears in commentary even before activation.
 
-### 125. [DONE] Separate regular-season and playoff standings on home page
-**Problem:** During playoffs, the home page mini-standings mixed regular-season and playoff W-L into one combined record, making it confusing to tell how teams were performing in the post-season vs regular season.
-**Fix:** Added `phase_filter` parameter to `_get_standings()`. During playoffs/championship, the home page now shows two sections: "Playoff Record" (playoff-only W-L) above "Regular Season" (regular-season-only W-L with streaks hidden). During regular season, the single "Standings" section is unchanged.
+### 125. [DONE] Playoff series bracket on home page
+**Problem:** During playoffs, the home page mini-standings mixed regular-season and playoff W-L into one combined record. Even after splitting, a plain W-L table doesn't convey the series matchups that define the playoffs.
+**Fix:** During playoffs, the standings section now shows a mini bracket built from `_build_bracket_data()`: Semifinal 1, Semifinal 2, and Finals — each showing both teams with color dots, names, and series win counts. Regular-season standings appear below, labeled "Regular Season". During regular season, the single "Standings" section is unchanged.
+
+### 126. [DONE] Governance report during active finals
+**Problem:** "The Floor is adjourned until a new season begins" showed on the home page during active finals games because it was gated on `is_championship_round` (any finals-phase round), not on whether the season was actually finished.
+**Fix:** Changed the condition to check `season_phase == "offseason"` instead, so governance reports display normally throughout the playoffs including finals.
