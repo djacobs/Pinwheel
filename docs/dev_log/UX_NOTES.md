@@ -801,3 +801,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 126. [DONE] Governance report during active finals
 **Problem:** "The Floor is adjourned until a new season begins" showed on the home page during active finals games because it was gated on `is_championship_round` (any finals-phase round), not on whether the season was actually finished.
 **Fix:** Changed the condition to check `season_phase == "offseason"` instead, so governance reports display normally throughout the playoffs including finals.
+
+### 127. [DONE] Light-safe team colors in live arena play-by-play
+**Problem:** Yellow (#f0c040) and cyan (#53d8fb) team colors were nearly invisible on white backgrounds in the live arena. The CSS used `color: var(--tcl, var(--tc))` but SSE-injected JavaScript only set `--tc`, never `--tcl`, so bright colors passed through undarkened.
+**Fix:** Added a JS `lightSafe()` function to `arena.html` that mirrors the Python `_light_safe()` Jinja2 filter (checks luminance > 0.5, darkens by 0.6x). Applied to all 3 dynamic insertion points: two team name spans in live zone creation and one play-by-play line in the SSE possession handler. Now `--tcl` is always set alongside `--tc`.
+
+### 128. [DONE] Playoff bracket persists into offseason
+**Problem:** After the season advanced from "championship" to "offseason" status, the playoff series bracket and split standings disappeared from the home page. The bracket rendering was gated on `season_phase in ("playoffs", "championship")` and didn't account for offseason.
+**Fix:** Added `"offseason"` to the phase check. Also introduced a `has_bracket` Jinja2 variable (`playoff_standings and (playoff_standings.get('semifinals') or playoff_standings.get('finals'))`) to robustly guard against rendering an empty bracket section for seasons that never had playoffs.

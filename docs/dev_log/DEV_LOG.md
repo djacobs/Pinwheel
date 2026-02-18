@@ -19,8 +19,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 18:** Report prompt simplification, regen-report command, production report fix, report ordering fix
 - **Day 19:** Resilient proposal pipeline — deferred interpreter, mock fallback detection, custom_mechanic activation
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `4a00558` — fix: playoff series bracket on home page, governance not adjourned during finals
+- **Latest commit:** `9a5f428` — fix: show playoff bracket and split standings in offseason too
 - **Day 20:** Smarter reporter — bedrock facts, playoff series context, prior-season memory, model switch to claude-sonnet-4-6
+- **Day 21:** Playoff series bracket, governance adjourned fix, arena light-safe colors, offseason bracket fix
 
 ## Today's Agenda
 
@@ -110,3 +111,17 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **2037 tests, zero lint errors.**
 
 **What could have gone better:** The initial implementation used a W-L table for playoff standings, which the user immediately flagged as wrong — they wanted series-by-series. Should have asked about the desired format before implementing. The `_build_bracket_data()` function in `games.py` already had exactly the right data structure; reusing it was clean. The AI hallucination investigation confirmed all 3 archived seasons have the same champion team name — the "under a different name" claim was pure fabrication despite bedrock facts constraints.
+
+## Session 111 — Arena Contrast + Offseason Bracket Fix
+
+**What was asked:** Two production bugs: (1) Yellow (#f0c040) and cyan (#53d8fb) team colors unreadable on white backgrounds in the live arena play-by-play, (2) playoff bracket and split standings disappeared after season advanced from "championship" to "offseason" status.
+
+**What was built:**
+- **Light-safe team colors in arena** — Added JS `lightSafe()` function to `arena.html` mirroring the Python `_light_safe()` filter. Applied to 3 locations where SSE-injected content sets `--tc`: two team name spans in zone creation and one play-by-play line. CSS already had `.tc { color: var(--tcl, var(--tc)); }` — the fix ensures `--tcl` is set alongside `--tc` in dynamic JS.
+- **Offseason bracket fix** — The split standings/bracket only triggered for `season_phase in ("playoffs", "championship")`. Added `"offseason"` to the condition so bracket data persists after season ends. Also added `has_bracket` template variable (`playoff_standings and (playoff_standings.get('semifinals') or playoff_standings.get('finals'))`) to guard against empty bracket dicts for seasons without playoff games.
+
+**Files modified (3):** `templates/pages/arena.html`, `src/pinwheel/api/pages.py`, `templates/pages/home.html`
+
+**2037 tests, zero lint errors.**
+
+**What could have gone better:** The offseason case was missed because the season happened to advance from "championship" to "offseason" during the work session. Testing against all phase values would have caught it. The `_build_bracket_data()` function returns a dict even when there are no playoff games — the `has_bracket` guard prevents an empty bracket section from rendering.
