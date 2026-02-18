@@ -10,12 +10,14 @@ This module NEVER writes to the database. It only reads.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pinwheel.db.repository import Repository
+    from pinwheel.models.rules import RuleSet
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +89,52 @@ class NarrativeContext:
     """Average total game score (home+away) from games before the most recent
     scoring rule change.  Used for stat-comparison callouts in commentary."""
 
+    # Bedrock league facts — structural truths the AI must not contradict
+    bedrock_facts: str = ""
+    """Verified structural facts about the league (team count, format, scoring, etc.).
+    Built from the current RuleSet. Appears at the top of every AI prompt."""
+
+    # Playoff series record (separate from season h2h)
+    playoff_series: dict[str, object] = field(default_factory=dict)
+    """Playoff series record for the current round's matchup, e.g.
+    {home_wins, away_wins, best_of, wins_needed, phase_label, description}."""
+
+    # Prior season memory
+    prior_seasons: list[dict[str, object]] = field(default_factory=list)
+    """Lightweight summaries of completed seasons from the archive."""
+
+
+def _build_bedrock_facts(ruleset: RuleSet) -> str:
+    """Build verified structural facts about the league from the current ruleset.
+
+    These facts appear at the top of every AI prompt and must not be contradicted.
+    """
+    semis_wins = (ruleset.playoff_semis_best_of // 2) + 1
+    finals_wins = (ruleset.playoff_finals_best_of // 2) + 1
+    return (
+        f"League: {ruleset.teams_count} teams, 3v3 basketball.\n"
+        f"No byes — every team plays every round during the regular season.\n"
+        f"Playoffs: top {ruleset.playoff_teams} teams qualify. "
+        f"Semifinals are best-of-{ruleset.playoff_semis_best_of} "
+        f"(first to {semis_wins} wins). "
+        f"Finals are best-of-{ruleset.playoff_finals_best_of} "
+        f"(first to {finals_wins} wins).\n"
+        f"Elam Ending: activates after Q{ruleset.elam_trigger_quarter} "
+        f"if margin is within {ruleset.elam_margin} points.\n"
+        f"Scoring: 3pt={ruleset.three_point_value}, 2pt={ruleset.two_point_value}, "
+        f"FT={ruleset.free_throw_value}.\n"
+        f"Quarter length: {ruleset.quarter_minutes} minutes. "
+        f"Shot clock: {ruleset.shot_clock_seconds} seconds."
+    )
+
 
 async def compute_narrative_context(
     repo: Repository,
     season_id: str,
     round_number: int,
     governance_interval: int = 1,
+    *,
+    ruleset: RuleSet | None = None,
 ) -> NarrativeContext:
     """Build a NarrativeContext from current database state.
 
@@ -105,6 +147,7 @@ async def compute_narrative_context(
         season_id: Current season ID.
         round_number: The round about to be played/just played.
         governance_interval: How often governance tallies occur (in rounds).
+        ruleset: Current RuleSet — if provided, bedrock facts are computed.
 
     Returns:
         A fully populated NarrativeContext.
@@ -183,6 +226,44 @@ async def compute_narrative_context(
                 )
                 ctx.head_to_head[h2h_key] = h2h
 
+            # --- Playoff series (separate from season h2h) ---
+            if ctx.phase in ("semifinal", "finals"):
+                for entry in round_schedule:
+                    playoff_h2h = _compute_head_to_head(
+                        games,
+                        entry.home_team_id,
+                        entry.away_team_id,
+                        phase_filter="playoff",
+                    )
+                    best_of = (
+                        ruleset.playoff_finals_best_of
+                        if ctx.phase == "finals" and ruleset
+                        else ruleset.playoff_semis_best_of
+                        if ruleset
+                        else 3
+                    )
+                    wins_needed = (best_of // 2) + 1
+                    home_team = await repo.get_team(entry.home_team_id)
+                    away_team = await repo.get_team(entry.away_team_id)
+                    home_name = home_team.name if home_team else entry.home_team_id
+                    away_name = away_team.name if away_team else entry.away_team_id
+                    hw = playoff_h2h["wins_a"]
+                    aw = playoff_h2h["wins_b"]
+                    desc = (
+                        f"{home_name} leads {hw}-{aw}" if hw > aw
+                        else f"{away_name} leads {aw}-{hw}" if aw > hw
+                        else f"Series tied {hw}-{aw}"
+                    )
+                    series_key = f"{entry.home_team_id}_vs_{entry.away_team_id}"
+                    ctx.playoff_series[series_key] = {
+                        "home_wins": hw,
+                        "away_wins": aw,
+                        "best_of": best_of,
+                        "wins_needed": wins_needed,
+                        "phase_label": ctx.phase,
+                        "description": desc,
+                    }
+
         # --- Hot players ---
         ctx.hot_players = await _compute_hot_players(repo, season_id, games)
 
@@ -259,6 +340,52 @@ async def compute_narrative_context(
         if pid not in resolved_ids and pid not in vetoed_ids:
             pending_count += 1
     ctx.pending_proposals = pending_count
+
+    # --- Bedrock facts ---
+    if ruleset is not None:
+        ctx.bedrock_facts = _build_bedrock_facts(ruleset)
+
+    # --- Prior season memory ---
+    try:
+        archives = await repo.get_all_archives()
+        for archive in archives[:3]:  # at most 3, newest first
+            summary: dict[str, object] = {
+                "season_name": archive.season_name,
+                "champion_team_name": archive.champion_team_name or "Unknown",
+                "total_games": archive.total_games,
+                "total_rule_changes": archive.total_rule_changes,
+            }
+            # Extract governance_legacy excerpt from memorial
+            memorial = archive.memorial
+            if isinstance(memorial, str):
+                try:
+                    memorial = json.loads(memorial)
+                except (json.JSONDecodeError, TypeError):
+                    memorial = None
+            if isinstance(memorial, dict):
+                legacy = memorial.get("governance_legacy", "")
+                if legacy:
+                    summary["governance_legacy"] = str(legacy)[:100]
+            # Extract notable rules from rule_change_history
+            rule_history = archive.rule_change_history
+            if isinstance(rule_history, str):
+                try:
+                    rule_history = json.loads(rule_history)
+                except (json.JSONDecodeError, TypeError):
+                    rule_history = []
+            if isinstance(rule_history, list):
+                notable: list[str] = []
+                for rc in rule_history[:3]:
+                    if isinstance(rc, dict):
+                        param = rc.get("parameter", "")
+                        val = rc.get("new_value", "")
+                        if param:
+                            notable.append(f"{param}={val}")
+                if notable:
+                    summary["notable_rules"] = notable
+            ctx.prior_seasons.append(summary)
+    except Exception:
+        logger.debug("prior_seasons_skipped — archives not available", exc_info=True)
 
     return ctx
 
@@ -352,6 +479,7 @@ def _compute_head_to_head(
     games: list[object],
     team_a_id: str,
     team_b_id: str,
+    phase_filter: str | None = None,
 ) -> dict[str, object]:
     """Compute head-to-head record between two teams.
 
@@ -359,6 +487,8 @@ def _compute_head_to_head(
         games: All game results for the season.
         team_a_id: First team ID.
         team_b_id: Second team ID.
+        phase_filter: If set, only count games matching this phase
+            (e.g. "playoff"). Uses getattr to check game.phase.
 
     Returns:
         Dict with wins_a, wins_b, total_games, last_winner.
@@ -372,6 +502,11 @@ def _compute_head_to_head(
     sorted_games = sorted(games, key=lambda g: g.round_number)
     for g in sorted_games:
         if frozenset({g.home_team_id, g.away_team_id}) == pair:
+            # Apply phase filter if requested
+            if phase_filter is not None:
+                game_phase = getattr(g, "phase", None)
+                if game_phase != phase_filter:
+                    continue
             total += 1
             if g.winner_team_id == team_a_id:
                 wins_a += 1
@@ -483,6 +618,12 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
     """
     lines: list[str] = []
 
+    # Bedrock facts at the TOP — ground truth the AI must not contradict
+    if ctx.bedrock_facts:
+        lines.append("=== LEAGUE FACTS (do not contradict) ===")
+        lines.append(ctx.bedrock_facts)
+        lines.append("")
+
     # Phase and arc
     if ctx.phase not in ("regular",):
         phase_labels = {
@@ -500,9 +641,12 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
             f"Season arc: {ctx.season_arc} (Round {ctx.round_number} of {ctx.total_rounds})"
         )
 
-    # Standings
+    # Standings — label differently during playoffs
     if ctx.standings:
-        lines.append("\nStandings:")
+        if ctx.phase in ("semifinal", "finals"):
+            lines.append("\nRegular-season standings (for seeding reference):")
+        else:
+            lines.append("\nStandings:")
         for s in ctx.standings:
             rank = s.get("rank", "?")
             name = s.get("team_name", s.get("team_id", "???"))
@@ -516,9 +660,26 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
                 streak_str = f" (L{abs(streak)} streak)"
             lines.append(f"  {rank}. {name} ({wins}W-{losses}L){streak_str}")
 
+    # Playoff series — separate from season h2h
+    if ctx.playoff_series:
+        lines.append(
+            "\nPLAYOFF SERIES (current series only — NOT season h2h):"
+        )
+        for key, series in ctx.playoff_series.items():
+            if isinstance(series, dict):
+                desc = series.get("description", "")
+                best_of = series.get("best_of", "?")
+                phase_label = series.get("phase_label", "playoff")
+                lines.append(
+                    f"  {key}: {desc} (best-of-{best_of}, {phase_label})"
+                )
+
     # Head-to-head for this round's matchups
     if ctx.head_to_head:
-        lines.append("\nMatchup history:")
+        if ctx.phase in ("semifinal", "finals"):
+            lines.append("\nSeason head-to-head (all games this season):")
+        else:
+            lines.append("\nMatchup history:")
         for key, h2h in ctx.head_to_head.items():
             total = h2h.get("total_games", 0)
             if total and isinstance(total, int) and total > 0:
@@ -563,5 +724,24 @@ def format_narrative_for_prompt(ctx: NarrativeContext) -> str:
         lines.append("Governance window: OPEN this round")
     elif ctx.next_tally_round is not None:
         lines.append(f"Next governance tally: Round {ctx.next_tally_round}")
+
+    # Prior season memory
+    if ctx.prior_seasons:
+        lines.append("\nLeague history:")
+        for ps in ctx.prior_seasons:
+            name = ps.get("season_name", "Unknown Season")
+            champ = ps.get("champion_team_name", "Unknown")
+            games_count = ps.get("total_games", 0)
+            rule_changes = ps.get("total_rule_changes", 0)
+            lines.append(
+                f"  {name}: champion {champ}, "
+                f"{games_count} games, {rule_changes} rule changes"
+            )
+            legacy = ps.get("governance_legacy")
+            if legacy:
+                lines.append(f"    Governance: {legacy}")
+            notable = ps.get("notable_rules")
+            if notable and isinstance(notable, list):
+                lines.append(f"    Key rules: {', '.join(str(r) for r in notable)}")
 
     return "\n".join(lines)

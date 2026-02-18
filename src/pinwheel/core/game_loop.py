@@ -1479,7 +1479,8 @@ async def _phase_simulate_and_govern(
     narrative_ctx: NarrativeContext | None = None
     try:
         narrative_ctx = await compute_narrative_context(
-            repo, season_id, round_number, governance_interval
+            repo, season_id, round_number, governance_interval,
+            ruleset=ruleset,
         )
     except Exception:
         logger.exception(

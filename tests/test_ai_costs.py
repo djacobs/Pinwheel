@@ -349,6 +349,7 @@ async def test_costs_dashboard_auth_redirect(app_client: tuple) -> None:
 def test_pricing_dict_has_known_models() -> None:
     """Pricing dict should include the models we actually use."""
     assert "claude-sonnet-4-5-20250929" in PRICING
+    assert "claude-sonnet-4-6" in PRICING
     assert "claude-haiku-4-5-20251001" in PRICING
     for _model, rates in PRICING.items():
         assert "input_per_mtok" in rates

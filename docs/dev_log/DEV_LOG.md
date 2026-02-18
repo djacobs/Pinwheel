@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2017 tests**, zero lint errors (Session 108)
+- **2032 tests**, zero lint errors (Session 109)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -20,6 +20,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 19:** Resilient proposal pipeline — deferred interpreter, mock fallback detection, custom_mechanic activation
 - **Live at:** https://pinwheel.fly.dev
 - **Latest commit:** `7bdb7c5` — feat: resilient proposal pipeline — deferred interpreter, mock fallback, custom_mechanic activation
+- **Day 20:** Smarter reporter — bedrock facts, playoff series context, prior-season memory, model switch to claude-sonnet-4-6
 
 ## Today's Agenda
 
@@ -72,3 +73,23 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 **2017 tests, zero lint errors.**
 
 **What could have gone better:** The plan called for 5 phases but phases 2-4 collapsed naturally into phase 2 since all the new action primitives live in the same `_apply_action_code` method. The `swap_roster_player` implementation is a rough approximation (adds a player to the list rather than properly tracking lifetime/restoration) — the full vision with named crowd players and cross-quarter tracking would need a custom_mechanic. The `conditional_sequence` gate system only supports `random_chance` gates currently; other gate types (e.g., `previous_step_result`) are placeholders for future expansion.
+
+## Session 109 — Smarter Reporter: Bedrock Facts + Season Memory + Model Switch
+
+**What was asked:** Fix AI reporter hallucinations (inventing byes, confusing pre/post-game series records, general basketball knowledge filling Pinwheel-specific gaps) and switch all AI models to `claude-sonnet-4-6`.
+
+**What was built:**
+- **Bedrock facts** — `_build_bedrock_facts(ruleset)` generates ~8 lines of verified structural facts (team count, 3v3 format, "no byes," playoff series format, Elam trigger, scoring values, quarter/shot clock) from the current RuleSet. Emitted at the top of every AI prompt as `=== LEAGUE FACTS (do not contradict) ===`
+- **Head-to-head phase filtering** — `_compute_head_to_head()` gains a `phase_filter` param. During playoffs, playoff-only series records are computed separately into `ctx.playoff_series` with home/away wins, best-of, wins-needed, and a human-readable description
+- **Prior season memory** — Queries `SeasonArchiveRow` (at most 3, newest first) and extracts season name, champion, game/rule counts, governance legacy excerpt, and notable rules. Emitted as "League history:" section in prompts
+- **Smarter prompt formatting** — Standings labeled as "Regular-season standings (for seeding reference)" during playoffs; h2h labeled "Season head-to-head (all games this season)"; playoff series separate section
+- **AI prompt constraints** — Added ground rules to simulation report, commentary, and highlight reel prompts: never contradict LEAGUE FACTS, use PLAYOFF SERIES during playoffs, don't invent concepts not in the data
+- **Model switch** — All 13 AI call sites switched from `claude-opus-4-6`/`claude-sonnet-4-5-20250929` to `claude-sonnet-4-6`. Added `claude-sonnet-4-6` pricing entry in `usage.py`
+- **`game_loop.py`** — passes `ruleset=ruleset` to `compute_narrative_context()`
+- **15 new tests** — bedrock facts (default + custom ruleset), h2h phase filter (3 cases), format output verification (bedrock at top, playoff series, labeled standings/h2h, prior seasons, all fields together), integration tests (with/without ruleset), pricing dict
+
+**Files modified (10):** `src/pinwheel/ai/usage.py`, `src/pinwheel/core/narrative.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/ai/commentary.py`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/ai/search.py`, `src/pinwheel/ai/mirror.py`, `tests/test_narrative.py`, `tests/test_ai_costs.py`
+
+**2032 tests, zero lint errors.**
+
+**What could have gone better:** The prior-season memory feature depends on `SeasonArchiveRow` data existing in the database. In production, the first season hasn't been archived yet, so this feature won't produce output until a season is completed and archived. The bedrock facts and playoff series context are immediately valuable — they'll prevent the hallucinations we saw in production reports during the current season's playoffs.

@@ -344,7 +344,7 @@ async def parse_query_ai(
         hooper_names=", ".join(hooper_names) if hooper_names else "(none yet)",
     )
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
@@ -1046,7 +1046,7 @@ async def format_response_ai(
 
     from pinwheel.ai.usage import cacheable_system
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(

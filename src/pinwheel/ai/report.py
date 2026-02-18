@@ -579,6 +579,13 @@ Three paragraphs that crackle beat five that summarize.
 
 Early rounds (1-3): no streaks, no trends, no "tight races." Write about the games.
 
+## Ground Rules
+- "LEAGUE FACTS" in the context are verified ground truth. Never contradict them. \
+If the facts say "No byes," do not mention byes. If they say "best-of-3," do not say "best-of-5."
+- During playoffs, use the "PLAYOFF SERIES" section for series record — NOT "Season head-to-head." \
+The series record is the current playoff matchup only.
+- Do not invent concepts not present in the data (e.g., byes, wild cards, conferences, drafts).
+
 The AI observes. Humans decide.
 
 ## Current Round Data
@@ -1126,7 +1133,7 @@ async def _call_claude(
         track_latency,
     )
 
-    model = "claude-opus-4-6"
+    model = "claude-sonnet-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         async with track_latency() as timing:
@@ -2297,7 +2304,7 @@ async def generate_season_memorial(
     memorial_data["championship_recap"] = narratives[1]
     memorial_data["champion_profile"] = narratives[2]
     memorial_data["governance_legacy"] = narratives[3]
-    memorial_data["model_used"] = "claude-sonnet-4-5-20250929"
+    memorial_data["model_used"] = "claude-sonnet-4-6"
 
     return memorial_data
 

@@ -43,6 +43,12 @@ PRICING: dict[str, dict[str, float]] = {
         "cache_read_per_mtok": 0.30,
         "cache_write_per_mtok": 3.75,
     },
+    "claude-sonnet-4-6": {
+        "input_per_mtok": 3.00,
+        "output_per_mtok": 15.00,
+        "cache_read_per_mtok": 0.30,
+        "cache_write_per_mtok": 3.75,
+    },
     "claude-haiku-4-5-20251001": {
         "input_per_mtok": 0.80,
         "output_per_mtok": 4.00,

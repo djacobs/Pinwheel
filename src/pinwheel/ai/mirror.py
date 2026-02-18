@@ -231,7 +231,7 @@ async def _call_claude(system: str, user_message: str, api_key: str) -> str:
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             max_tokens=1500,
             system=system,
             messages=[{"role": "user", "content": user_message}],

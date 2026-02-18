@@ -17,6 +17,7 @@ from pinwheel.ai.report import (
 from pinwheel.core.game_loop import step_round
 from pinwheel.core.narrative import (
     NarrativeContext,
+    _build_bedrock_facts,
     _build_rules_narrative,
     _compute_head_to_head,
     _compute_phase,
@@ -797,3 +798,270 @@ class TestNarrativeContextDataclass:
         assert ctx.phase == "finals"
         assert ctx.streaks["A"] == 3
         assert ctx.pending_proposals == 2
+
+    def test_new_fields_default_empty(self) -> None:
+        ctx = NarrativeContext()
+        assert ctx.bedrock_facts == ""
+        assert ctx.playoff_series == {}
+        assert ctx.prior_seasons == []
+
+
+# ---------------------------------------------------------------------------
+# Bedrock facts tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBedrockFacts:
+    """Tests for _build_bedrock_facts()."""
+
+    def test_default_ruleset(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        facts = _build_bedrock_facts(RuleSet())
+        assert "8 teams" in facts
+        assert "3v3" in facts
+        assert "No byes" in facts
+        assert "best-of-3" in facts  # semis
+        assert "best-of-5" in facts  # finals
+        assert "3pt=3" in facts
+        assert "2pt=2" in facts
+        assert "FT=1" in facts
+        assert "10 minutes" in facts
+        assert "15 seconds" in facts
+        assert "Elam Ending" in facts
+
+    def test_custom_ruleset(self) -> None:
+        from pinwheel.models.rules import RuleSet
+
+        rs = RuleSet(
+            teams_count=6,
+            playoff_teams=4,
+            playoff_semis_best_of=5,
+            playoff_finals_best_of=7,
+            three_point_value=5,
+            two_point_value=3,
+            free_throw_value=2,
+            quarter_minutes=8,
+            shot_clock_seconds=20,
+            elam_trigger_quarter=4,
+            elam_margin=20,
+        )
+        facts = _build_bedrock_facts(rs)
+        assert "6 teams" in facts
+        assert "best-of-5" in facts
+        assert "first to 3 wins" in facts
+        assert "best-of-7" in facts
+        assert "first to 4 wins" in facts
+        assert "3pt=5" in facts
+        assert "2pt=3" in facts
+        assert "FT=2" in facts
+        assert "8 minutes" in facts
+        assert "20 seconds" in facts
+        assert "Q4" in facts
+        assert "20 points" in facts
+
+
+class TestHeadToHeadPhaseFilter:
+    """Tests for _compute_head_to_head with phase_filter."""
+
+    def _make_game(
+        self, home: str, away: str, winner: str, rn: int, phase: str | None = None,
+    ) -> object:
+        """Create a minimal game object for h2h testing."""
+        class FakeGame:
+            pass
+        g = FakeGame()
+        g.home_team_id = home
+        g.away_team_id = away
+        g.winner_team_id = winner
+        g.round_number = rn
+        if phase is not None:
+            g.phase = phase
+        return g
+
+    def test_no_filter_counts_all(self) -> None:
+        games = [
+            self._make_game("A", "B", "A", 1),
+            self._make_game("A", "B", "B", 2, phase="playoff"),
+            self._make_game("A", "B", "A", 3, phase="playoff"),
+        ]
+        h2h = _compute_head_to_head(games, "A", "B")
+        assert h2h["wins_a"] == 2
+        assert h2h["wins_b"] == 1
+        assert h2h["total_games"] == 3
+
+    def test_playoff_filter(self) -> None:
+        games = [
+            self._make_game("A", "B", "A", 1),  # no phase — regular
+            self._make_game("A", "B", "B", 2, phase="playoff"),
+            self._make_game("A", "B", "A", 3, phase="playoff"),
+        ]
+        h2h = _compute_head_to_head(games, "A", "B", phase_filter="playoff")
+        assert h2h["wins_a"] == 1
+        assert h2h["wins_b"] == 1
+        assert h2h["total_games"] == 2
+
+    def test_phase_filter_no_matches(self) -> None:
+        games = [
+            self._make_game("A", "B", "A", 1),
+            self._make_game("A", "B", "B", 2),
+        ]
+        h2h = _compute_head_to_head(games, "A", "B", phase_filter="playoff")
+        assert h2h["total_games"] == 0
+        assert h2h["wins_a"] == 0
+        assert h2h["wins_b"] == 0
+
+
+class TestFormatBedrockAndSeries:
+    """Tests for format_narrative_for_prompt with bedrock facts and series."""
+
+    def test_bedrock_facts_at_top(self) -> None:
+        ctx = NarrativeContext(
+            bedrock_facts="League: 8 teams, 3v3 basketball.\nNo byes.",
+            round_number=5,
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert result.startswith("=== LEAGUE FACTS (do not contradict) ===")
+        assert "No byes" in result
+
+    def test_playoff_series_emitted(self) -> None:
+        ctx = NarrativeContext(
+            phase="semifinal",
+            round_number=10,
+            total_rounds=9,
+            playoff_series={
+                "A_vs_B": {
+                    "home_wins": 1,
+                    "away_wins": 0,
+                    "best_of": 3,
+                    "wins_needed": 2,
+                    "phase_label": "semifinal",
+                    "description": "Team A leads 1-0",
+                },
+            },
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert "PLAYOFF SERIES" in result
+        assert "Team A leads 1-0" in result
+        assert "best-of-3" in result
+
+    def test_standings_labeled_during_playoffs(self) -> None:
+        ctx = NarrativeContext(
+            phase="semifinal",
+            standings=[
+                {"team_id": "A", "team_name": "Alphas", "wins": 4, "losses": 1, "rank": 1},
+            ],
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert "Regular-season standings" in result
+
+    def test_standings_labeled_during_regular(self) -> None:
+        ctx = NarrativeContext(
+            phase="regular",
+            standings=[
+                {"team_id": "A", "team_name": "Alphas", "wins": 4, "losses": 1, "rank": 1},
+            ],
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert "Regular-season standings" not in result
+        assert "Standings:" in result
+
+    def test_h2h_labeled_during_playoffs(self) -> None:
+        ctx = NarrativeContext(
+            phase="finals",
+            head_to_head={
+                "A_vs_B": {"wins_a": 3, "wins_b": 2, "total_games": 5, "last_winner": "A"},
+            },
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert "Season head-to-head" in result
+
+    def test_prior_seasons_emitted(self) -> None:
+        ctx = NarrativeContext(
+            prior_seasons=[
+                {
+                    "season_name": "Season 1: Genesis",
+                    "champion_team_name": "Rose City Thorns",
+                    "total_games": 45,
+                    "total_rule_changes": 3,
+                    "governance_legacy": "A bold experiment in collective rule-making",
+                    "notable_rules": ["three_point_value=5", "shot_clock_seconds=20"],
+                },
+            ],
+        )
+        result = format_narrative_for_prompt(ctx)
+        assert "League history:" in result
+        assert "Season 1: Genesis" in result
+        assert "Rose City Thorns" in result
+        assert "45 games" in result
+        assert "3 rule changes" in result
+        assert "bold experiment" in result
+        assert "three_point_value=5" in result
+
+    def test_all_new_fields_together(self) -> None:
+        """All new context fields render without interfering with each other."""
+        ctx = NarrativeContext(
+            phase="semifinal",
+            round_number=10,
+            total_rounds=9,
+            season_arc="playoff",
+            bedrock_facts="League: 8 teams, 3v3.\nNo byes.",
+            playoff_series={
+                "A_vs_B": {
+                    "home_wins": 2,
+                    "away_wins": 1,
+                    "best_of": 3,
+                    "wins_needed": 2,
+                    "phase_label": "semifinal",
+                    "description": "Team A leads 2-1",
+                },
+            },
+            standings=[
+                {"team_id": "A", "team_name": "Alphas", "wins": 6, "losses": 3, "rank": 1},
+            ],
+            head_to_head={
+                "A_vs_B": {"wins_a": 4, "wins_b": 3, "total_games": 7, "last_winner": "A"},
+            },
+            prior_seasons=[
+                {
+                    "season_name": "Preseason",
+                    "champion_team_name": "Nobody",
+                    "total_games": 10,
+                    "total_rule_changes": 0,
+                },
+            ],
+        )
+        result = format_narrative_for_prompt(ctx)
+        # All sections present
+        assert "LEAGUE FACTS" in result
+        assert "SEMIFINAL" in result
+        assert "PLAYOFF SERIES" in result
+        assert "Regular-season standings" in result
+        assert "Season head-to-head" in result
+        assert "League history:" in result
+
+
+@pytest.mark.asyncio
+async def test_compute_narrative_context_with_ruleset(repo: Repository) -> None:
+    """When ruleset is provided, bedrock_facts should be populated."""
+    league = await repo.create_league("Test")
+    season = await repo.create_season(league.id, "S1", {"quarter_minutes": 3})
+    await repo.update_season_status(season.id, "active")
+
+    from pinwheel.models.rules import RuleSet
+
+    ctx = await compute_narrative_context(repo, season.id, 1, ruleset=RuleSet())
+    assert ctx.bedrock_facts != ""
+    assert "8 teams" in ctx.bedrock_facts
+    assert "No byes" in ctx.bedrock_facts
+
+
+@pytest.mark.asyncio
+async def test_compute_narrative_context_no_ruleset(repo: Repository) -> None:
+    """Without a ruleset, bedrock_facts should remain empty."""
+    league = await repo.create_league("Test")
+    season = await repo.create_season(league.id, "S1", {"quarter_minutes": 3})
+    await repo.update_season_status(season.id, "active")
+
+    ctx = await compute_narrative_context(repo, season.id, 1)
+    assert ctx.bedrock_facts == ""

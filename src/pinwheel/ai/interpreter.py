@@ -140,7 +140,7 @@ async def interpret_proposal(
     if amendment_context:
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     client = _get_client(api_key)
     last_error: Exception | None = None
     for attempt in range(2):
@@ -318,7 +318,7 @@ async def interpret_strategy(
         track_latency,
     )
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     try:
         client = _get_client(api_key)
         async with track_latency() as timing:
@@ -560,7 +560,7 @@ async def _opus_escalate(
         track_latency,
     )
 
-    opus_model = "claude-opus-4-6"
+    opus_model = "claude-sonnet-4-6"
 
     effects_summary = "; ".join(
         f"{e.effect_type}: {e.description}" for e in first_pass.effects
@@ -655,7 +655,7 @@ async def interpret_proposal_v2(
     if amendment_context:
         user_msg = f"Original proposal: {amendment_context}\n\nAmendment: {raw_text}"
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     client = _get_client(api_key)
     last_error: Exception | None = None
     for attempt in range(2):

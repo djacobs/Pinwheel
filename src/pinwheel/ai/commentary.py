@@ -45,6 +45,11 @@ System-level awareness (IMPORTANT — check the "System-Level Notes" section in 
 - End with ONE sentence connecting this game to the broader league context — standings impact, \
 streak continuation, rule evolution, or what it means for the playoff race
 
+Ground rules:
+- "LEAGUE FACTS" in context are verified truth. Never contradict them.
+- During playoffs, use "PLAYOFF SERIES" for the series record, not season head-to-head.
+- Do not invent concepts not in the data (no byes, wild cards, conferences, or drafts).
+
 Be concise. No headers. No bullet points. Just vivid prose that shows you know the league \
 inside out."""
 
@@ -80,6 +85,11 @@ its presence felt."
 - Note win/loss streaks when relevant (3+ games)
 - For late-season rounds, frame action in terms of playoff positioning
 - Connect individual games to the broader season arc
+
+Ground rules:
+- "LEAGUE FACTS" in context are verified truth. Never contradict them.
+- During playoffs, use "PLAYOFF SERIES" for the series record, not season head-to-head.
+- Do not invent concepts not in the data (no byes, wild cards, conferences, or drafts).
 
 No headers. No bullet points. Just vivid, concise prose that shows you know the league."""
 
@@ -450,7 +460,7 @@ async def generate_game_commentary(
     )
     system = COMMENTARY_SYSTEM_PROMPT.format(playoff_instructions=playoff_instructions)
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         async with track_latency() as timing:
@@ -802,7 +812,7 @@ async def generate_highlight_reel(
         playoff_instructions=playoff_instructions
     )
 
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
         async with track_latency() as timing:
