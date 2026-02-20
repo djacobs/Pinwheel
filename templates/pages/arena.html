@@ -43,6 +43,7 @@
       {% if game.home_leader %}
       <span class="live-leader"><a href="/hoopers/{{ game.home_leader.hooper_id }}">{{ game.home_leader.hooper_name }}</a> {{ game.home_leader.points }} pts</span>
       {% endif %}
+      {% if game.home_leader and game.away_leader %}<span class="live-leader-sep">&middot;</span>{% endif %}
       {% if game.away_leader %}
       <span class="live-leader"><a href="/hoopers/{{ game.away_leader.hooper_id }}">{{ game.away_leader.hooper_name }}</a> {{ game.away_leader.points }} pts</span>
       {% endif %}
@@ -351,7 +352,7 @@
       var parts = [];
       if (d.home_leader) parts.push('<span class="live-leader"><a href="/hoopers/' + d.home_leader.hooper_id + '">' + d.home_leader.hooper_name + '</a> ' + d.home_leader.points + ' pts</span>');
       if (d.away_leader) parts.push('<span class="live-leader"><a href="/hoopers/' + d.away_leader.hooper_id + '">' + d.away_leader.hooper_name + '</a> ' + d.away_leader.points + ' pts</span>');
-      leaders.innerHTML = parts.join('');
+      leaders.innerHTML = parts.join('<span class="live-leader-sep">&middot;</span>');
     }
   });
 

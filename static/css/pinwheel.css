@@ -3275,6 +3275,12 @@ h3 { font-size: 1.05rem; }
   background: rgba(240, 192, 64, 0.08);
 }
 
+.live-leader-sep {
+  margin: 0 0.4rem;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
 .live-plays {
   max-height: 280px;
   overflow-y: auto;
