@@ -212,7 +212,8 @@ async def expire_stale_pending(
     expired_ids: list[str] = []
 
     for ev in pending:
-        if ev.timestamp < cutoff:
+        ev_time = getattr(ev, "created_at", None) or getattr(ev, "timestamp", None)
+        if ev_time is None or ev_time < cutoff:
             # Expire it
             await repo.append_event(
                 event_type="proposal.interpretation_expired",
