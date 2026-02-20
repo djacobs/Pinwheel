@@ -1494,6 +1494,16 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                 }
             )
 
+    # Assign series_game_number to playoff games — counts games played in the
+    # series up to and including each game (oldest round = Game 1, etc.)
+    matchup_game_counts: dict[tuple[str, str], int] = {}
+    for round_dict in reversed(rounds):
+        for g in round_dict.get("games", []):
+            if g.get("series_context"):
+                key = tuple(sorted([g["home_team_id"], g["away_team_id"]]))
+                matchup_game_counts[key] = matchup_game_counts.get(key, 0) + 1
+                g["series_game_number"] = matchup_game_counts[key]
+
     # Build live_round from PresentationState if presentation is active
     from pinwheel.core.presenter import PresentationState
 

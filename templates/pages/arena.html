@@ -96,7 +96,7 @@
         <div class="elam-banner">Elam Ending &mdash; Target: {{ game.elam_target }}</div>
         {% endif %}
         <div class="game-panel-header">
-          <span class="game-meta">Game {{ game.matchup_index + 1 }}</span>
+          <span class="game-meta">Game {{ game.series_game_number if game.series_game_number else (game.matchup_index + 1) }}</span>
           <span class="game-meta">{{ game.total_possessions }} poss</span>
         </div>
         {% if game.series_context %}
