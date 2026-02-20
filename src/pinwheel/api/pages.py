@@ -1589,6 +1589,14 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                 }
             )
 
+    # Season phase label for the arena subtitle
+    season_status = ""
+    arena_round = 0
+    if season_id:
+        season = await repo.get_season(season_id)
+        season_status = season.status if season else ""
+        arena_round = await repo.get_latest_round_number(season_id) or 0
+
     settings: Settings = request.app.state.settings
     return templates.TemplateResponse(
         request,
@@ -1599,6 +1607,8 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
             "live_round": live_round,
             "upcoming_rounds": upcoming_rounds,
             "auto_advance": settings.pinwheel_auto_advance,
+            "season_status": season_status,
+            "arena_round": arena_round,
             **_auth_context(request, current_user),
         },
     )

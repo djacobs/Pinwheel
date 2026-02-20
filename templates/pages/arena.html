@@ -4,8 +4,8 @@
 {% block content %}
 <div class="page-header">
   <h2>The Arena</h2>
-  {% if rounds %}
-  <p class="subtitle">{{ rounds|length }} round{{ 's' if rounds|length != 1 else '' }} &middot; {{ rounds|sum(attribute='games'|length) if false else rounds|map(attribute='games')|map('length')|sum }} games</p>
+  {% if arena_round %}
+  <p class="subtitle">Round {{ arena_round }}{% if season_status == 'playoffs' %} &middot; Playoffs{% elif season_status == 'offseason' %} &middot; Offseason{% endif %}</p>
   {% endif %}
 </div>
 
