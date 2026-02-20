@@ -82,13 +82,18 @@ Documentation:
 
 **What was built:**
 
-Three root causes identified and fixed:
-- **Structured output via `output_config`** — `interpret_proposal_v2()`, `_opus_escalate()`, and Haiku fallback now use `pydantic_to_response_format(ProposalInterpretation)` which forces the API to return guaranteed-valid JSON. Eliminates "Unterminated string" and "Expecting property name" errors at the protocol level. Same proven pattern already used in `classifier.py` and `search.py`.
+Two root causes identified and fixed:
 - **`max_tokens` 1000 → 4096** — The V2 prompt produces complex multi-effect JSON. 1000 tokens caused truncation mid-string, producing unterminated strings.
 - **Wider model types** — `EffectSpec.action_code` changed from `dict[str, MetaValue | dict[str, MetaValue]]` to `dict | None` to accept nested lists (e.g. `conditional_sequence.steps`). `meta_operation` made nullable for non-meta effects. These fix Pydantic ValidationError failures.
 
-**Files modified (5):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/models/governance.py`, `src/pinwheel/core/effects.py`, `tests/test_messages_api.py`, `tests/test_governance.py`
+Tried and reverted: `output_config` structured output (hangs indefinitely on complex 5.5KB schema, works fine for simple schemas like classifier/search).
+
+After the fix, all 5 proposals resubmitted with **0 mock fallbacks**. Proposal impact analysis revealed a `conditional_sequence` gate gap: only `random_chance` gates are evaluated, other gate types (`shot_zone`, `last_result`, etc.) silently skipped, causing 2 of 5 proposals to fire unconditionally instead of conditionally.
+
+Full report saved to `docs/dev_log/SESSION_114_INTERPRETER_FIX_REPORT.md`.
+
+**Files modified (6):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/models/governance.py`, `src/pinwheel/core/effects.py`, `tests/test_messages_api.py`, `tests/test_governance.py`, `docs/dev_log/SESSION_114_INTERPRETER_FIX_REPORT.md`
 
 **2051 tests, zero lint errors.**
 
-**What could have gone better:** This should have been caught during the V2 interpreter's initial implementation — the classifier already used `output_config` as the proven pattern. The type narrowness of `action_code` was also predictable given the prompt describes list-valued structures like `conditional_sequence`.
+**What could have gone better:** The type narrowness of `action_code` was predictable given the prompt describes list-valued structures like `conditional_sequence`. The `conditional_sequence` gate gap should have been caught when the evaluator was originally written — it only handles `random_chance` inline instead of calling the existing `_evaluate_condition()` method.
