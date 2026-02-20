@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2079 tests**, zero lint errors (Session 122)
+- **2079 tests**, zero lint errors (Session 124)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -29,7 +29,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
 - **Day 25 Session 121:** Series context headlines now show pre-game state; fixed round 12 wrong team IDs in production DB
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `0e04163` — feat: career performance table on hooper page
+- **Latest commit:** `563fb26` — fix: career performance table shows all seasons by linking hoopers by name
 
 ## Today's Agenda
 
@@ -266,3 +266,19 @@ Hooper page enhancements:
 **2079 tests, zero lint errors.**
 
 **What could have gone better:** The table always shows if there's any career data, but the "Season Averages" stats grid in the sidebar now overlaps somewhat with the Career Performance table's current-season row. Could consider collapsing the sidebar stats grid once the career table is present.
+
+---
+
+## Session 124 — Career Performance Cross-Season Fix
+
+**What was asked:** Career Performance table showed only the current season because `carry_over_teams` creates a new hooper ID each season — past seasons' box scores lived under a different ID and were invisible.
+
+**What was built:**
+- `repository.py`: added `get_hoopers_by_name(name)` — queries all `HooperRow` records with the exact same name across all seasons; name is the only stable cross-season identifier since `carry_over_teams` keeps names constant
+- `pages.py`: replaced single `get_box_scores_for_hooper(hooper_id)` call with a loop over all same-name hoopers from `get_hoopers_by_name()`; aggregates their box scores into `games_by_season` so past seasons now appear in the Career Performance table
+
+**Files modified (2):** `src/pinwheel/db/repository.py`, `src/pinwheel/api/pages.py`
+
+**2079 tests, zero lint errors.**
+
+**What could have gone better:** Name-based linking is fragile if two different players share a name. A more robust solution would store an explicit `prior_hooper_id` FK on `HooperRow` during `carry_over_teams`, creating a linked list that survives name changes. For now, names are unique within the simulation so this is safe.
