@@ -817,3 +817,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 130. [DONE] Pending interpretation badges on admin roster
 **Problem:** Proposals stuck in `pending_interpretation` (AI interpreter failed, retries exhausted) were invisible on the admin roster. Admins had no way to see which governors had stuck proposals or lost tokens.
 **Fix:** Admin roster now queries `proposal.pending_interpretation` and `proposal.interpretation_expired` events across all seasons per governor. Stuck proposals appear as yellow "PENDING INTERPRETATION" badges; expired ones as red "EXPIRED" badges. Displayed above the normal proposal list in each governor's row.
+
+### 131. [DONE] Governance page showed raw parameter names
+**Problem:** The AI Interpretation block on The Floor showed `Change <code>stamina_drain_rate</code> from 0.007 to 1.5` — raw code identifiers instead of language players understand. The Rules Enacted section similarly showed `<code>shot_clock_seconds</code>` instead of "Shot Clock".
+**Fix:** Governance page now shows only `impact_analysis` (human-readable text from the AI). Confidence is hidden when below 50% (mock fallback). Rules Enacted uses `parameter_label` built from `RULE_TIERS` lookup with title-case fallback — `stamina_drain_rate` → "Stamina Drain Rate".
+
+### 132. [DONE] "Interpreter busy / overwhelmed" message removed
+**Problem:** When the AI interpreter fell back to mock (rare after Session 114 fix), the bot showed "The Interpreter is overwhelmed right now. Your proposal has been queued — you'll get a DM when it's ready." This interrupted the proposal flow and left proposals in limbo.
+**Fix:** Removed the entire deferred retry path from `bot.py`. Mock fallback now proceeds immediately to the Confirm/Revise UI. Player always gets an interactive response — no queued limbo state, no "busy" message ever.
