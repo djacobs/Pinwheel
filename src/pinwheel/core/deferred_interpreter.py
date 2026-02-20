@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # Maximum age (hours) before a pending interpretation expires and tokens are refunded.
 MAX_PENDING_AGE_HOURS = 4
 
+# Maximum number of retry attempts before giving up and refunding tokens.
+# At one tick per minute, 10 retries ≈ 10 minutes of retries.
+MAX_RETRIES = 10
+
 
 async def get_pending_interpretations(
     repo: Repository,
@@ -60,6 +64,7 @@ async def retry_pending_interpretation(
     """Retry interpretation for a single pending event.
 
     Returns True if the retry succeeded and the interpretation_ready event was appended.
+    Returns False if the retry failed or was expired after MAX_RETRIES.
     """
     from pinwheel.ai.interpreter import interpret_proposal_v2
     from pinwheel.models.governance import ProposalInterpretation
@@ -69,6 +74,25 @@ async def retry_pending_interpretation(
     raw_text = str(payload.get("raw_text", ""))
     ruleset_data = payload.get("ruleset", {})
     if not raw_text:
+        return False
+
+    # Count prior failed retries — expire after MAX_RETRIES
+    retry_failed_events = await repo.get_events_by_type(
+        season_id=pending.season_id,
+        event_types=["proposal.interpretation_retry_failed"],
+    )
+    retry_count = sum(
+        1 for e in retry_failed_events if e.aggregate_id == pending.aggregate_id
+    )
+
+    if retry_count >= MAX_RETRIES:
+        # Too many retries — expire and refund
+        await _expire_and_refund(repo, pending)
+        logger.info(
+            "deferred_interpretation_max_retries aggregate=%s retries=%d",
+            pending.aggregate_id,
+            retry_count,
+        )
         return False
 
     try:
@@ -85,14 +109,31 @@ async def retry_pending_interpretation(
         )
     except Exception:
         logger.warning(
-            "deferred_retry_failed aggregate=%s",
+            "deferred_retry_failed aggregate=%s attempt=%d",
             pending.aggregate_id,
+            retry_count + 1,
             exc_info=True,
+        )
+        await repo.append_event(
+            event_type="proposal.interpretation_retry_failed",
+            aggregate_id=pending.aggregate_id,
+            aggregate_type="proposal",
+            season_id=pending.season_id,
+            governor_id=pending.governor_id,
+            payload={"attempt": retry_count + 1, "reason": "exception"},
         )
         return False
 
     # If the retry also fell back to mock, don't count it as success
     if result.is_mock_fallback:
+        await repo.append_event(
+            event_type="proposal.interpretation_retry_failed",
+            aggregate_id=pending.aggregate_id,
+            aggregate_type="proposal",
+            season_id=pending.season_id,
+            governor_id=pending.governor_id,
+            payload={"attempt": retry_count + 1, "reason": "mock_fallback"},
+        )
         return False
 
     # Store the successful interpretation
@@ -119,6 +160,35 @@ async def retry_pending_interpretation(
         result.confidence,
     )
     return True
+
+
+async def _expire_and_refund(repo: Repository, pending: GovernanceEvent) -> None:
+    """Expire a pending interpretation and refund the governor's token."""
+    await repo.append_event(
+        event_type="proposal.interpretation_expired",
+        aggregate_id=pending.aggregate_id,
+        aggregate_type="proposal",
+        season_id=pending.season_id,
+        governor_id=pending.governor_id,
+        payload={
+            "reason": "max_retries_exceeded",
+            "raw_text": pending.payload.get("raw_text", ""),
+        },
+    )
+    token_cost = pending.payload.get("token_cost", 1)
+    if isinstance(token_cost, (int, float)):
+        await repo.append_event(
+            event_type="token.regenerated",
+            aggregate_id=pending.governor_id,
+            aggregate_type="token",
+            season_id=pending.season_id,
+            governor_id=pending.governor_id,
+            payload={
+                "token_type": "propose",
+                "amount": int(token_cost),
+                "reason": "deferred_interpretation_max_retries",
+            },
+        )
 
 
 async def expire_stale_pending(
@@ -290,31 +360,36 @@ async def tick_deferred_interpretations(
         async with get_session(engine) as session:  # type: ignore[arg-type]
             repo = Repository(session)
 
-            # Get current season
-            seasons = await repo.get_all_seasons()
-            if not seasons:
+            # Check ALL seasons for pending interpretations — proposals can
+            # be submitted in a season that later completes while still pending.
+            all_seasons = await repo.get_all_seasons()
+            if not all_seasons:
                 return
-            season = seasons[-1]
-            season_id = season.id
 
-            # Expire stale pending interpretations first
-            expired = await expire_stale_pending(repo, season_id)
+            total_expired: list[str] = []
+            all_pending: list[tuple[str, GovernanceEvent]] = []
 
-            # Find remaining pending interpretations
-            pending = await get_pending_interpretations(repo, season_id)
-            if not pending:
+            for season in all_seasons:
+                sid = season.id
+                expired = await expire_stale_pending(repo, sid)
+                total_expired.extend(expired)
+                pending = await get_pending_interpretations(repo, sid)
+                for ev in pending:
+                    all_pending.append((sid, ev))
+
+            if not all_pending:
                 await session.commit()
                 return
 
             logger.info(
-                "deferred_tick pending=%d expired=%d season=%s",
-                len(pending),
-                len(expired),
-                season_id,
+                "deferred_tick pending=%d expired=%d seasons=%d",
+                len(all_pending),
+                len(total_expired),
+                len(all_seasons),
             )
 
             # Retry each pending interpretation
-            for ev in pending:
+            for season_id, ev in all_pending:
                 success = await retry_pending_interpretation(repo, ev, api_key)
                 if success and bot is not None:
                     # Fetch the ready event we just created

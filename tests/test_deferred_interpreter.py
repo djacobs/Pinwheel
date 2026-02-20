@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from pinwheel.core.deferred_interpreter import (
+    MAX_RETRIES,
     expire_stale_pending,
     get_pending_interpretations,
     retry_pending_interpretation,
+    tick_deferred_interpretations,
 )
 from pinwheel.models.governance import GovernanceEvent, ProposalInterpretation
 
@@ -124,6 +126,8 @@ class TestRetryPendingInterpretation:
     async def test_retry_success(self) -> None:
         """Successful retry appends interpretation_ready event."""
         repo = AsyncMock()
+        # No prior retry failures
+        repo.get_events_by_type = AsyncMock(return_value=[])
 
         pending = _make_event(
             event_type="proposal.pending_interpretation",
@@ -155,8 +159,10 @@ class TestRetryPendingInterpretation:
 
     @pytest.mark.asyncio
     async def test_retry_mock_fallback_is_failure(self) -> None:
-        """If retry also falls back to mock, it's not counted as success."""
+        """If retry also falls back to mock, it's not counted as success but emits retry_failed."""
         repo = AsyncMock()
+        # No prior retry failures
+        repo.get_events_by_type = AsyncMock(return_value=[])
 
         pending = _make_event(
             event_type="proposal.pending_interpretation",
@@ -180,12 +186,17 @@ class TestRetryPendingInterpretation:
             success = await retry_pending_interpretation(repo, pending, "fake-key")
 
         assert success is False
-        repo.append_event.assert_not_called()
+        # Now emits a retry_failed event for tracking
+        assert repo.append_event.call_count == 1
+        call_kwargs = repo.append_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "proposal.interpretation_retry_failed"
 
     @pytest.mark.asyncio
     async def test_retry_exception_is_failure(self) -> None:
-        """API exception during retry returns False."""
+        """API exception during retry returns False and emits retry_failed event."""
         repo = AsyncMock()
+        # No prior retry failures
+        repo.get_events_by_type = AsyncMock(return_value=[])
 
         pending = _make_event(
             event_type="proposal.pending_interpretation",
@@ -199,6 +210,10 @@ class TestRetryPendingInterpretation:
             success = await retry_pending_interpretation(repo, pending, "fake-key")
 
         assert success is False
+        # Should have appended a retry_failed event
+        assert repo.append_event.call_count == 1
+        call_kwargs = repo.append_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "proposal.interpretation_retry_failed"
 
     @pytest.mark.asyncio
     async def test_retry_empty_raw_text(self) -> None:
@@ -308,3 +323,183 @@ class TestIsMockFallback:
         result = _parse_json_response(plain, ProposalInterpretation)
         assert isinstance(result, ProposalInterpretation)
         assert result.confidence == pytest.approx(0.8)  # type: ignore[union-attr]
+
+
+class TestMaxRetries:
+    """Test that retry_pending_interpretation expires after MAX_RETRIES failures."""
+
+    @pytest.mark.asyncio
+    async def test_retry_emits_failure_event_on_exception(self) -> None:
+        """Failed retry appends a proposal.interpretation_retry_failed event."""
+        repo = AsyncMock()
+        # No prior retry failures
+        repo.get_events_by_type = AsyncMock(return_value=[])
+
+        pending = _make_event(
+            event_type="proposal.pending_interpretation",
+            payload={"raw_text": "test", "ruleset": {}},
+        )
+
+        with patch(
+            "pinwheel.ai.interpreter.interpret_proposal_v2",
+            side_effect=Exception("API timeout"),
+        ):
+            success = await retry_pending_interpretation(repo, pending, "fake-key")
+
+        assert success is False
+        # Should have appended a retry_failed event
+        assert repo.append_event.call_count == 1
+        call_kwargs = repo.append_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "proposal.interpretation_retry_failed"
+        assert call_kwargs["payload"]["attempt"] == 1
+        assert call_kwargs["payload"]["reason"] == "exception"
+
+    @pytest.mark.asyncio
+    async def test_retry_emits_failure_event_on_mock_fallback(self) -> None:
+        """Mock fallback retry appends a retry_failed event."""
+        repo = AsyncMock()
+        repo.get_events_by_type = AsyncMock(return_value=[])
+
+        pending = _make_event(
+            event_type="proposal.pending_interpretation",
+            payload={"raw_text": "test", "ruleset": {}},
+        )
+
+        mock_result = ProposalInterpretation(
+            effects=[],
+            impact_analysis="Mock",
+            confidence=0.3,
+            is_mock_fallback=True,
+        )
+
+        with patch(
+            "pinwheel.ai.interpreter.interpret_proposal_v2",
+            return_value=mock_result,
+        ):
+            success = await retry_pending_interpretation(repo, pending, "fake-key")
+
+        assert success is False
+        assert repo.append_event.call_count == 1
+        call_kwargs = repo.append_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "proposal.interpretation_retry_failed"
+        assert call_kwargs["payload"]["reason"] == "mock_fallback"
+
+    @pytest.mark.asyncio
+    async def test_expires_after_max_retries(self) -> None:
+        """After MAX_RETRIES failures, the proposal is expired and token refunded."""
+        repo = AsyncMock()
+
+        # Simulate MAX_RETRIES prior failures
+        prior_failures = [
+            _make_event(
+                event_type="proposal.interpretation_retry_failed",
+                aggregate_id="pending-1",
+                payload={"attempt": i + 1},
+            )
+            for i in range(MAX_RETRIES)
+        ]
+        repo.get_events_by_type = AsyncMock(return_value=prior_failures)
+
+        pending = _make_event(
+            event_type="proposal.pending_interpretation",
+            payload={"raw_text": "test", "ruleset": {}, "token_cost": 2},
+        )
+
+        success = await retry_pending_interpretation(repo, pending, "fake-key")
+        assert success is False
+
+        # Should have 2 events: interpretation_expired + token.regenerated
+        assert repo.append_event.call_count == 2
+        event_types = [c.kwargs["event_type"] for c in repo.append_event.call_args_list]
+        assert "proposal.interpretation_expired" in event_types
+        assert "token.regenerated" in event_types
+
+        # Verify token refund amount
+        refund_call = next(
+            c for c in repo.append_event.call_args_list
+            if c.kwargs["event_type"] == "token.regenerated"
+        )
+        assert refund_call.kwargs["payload"]["amount"] == 2
+        assert refund_call.kwargs["payload"]["reason"] == "deferred_interpretation_max_retries"
+
+    @pytest.mark.asyncio
+    async def test_still_retries_below_max(self) -> None:
+        """Below MAX_RETRIES, normal retry logic proceeds."""
+        repo = AsyncMock()
+
+        # Simulate a few prior failures (below limit)
+        prior_failures = [
+            _make_event(
+                event_type="proposal.interpretation_retry_failed",
+                aggregate_id="pending-1",
+                payload={"attempt": i + 1},
+            )
+            for i in range(MAX_RETRIES - 1)
+        ]
+        repo.get_events_by_type = AsyncMock(return_value=prior_failures)
+
+        pending = _make_event(
+            event_type="proposal.pending_interpretation",
+            payload={
+                "raw_text": "Make threes worth 5",
+                "ruleset": {},
+                "token_cost": 1,
+            },
+        )
+
+        mock_result = ProposalInterpretation(
+            effects=[],
+            impact_analysis="Threes worth 5",
+            confidence=0.9,
+            is_mock_fallback=False,
+        )
+
+        with patch(
+            "pinwheel.ai.interpreter.interpret_proposal_v2",
+            return_value=mock_result,
+        ):
+            success = await retry_pending_interpretation(repo, pending, "fake-key")
+
+        assert success is True
+
+
+class TestCrossSeasonScanning:
+    """Test that tick_deferred_interpretations scans all seasons."""
+
+    @pytest.mark.asyncio
+    async def test_tick_scans_all_seasons(self) -> None:
+        """tick_deferred_interpretations checks all seasons, not just the latest."""
+        # Build mock season objects
+        season1 = AsyncMock()
+        season1.id = "season-old"
+        season2 = AsyncMock()
+        season2.id = "season-current"
+
+        repo_mock = AsyncMock()
+        repo_mock.get_all_seasons = AsyncMock(return_value=[season2, season1])
+
+        # Track which season_ids are passed to get_events_by_type
+        call_season_ids: list[str] = []
+
+        async def mock_get_events_by_type(season_id: str, event_types: list[str]):
+            call_season_ids.append(season_id)
+            return []
+
+        repo_mock.get_events_by_type = mock_get_events_by_type
+
+        session_mock = AsyncMock()
+        session_mock.__aenter__ = AsyncMock(return_value=session_mock)
+        session_mock.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("pinwheel.db.engine.get_session", return_value=session_mock),
+            patch("pinwheel.db.repository.Repository", return_value=repo_mock),
+        ):
+            await tick_deferred_interpretations(
+                engine=AsyncMock(),
+                api_key="fake-key",
+            )
+
+        # Both seasons should have been checked
+        assert "season-old" in call_season_ids
+        assert "season-current" in call_season_ids

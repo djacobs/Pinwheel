@@ -444,6 +444,67 @@ ORDER BY sequence_number;
 
 ---
 
+## Resubmitting Failed or Stuck Proposals
+
+Proposals can get stuck or fail to take effect for several reasons:
+
+- **Interpreter failure** — the AI interpreter times out or returns unparseable JSON, leaving the proposal as `proposal.pending_interpretation` with no submit event and no way to vote.
+- **Season ended before tally** — a confirmed proposal with votes sits in a season that completes before the governance tally runs. The proposal is orphaned.
+- **Effects pipeline bug** — a proposal passes the vote but its `effects_v2` data was never persisted in the event payload, so the game loop has nothing to enact.
+
+When proposals are stuck, use `scripts/resubmit_proposals.py` to re-interpret and resubmit them into the current season, gratis (no token debit). The script also refunds the original token cost.
+
+### How it works
+
+1. Each proposal is re-interpreted via `interpret_proposal_v2` (real AI, not mock)
+2. Submitted to the current season with `token_already_spent=True` (gratis)
+3. Auto-confirmed so it's immediately open for voting
+4. Original token cost refunded to the governor in the original season
+
+### Usage
+
+```bash
+# Dry run — shows what would happen
+fly ssh console -C "python /app/scripts/resubmit_proposals.py"
+
+# Apply
+fly ssh console -C "python /app/scripts/resubmit_proposals.py --apply"
+```
+
+### Editing the proposal list
+
+The proposals to resubmit are hardcoded in the `PROPOSALS` list at the top of the script. To resubmit different proposals, edit the list with the proposal's `original_id`, `original_season_id`, `governor_username`, `raw_text`, and `original_cost`.
+
+### Refunding stuck tokens without resubmission
+
+If proposals are stuck in `pending_interpretation` and you just want to refund without resubmitting, use `scripts/refund_stuck_proposals.py`:
+
+```bash
+# Dry run
+fly ssh console -C "python /app/scripts/refund_stuck_proposals.py"
+
+# Apply
+fly ssh console -C "python /app/scripts/refund_stuck_proposals.py --apply"
+```
+
+This finds all `proposal.pending_interpretation` events with no corresponding `interpretation_ready` or `interpretation_expired` event, expires them, and refunds the PROPOSE token.
+
+### History: Feb 19 2026 resubmission
+
+Five proposals were resubmitted into season "number nine" after being stuck or ineffective in prior seasons:
+
+| Original | Governor | Text | Original Season | Problem | New ID |
+|----------|----------|------|----------------|---------|--------|
+| #8 | Adriana | "la pelota es lava" | Season 5 | Confirmed with 3 yes votes, never tallied (season ended) | `7037de91` |
+| #9 | Rob Drimmie | "baskets made from inside the key score 0 points" | Season 6! | Passed vote but effects never registered | `2afc2a91` |
+| #10 | .djacobs | "the more baskets a hooper scores, the more their ability scores go up" | Season 6! | Got zero votes (interpreter was down, mock fallback) | `04ebdb15` |
+| #14 | JudgeJedd | "no one can hold the ball for more than 4 seconds" | Season 7 | Stuck in pending_interpretation, never submitted | `dc7cf317` |
+| #15 | JudgeJedd | "no one can hold the ball longer than 3 seconds" | I ate the sandbox | Stuck in pending_interpretation, never submitted | `94bbf4c7` |
+
+The AI interpreter failed to produce structured effects for 4 of 5 proposals during resubmission (Sonnet, Haiku, and Opus all returned unparseable JSON). All 5 fell back to narrative-only effects. This points to a separate bug in the interpreter's JSON output handling that needs investigation.
+
+---
+
 ## Things to Know
 
 - **Presentation survives restarts.** If a replay is in progress and the server redeploys, it picks up where it left off. Presentation state is persisted in the database.

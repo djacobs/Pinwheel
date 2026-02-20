@@ -50,7 +50,11 @@ from pinwheel.ai.report import (
 from pinwheel.core.drama import DramaAnnotation, annotate_drama, get_drama_summary
 from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.governance import tally_governance, tally_governance_with_effects
+from pinwheel.core.governance import (
+    get_proposal_effects_v2,
+    tally_governance,
+    tally_governance_with_effects,
+)
 from pinwheel.core.hooks import HookContext, fire_effects
 from pinwheel.core.meta import MetaStore
 from pinwheel.core.milestones import check_milestones
@@ -60,7 +64,7 @@ from pinwheel.core.simulation import simulate_game
 from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.repository import Repository
 from pinwheel.models.game import GameResult
-from pinwheel.models.governance import Proposal, Vote, VoteTally
+from pinwheel.models.governance import EffectSpec, Proposal, Vote, VoteTally
 from pinwheel.models.report import Report
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
@@ -898,10 +902,16 @@ async def tally_pending_governance(
             season_id=season_id,
             event_types=["proposal.submitted"],
         )
+        effects_v2_by_proposal: dict[str, list[EffectSpec]] = {}
         for se in submitted_events:
             p_data = se.payload
             pid = p_data.get("id", se.aggregate_id)
             if pid in seen_ids:
+                # Extract v2 effects from the event payload before
+                # stripping unknown fields for Proposal construction
+                v2_effects = get_proposal_effects_v2(p_data)
+                if v2_effects:
+                    effects_v2_by_proposal[pid] = v2_effects
                 # Mark as confirmed since we found it via confirmed events
                 p_data_copy = dict(p_data)
                 if p_data_copy.get("status") == "submitted":
@@ -929,6 +939,7 @@ async def tally_pending_governance(
                 current_ruleset=ruleset,
                 round_number=round_number,
                 effect_registry=effect_registry,
+                effects_v2_by_proposal=effects_v2_by_proposal,
             )
         else:
             new_ruleset, round_tallies = await tally_governance(

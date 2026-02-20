@@ -54,6 +54,22 @@
           <td class="mono" style="color: var(--accent-game);">{{ g.proposals_failed }}</td>
           <td class="mono">{{ g.votes_cast }}</td>
         </tr>
+        {% if g.pending_interpretations %}
+        <tr>
+          <td colspan="11" style="padding: 0.25rem 1rem 0.5rem 2rem; border-top: none;">
+            {% for pi in g.pending_interpretations %}
+            <div style="font-size: 0.8rem; margin-bottom: 0.25rem; line-height: 1.4;">
+              <span class="mono" style="font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;
+                {% if pi.status == 'EXPIRED' %}background: rgba(231,76,60,0.2); color: var(--accent-game);
+                {% else %}background: rgba(241,196,15,0.25); color: #f1c40f;
+                {% endif %}">{{ pi.status }} INTERPRETATION</span>
+              <span style="color: var(--text-secondary);">{{ pi.season_name }}</span>
+              {{ pi.raw_text|truncate(80) }}
+            </div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
         {% if g.proposals %}
         <tr>
           <td colspan="11" style="padding: 0.25rem 1rem 0.75rem 2rem; border-top: none;">

@@ -14,9 +14,11 @@ from pinwheel.core.governance import (
     compute_vote_weight,
     confirm_proposal,
     detect_tier,
+    get_proposal_effects_v2,
     sanitize_text,
     submit_proposal,
     tally_governance,
+    tally_governance_with_effects,
     tally_votes,
     token_cost_for_tier,
     vote_threshold_for_tier,
@@ -32,7 +34,9 @@ from pinwheel.db.engine import create_engine, get_session
 from pinwheel.db.models import Base
 from pinwheel.db.repository import Repository
 from pinwheel.models.governance import (
+    EffectSpec,
     Proposal,
+    ProposalInterpretation,
     RuleInterpretation,
     Vote,
 )
@@ -1632,3 +1636,232 @@ class TestMinimumVotingPeriod:
             repo=repo, season_id=season_id, round_number=3, ruleset=new_ruleset,
         )
         assert tallies2 == []
+
+
+# --- Effects V2 Pipeline Tests ---
+
+
+class TestEffectsV2Pipeline:
+    """Tests for the effects_v2 persistence and extraction pipeline."""
+
+    async def test_submit_proposal_persists_effects_v2(
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor: tuple[str, str],
+    ) -> None:
+        """submit_proposal() stores effects_v2 in the event payload."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+
+        v2 = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="parameter_change",
+                    parameter="three_point_value",
+                    new_value=5,
+                    old_value=3,
+                    description="Change three-point value to 5",
+                ),
+            ],
+            impact_analysis="Makes threes worth 5 points",
+            confidence=0.95,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            interpretation_v2=v2,
+        )
+
+        # Verify the event payload contains effects_v2
+        events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        assert len(events) >= 1
+        submitted_event = next(e for e in events if e.aggregate_id == proposal.id)
+        payload = submitted_event.payload
+
+        assert "effects_v2" in payload
+        assert len(payload["effects_v2"]) == 1
+        assert payload["effects_v2"][0]["effect_type"] == "parameter_change"
+        assert payload["effects_v2"][0]["parameter"] == "three_point_value"
+        assert payload["interpretation_v2_confidence"] == pytest.approx(0.95)
+        assert payload["interpretation_v2_impact"] == "Makes threes worth 5 points"
+
+    async def test_submit_without_v2_has_no_effects_v2_key(
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor: tuple[str, str],
+    ) -> None:
+        """submit_proposal() without interpretation_v2 does not add effects_v2."""
+        gov_id, team_id = seeded_governor
+        interpretation = interpret_proposal_mock("Make three pointers worth 5", RuleSet())
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+
+        events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.submitted"],
+        )
+        submitted_event = next(e for e in events if e.aggregate_id == proposal.id)
+        assert "effects_v2" not in submitted_event.payload
+
+    def test_get_proposal_effects_v2_extracts_effects(self) -> None:
+        """get_proposal_effects_v2() extracts EffectSpec list from payload."""
+        payload = {
+            "id": "p-1",
+            "effects_v2": [
+                {
+                    "effect_type": "parameter_change",
+                    "parameter": "three_point_value",
+                    "new_value": 5,
+                    "description": "Threes worth 5",
+                },
+                {
+                    "effect_type": "narrative",
+                    "narrative_instruction": "Announce the change dramatically",
+                    "description": "Narrative effect",
+                },
+            ],
+        }
+        effects = get_proposal_effects_v2(payload)
+        assert len(effects) == 2
+        assert effects[0].effect_type == "parameter_change"
+        assert effects[0].parameter == "three_point_value"
+        assert effects[1].effect_type == "narrative"
+
+    def test_get_proposal_effects_v2_empty_payload(self) -> None:
+        """get_proposal_effects_v2() returns [] when no effects_v2 key."""
+        assert get_proposal_effects_v2({}) == []
+        assert get_proposal_effects_v2({"effects_v2": None}) == []
+        assert get_proposal_effects_v2({"effects_v2": []}) == []
+
+    async def test_tally_with_effects_v2_registers_effects(
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor: tuple[str, str],
+    ) -> None:
+        """tally_governance_with_effects uses effects_v2_by_proposal to apply parameter changes."""
+        gov_id, team_id = seeded_governor
+        gov2_id = "gov-v2-002"
+        await regenerate_tokens(repo, gov2_id, team_id, season_id)
+
+        interpretation = RuleInterpretation(
+            parameter=None,
+            confidence=0.9,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make three pointers worth 5",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+        )
+        proposal = await confirm_proposal(repo, proposal)
+
+        vote1 = await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
+        )
+        vote2 = await cast_vote(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov2_id,
+            team_id=team_id,
+            vote_choice="yes",
+            weight=1.0,
+        )
+
+        # Build the effects_v2 map (as the game loop would)
+        effects_v2_by_proposal = {
+            proposal.id: [
+                EffectSpec(
+                    effect_type="parameter_change",
+                    parameter="three_point_value",
+                    new_value=5,
+                    old_value=3,
+                    description="Threes worth 5",
+                ),
+            ],
+        }
+
+        new_ruleset, tallies = await tally_governance_with_effects(
+            repo=repo,
+            season_id=season_id,
+            proposals=[proposal],
+            votes_by_proposal={proposal.id: [vote1, vote2]},
+            current_ruleset=RuleSet(),
+            round_number=1,
+            effects_v2_by_proposal=effects_v2_by_proposal,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        # The parameter change should have been applied via v2 effects
+        assert new_ruleset.three_point_value == 5
+
+    async def test_confirm_with_v2_flagged_for_review_includes_effects(
+        self,
+        repo: Repository,
+        season_id: str,
+        seeded_governor: tuple[str, str],
+    ) -> None:
+        """confirm_proposal() includes effects_v2 in flagged_for_review payload."""
+        gov_id, team_id = seeded_governor
+        interpretation = RuleInterpretation(parameter=None, confidence=0.3)
+
+        v2 = ProposalInterpretation(
+            effects=[],
+            impact_analysis="Vague idea",
+            confidence=0.3,
+        )
+
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_id,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Make the game more fun",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            interpretation_v2=v2,
+        )
+        proposal = await confirm_proposal(repo, proposal, interpretation_v2=v2)
+
+        # Should have flagged_for_review event (low confidence + no effects)
+        flagged_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.flagged_for_review"],
+        )
+        assert len(flagged_events) >= 1
+        flagged = next(e for e in flagged_events if e.aggregate_id == proposal.id)
+        # effects_v2 key present (empty list since no effects)
+        assert "effects_v2" in flagged.payload

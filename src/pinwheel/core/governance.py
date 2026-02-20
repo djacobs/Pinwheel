@@ -233,7 +233,14 @@ async def submit_proposal(
         status="submitted",
     )
 
-    # Append proposal event
+    # Append proposal event — include v2 effects in payload so the game
+    # loop can extract them during tally without re-interpreting.
+    payload = proposal.model_dump(mode="json")
+    if interpretation_v2 is not None:
+        payload["effects_v2"] = [e.model_dump(mode="json") for e in interpretation_v2.effects]
+        payload["interpretation_v2_confidence"] = interpretation_v2.confidence
+        payload["interpretation_v2_impact"] = interpretation_v2.impact_analysis
+
     await repo.append_event(
         event_type="proposal.submitted",
         aggregate_id=proposal_id,
@@ -241,7 +248,7 @@ async def submit_proposal(
         season_id=season_id,
         governor_id=governor_id,
         team_id=team_id,
-        payload=proposal.model_dump(mode="json"),
+        payload=payload,
     )
 
     # Spend PROPOSE token (unless already spent at propose-time)
@@ -328,13 +335,18 @@ async def confirm_proposal(
 
     # Wild proposals also get flagged for admin review (audit trail)
     if _needs_admin_review(proposal, interpretation_v2=interpretation_v2):
+        flag_payload = proposal.model_dump(mode="json")
+        if interpretation_v2 is not None:
+            flag_payload["effects_v2"] = [
+                e.model_dump(mode="json") for e in interpretation_v2.effects
+            ]
         await repo.append_event(
             event_type="proposal.flagged_for_review",
             aggregate_id=proposal.id,
             aggregate_type="proposal",
             season_id=proposal.season_id,
             governor_id=proposal.governor_id,
-            payload=proposal.model_dump(mode="json"),
+            payload=flag_payload,
         )
 
     return proposal

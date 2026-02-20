@@ -813,3 +813,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 129. [DONE] Proper bracket layout with connecting lines
 **Problem:** The playoff bracket on the home page was a flat stacked list of matchups — no visual bracket structure, and bare numbers like "2" next to team names looked like game scores rather than series wins.
 **Fix:** Replaced with a CSS grid bracket: 3-column layout (semis | connector lines | finals). Semifinals stack vertically in the left column, CSS border lines with rounded corners connect them through the middle column to the finals card centered in the right column. Win counts now show as "Nw" (e.g., "3w") to disambiguate from scores. Series leaders highlighted in green, trailing teams dimmed to 55% opacity. "BoN" label on each matchup shows best-of format. Finals card has gold accent border. Champion banner with gold star appears when season is complete. Stacks vertically on mobile (<480px) with connectors hidden.
+
+### 130. [DONE] Pending interpretation badges on admin roster
+**Problem:** Proposals stuck in `pending_interpretation` (AI interpreter failed, retries exhausted) were invisible on the admin roster. Admins had no way to see which governors had stuck proposals or lost tokens.
+**Fix:** Admin roster now queries `proposal.pending_interpretation` and `proposal.interpretation_expired` events across all seasons per governor. Stuck proposals appear as yellow "PENDING INTERPRETATION" badges; expired ones as red "EXPIRED" badges. Displayed above the normal proposal list in each governor's row.

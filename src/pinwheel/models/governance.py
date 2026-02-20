@@ -23,6 +23,7 @@ GovernanceEventType = Literal[
     "proposal.pending_interpretation",
     "proposal.interpretation_ready",
     "proposal.interpretation_expired",
+    "proposal.interpretation_retry_failed",
     "vote.cast",
     "vote.revealed",
     "proposal.passed",

@@ -76,6 +76,7 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
         proposals_pending = 0
         votes_cast = 0
         proposal_list: list[dict] = []
+        pending_interpretations: list[dict] = []
 
         for season in all_seasons:
             activity = await repo.get_governor_activity(player.id, season.id)
@@ -86,6 +87,37 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
             for p in activity.get("proposal_list", []):
                 p["season_name"] = season.name
                 proposal_list.append(p)
+
+            # Find pending/expired interpretations for this governor in this season
+            pending_events = await repo.get_events_by_type(
+                season_id=season.id,
+                event_types=["proposal.pending_interpretation"],
+            )
+            ready_events = await repo.get_events_by_type(
+                season_id=season.id,
+                event_types=["proposal.interpretation_ready"],
+            )
+            expired_events = await repo.get_events_by_type(
+                season_id=season.id,
+                event_types=["proposal.interpretation_expired"],
+            )
+            resolved_ids = {e.aggregate_id for e in ready_events} | {
+                e.aggregate_id for e in expired_events
+            }
+            for ev in pending_events:
+                if ev.governor_id != player.id:
+                    continue
+                status = "EXPIRED" if ev.aggregate_id in resolved_ids else "PENDING"
+                # Skip resolved ones unless expired
+                if ev.aggregate_id in {e.aggregate_id for e in ready_events}:
+                    continue
+                pending_interpretations.append({
+                    "aggregate_id": ev.aggregate_id,
+                    "raw_text": ev.payload.get("raw_text", ""),
+                    "season_name": season.name,
+                    "status": status,
+                    "timestamp": ev.timestamp,
+                })
 
         proposals_pending = proposals_submitted - proposals_passed - proposals_failed
 
@@ -105,6 +137,7 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
                 "proposals_pending": proposals_pending,
                 "votes_cast": votes_cast,
                 "proposals": proposal_list,
+                "pending_interpretations": pending_interpretations,
             }
         )
 
