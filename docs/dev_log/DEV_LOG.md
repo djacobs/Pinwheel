@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2048 tests**, zero lint errors (Session 113)
+- **2051 tests**, zero lint errors (Session 114)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -33,8 +33,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Write JudgeJedd/stuck proposal refund script
 - [x] Resubmit 5 stuck/failed proposals to current season (gratis)
 - [x] Document resubmission procedure in ADMIN_GUIDE.md
-- [ ] Fix interpreter JSON parsing (4 of 5 resubmissions fell back to mock)
-- [ ] Deploy
+- [x] Fix interpreter JSON parsing (4 of 5 resubmissions fell back to mock)
+- [x] Deploy
 - [ ] Record demo video (3-minute hackathon submission)
 
 ---
@@ -75,3 +75,20 @@ Documentation:
 **2048 tests, zero lint errors.**
 
 **What could have gone better:** The resubmission revealed a deeper problem — the AI interpreter's JSON output is unparseable for most proposals (unterminated strings, invalid structures). 4 of 5 fell back to mock. This is the steel thread of the game and must be fixed urgently.
+
+## Session 114 — Fix Interpreter JSON Parsing — Structured Output
+
+**What was asked:** Fix the #1 priority bug: AI interpreter returning unparseable JSON for creative proposals. 4 of 5 resubmitted proposals fell back to mock because Sonnet, Haiku, and Opus all produced malformed JSON (unterminated strings, lists in strict dict types). Every proposal must be interpreted by real AI, and every approved proposal must affect the game.
+
+**What was built:**
+
+Three root causes identified and fixed:
+- **Structured output via `output_config`** — `interpret_proposal_v2()`, `_opus_escalate()`, and Haiku fallback now use `pydantic_to_response_format(ProposalInterpretation)` which forces the API to return guaranteed-valid JSON. Eliminates "Unterminated string" and "Expecting property name" errors at the protocol level. Same proven pattern already used in `classifier.py` and `search.py`.
+- **`max_tokens` 1000 → 4096** — The V2 prompt produces complex multi-effect JSON. 1000 tokens caused truncation mid-string, producing unterminated strings.
+- **Wider model types** — `EffectSpec.action_code` changed from `dict[str, MetaValue | dict[str, MetaValue]]` to `dict | None` to accept nested lists (e.g. `conditional_sequence.steps`). `meta_operation` made nullable for non-meta effects. These fix Pydantic ValidationError failures.
+
+**Files modified (5):** `src/pinwheel/ai/interpreter.py`, `src/pinwheel/models/governance.py`, `src/pinwheel/core/effects.py`, `tests/test_messages_api.py`, `tests/test_governance.py`
+
+**2051 tests, zero lint errors.**
+
+**What could have gone better:** This should have been caught during the V2 interpreter's initial implementation — the classifier already used `output_config` as the proven pattern. The type narrowness of `action_code` was also predictable given the prompt describes list-valued structures like `conditional_sequence`.

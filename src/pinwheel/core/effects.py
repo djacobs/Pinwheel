@@ -198,7 +198,7 @@ def effect_spec_to_registered(
         target_selector=spec.target_selector or "",
         meta_field=spec.meta_field or "",
         meta_value=spec.meta_value,
-        meta_operation=spec.meta_operation,
+        meta_operation=spec.meta_operation or "set",
     )
 
 

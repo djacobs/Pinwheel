@@ -1748,6 +1748,35 @@ class TestEffectsV2Pipeline:
         assert effects[0].parameter == "three_point_value"
         assert effects[1].effect_type == "narrative"
 
+    def test_effect_spec_accepts_nested_action_code(self) -> None:
+        """EffectSpec action_code accepts lists (e.g. conditional_sequence steps)."""
+        effect = EffectSpec(
+            effect_type="hook_callback",
+            hook_point="sim.possession.pre",
+            condition="offense trailing",
+            action_code={
+                "type": "conditional_sequence",
+                "steps": [
+                    {"action": {"type": "modify_probability", "modifier": 0.05}, "gate": None},
+                    {"action": {"type": "modify_score", "modifier": 1}, "gate": {"quarter_gte": 3}},
+                ],
+            },
+            description="Trailing team gets boosts",
+        )
+        assert effect.action_code is not None
+        assert isinstance(effect.action_code["steps"], list)
+        assert len(effect.action_code["steps"]) == 2
+
+    def test_effect_spec_accepts_null_meta_operation(self) -> None:
+        """EffectSpec meta_operation accepts None for non-meta effects."""
+        effect = EffectSpec(
+            effect_type="hook_callback",
+            hook_point="sim.possession.pre",
+            meta_operation=None,
+            description="Non-meta effect",
+        )
+        assert effect.meta_operation is None
+
     def test_get_proposal_effects_v2_empty_payload(self) -> None:
         """get_proposal_effects_v2() returns [] when no effects_v2 key."""
         assert get_proposal_effects_v2({}) == []

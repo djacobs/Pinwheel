@@ -508,8 +508,8 @@ class TestCallSitesOutputConfig:
         assert "output_config" not in call_kwargs
         assert result.three_point_bias == 5.0
 
-    async def test_interpreter_v2_no_output_config(self) -> None:
-        """interpret_proposal_v2 does NOT pass output_config."""
+    async def test_interpreter_v2_uses_output_config(self) -> None:
+        """interpret_proposal_v2 uses output_config for guaranteed structured output."""
         from pinwheel.ai.interpreter import interpret_proposal_v2
         from pinwheel.models.rules import RuleSet
 
@@ -542,8 +542,54 @@ class TestCallSitesOutputConfig:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "output_config" not in call_kwargs
+        assert "output_config" in call_kwargs
+        oc = call_kwargs["output_config"]
+        assert oc["format"]["type"] == "json_schema"
         assert result.confidence == pytest.approx(0.8)
+
+    async def test_interpreter_v2_parses_nested_action_code(self) -> None:
+        """interpret_proposal_v2 parses action_code with nested lists (previously crashed)."""
+        from pinwheel.ai.interpreter import interpret_proposal_v2
+        from pinwheel.models.rules import RuleSet
+
+        # This is the exact structure that Haiku/Sonnet produced in production
+        # and caused Pydantic ValidationError because action_code.steps was a list
+        payload = json.dumps({
+            "effects": [{
+                "effect_type": "hook_callback",
+                "hook_point": "sim.possession.pre",
+                "condition": "offense trailing",
+                "action_code": {
+                    "type": "conditional_sequence",
+                    "steps": [
+                        {"action": {"type": "modify_probability", "modifier": 0.05}},
+                        {"action": {"type": "modify_score", "modifier": 1}},
+                    ],
+                },
+                "description": "Trailing team gets a boost",
+            }],
+            "impact_analysis": "Trailing team boost",
+            "confidence": 0.85,
+            "clarification_needed": False,
+            "injection_flagged": False,
+            "original_text_echo": "test",
+        })
+        mock_resp = _mock_response(payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+        with patch(
+            "pinwheel.ai.interpreter._get_client",
+            return_value=mock_client,
+        ):
+            result = await interpret_proposal_v2(
+                "trailing team gets a boost", RuleSet(), "fake-key"
+            )
+
+        assert result.confidence == pytest.approx(0.85)
+        assert len(result.effects) == 1
+        assert result.effects[0].action_code["type"] == "conditional_sequence"
+        assert isinstance(result.effects[0].action_code["steps"], list)
 
     async def test_search_parser_uses_output_config(self) -> None:
         """parse_query_ai passes output_config."""

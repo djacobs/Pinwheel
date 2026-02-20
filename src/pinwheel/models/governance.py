@@ -185,13 +185,15 @@ class EffectSpec(BaseModel):
     target_selector: str | None = None  # "all", "winning_team", specific ID
     meta_field: str | None = None
     meta_value: MetaValue = None
-    meta_operation: Literal["set", "increment", "decrement", "toggle"] = "set"
+    meta_operation: Literal["set", "increment", "decrement", "toggle"] | None = None
 
     # hook_callback
     hook_point: str | None = None
     condition: str | None = None  # Natural language condition
     action: str | None = None  # Natural language action
-    action_code: dict[str, MetaValue | dict[str, MetaValue]] | None = None
+    # Accept any JSON-serializable structure — the AI may produce nested
+    # lists (e.g. conditional_sequence steps) or deeply nested objects.
+    action_code: dict | None = None
 
     # narrative
     narrative_instruction: str | None = None

@@ -13,6 +13,7 @@ import logging
 import anthropic
 import httpx
 from pydantic import BaseModel as PydanticBaseModel
+from pydantic import ValidationError
 
 from pinwheel.models.governance import (
     EffectSpec,
@@ -556,6 +557,7 @@ async def _opus_escalate(
     from pinwheel.ai.usage import (
         cacheable_system,
         extract_usage,
+        pydantic_to_response_format,
         record_ai_usage,
         track_latency,
     )
@@ -590,9 +592,12 @@ async def _opus_escalate(
         async with track_latency() as timing:
             response = await opus_client.messages.create(
                 model=opus_model,
-                max_tokens=1000,
+                max_tokens=4096,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
+                output_config=pydantic_to_response_format(
+                    ProposalInterpretation, "proposal_interpretation"
+                ),
             )
 
         if db_session is not None:
@@ -644,12 +649,16 @@ async def interpret_proposal_v2(
     from pinwheel.ai.usage import (
         cacheable_system,
         extract_usage,
+        pydantic_to_response_format,
         record_ai_usage,
         track_latency,
     )
 
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_V2_SYSTEM_PROMPT.format(parameters=params_desc)
+    v2_output_config = pydantic_to_response_format(
+        ProposalInterpretation, "proposal_interpretation"
+    )
 
     user_msg = f"Proposal: {raw_text}"
     if amendment_context:
@@ -663,9 +672,10 @@ async def interpret_proposal_v2(
             async with track_latency() as timing:
                 response = await client.messages.create(
                     model=model,
-                    max_tokens=1000,
+                    max_tokens=4096,
                     system=cacheable_system(system),
                     messages=[{"role": "user", "content": user_msg}],
+                    output_config=v2_output_config,
                 )
 
             if db_session is not None:
@@ -722,7 +732,7 @@ async def interpret_proposal_v2(
                 continue
             # Both attempts failed — fall back to mock
             break
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
+        except (json.JSONDecodeError, ValidationError, KeyError, IndexError) as e:
             last_error = e
             logger.error("AI v2 interpretation failed (parse error): %s", e)
             break
@@ -740,9 +750,10 @@ async def interpret_proposal_v2(
         async with track_latency() as timing:
             response = await haiku_client.messages.create(
                 model=haiku_model,
-                max_tokens=1000,
+                max_tokens=4096,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
+                output_config=v2_output_config,
             )
 
         if db_session is not None:
