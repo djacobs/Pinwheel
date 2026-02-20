@@ -110,7 +110,8 @@ async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUs
                     "raw_text": ev.payload.get("raw_text", ""),
                     "season_name": season.name,
                     "status": status,
-                    "timestamp": ev.timestamp,
+                    "timestamp": getattr(ev, "created_at", None)
+                    or getattr(ev, "timestamp", None),
                 })
 
         proposals_pending = proposals_submitted - proposals_passed - proposals_failed
