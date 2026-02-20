@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2077 tests**, zero lint errors (Session 121)
+- **2079 tests**, zero lint errors (Session 122)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -29,7 +29,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
 - **Day 25 Session 121:** Series context headlines now show pre-game state; fixed round 12 wrong team IDs in production DB
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `cc9aed6` — fix: series context shows pre-game state per historical game
+- **Latest commit:** `cc9aed6` — fix: series context shows pre-game state per historical game (Session 122 commit pending)
 
 ## Today's Agenda
 
@@ -39,6 +39,8 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Fix rules_changed section: human-readable parameter labels
 - [x] Cancel 10 duplicate proposals, keep 5 batch-3 (real AI interpretation)
 - [ ] Record demo video (3-minute hackathon submission)
+- [x] Fix UUIDs in arena play-by-play and Discord notifications
+- [x] Hooper page: season name, bold game/league highs, past seasons, bio
 
 ---
 
@@ -222,3 +224,27 @@ Series context pre-game state fix:
 **2077 tests, zero lint errors.**
 
 **What could have gone better:** The root cause was `fix_schedule_v2.py` querying teams by `WHERE season_id=?` instead of `WHERE id IN (SELECT DISTINCT home_team_id FROM schedule WHERE season_id=?)`. If the teams table has rows from multiple seasons (or teams lack a season_id column), the former query can silently return wrong teams. The lesson: always derive team IDs from existing schedule entries for the target season.
+
+---
+
+## Session 122 — UUID Fixes + Hooper Page Enhancements
+
+**What was asked:** Fix raw UUIDs appearing in (1) the arena live play-by-play where defenders/rebounders not in the box score showed as IDs, (2) Discord game-over notifications showing team IDs when the server restarts mid-game. Also enhance the hooper detail page: show which season the game log belongs to, bold game-high and league-high stat lines, collapse past seasons to single aggregate rows, and add a bio field.
+
+**What was built:**
+
+UUID fixes:
+- `pages.py` game detail handler: `hooper_names` cache now loads from both teams' full rosters (all hoopers in `team.hoopers`) before falling back to individual box score lookups — defenders and rebounders who don't appear in box scores are now resolved
+- `scheduler_runner.py` resume path: after building the name cache from `get_teams_for_season()`, a defensive fallback loop fetches any team IDs in game results that weren't returned by the season query (e.g. teams from a prior season that appear in current-season game records due to manual data repairs) and logs a warning
+
+Hooper page enhancements:
+- `db/repository.py`: added `get_league_season_highs(season_id)` — `SELECT MAX(points), MAX(assists), MAX(steals) FROM box_scores JOIN game_results` for a season; returns `{"points": N, "assists": N, "steals": N}`
+- `pages.py` hooper handler: groups box scores by season, builds `game_log` from current season only, computes `personal_bests` (per-hooper max this season), fetches `league_bests` via new repo method, annotates each game log entry with `pts_is_personal_best`, `pts_is_league_best`, `ast_is_personal_best`, `ast_is_league_best`, `stl_is_personal_best`, `stl_is_league_best` flags; builds `past_seasons` list with aggregate stats per past season using `compute_season_averages`
+- `templates/pages/hooper.html`: Game Log card header now shows current season name + legend ("★ league high, **bold** personal best"); points/assists/steals cells render with gold ★ for league bests or `<strong>` for personal bests; new Past Seasons card above game log shows one aggregate row per past season (GP, PPG, FG%, 3P%, APG, SPG, TOPG)
+- Bio section: already present in template and handler from a prior session — confirmed working, no changes needed
+
+**Files modified (5):** `src/pinwheel/db/repository.py`, `src/pinwheel/api/pages.py`, `templates/pages/hooper.html`, `src/pinwheel/core/scheduler_runner.py`, `tests/test_db.py`
+
+**2079 tests, zero lint errors.**
+
+**What could have gone better:** The `hooper_names` cache bug existed since the game detail page was built — loading only from box score participants instead of full rosters. Integration tests for the game detail page should have covered the play-by-play rendering with a complete cast of players (not just scorers), which would have caught this. The live SSE UUID issue root cause was not definitively confirmed — the resume-path fix addresses the most likely production trigger, but the exact live path failure mode wasn't isolated.

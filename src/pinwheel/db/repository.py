@@ -1247,6 +1247,31 @@ class Repository:
 
         return {a: round(totals[a] / count, 1) for a in ATTRIBUTE_ORDER}
 
+    async def get_league_season_highs(self, season_id: str) -> dict[str, int]:
+        """Get the single-game high for each core stat across all hoopers in a season.
+
+        Returns a dict mapping stat name to the maximum value achieved in any single game.
+        Used to identify and bold league-high performances on the hooper page.
+        """
+        stmt = (
+            select(
+                func.max(BoxScoreRow.points).label("points"),
+                func.max(BoxScoreRow.assists).label("assists"),
+                func.max(BoxScoreRow.steals).label("steals"),
+            )
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(GameResultRow.season_id == season_id)
+        )
+        result = await self.session.execute(stmt)
+        row = result.one_or_none()
+        if not row:
+            return {}
+        return {
+            "points": row.points or 0,
+            "assists": row.assists or 0,
+            "steals": row.steals or 0,
+        }
+
     async def update_hooper_backstory(self, hooper_id: str, backstory: str) -> HooperRow | None:
         """Update a hooper's backstory text."""
         hooper = await self.get_hooper(hooper_id)

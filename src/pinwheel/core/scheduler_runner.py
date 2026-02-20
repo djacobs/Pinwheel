@@ -305,6 +305,26 @@ async def resume_presentation(
             for h in t.hoopers:
                 name_cache[h.id] = h.name
 
+        # Defensive fallback: look up any game team IDs not covered by season query.
+        # This guards against cross-season schedule entries or data anomalies.
+        all_game_team_ids = {
+            tid
+            for gr in game_results
+            for tid in (gr.home_team_id, gr.away_team_id)
+        }
+        for tid in all_game_team_ids - set(name_cache.keys()):
+            t = await repo.get_team(tid)
+            if t:
+                name_cache[t.id] = t.name
+                color_cache[t.id] = (t.color or "#888", t.color_secondary or "#1a1a2e")
+                for h in t.hoopers:
+                    name_cache[h.id] = h.name
+                logger.warning(
+                    "resume: team %s not in season %s — loaded directly",
+                    tid,
+                    season_id,
+                )
+
         # Fill in hooper_name on box scores now that we have the name cache
         for gr in game_results:
             for bs in gr.box_scores:

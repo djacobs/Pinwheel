@@ -288,6 +288,63 @@ class TestHooperBackstory:
         assert retrieved.backstory == ""
 
 
+class TestLeagueSeasonHighs:
+    """Tests for get_league_season_highs repository method."""
+
+    async def test_empty_season_returns_zeros(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        result = await repo.get_league_season_highs(season.id)
+        # func.max() with no rows returns a row of NULLs → coerced to 0
+        assert result == {"points": 0, "assists": 0, "steals": 0}
+
+    async def test_returns_max_stats_across_hoopers(self, repo: Repository):
+        league = await repo.create_league("L")
+        season = await repo.create_season(league.id, "S1")
+        team_a = await repo.create_team(season.id, "Team A")
+        team_b = await repo.create_team(season.id, "Team B")
+        hooper_a = await repo.create_hooper(
+            team_a.id, season.id, "Alice", "sharpshooter", {}
+        )
+        hooper_b = await repo.create_hooper(
+            team_b.id, season.id, "Bob", "playmaker", {}
+        )
+
+        game = await repo.store_game_result(
+            season_id=season.id,
+            round_number=1,
+            matchup_index=0,
+            home_team_id=team_a.id,
+            away_team_id=team_b.id,
+            home_score=20,
+            away_score=18,
+            winner_team_id=team_a.id,
+            seed=42,
+            total_possessions=60,
+        )
+        await repo.store_box_score(
+            game_id=game.id,
+            hooper_id=hooper_a.id,
+            team_id=team_a.id,
+            points=25,
+            assists=3,
+            steals=2,
+        )
+        await repo.store_box_score(
+            game_id=game.id,
+            hooper_id=hooper_b.id,
+            team_id=team_b.id,
+            points=18,
+            assists=7,
+            steals=1,
+        )
+
+        result = await repo.get_league_season_highs(season.id)
+        assert result["points"] == 25
+        assert result["assists"] == 7
+        assert result["steals"] == 2
+
+
 class TestGovernorActivity:
     """Tests for get_governor_activity and get_all_proposals."""
 

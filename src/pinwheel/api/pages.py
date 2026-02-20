@@ -1894,12 +1894,20 @@ async def game_page(
         (away_name, game.away_team_id, away_players, away_color),
     ]
 
-    # Build hooper-name cache from box scores already loaded
+    # Build hooper-name cache from both teams' full rosters — covers defenders and
+    # rebounders who appear in play-by-play but may not have box score entries.
     hooper_names: dict[str, str] = {}
+    for team_id in (game.home_team_id, game.away_team_id):
+        t = await repo.get_team(team_id)
+        if t:
+            for h in t.hoopers:
+                hooper_names[h.id] = h.name
+    # Fallback: individual lookups for any box score hoopers still unresolved.
     for bs in game.box_scores:
         if bs.hooper_id not in hooper_names:
             h = await repo.get_hooper(bs.hooper_id)
-            hooper_names[bs.hooper_id] = h.name if h else bs.hooper_id
+            if h:
+                hooper_names[bs.hooper_id] = h.name
 
     # Play-by-play from stored data (JSON dicts), enriched with narration
     raw_plays = game.play_by_play or []
@@ -2303,21 +2311,35 @@ async def hooper_page(
     hooper_pts = spider_chart_data(hooper.attributes) if hooper.attributes else []
     avg_pts = spider_chart_data(league_avg) if league_avg else []
 
-    # Game log + season averages
+    # Game log — grouped by season so current season shows game-level detail
+    # and past seasons collapse to aggregate rows.
+    # Note: carry_over_teams creates new hooper IDs per season, so all entries
+    # normally belong to hooper.season_id. This structure is forward-compatible.
     box_score_rows = await repo.get_box_scores_for_hooper(hooper_id)
-    game_log = []
-    bs_dicts = []
-    team_name_cache: dict[str, str] = {}
 
+    from collections import defaultdict
+
+    games_by_season: dict[str, list] = defaultdict(list)
     for bs, game in box_score_rows:
-        # Determine opponent
-        opp_id = game.away_team_id if bs.team_id == game.home_team_id else game.home_team_id
+        games_by_season[game.season_id].append((bs, game))
 
+    hooper_season_id: str = hooper.season_id or ""
+    current_entries = games_by_season.get(hooper_season_id, [])
+    past_season_ids = [sid for sid in games_by_season if sid != hooper_season_id]
+
+    # Season name for the game log header
+    current_season_obj = await repo.get_season(hooper_season_id) if hooper_season_id else None
+    current_season_name = current_season_obj.name if current_season_obj else "Current Season"
+
+    # Build current-season game log
+    team_name_cache: dict[str, str] = {}
+    raw_game_log: list[dict] = []
+    for bs, game in current_entries:
+        opp_id = game.away_team_id if bs.team_id == game.home_team_id else game.home_team_id
         if opp_id not in team_name_cache:
             opp_team = await repo.get_team(opp_id)
             team_name_cache[opp_id] = opp_team.name if opp_team else opp_id
-
-        game_log.append(
+        raw_game_log.append(
             {
                 "game_id": game.id,
                 "round_number": game.round_number,
@@ -2334,7 +2356,43 @@ async def hooper_page(
                 "turnovers": bs.turnovers,
             }
         )
-        bs_dicts.append(
+
+    # Personal bests across current-season games
+    personal_bests: dict[str, int] = {
+        "points": max((g["points"] for g in raw_game_log), default=0),
+        "assists": max((g["assists"] for g in raw_game_log), default=0),
+        "steals": max((g["steals"] for g in raw_game_log), default=0),
+    }
+
+    # League season highs — highest single-game value by any player this season
+    league_bests: dict[str, int] = {}
+    if hooper_season_id:
+        league_bests = await repo.get_league_season_highs(hooper_season_id)
+
+    # Annotate each game entry with personal/league best flags
+    game_log: list[dict] = []
+    for g in raw_game_log:
+        entry = dict(g)
+        pb_pts = personal_bests["points"]
+        pb_ast = personal_bests["assists"]
+        pb_stl = personal_bests["steals"]
+        lb_pts = league_bests.get("points", 0)
+        lb_ast = league_bests.get("assists", 0)
+        lb_stl = league_bests.get("steals", 0)
+        entry["pts_is_personal_best"] = g["points"] > 0 and g["points"] == pb_pts
+        entry["pts_is_league_best"] = g["points"] > 0 and g["points"] == lb_pts
+        entry["ast_is_personal_best"] = g["assists"] > 0 and g["assists"] == pb_ast
+        entry["ast_is_league_best"] = g["assists"] > 0 and g["assists"] == lb_ast
+        entry["stl_is_personal_best"] = g["steals"] > 0 and g["steals"] == pb_stl
+        entry["stl_is_league_best"] = g["steals"] > 0 and g["steals"] == lb_stl
+        game_log.append(entry)
+
+    # Past-season aggregates (collapsed to one row per season)
+    past_seasons: list[dict] = []
+    for sid in past_season_ids:
+        entries = games_by_season[sid]
+        s = await repo.get_season(sid)
+        agg_bs = [
             {
                 "points": bs.points,
                 "assists": bs.assists,
@@ -2347,8 +2405,32 @@ async def hooper_page(
                 "free_throws_made": bs.free_throws_made,
                 "free_throws_attempted": bs.free_throws_attempted,
             }
+            for bs, _ in entries
+        ]
+        past_seasons.append(
+            {
+                "season_name": s.name if s else "Past Season",
+                "games_played": len(entries),
+                "averages": compute_season_averages(agg_bs),
+            }
         )
 
+    # Season averages from current-season games only
+    bs_dicts = [
+        {
+            "points": bs.points,
+            "assists": bs.assists,
+            "steals": bs.steals,
+            "turnovers": bs.turnovers,
+            "field_goals_made": bs.field_goals_made,
+            "field_goals_attempted": bs.field_goals_attempted,
+            "three_pointers_made": bs.three_pointers_made,
+            "three_pointers_attempted": bs.three_pointers_attempted,
+            "free_throws_made": bs.free_throws_made,
+            "free_throws_attempted": bs.free_throws_attempted,
+        }
+        for bs, _ in current_entries
+    ]
     season_averages = compute_season_averages(bs_dicts)
 
     # Check if current user is governor on this hooper's team (can edit bio)
@@ -2372,6 +2454,10 @@ async def hooper_page(
             "spider_poly": polygon_points(hooper_pts) if hooper_pts else "",
             "avg_poly": polygon_points(avg_pts) if avg_pts else "",
             "game_log": game_log,
+            "current_season_name": current_season_name,
+            "past_seasons": past_seasons,
+            "personal_bests": personal_bests,
+            "league_bests": league_bests,
             "season_averages": season_averages,
             "can_edit_bio": can_edit_bio,
             **_auth_context(request, current_user),

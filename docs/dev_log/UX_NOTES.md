@@ -837,3 +837,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 135. [DONE] Playoff game cards all showed "Game 2"
 **Problem:** All three Rose City/St. Johns semifinal games were labeled "Game 2" because `matchup_index` (their slot in the round — 0 for Burnside/Hawthorne, 1 for Rose City/St. Johns) was used as the series game number.
 **Fix:** Added `series_game_number` computed by counting each team-pair's appearances oldest-first across the displayed rounds. Template uses it for playoff games, falls back to `matchup_index + 1` for regular season.
+
+### 136. [DONE] Hooper game log had no season label or stat emphasis
+**Problem:** The hooper game log showed all games with no indication of which season it covered. Past seasons' games were mixed in. All stat values were plain text — no way to see at a glance which were standout performances. No place for a bio either.
+**Fix:** Game log is now scoped to the current season only. Card header shows the season name alongside a legend: "★ league high, **bold** personal best". Points, assists, and steals use conditional rendering: gold ★ for league single-game bests, `<strong>` for personal bests, plain text otherwise. A new "Past Seasons" card above the game log shows one collapsed aggregate row per past season (GP, PPG, FG%, 3P%, APG, SPG, TOPG). Bio section was already present and confirmed working. New `get_league_season_highs()` DB method powers the league-high annotations.

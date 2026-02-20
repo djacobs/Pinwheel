@@ -95,11 +95,56 @@
   </div>
 </div>
 
-{# Game Log #}
+{# Past Seasons (collapsed aggregate rows) #}
+{% if past_seasons %}
+<div class="card mb-2">
+  <div class="card-header">
+    <h3>Past Seasons</h3>
+  </div>
+  <div class="card-body" style="padding: 0;">
+    <table class="box-score-table">
+      <thead>
+        <tr>
+          <th style="text-align:left">SEASON</th>
+          <th>GP</th>
+          <th>PPG</th>
+          <th>FG%</th>
+          <th>3P%</th>
+          <th>APG</th>
+          <th>SPG</th>
+          <th>TOPG</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ps in past_seasons %}
+        <tr>
+          <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">{{ ps.season_name }}</td>
+          <td>{{ ps.games_played }}</td>
+          {% if ps.averages %}
+          <td>{{ ps.averages.ppg }}</td>
+          <td>{{ ps.averages.fg_pct }}%</td>
+          <td>{{ ps.averages.three_pct }}%</td>
+          <td>{{ ps.averages.apg }}</td>
+          <td>{{ ps.averages.spg }}</td>
+          <td>{{ ps.averages.topg }}</td>
+          {% else %}
+          <td colspan="6" class="text-muted">—</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# Game Log — current season, game by game #}
 {% if game_log %}
 <div class="card mb-2">
   <div class="card-header">
     <h3>Game Log</h3>
+    <span class="text-muted text-xs" style="font-weight: 400; margin-left: 0.5rem;">{{ current_season_name }}</span>
+    <span class="text-muted text-xs" style="margin-left: 0.5rem;">— <strong style="color: var(--accent-score)">★</strong> league high, <strong>bold</strong> personal best</span>
   </div>
   <div class="card-body" style="padding: 0;">
     <table class="box-score-table">
@@ -125,12 +170,24 @@
           <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">
             {{ g.opponent_name }}
           </td>
-          <td>{{ g.points }}</td>
+          <td>
+            {% if g.pts_is_league_best %}<strong style="color: var(--accent-score)">{{ g.points }}★</strong>
+            {% elif g.pts_is_personal_best %}<strong>{{ g.points }}</strong>
+            {% else %}{{ g.points }}{% endif %}
+          </td>
           <td>{{ g.field_goals_made }}-{{ g.field_goals_attempted }}</td>
           <td>{{ g.three_pointers_made }}-{{ g.three_pointers_attempted }}</td>
           <td>{{ g.free_throws_made }}-{{ g.free_throws_attempted }}</td>
-          <td>{{ g.assists }}</td>
-          <td>{{ g.steals }}</td>
+          <td>
+            {% if g.ast_is_league_best %}<strong style="color: var(--accent-score)">{{ g.assists }}★</strong>
+            {% elif g.ast_is_personal_best %}<strong>{{ g.assists }}</strong>
+            {% else %}{{ g.assists }}{% endif %}
+          </td>
+          <td>
+            {% if g.stl_is_league_best %}<strong style="color: var(--accent-score)">{{ g.steals }}★</strong>
+            {% elif g.stl_is_personal_best %}<strong>{{ g.steals }}</strong>
+            {% else %}{{ g.steals }}{% endif %}
+          </td>
           <td>{{ g.turnovers }}</td>
         </tr>
         {% endfor %}
