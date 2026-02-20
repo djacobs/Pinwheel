@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2077 tests**, zero lint errors (Session 120)
+- **2077 tests**, zero lint errors (Session 121)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -27,8 +27,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Sessions 117-118:** Full audit + P1/P2 fixes; playoff schedule gap fixed; deferred_interpreter crash fixed
 - **Day 25 Session 119:** Arena UX polish — subtitle shows round + phase, leader separator, series game numbers
 - **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
+- **Day 25 Session 121:** Series context headlines now show pre-game state; fixed round 12 wrong team IDs in production DB
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `747be35` — fix: series_game_number uses full season history, not display window
+- **Latest commit:** `cc9aed6` — fix: series context shows pre-game state per historical game
 
 ## Today's Agenda
 
@@ -191,3 +192,33 @@ Series game number — full history fix (`pages.py`):
 **2077 tests, zero lint errors.**
 
 **What could have gone better:** The root trigger was `asyncio.CancelledError` escaping `_phase_persist_and_finalize`'s `except Exception` guard during a server restart — silently dropping the round 12 schedule entry while game results were already committed. The real fix is to catch `BaseException` (or split schedule insertion into its own commit so it can't be lost). The `_get_playoff_series_record` bug was a latent logic error that turned a missing schedule entry into cascading chaos.
+
+---
+
+## Session 121 — Series Context Pre-Game State + Round 12 Team ID Fix
+
+**What was asked:** Games 1 and 2 showed series headlines generated from the wrong context — both said "decisive Game 3 showdown" when they should reflect the stakes at the time each game was played. Also: round 12 still showed wrong game numbers.
+
+**What was built:**
+
+Root cause of wrong game numbers and wrong headlines (same bug):
+- The round 12 schedule entry (manually inserted by `fix_schedule_v2.py`) used team IDs from a different DB context — `8c604a32`/`60c99636` instead of the season's actual Rose City (`44e3232c`) and St. Johns (`bc1607a1`) IDs
+- The game_result and box_scores for round 12 also got these wrong IDs when the game loop ran against the bad schedule entry
+- So `scheduled_rounds` for the real Rose City/St. Johns pair was `{10, 11}` (not `{10, 11, 12}`), breaking series_game_number and series record computation for round 12
+
+Production data fix (via `/tmp/fix_round12_team_ids.py`):
+- Updated schedule entry `8e4def28`: home/away team IDs → 44e3232c/bc1607a1
+- Updated game_result `da1f154d`: home/away/winner team IDs fixed (Rose City won 59-49)
+- Updated 8 box_score rows (4 Rose City, 4 St. Johns)
+
+Series context pre-game state fix:
+- `_get_playoff_series_record` in `game_loop.py`: added optional `before_round` parameter — when set, excludes games with `round_number >= before_round`
+- `_compute_series_context_for_game` in `pages.py`: added `round_number` parameter, passes it as `before_round`
+- Arena route: passes `g["round_number"]` to `_compute_series_context_for_game` for each game
+- Result: Game 1 shows 0-0 opening context, Game 2 shows 1-0 (St. Johns leads) context, Game 3 shows 1-1 decisive game context
+
+**Files modified (2):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/api/pages.py`
+
+**2077 tests, zero lint errors.**
+
+**What could have gone better:** The root cause was `fix_schedule_v2.py` querying teams by `WHERE season_id=?` instead of `WHERE id IN (SELECT DISTINCT home_team_id FROM schedule WHERE season_id=?)`. If the teams table has rows from multiple seasons (or teams lack a season_id column), the former query can silently return wrong teams. The lesson: always derive team IDs from existing schedule entries for the target season.
