@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2077 tests**, zero lint errors (Session 117)
+- **2077 tests**, zero lint errors (Session 118)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -23,9 +23,10 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 22:** Proper bracket layout with CSS grid connecting lines
 - **Day 23:** Effects pipeline fix, deferred interpreter fix, proposal resubmission, admin guide
 - **Day 24:** Generic condition evaluator, conditional_sequence gate fix, World 2 architecture design
-- **Day 25:** Production audit — 0 effect.registered events ever, fixed interpreter busy UX, raw param names, duplicate proposals
+- **Day 25 Session 116:** Production audit — 0 effect.registered events ever, fixed interpreter busy UX, raw param names, duplicate proposals
+- **Day 25 Sessions 117-118:** Full audit + P1/P2 fixes; playoff schedule gap fixed; deferred_interpreter crash fixed
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `5341321` — fix: remove interpreter busy path, hide raw param names, clean up dupes
+- **Latest commit:** `2373b6b` — fix: deferred_interpreter expire_stale uses created_at with timestamp fallback
 
 ## Today's Agenda
 
@@ -116,3 +117,26 @@ Deferred items (also resolved this session):
 **2077 tests, zero lint errors.**
 
 **What could have gone better:** The return-type annotations added by Agent 4 introduced 10 E501 lint errors (lines over 100 chars) that needed a post-hoc `ruff format` pass. Agents should run `ruff format` on their files before reporting clean lint.
+
+---
+
+## Session 118 — Playoff Schedule Gap + Deferred Interpreter Crash
+
+**What was asked:** Games stopped on the home page. Investigate and fix.
+
+**What was built:**
+
+Root cause analysis:
+- Production logs showed `AttributeError: 'GovernanceEventRow' object has no attribute 'timestamp'` in `deferred_interpreter.py` every minute — but that was a separate crash, not the cause of games stopping
+- Round 12 had 0 schedule entries: `_advance_playoff_series()` runs in `_phase_persist_and_finalize()` (Session 2), which is wrapped in `try/except Exception` — but a server restart mid-game can throw `asyncio.CancelledError` (subclass of `BaseException`, not `Exception`), so the playoff schedule insert was silently lost while game results from Session 1 were already committed
+- Verified series state: Burnside beat Hawthorne 2-0 (rounds 10-11), Rose City and St. Johns tied 1-1 (rounds 10-11) — game 3 needed but never scheduled
+
+Fixes:
+- Manually inserted round 12 semifinal schedule entry: Rose City Thorns (home) vs St. Johns Herons via `/tmp/fix_schedule_v2.py` on production
+- Fixed `deferred_interpreter.py:expire_stale_pending()`: `ev.timestamp` → `getattr(ev, "created_at", None) or getattr(ev, "timestamp", None)` — handles both `GovernanceEventRow` (ORM, uses `created_at`) and `GovernanceEvent` (Pydantic, uses `timestamp`); the function's type annotation said `GovernanceEvent` but runtime returned `GovernanceEventRow`
+
+**Files modified (1):** `src/pinwheel/core/deferred_interpreter.py`
+
+**2077 tests, zero lint errors.**
+
+**What could have gone better:** The `get_pending_interpretations` function has a wrong return type annotation (`-> list[GovernanceEvent]`) but actually returns `list[GovernanceEventRow]`. The real fix would be to make it consistently return one type; the `getattr` fallback is a symptom-fix. Also, the `_phase_persist_and_finalize` should catch `BaseException` (or specifically `asyncio.CancelledError`) to ensure playoff advancement always runs, or be split so schedule insertion is done in its own commit.
