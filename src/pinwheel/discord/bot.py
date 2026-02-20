@@ -2296,61 +2296,6 @@ class PinwheelBot(commands.Bot):
                 tier = detect_tier(interpretation, ruleset)
             cost = token_cost_for_tier(tier)
 
-            # If the interpretation fell back to mock (all AI models failed),
-            # queue it for background retry instead of showing a bad mock result.
-            if interpretation_v2 is not None and interpretation_v2.is_mock_fallback:
-                # Spend token now — reserved for the deferred attempt
-                async with get_session(self.engine) as spend_session:
-                    spend_repo = Repository(spend_session)
-                    await spend_repo.append_event(
-                        event_type="token.spent",
-                        aggregate_id=gov.player_id,
-                        aggregate_type="token",
-                        season_id=gov.season_id,
-                        governor_id=gov.player_id,
-                        team_id=gov.team_id,
-                        payload={
-                            "token_type": "propose",
-                            "amount": cost,
-                            "reason": "proposal:pending_interpretation",
-                        },
-                    )
-                    # Queue the pending interpretation event
-                    import uuid as _uuid
-
-                    pending_id = str(_uuid.uuid4())
-                    await spend_repo.append_event(
-                        event_type="proposal.pending_interpretation",
-                        aggregate_id=pending_id,
-                        aggregate_type="proposal",
-                        season_id=gov.season_id,
-                        governor_id=gov.player_id,
-                        team_id=gov.team_id,
-                        payload={
-                            "raw_text": text,
-                            "discord_user_id": str(interaction.user.id),
-                            "discord_channel_id": str(
-                                interaction.channel_id or ""
-                            ),
-                            "governor_id": gov.player_id,
-                            "team_id": gov.team_id,
-                            "token_cost": cost,
-                            "ruleset": ruleset.model_dump(mode="json"),
-                        },
-                    )
-                    await spend_session.commit()
-
-                self._proposal_cooldowns[gov.player_id] = time.monotonic()
-
-                await thinking_msg.edit(
-                    content=(
-                        "The Interpreter is overwhelmed right now. "
-                        "Your proposal has been **queued** \u2014 you'll get a DM "
-                        "when it's ready. Your PROPOSE token is reserved."
-                    ),
-                )
-                return
-
             # Spend PROPOSE token NOW (before confirm UI) to prevent race conditions.
             # Two rapid /propose calls can no longer both pass the has_token() check
             # because the token is deducted immediately. If the governor cancels,

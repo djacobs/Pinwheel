@@ -2593,7 +2593,12 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
         )
         outcome_events = await repo.get_events_by_type(
             season_id=season_id,
-            event_types=["proposal.confirmed", "proposal.passed", "proposal.failed"],
+            event_types=[
+                "proposal.confirmed",
+                "proposal.passed",
+                "proposal.failed",
+                "proposal.cancelled",
+            ],
         )
         vote_events = await repo.get_events_by_type(
             season_id=season_id,
@@ -2602,11 +2607,14 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
 
         # Index outcomes and votes by proposal_id
         confirmed_ids: set[str] = set()
+        cancelled_ids: set[str] = set()
         outcomes: dict[str, dict] = {}
         for e in outcome_events:
             pid = e.payload.get("proposal_id", e.aggregate_id)
             if e.event_type == "proposal.confirmed":
                 confirmed_ids.add(pid)
+            elif e.event_type == "proposal.cancelled":
+                cancelled_ids.add(pid)
             elif e.event_type in ("proposal.passed", "proposal.failed"):
                 outcomes[pid] = e.payload
 
@@ -2635,6 +2643,8 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
 
             # Determine latest status from events
             pid = p.id
+            if pid in cancelled_ids:
+                continue
             status = p.status
             if pid in outcomes:
                 status = "passed" if outcomes[pid].get("passed") else "failed"
@@ -2660,8 +2670,19 @@ async def governance_page(request: Request, repo: RepoDep, current_user: Optiona
             season_id=season_id,
             event_types=["rule.enacted"],
         )
+        _param_labels: dict[str, str] = {
+            key: label
+            for tier in RULE_TIERS
+            for key, label, _ in tier.get("rules", [])
+        }
         for e in rc_events:
-            rules_changed.append(e.payload)
+            rc = dict(e.payload)
+            param = rc.get("parameter", "")
+            rc["parameter_label"] = _param_labels.get(
+                param,
+                param.replace("_", " ").title(),
+            )
+            rules_changed.append(rc)
 
     return templates.TemplateResponse(
         request,
