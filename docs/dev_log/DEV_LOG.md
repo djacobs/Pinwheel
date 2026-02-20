@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2079 tests**, zero lint errors (Session 124)
+- **2079 tests**, zero lint errors (Session 125)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -29,7 +29,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
 - **Day 25 Session 121:** Series context headlines now show pre-game state; fixed round 12 wrong team IDs in production DB
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `563fb26` — fix: career performance table shows all seasons by linking hoopers by name
+- **Latest commit:** `34cf5a3` — feat: career table sort + per-stat league leaders; game log sort + playoff marker
 
 ## Today's Agenda
 
@@ -282,3 +282,20 @@ Hooper page enhancements:
 **2079 tests, zero lint errors.**
 
 **What could have gone better:** Name-based linking is fragile if two different players share a name. A more robust solution would store an explicit `prior_hooper_id` FK on `HooperRow` during `carry_over_teams`, creating a linked list that survives name changes. For now, names are unique within the simulation so this is safe.
+
+---
+
+## Session 125 — Career Table Sort + Per-Stat League Leaders + Game Log Polish
+
+**What was asked:** Career Performance seasons in wrong order (current first, then 1–8 instead of 1–9); each stat cell should bold the league leader for that season (not just PPG, all 7 stats); game log rows in wrong order; playoff games should show a `*` marker.
+
+**What was built:**
+- `repository.py`: added `get_season_stat_leaders(season_ids)` — single batch query using a subquery that computes per-hooper per-season averages, then takes MAX per season for all 7 stats (PPG, FG%, 3P%, FT%, APG, SPG, TOPG); handles ties naturally since callers bold on rounded equality
+- `pages.py`: career seasons now sorted by `season.created_at` ascending (oldest first); removed now-unused `past_season_ids` variable; annotates all 7 stat flags (`ppg_is_league_best`, `fg_pct_is_league_best`, etc.) per season entry; game log sorted by `round_number` ascending; `is_playoff` flag added when `game.phase != "regular"`
+- `hooper.html`: career table cells wrap in `<strong>` for each of the 7 stats when league-best flag is set; game log round number appends `*` for playoff games; legend updated with `* playoff`
+
+**Files modified (3):** `src/pinwheel/db/repository.py`, `src/pinwheel/api/pages.py`, `templates/pages/hooper.html`
+
+**2079 tests, zero lint errors.**
+
+**What could have gone better:** Three lint errors on first pass — unused variable, inline import ordering, and `timezone.utc` vs `UTC` alias. All trivial but avoidable with a quick `ruff check` before committing.

@@ -845,3 +845,7 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 137. [DONE] No career performance view on hooper page
 **Problem:** The hooper page had no way to compare a player's performance across seasons. "Past Seasons" only showed seasons before the current one, so a player mid-season had no season-level context at all.
 **Fix:** Replaced "Past Seasons" with "Career Performance" — a table with one row per season (current first, past below). Added FT% column (previously missing). Current season row gets a subtle accent tint and "(current)" label so it's distinguishable at a glance. Columns match the game log: GP, PPG, FG%, 3P%, FT%, APG, SPG, TOPG.
+
+### 138. [DONE] Career table order wrong; no league-leader bolding; game log unordered; no playoff marker
+**Problem:** Career Performance showed current season first then past seasons in DB iteration order instead of chronological. No visual indicator for seasons where a player led the league in any stat. Game log rows appeared in DB insertion order (e.g. 12,13,14,1,2,3...) instead of round order. Playoff games indistinguishable from regular season.
+**Fix:** Career seasons sorted by `season.created_at` ascending. Each of the 7 stat cells (`PPG`, `FG%`, `3P%`, `FT%`, `APG`, `SPG`, `TOPG`) bolded when player's rounded season average matches the league max for that season — ties get bolded equally. Game log sorted by `round_number` ascending. Playoff games (any `phase` other than "regular") show `*` appended to round number. Legend updated: `* playoff`.
