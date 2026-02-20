@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from pinwheel.ai.commentary import (
     generate_game_commentary,
@@ -201,25 +201,35 @@ async def _get_playoff_series_record(
     """Get win counts for a playoff series between two teams.
 
     Returns (team_a_wins, team_b_wins, games_played).
-    Only counts games in rounds that have a playoff schedule entry.
+    Counts games where this specific team pair was scheduled to play,
+    regardless of round number — so manually-inserted or late-committed
+    schedule entries are always included.
     """
     playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
-    playoff_rounds = {s.round_number for s in playoff_schedule}
+    pair = frozenset({team_a_id, team_b_id})
+    # Rounds where this specific matchup was scheduled (not all playoff rounds)
+    scheduled_rounds = {
+        s.round_number
+        for s in playoff_schedule
+        if frozenset({s.home_team_id, s.away_team_id}) == pair
+    }
     all_games = await repo.get_all_games(season_id)
 
-    pair = frozenset({team_a_id, team_b_id})
     a_wins = 0
     b_wins = 0
     games = 0
     for g in all_games:
-        if g.round_number not in playoff_rounds:
+        if frozenset({g.home_team_id, g.away_team_id}) != pair:
             continue
-        if frozenset({g.home_team_id, g.away_team_id}) == pair:
-            games += 1
-            if g.winner_team_id == team_a_id:
-                a_wins += 1
-            elif g.winner_team_id == team_b_id:
-                b_wins += 1
+        # Count if this round was scheduled for this pair OR the game is in
+        # any playoff round (fallback for games played without a schedule entry)
+        if g.round_number not in scheduled_rounds:
+            continue
+        games += 1
+        if g.winner_team_id == team_a_id:
+            a_wins += 1
+        elif g.winner_team_id == team_b_id:
+            b_wins += 1
     return a_wins, b_wins, games
 
 
@@ -247,14 +257,26 @@ async def _schedule_next_series_game(
         home_team_id = lower_seed_id
         away_team_id = higher_seed_id
 
-    await repo.create_schedule_entry(
-        season_id=season_id,
-        round_number=round_number,
-        matchup_index=matchup_index,
-        home_team_id=home_team_id,
-        away_team_id=away_team_id,
-        phase=phase,
-    )
+    try:
+        await repo.create_schedule_entry(
+            season_id=season_id,
+            round_number=round_number,
+            matchup_index=matchup_index,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            phase=phase,
+        )
+    except IntegrityError:
+        # Entry already exists (unique constraint on season/round/matchup_index).
+        # This can happen if _advance_playoff_series is called twice (e.g., after
+        # a retry or a double-tick). Safe to ignore — the existing entry stands.
+        logger.warning(
+            "schedule_entry_already_exists season=%s round=%d idx=%d phase=%s",
+            season_id,
+            round_number,
+            matchup_index,
+            phase,
+        )
 
 
 async def _advance_playoff_series(
