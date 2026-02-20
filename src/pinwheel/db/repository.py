@@ -1282,6 +1282,74 @@ class Repository:
             "steals": row.steals or 0,
         }
 
+    async def get_season_stat_leaders(
+        self, season_ids: list[str]
+    ) -> dict[str, dict[str, float]]:
+        """For each season, return the league-best season average for each core stat.
+
+        Uses a subquery that computes per-hooper per-season averages, then takes
+        the MAX across all hoopers per season. Handles ties naturally — callers can
+        bold any hooper whose rounded value matches the rounded league max.
+
+        Returns {season_id: {"ppg": float, "apg": float, "spg": float, "topg": float,
+                              "fg_pct": float, "three_pct": float, "ft_pct": float}}
+        """
+        if not season_ids:
+            return {}
+
+        sub = (
+            select(
+                GameResultRow.season_id.label("season_id"),
+                (func.sum(BoxScoreRow.points) * 1.0 / func.count()).label("ppg"),
+                (func.sum(BoxScoreRow.assists) * 1.0 / func.count()).label("apg"),
+                (func.sum(BoxScoreRow.steals) * 1.0 / func.count()).label("spg"),
+                (func.sum(BoxScoreRow.turnovers) * 1.0 / func.count()).label("topg"),
+                (
+                    func.sum(BoxScoreRow.field_goals_made)
+                    * 100.0
+                    / func.nullif(func.sum(BoxScoreRow.field_goals_attempted), 0)
+                ).label("fg_pct"),
+                (
+                    func.sum(BoxScoreRow.three_pointers_made)
+                    * 100.0
+                    / func.nullif(func.sum(BoxScoreRow.three_pointers_attempted), 0)
+                ).label("three_pct"),
+                (
+                    func.sum(BoxScoreRow.free_throws_made)
+                    * 100.0
+                    / func.nullif(func.sum(BoxScoreRow.free_throws_attempted), 0)
+                ).label("ft_pct"),
+            )
+            .join(GameResultRow, BoxScoreRow.game_id == GameResultRow.id)
+            .where(GameResultRow.season_id.in_(season_ids))
+            .group_by(GameResultRow.season_id, BoxScoreRow.hooper_id)
+        ).subquery()
+
+        stmt = select(
+            sub.c.season_id,
+            func.max(sub.c.ppg).label("ppg"),
+            func.max(sub.c.apg).label("apg"),
+            func.max(sub.c.spg).label("spg"),
+            func.max(sub.c.topg).label("topg"),
+            func.max(sub.c.fg_pct).label("fg_pct"),
+            func.max(sub.c.three_pct).label("three_pct"),
+            func.max(sub.c.ft_pct).label("ft_pct"),
+        ).group_by(sub.c.season_id)
+
+        result = await self.session.execute(stmt)
+        out: dict[str, dict[str, float]] = {}
+        for row in result:
+            out[row.season_id] = {
+                "ppg": round(row.ppg or 0, 1),
+                "apg": round(row.apg or 0, 1),
+                "spg": round(row.spg or 0, 1),
+                "topg": round(row.topg or 0, 1),
+                "fg_pct": round(row.fg_pct or 0, 1),
+                "three_pct": round(row.three_pct or 0, 1),
+                "ft_pct": round(row.ft_pct or 0, 1),
+            }
+        return out
+
     async def update_hooper_backstory(self, hooper_id: str, backstory: str) -> HooperRow | None:
         """Update a hooper's backstory text."""
         hooper = await self.get_hooper(hooper_id)

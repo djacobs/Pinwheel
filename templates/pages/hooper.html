@@ -124,13 +124,13 @@
           </td>
           <td>{{ cs.games_played }}</td>
           {% if cs.averages %}
-          <td>{{ cs.averages.ppg }}</td>
-          <td>{{ cs.averages.fg_pct }}%</td>
-          <td>{{ cs.averages.three_pct }}%</td>
-          <td>{{ cs.averages.ft_pct }}%</td>
-          <td>{{ cs.averages.apg }}</td>
-          <td>{{ cs.averages.spg }}</td>
-          <td>{{ cs.averages.topg }}</td>
+          <td>{% if cs.ppg_is_league_best %}<strong>{{ cs.averages.ppg }}</strong>{% else %}{{ cs.averages.ppg }}{% endif %}</td>
+          <td>{% if cs.fg_pct_is_league_best %}<strong>{{ cs.averages.fg_pct }}%</strong>{% else %}{{ cs.averages.fg_pct }}%{% endif %}</td>
+          <td>{% if cs.three_pct_is_league_best %}<strong>{{ cs.averages.three_pct }}%</strong>{% else %}{{ cs.averages.three_pct }}%{% endif %}</td>
+          <td>{% if cs.ft_pct_is_league_best %}<strong>{{ cs.averages.ft_pct }}%</strong>{% else %}{{ cs.averages.ft_pct }}%{% endif %}</td>
+          <td>{% if cs.apg_is_league_best %}<strong>{{ cs.averages.apg }}</strong>{% else %}{{ cs.averages.apg }}{% endif %}</td>
+          <td>{% if cs.spg_is_league_best %}<strong>{{ cs.averages.spg }}</strong>{% else %}{{ cs.averages.spg }}{% endif %}</td>
+          <td>{% if cs.topg_is_league_best %}<strong>{{ cs.averages.topg }}</strong>{% else %}{{ cs.averages.topg }}{% endif %}</td>
           {% else %}
           <td colspan="7" class="text-muted">—</td>
           {% endif %}
@@ -148,7 +148,7 @@
   <div class="card-header">
     <h3>Game Log</h3>
     <span class="text-muted text-xs" style="font-weight: 400; margin-left: 0.5rem;">{{ current_season_name }}</span>
-    <span class="text-muted text-xs" style="margin-left: 0.5rem;">— <strong style="color: var(--accent-score)">★</strong> league high, <strong>bold</strong> personal best</span>
+    <span class="text-muted text-xs" style="margin-left: 0.5rem;">— <strong style="color: var(--accent-score)">★</strong> league high, <strong>bold</strong> personal best, * playoff</span>
   </div>
   <div class="card-body" style="padding: 0;">
     <table class="box-score-table">
@@ -169,7 +169,7 @@
         {% for g in game_log %}
         <tr>
           <td style="text-align:left">
-            <a href="/games/{{ g.game_id }}">{{ g.round_number }}</a>
+            <a href="/games/{{ g.game_id }}">{{ g.round_number }}{% if g.is_playoff %}*{% endif %}</a>
           </td>
           <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">
             {{ g.opponent_name }}

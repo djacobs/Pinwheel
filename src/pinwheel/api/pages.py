@@ -2325,16 +2325,30 @@ async def hooper_page(
 
     hooper_season_id: str = hooper.season_id or ""
     current_entries = games_by_season.get(hooper_season_id, [])
-    past_season_ids = [sid for sid in games_by_season if sid != hooper_season_id]
 
     # Season name for the game log header
     current_season_obj = await repo.get_season(hooper_season_id) if hooper_season_id else None
     current_season_name = current_season_obj.name if current_season_obj else "Current Season"
 
-    # Build current-season game log
+    def _bs_to_dict(bs: object) -> dict:
+        return {
+            "points": bs.points,  # type: ignore[attr-defined]
+            "assists": bs.assists,  # type: ignore[attr-defined]
+            "steals": bs.steals,  # type: ignore[attr-defined]
+            "turnovers": bs.turnovers,  # type: ignore[attr-defined]
+            "field_goals_made": bs.field_goals_made,  # type: ignore[attr-defined]
+            "field_goals_attempted": bs.field_goals_attempted,  # type: ignore[attr-defined]
+            "three_pointers_made": bs.three_pointers_made,  # type: ignore[attr-defined]
+            "three_pointers_attempted": bs.three_pointers_attempted,  # type: ignore[attr-defined]
+            "free_throws_made": bs.free_throws_made,  # type: ignore[attr-defined]
+            "free_throws_attempted": bs.free_throws_attempted,  # type: ignore[attr-defined]
+        }
+
+    # Build current-season game log, sorted by round number ascending.
+    # Playoff games (phase != "regular") are flagged for display with *.
     team_name_cache: dict[str, str] = {}
     raw_game_log: list[dict] = []
-    for bs, game in current_entries:
+    for bs, game in sorted(current_entries, key=lambda x: x[1].round_number):
         opp_id = game.away_team_id if bs.team_id == game.home_team_id else game.home_team_id
         if opp_id not in team_name_cache:
             opp_team = await repo.get_team(opp_id)
@@ -2343,6 +2357,7 @@ async def hooper_page(
             {
                 "game_id": game.id,
                 "round_number": game.round_number,
+                "is_playoff": (game.phase or "regular") != "regular",
                 "opponent_name": team_name_cache[opp_id],
                 "points": bs.points,
                 "field_goals_made": bs.field_goals_made,
@@ -2387,47 +2402,54 @@ async def hooper_page(
         entry["stl_is_league_best"] = g["steals"] > 0 and g["steals"] == lb_stl
         game_log.append(entry)
 
-    def _bs_to_dict(bs: object) -> dict:
-        return {
-            "points": bs.points,  # type: ignore[attr-defined]
-            "assists": bs.assists,  # type: ignore[attr-defined]
-            "steals": bs.steals,  # type: ignore[attr-defined]
-            "turnovers": bs.turnovers,  # type: ignore[attr-defined]
-            "field_goals_made": bs.field_goals_made,  # type: ignore[attr-defined]
-            "field_goals_attempted": bs.field_goals_attempted,  # type: ignore[attr-defined]
-            "three_pointers_made": bs.three_pointers_made,  # type: ignore[attr-defined]
-            "three_pointers_attempted": bs.three_pointers_attempted,  # type: ignore[attr-defined]
-            "free_throws_made": bs.free_throws_made,  # type: ignore[attr-defined]
-            "free_throws_attempted": bs.free_throws_attempted,  # type: ignore[attr-defined]
-        }
-
     # Season averages from current-season games only (used in sidebar stats grid)
     bs_dicts = [_bs_to_dict(bs) for bs, _ in current_entries]
     season_averages = compute_season_averages(bs_dicts)
 
-    # Career seasons — current season first, then past seasons in iteration order.
-    # Each entry: season_name, games_played, averages dict, is_current flag.
-    career_seasons: list[dict] = []
-    if current_entries:
-        career_seasons.append(
-            {
-                "season_name": current_season_name,
-                "games_played": len(current_entries),
-                "averages": season_averages,
-                "is_current": True,
-            }
-        )
-    for sid in past_season_ids:
-        entries = games_by_season[sid]
+    # Career seasons — all seasons sorted chronologically by season.created_at.
+    # Each entry has per-stat league-best flags so the template can bold leaders.
+    all_career_season_ids = list(games_by_season.keys())
+    season_obj_cache: dict[str, object] = {}
+    for sid in all_career_season_ids:
         s = await repo.get_season(sid)
-        career_seasons.append(
-            {
-                "season_name": s.name if s else "Past Season",
-                "games_played": len(entries),
-                "averages": compute_season_averages([_bs_to_dict(bs) for bs, _ in entries]),
-                "is_current": False,
-            }
-        )
+        if s:
+            season_obj_cache[sid] = s
+
+    from datetime import UTC
+    from datetime import datetime as _dt
+
+    sorted_career_ids = sorted(
+        all_career_season_ids,
+        key=lambda sid: (
+            season_obj_cache[sid].created_at  # type: ignore[attr-defined]
+            if sid in season_obj_cache
+            else _dt.min.replace(tzinfo=UTC)
+        ),
+    )
+
+    # Batch league-leader query: one round-trip for all seasons
+    career_league_leaders = await repo.get_season_stat_leaders(all_career_season_ids)
+
+    _CAREER_STATS = ("ppg", "apg", "spg", "topg", "fg_pct", "three_pct", "ft_pct")
+
+    career_seasons: list[dict] = []
+    for sid in sorted_career_ids:
+        entries = games_by_season[sid]
+        s = season_obj_cache.get(sid)
+        is_current = sid == hooper_season_id
+        avgs = compute_season_averages([_bs_to_dict(bs) for bs, _ in entries])
+        leaders = career_league_leaders.get(sid, {})
+        entry: dict = {
+            "season_name": s.name if s else "Season",  # type: ignore[attr-defined]
+            "games_played": len(entries),
+            "averages": avgs,
+            "is_current": is_current,
+        }
+        for stat in _CAREER_STATS:
+            lv = leaders.get(stat, 0)
+            hv = avgs.get(stat, 0) if avgs else 0
+            entry[f"{stat}_is_league_best"] = lv > 0 and round(hv, 1) == round(lv, 1)
+        career_seasons.append(entry)
 
     # Check if current user is governor on this hooper's team (can edit bio)
     can_edit_bio = False
