@@ -29,7 +29,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
 - **Day 25 Session 121:** Series context headlines now show pre-game state; fixed round 12 wrong team IDs in production DB
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `cc9aed6` — fix: series context shows pre-game state per historical game (Session 122 commit pending)
+- **Latest commit:** `0e04163` — feat: career performance table on hooper page
 
 ## Today's Agenda
 
@@ -41,6 +41,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [ ] Record demo video (3-minute hackathon submission)
 - [x] Fix UUIDs in arena play-by-play and Discord notifications
 - [x] Hooper page: season name, bold game/league highs, past seasons, bio
+- [x] Hooper page: career performance table (all seasons, current highlighted)
 
 ---
 
@@ -248,3 +249,20 @@ Hooper page enhancements:
 **2079 tests, zero lint errors.**
 
 **What could have gone better:** The `hooper_names` cache bug existed since the game detail page was built — loading only from box score participants instead of full rosters. Integration tests for the game detail page should have covered the play-by-play rendering with a complete cast of players (not just scorers), which would have caught this. The live SSE UUID issue root cause was not definitively confirmed — the resume-path fix addresses the most likely production trigger, but the exact live path failure mode wasn't isolated.
+
+---
+
+## Session 123 — Hooper Career Performance Table
+
+**What was asked:** Add a career performance view to the hooper page — a table with one row per season, same columns as the game log, plus games played, showing aggregate stats per season.
+
+**What was built:**
+- `pages.py`: replaced separate `past_seasons` build with a unified `career_seasons` list — current season first (is_current=True), then any past seasons; extracted `_bs_to_dict` helper to avoid repeating the 10-field dict literal; passes `career_seasons` to template
+- `hooper.html`: replaced "Past Seasons" card with "Career Performance" card using `career_seasons`; added FT% column (was missing from the old Past Seasons table); current season row gets a subtle accent tint and "(current)" label
+- `pinwheel.css`: added `.career-current-season td` rule with faint accent background via `color-mix()`
+
+**Files modified (3):** `src/pinwheel/api/pages.py`, `templates/pages/hooper.html`, `static/css/pinwheel.css`
+
+**2079 tests, zero lint errors.**
+
+**What could have gone better:** The table always shows if there's any career data, but the "Season Averages" stats grid in the sidebar now overlaps somewhat with the Career Performance table's current-season row. Could consider collapsing the sidebar stats grid once the career table is present.
