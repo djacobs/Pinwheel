@@ -35,6 +35,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Document resubmission procedure in ADMIN_GUIDE.md
 - [x] Fix interpreter JSON parsing (4 of 5 resubmissions fell back to mock)
 - [x] Deploy
+- [ ] Fix `conditional_sequence` gate gap — route gates through `_evaluate_condition()` in `hooks.py:593` (see `SESSION_114_INTERPRETER_FIX_REPORT.md` Part 3 for details; affects proposals #9 and #10)
 - [ ] Record demo video (3-minute hackathon submission)
 
 ---
