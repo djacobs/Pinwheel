@@ -404,10 +404,16 @@ async def _compute_series_context_for_game(
     away_team_name: str,
     game_phase: str | None,
     ruleset: RuleSet | None = None,
+    round_number: int | None = None,
 ) -> dict | None:
     """Compute series context for a specific playoff matchup.
 
     Returns None if the game is not a playoff game.
+
+    Args:
+        round_number: If set, only count series games played BEFORE this round,
+            so the displayed headline reflects the pre-game stakes rather than
+            the current series state.
     """
     if not game_phase:
         return None
@@ -424,11 +430,11 @@ async def _compute_series_context_for_game(
         ruleset.playoff_finals_best_of if game_phase == "finals" else ruleset.playoff_semis_best_of
     )
 
-    # Get series record from playoff games
+    # Get series record from playoff games played before this round
     from pinwheel.core.game_loop import _get_playoff_series_record
 
     home_wins, away_wins, _ = await _get_playoff_series_record(
-        repo, season_id, home_team_id, away_team_id
+        repo, season_id, home_team_id, away_team_id, before_round=round_number
     )
 
     return await build_series_context(
@@ -1476,6 +1482,7 @@ async def arena_page(request: Request, repo: RepoDep, current_user: OptionalUser
                         g["away_name"],
                         round_phase,
                         ruleset=round_ruleset,
+                        round_number=g["round_number"],
                     )
                     round_series_contexts.append(ctx)
             else:

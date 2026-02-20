@@ -197,6 +197,7 @@ async def _get_playoff_series_record(
     season_id: str,
     team_a_id: str,
     team_b_id: str,
+    before_round: int | None = None,
 ) -> tuple[int, int, int]:
     """Get win counts for a playoff series between two teams.
 
@@ -204,6 +205,11 @@ async def _get_playoff_series_record(
     Counts games where this specific team pair was scheduled to play,
     regardless of round number — so manually-inserted or late-committed
     schedule entries are always included.
+
+    Args:
+        before_round: If set, only count games with round_number < before_round.
+            Used by the display layer to show the pre-game series state for
+            each historical game rather than the current overall series record.
     """
     playoff_schedule = await repo.get_full_schedule(season_id, phase="playoff")
     pair = frozenset({team_a_id, team_b_id})
@@ -221,9 +227,9 @@ async def _get_playoff_series_record(
     for g in all_games:
         if frozenset({g.home_team_id, g.away_team_id}) != pair:
             continue
-        # Count if this round was scheduled for this pair OR the game is in
-        # any playoff round (fallback for games played without a schedule entry)
         if g.round_number not in scheduled_rounds:
+            continue
+        if before_round is not None and g.round_number >= before_round:
             continue
         games += 1
         if g.winner_team_id == team_a_id:
