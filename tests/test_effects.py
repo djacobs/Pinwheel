@@ -2119,6 +2119,70 @@ class TestNewActionPrimitives:
         # Should fire roughly 50% of the time (within reasonable range)
         assert 60 < fired_count < 140
 
+    def test_conditional_sequence_with_last_result_gate(self):
+        """conditional_sequence last_result gate routes through _evaluate_condition."""
+        import random as _random
+
+        game_state = _make_game_state()
+        game_state.last_result = "made"
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "conditional_sequence",
+                "steps": [
+                    {
+                        "gate": {"last_result": "made"},
+                        "action": {"type": "modify_probability", "modifier": 0.05},
+                    },
+                ],
+            },
+        )
+        ctx = HookContext(game_state=game_state, rng=_random.Random(42))
+
+        # Gate passes when last_result == "made"
+        result = effect.apply("sim.possession.pre", ctx)
+        assert result.shot_probability_modifier == pytest.approx(0.05)
+
+        # Gate blocks when last_result == "missed"
+        game_state.last_result = "missed"
+        result = effect.apply("sim.possession.pre", ctx)
+        assert result.shot_probability_modifier == pytest.approx(0.0)
+
+    def test_conditional_sequence_with_shot_zone_gate(self):
+        """conditional_sequence shot_zone gate checks last_action via alias."""
+        import random as _random
+
+        game_state = _make_game_state()
+        game_state.last_action = "at_rim"
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code={
+                "type": "conditional_sequence",
+                "steps": [
+                    {
+                        "gate": {"shot_zone": "at_rim"},
+                        "action": {"type": "modify_score", "modifier": -2},
+                    },
+                ],
+            },
+        )
+        ctx = HookContext(game_state=game_state, rng=_random.Random(42))
+
+        # Gate passes: at_rim → score modifier applied
+        result = effect.apply("sim.possession.pre", ctx)
+        assert result.score_modifier == -2
+
+        # Gate blocks: three_point shot — modifier NOT applied
+        game_state.last_action = "three_point"
+        result = effect.apply("sim.possession.pre", ctx)
+        assert result.score_modifier == 0
+
 
 # ============================================================================
 # Expanded Conditions Tests
@@ -2129,7 +2193,7 @@ class TestExpandedConditions:
     """Test the new condition types in _evaluate_condition."""
 
     def test_game_state_trailing(self):
-        """game_state_check: trailing fires when offense is behind."""
+        """trailing alias fires when offense score is lower than defense."""
         game_state = _make_game_state()
         game_state.home_score = 30
         game_state.away_score = 40
@@ -2140,7 +2204,7 @@ class TestExpandedConditions:
             _hook_points=["sim.possession.pre"],
             action_code={
                 "type": "modify_probability", "modifier": 0.05,
-                "condition_check": {"game_state_check": "trailing"},
+                "condition_check": {"trailing": True},
             },
         )
         ctx = HookContext(game_state=game_state)
@@ -2151,7 +2215,7 @@ class TestExpandedConditions:
         assert effect.should_fire("sim.possession.pre", ctx) is False
 
     def test_game_state_leading(self):
-        """game_state_check: leading fires when offense is ahead."""
+        """leading alias fires when offense score is higher than defense."""
         game_state = _make_game_state()
         game_state.home_score = 50
         game_state.away_score = 40
@@ -2162,14 +2226,14 @@ class TestExpandedConditions:
             _hook_points=["sim.possession.pre"],
             action_code={
                 "type": "modify_probability", "modifier": -0.03,
-                "condition_check": {"game_state_check": "leading"},
+                "condition_check": {"leading": True},
             },
         )
         ctx = HookContext(game_state=game_state)
         assert effect.should_fire("sim.possession.pre", ctx) is True
 
     def test_game_state_elam_active(self):
-        """game_state_check: elam_active fires when Elam Ending is in progress."""
+        """elam_activated field fires when Elam Ending is in progress."""
         game_state = _make_game_state()
         game_state.elam_activated = False
 
@@ -2178,7 +2242,7 @@ class TestExpandedConditions:
             _hook_points=["sim.possession.pre"],
             action_code={
                 "type": "modify_probability", "modifier": 0.1,
-                "condition_check": {"game_state_check": "elam_active"},
+                "condition_check": {"elam_activated": True},
             },
         )
         ctx = HookContext(game_state=game_state)
@@ -2287,6 +2351,105 @@ class TestExpandedConditions:
         assert effect.should_fire("sim.possession.pre", ctx) is True
 
         game_state.away_score = 50  # diff = -10
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+    def test_shot_zone_condition(self):
+        """shot_zone alias matches last_action for at_rim/mid_range/three_point."""
+        game_state = _make_game_state()
+        game_state.last_action = "at_rim"
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_score", "modifier": -2,
+                "condition_check": {"shot_zone": "at_rim"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        game_state.last_action = "three_point"
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+    def test_trailing_alias(self):
+        """trailing computed alias is True when offense score < defense score."""
+        game_state = _make_game_state()
+        game_state.home_score = 20
+        game_state.away_score = 30
+        game_state.home_has_ball = True
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.05,
+                "condition_check": {"trailing": True},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        game_state.home_score = 40  # now leading
+        assert effect.should_fire("sim.possession.pre", ctx) is False
+
+    def test_hooper_attr_condition(self):
+        """hooper_{attr}_gte evaluates ball handler attributes via reflection."""
+        game_state = _make_game_state()
+        hooper = _make_hooper("h1", "Shooter", "team-a")
+        # _make_hooper gives scoring=75 by default
+        hooper_state = HooperState(hooper=hooper)
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "modify_probability", "modifier": 0.1,
+                "condition_check": {"hooper_scoring_gte": 70},
+            },
+        )
+        ctx = HookContext(game_state=game_state, hooper=hooper_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        # Drop scoring below threshold
+        hooper.attributes.scoring = 60
+        ctx2 = HookContext(game_state=game_state, hooper=hooper_state)
+        assert effect.should_fire("sim.possession.pre", ctx2) is False
+
+    def test_unknown_field_passes(self):
+        """Unknown condition fields do not block firing (forward compatibility)."""
+        game_state = _make_game_state()
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "add_narrative", "text": "test",
+                "condition_check": {"nonexistent_future_field": "some_value"},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        # Unknown fields pass through — forward compatibility for new game state fields
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+    def test_gamestate_fields_auto_exposed(self):
+        """All scalar GameState fields are automatically available as conditions."""
+        game_state = _make_game_state()
+        game_state.quarter = 3
+        game_state.possession_number = 42
+
+        # quarter is a GameState field — condition works without explicit support
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            action_code={
+                "type": "add_narrative", "text": "Q3!",
+                "condition_check": {"quarter": 3},
+            },
+        )
+        ctx = HookContext(game_state=game_state)
+        assert effect.should_fire("sim.possession.pre", ctx) is True
+
+        game_state.quarter = 2
         assert effect.should_fire("sim.possession.pre", ctx) is False
 
 

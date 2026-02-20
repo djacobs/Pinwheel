@@ -10,6 +10,7 @@ structured results that the effect execution engine applies.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -247,129 +248,115 @@ class RegisteredEffect:
 
         return True
 
+    def _build_eval_context(self, context: HookContext) -> dict[str, object]:
+        """Build a flat evaluation namespace from all available context.
+
+        All scalar GameState fields are automatically included via reflection —
+        no code change needed when new fields are added to GameState. Computed
+        aliases (shot_zone, trailing, leading, score_diff) provide the AI with
+        natural vocabulary without adding evaluator branches.
+        """
+        ctx: dict[str, object] = {}
+        gs = context.game_state
+
+        if gs:
+            # All scalar GameState fields — automatically, via reflection
+            for f in dataclasses.fields(gs):
+                val = getattr(gs, f.name)
+                if isinstance(val, (str, int, float, bool, type(None))):
+                    ctx[f.name] = val
+
+            # Semantic aliases — vocabulary exposed to the AI interpreter
+            ctx["shot_zone"] = gs.last_action  # "at_rim" | "mid_range" | "three_point"
+            off = gs.home_score if gs.home_has_ball else gs.away_score
+            def_ = gs.away_score if gs.home_has_ball else gs.home_score
+            ctx["score_diff"] = off - def_  # positive = offense leading
+            ctx["trailing"] = off < def_
+            ctx["leading"] = off > def_
+
+        if context.hooper:
+            # All hooper attributes — model_dump() works for Pydantic models
+            for attr_name, val in context.hooper.current_attributes.model_dump().items():
+                if isinstance(val, (str, int, float, bool)):
+                    ctx[f"hooper_{attr_name}"] = val
+
+        return ctx
+
     def _evaluate_condition(
         self,
         condition: dict[str, object],
         context: HookContext,
     ) -> bool:
-        """Evaluate a structured condition against the current context.
+        """Generic condition evaluator — no per-field branches.
 
-        Supports:
-        - Meta field checks: {"meta_field": "swagger", "entity_type": "team", "gte": 5}
-        - Game state: {"game_state_check": "trailing|leading|elam_active"}
-        - Quarter: {"quarter_gte": 3}
-        - Random: {"random_chance": 0.15}
-        - Previous possession: {"last_result": "made|missed|turnover"}
-        - Streak: {"consecutive_makes_gte": 3}
-        - Ball handler attribute: {"ball_handler_attr": "scoring", "gte": 70}
+        Conditions are field expressions evaluated against a unified context
+        built from GameState (via reflection) plus semantic aliases. Any field
+        present in GameState is usable without a code change.
+
+        Supported patterns:
+        - Equality:      {"last_result": "made"}, {"shot_zone": "at_rim"}
+        - Suffix ops:    {"quarter_gte": 3}, {"score_diff_lte": -5}
+        - Random:        {"random_chance": 0.15}   (only true special case)
+        - Meta store:    {"meta_field": "swagger", "entity_type": "team", "gte": 5}
         """
-        gs = context.game_state
-
-        # Game state conditions
-        if "game_state_check" in condition:
-            check = str(condition["game_state_check"])
-            if not gs:
-                return False
-            if check == "trailing":
-                off_score = gs.home_score if gs.home_has_ball else gs.away_score
-                def_score = gs.away_score if gs.home_has_ball else gs.home_score
-                return off_score < def_score
-            if check == "leading":
-                off_score = gs.home_score if gs.home_has_ball else gs.away_score
-                def_score = gs.away_score if gs.home_has_ball else gs.home_score
-                return off_score > def_score
-            if check == "elam_active":
-                return gs.elam_activated
-            return False
-
-        # Quarter conditions
-        if "quarter_gte" in condition:
-            threshold = condition["quarter_gte"]
-            if gs and isinstance(threshold, (int, float)):
-                return gs.quarter >= int(threshold)
-            return False
-
-        # Score difference conditions
-        if "score_diff_gte" in condition:
-            threshold = condition["score_diff_gte"]
-            if gs and isinstance(threshold, (int, float)):
-                off_score = gs.home_score if gs.home_has_ball else gs.away_score
-                def_score = gs.away_score if gs.home_has_ball else gs.home_score
-                return (off_score - def_score) >= int(threshold)
-            return False
-
-        # Random probability
+        # --- Special case: random probability (not a field, generates a value) ---
         if "random_chance" in condition:
             chance = condition["random_chance"]
-            if isinstance(chance, (int, float)) and context.rng:
-                return context.rng.random() < chance
-            return False
-
-        # Previous possession state
-        if "last_result" in condition:
-            if not gs:
+            if not (isinstance(chance, (int, float)) and context.rng):
                 return False
-            return gs.last_result == str(condition["last_result"])
+            return context.rng.random() < chance
 
-        # Streak conditions
-        if "consecutive_makes_gte" in condition:
-            threshold = condition["consecutive_makes_gte"]
-            if gs and isinstance(threshold, (int, float)):
-                return gs.consecutive_makes >= int(threshold)
-            return False
+        # --- Special case: meta store (external state, not in GameState) ---
+        if "meta_field" in condition:
+            return self._evaluate_meta_condition(condition, context)
 
-        if "consecutive_misses_gte" in condition:
-            threshold = condition["consecutive_misses_gte"]
-            if gs and isinstance(threshold, (int, float)):
-                return gs.consecutive_misses >= int(threshold)
-            return False
+        # --- Generic: field expressions against unified context ---
+        ctx = self._build_eval_context(context)
 
-        # Ball handler attribute check
-        if "ball_handler_attr" in condition:
-            # Requires a hooper on context to check
-            if not context.hooper:
-                return False
-            attr_name = str(condition["ball_handler_attr"])
-            attrs = context.hooper.current_attributes
-            val = getattr(attrs, attr_name, None)
-            if val is None:
-                return False
-            if "gte" in condition:
-                threshold = condition["gte"]
-                if isinstance(val, (int, float)) and isinstance(threshold, (int, float)):
-                    return val >= threshold
-            if "lte" in condition:
-                threshold = condition["lte"]
-                if isinstance(val, (int, float)) and isinstance(threshold, (int, float)):
-                    return val <= threshold
-            return True
+        for key, expected in condition.items():
+            # Suffix operators: field_gte → field >= value, field_lte → field <= value
+            if key.endswith("_gte"):
+                actual = ctx.get(key[:-4])
+                if actual is None or not (actual >= expected):  # type: ignore[operator]
+                    return False
+            elif key.endswith("_lte"):
+                actual = ctx.get(key[:-4])
+                if actual is None or not (actual <= expected):  # type: ignore[operator]
+                    return False
+            else:
+                # Direct equality — unknown fields pass (forward compatibility)
+                actual = ctx.get(key)
+                if actual is not None and actual != expected:
+                    return False
 
-        # Meta field checks (original system)
-        meta_field = str(condition.get("meta_field", ""))
-        entity_type = str(condition.get("entity_type", ""))
+        return True
 
-        if not meta_field or not entity_type:
-            return True  # No condition to check — always fire
+    def _evaluate_meta_condition(
+        self,
+        condition: dict[str, object],
+        context: HookContext,
+    ) -> bool:
+        """Evaluate a meta store condition (external state lookup).
 
+        Special-cased because meta store is not part of GameState — it holds
+        player-defined counters and flags persisted across possessions.
+        Format: {"meta_field": "swagger", "entity_type": "team", "gte": 5}
+        """
         if not context.meta_store:
             return False
 
-        # Determine which entity to check
+        meta_field = str(condition.get("meta_field", ""))
+        entity_type = str(condition.get("entity_type", ""))
+        if not meta_field or not entity_type:
+            return True
+
+        gs = context.game_state
         entity_id = ""
         if gs and entity_type == "team":
-            # Check offense team during sim hooks
             if gs.home_has_ball:
-                entity_id = (
-                    gs.home_agents[0].hooper.team_id
-                    if gs.home_agents
-                    else ""
-                )
+                entity_id = gs.home_agents[0].hooper.team_id if gs.home_agents else ""
             else:
-                entity_id = (
-                    gs.away_agents[0].hooper.team_id
-                    if gs.away_agents
-                    else ""
-                )
+                entity_id = gs.away_agents[0].hooper.team_id if gs.away_agents else ""
         elif context.winner_team_id and entity_type == "team":
             entity_id = context.winner_team_id
 
@@ -378,7 +365,6 @@ class RegisteredEffect:
 
         value = context.meta_store.get(entity_type, entity_id, meta_field, default=0)
 
-        # Comparison operators
         if "gte" in condition:
             threshold = condition["gte"]
             if isinstance(value, (int, float)) and isinstance(threshold, (int, float)):
@@ -589,15 +575,11 @@ class RegisteredEffect:
                     if not isinstance(step, dict):
                         continue
                     gate = step.get("gate")
-                    # Evaluate gate
-                    if gate and isinstance(gate, dict) and "random_chance" in gate:
-                        chance = gate["random_chance"]
-                        if (
-                            isinstance(chance, (int, float))
-                            and context.rng
-                            and context.rng.random() >= chance
-                        ):
-                            continue
+                    # Route all gate types through the generic evaluator
+                    if gate and isinstance(gate, dict) and not self._evaluate_condition(
+                        gate, context
+                    ):
+                        continue
                     action = step.get("action")
                     if isinstance(action, dict):
                         # Recursively apply inner action

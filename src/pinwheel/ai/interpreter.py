@@ -459,13 +459,33 @@ Template variables: {{winner_team_id}}, {{home_team_id}}, {{away_team_id}}
 
 ## Condition Types (for condition_check or gate)
 
-Meta field: {{"meta_field": "swagger", "entity_type": "team", "gte": 5}}
-Game state: {{"game_state_check": "trailing|leading|elam_active"}}
-Quarter: {{"quarter_gte": 3}}
-Score difference: {{"score_diff_gte": -5}}
-Random: {{"random_chance": 0.15}}
-Previous possession: {{"last_result": "made|missed|turnover"}}
-Streak: {{"consecutive_makes_gte": 3}} or {{"consecutive_misses_gte": 3}}
+Conditions are field expressions evaluated against a unified context. Use field
+name equality or _gte/_lte suffix operators. Unknown fields pass through safely.
+
+Game state fields (direct equality or suffix operators):
+  {{"quarter": 4}} or {{"quarter_gte": 3}}
+  {{"last_result": "made|missed|turnover"}}
+  {{"last_action": "at_rim|mid_range|three_point"}}
+  {{"shot_zone": "at_rim|mid_range|three_point"}}  (alias for last_action)
+  {{"consecutive_makes_gte": 3}} or {{"consecutive_misses_gte": 3}}
+  {{"home_score_gte": 50}}
+  {{"elam_activated": true}}
+
+Computed aliases (always available):
+  {{"trailing": true}}          offense score < defense score
+  {{"leading": true}}           offense score > defense score
+  {{"score_diff_gte": -5}}      offense minus defense score >= threshold
+  {{"score_diff_lte": 5}}
+
+Ball handler attributes (prefix hooper_):
+  {{"hooper_scoring_gte": 70}}
+  {{"hooper_stamina_lte": 30}}
+
+Probabilistic:
+  {{"random_chance": 0.15}}     fires with 15% probability
+
+Meta field (persistent cross-possession counters):
+  {{"meta_field": "swagger", "entity_type": "team", "gte": 5}}
 
 ## Duration: "permanent", "n_rounds" (set duration_rounds), "one_game", "until_repealed"
 

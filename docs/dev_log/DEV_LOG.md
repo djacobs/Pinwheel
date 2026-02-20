@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2051 tests**, zero lint errors (Session 114)
+- **2058 tests**, zero lint errors (Session 115)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -23,7 +23,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 22:** Proper bracket layout with CSS grid connecting lines
 - **Day 23:** Effects pipeline fix, deferred interpreter fix, proposal resubmission, admin guide
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `eba7040` — docs: add Pinwheel trademark notice to README
+- **Latest commit:** `dfd2762` — docs: add conditional_sequence gate fix to agenda
 
 ## Today's Agenda
 
@@ -35,7 +35,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Document resubmission procedure in ADMIN_GUIDE.md
 - [x] Fix interpreter JSON parsing (4 of 5 resubmissions fell back to mock)
 - [x] Deploy
-- [ ] Fix `conditional_sequence` gate gap — route gates through `_evaluate_condition()` in `hooks.py:593` (see `SESSION_114_INTERPRETER_FIX_REPORT.md` Part 3 for details; affects proposals #9 and #10)
+- [x] Fix `conditional_sequence` gate gap — route gates through `_evaluate_condition()` in `hooks.py:593` (see `SESSION_114_INTERPRETER_FIX_REPORT.md` Part 3 for details; affects proposals #9 and #10)
 - [ ] Record demo video (3-minute hackathon submission)
 
 ---
@@ -98,3 +98,49 @@ Full report saved to `docs/dev_log/SESSION_114_INTERPRETER_FIX_REPORT.md`.
 **2051 tests, zero lint errors.**
 
 **What could have gone better:** The type narrowness of `action_code` was predictable given the prompt describes list-valued structures like `conditional_sequence`. The `conditional_sequence` gate gap should have been caught when the evaluator was originally written — it only handles `random_chance` inline instead of calling the existing `_evaluate_condition()` method.
+
+## Session 115 — Generic Condition Evaluator + World 2 Architecture Design
+
+**What was asked:** Fix the `conditional_sequence` gate gap (proposals #9 and #10 fire unconditionally instead of conditionally). User pushed back on special-casing and asked for expansive thinking about scaling proposal implementation — including rewriting simulation.py entirely.
+
+**What was built:**
+
+`_evaluate_condition()` rewrite — generic reflective evaluator replacing 8 if-branches:
+- Replaced per-condition-type `if` branches with `_build_eval_context()` — uses `dataclasses.fields()` to auto-expose all scalar `GameState` fields without per-field code
+- Added computed aliases: `shot_zone` (= `last_action`), `trailing`, `leading`, `score_diff`
+- Added `hooper_{attr}` prefix for ball handler attributes via `model_dump()`
+- Two true special cases remain: `random_chance` (probabilistic, not a field) and `meta_field` (external MetaStore, not in GameState)
+- Any future `GameState` field is automatically available to conditions — zero code change needed
+
+`conditional_sequence` gate fix:
+- Replaced inline `random_chance`-only gate check with `self._evaluate_condition(gate, context)` — all gate types now route through the generic evaluator
+- Proposals #9 (`shot_zone` gate) and #10 (`last_result` gate) now evaluate correctly
+
+Condition vocabulary updated:
+- Removed `game_state_check: "trailing"` pattern — replaced with `{"trailing": True}` (generic field equality)
+- Removed `ball_handler_attr` — replaced with `{"hooper_{attr}_gte": value}` (generic suffix operator)
+- Updated interpreter prompt with new field vocabulary and `hooper_*` pattern
+- Updated 3 test methods in `TestExpandedConditions` to use new generic format
+
+7 new tests added:
+- `test_conditional_sequence_with_last_result_gate` — gate blocks/passes on `last_result`
+- `test_conditional_sequence_with_shot_zone_gate` — gate blocks/passes on `shot_zone`
+- `test_shot_zone_condition` — `shot_zone` alias checks `last_action`
+- `test_trailing_alias` — computed alias works in `condition_check`
+- `test_hooper_attr_condition` — `hooper_scoring_gte` via reflection
+- `test_unknown_field_passes` — forward compatibility: unknown fields don't block
+- `test_gamestate_fields_auto_exposed` — any GameState field usable without code change
+
+World 2 architecture design:
+- `docs/plans/WORLD_2_EVENT_PIPELINE.md` — comprehensive design for complete simulation rewrite
+- Simulation = event pipeline: every game moment is an event, rules are `{on, when, then}` data
+- Free throws as pure data (litmus test): 4 rules, zero Python changes needed for "FTs worth 2 points"
+- Default ruleset (`config/default_rules.json`): all of basketball expressed as rules
+- Transition path: Phase 1 (parallel infra) → Phase 2 (new interpreter) → Phase 3 (flag-day cutover)
+- No backwards compatibility; player/team/hooper stats preserved verbatim
+
+**Files modified (4):** `src/pinwheel/core/hooks.py`, `src/pinwheel/ai/interpreter.py`, `tests/test_effects.py`, `docs/plans/WORLD_2_EVENT_PIPELINE.md`
+
+**2058 tests, zero lint errors.**
+
+**What could have gone better:** The `game_state_check: "trailing"` pattern was always wrong — it encoded condition semantics in a value rather than a field name. Removing it required updating 3 tests. The generic evaluator should have been the starting design; two weeks of accumulated branches had to be unwound in one session.
