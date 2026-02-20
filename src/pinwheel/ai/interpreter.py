@@ -40,7 +40,7 @@ def _parse_json_response(text: str, model_class: type[PydanticBaseModel]) -> Pyd
 # Module-level client cache for connection reuse
 _client_cache: dict[str, anthropic.AsyncAnthropic] = {}
 
-_INTERPRETER_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
+_INTERPRETER_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 
 
 def _get_client(api_key: str) -> anthropic.AsyncAnthropic:
@@ -744,7 +744,7 @@ async def interpret_proposal_v2(
         logger.info("Sonnet failed, trying Haiku for: %s", raw_text[:80])
         haiku_client = anthropic.AsyncAnthropic(
             api_key=api_key,
-            timeout=httpx.Timeout(15.0, connect=5.0),
+            timeout=httpx.Timeout(60.0, connect=5.0),
             max_retries=0,
         )
         async with track_latency() as timing:
