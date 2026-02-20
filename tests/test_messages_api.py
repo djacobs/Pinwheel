@@ -508,8 +508,8 @@ class TestCallSitesOutputConfig:
         assert "output_config" not in call_kwargs
         assert result.three_point_bias == 5.0
 
-    async def test_interpreter_v2_uses_output_config(self) -> None:
-        """interpret_proposal_v2 uses output_config for guaranteed structured output."""
+    async def test_interpreter_v2_uses_high_max_tokens(self) -> None:
+        """interpret_proposal_v2 uses max_tokens=4096 to prevent truncation."""
         from pinwheel.ai.interpreter import interpret_proposal_v2
         from pinwheel.models.rules import RuleSet
 
@@ -542,9 +542,7 @@ class TestCallSitesOutputConfig:
             )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert "output_config" in call_kwargs
-        oc = call_kwargs["output_config"]
-        assert oc["format"]["type"] == "json_schema"
+        assert call_kwargs["max_tokens"] == 4096
         assert result.confidence == pytest.approx(0.8)
 
     async def test_interpreter_v2_parses_nested_action_code(self) -> None:

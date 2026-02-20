@@ -557,7 +557,6 @@ async def _opus_escalate(
     from pinwheel.ai.usage import (
         cacheable_system,
         extract_usage,
-        pydantic_to_response_format,
         record_ai_usage,
         track_latency,
     )
@@ -586,7 +585,7 @@ async def _opus_escalate(
         logger.info("Escalating to Opus for: %s", raw_text[:80])
         opus_client = anthropic.AsyncAnthropic(
             api_key=api_key,
-            timeout=httpx.Timeout(45.0, connect=5.0),
+            timeout=httpx.Timeout(60.0, connect=5.0),
             max_retries=0,
         )
         async with track_latency() as timing:
@@ -595,9 +594,6 @@ async def _opus_escalate(
                 max_tokens=4096,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
-                output_config=pydantic_to_response_format(
-                    ProposalInterpretation, "proposal_interpretation"
-                ),
             )
 
         if db_session is not None:
@@ -649,16 +645,12 @@ async def interpret_proposal_v2(
     from pinwheel.ai.usage import (
         cacheable_system,
         extract_usage,
-        pydantic_to_response_format,
         record_ai_usage,
         track_latency,
     )
 
     params_desc = _build_parameter_description(ruleset)
     system = INTERPRETER_V2_SYSTEM_PROMPT.format(parameters=params_desc)
-    v2_output_config = pydantic_to_response_format(
-        ProposalInterpretation, "proposal_interpretation"
-    )
 
     user_msg = f"Proposal: {raw_text}"
     if amendment_context:
@@ -675,7 +667,6 @@ async def interpret_proposal_v2(
                     max_tokens=4096,
                     system=cacheable_system(system),
                     messages=[{"role": "user", "content": user_msg}],
-                    output_config=v2_output_config,
                 )
 
             if db_session is not None:
@@ -753,7 +744,6 @@ async def interpret_proposal_v2(
                 max_tokens=4096,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_msg}],
-                output_config=v2_output_config,
             )
 
         if db_session is not None:
