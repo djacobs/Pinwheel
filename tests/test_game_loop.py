@@ -1475,22 +1475,24 @@ class TestPlayoffSeries:
         """Home court alternates: higher seed home on games 1, 3, 5; away on 2, 4."""
         league = await repo.create_league("HC Test")
         season = await repo.create_season(league.id, "HC Season")
+        team_a = await repo.create_team(season.id, "Team A")
+        team_b = await repo.create_team(season.id, "Team B")
 
         # Even games_played (0, 2, 4) → higher seed at home
         await _schedule_next_series_game(
-            repo, season.id, "team-a", "team-b", 0, 10, 0,
+            repo, season.id, team_a.id, team_b.id, 0, 10, 0,
         )
         sched = await repo.get_schedule_for_round(season.id, 10)
-        assert sched[0].home_team_id == "team-a"
-        assert sched[0].away_team_id == "team-b"
+        assert sched[0].home_team_id == team_a.id
+        assert sched[0].away_team_id == team_b.id
 
         # Odd games_played (1, 3) → lower seed at home
         await _schedule_next_series_game(
-            repo, season.id, "team-a", "team-b", 1, 11, 0,
+            repo, season.id, team_a.id, team_b.id, 1, 11, 0,
         )
         sched = await repo.get_schedule_for_round(season.id, 11)
-        assert sched[0].home_team_id == "team-b"
-        assert sched[0].away_team_id == "team-a"
+        assert sched[0].home_team_id == team_b.id
+        assert sched[0].away_team_id == team_a.id
 
 
 class TestDeferredSeasonEvents:

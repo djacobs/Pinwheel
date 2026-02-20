@@ -26,7 +26,7 @@ async def get_session(
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception:  # Re-raise pattern — must catch all to ensure rollback on any error
             await session.rollback()
             raise
 

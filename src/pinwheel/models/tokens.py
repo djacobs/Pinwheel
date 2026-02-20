@@ -14,9 +14,6 @@ TokenType = Literal["propose", "amend", "boost"]
 
 HooperTradeStatus = Literal["proposed", "approved", "rejected", "expired"]
 
-# Backward-compatible alias
-AgentTradeStatus = HooperTradeStatus
-
 
 class TokenBalance(BaseModel):
     """A Governor's current token holdings. Derived from events, not mutable state."""
@@ -65,23 +62,3 @@ class HooperTrade(BaseModel):
     to_team_name: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    # Backward-compatible aliases
-    @property
-    def offered_agent_ids(self) -> list[str]:
-        return self.offered_hooper_ids
-
-    @property
-    def requested_agent_ids(self) -> list[str]:
-        return self.requested_hooper_ids
-
-    @property
-    def offered_agent_names(self) -> list[str]:
-        return self.offered_hooper_names
-
-    @property
-    def requested_agent_names(self) -> list[str]:
-        return self.requested_hooper_names
-
-
-# Backward-compatible alias
-AgentTrade = HooperTrade

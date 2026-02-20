@@ -41,7 +41,7 @@ def _get_app_version() -> str:
             .decode()
             .strip()
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         # In Docker or without git, use a timestamp-based fallback
         import hashlib
         import time

@@ -55,40 +55,54 @@ class HooperState:
     minutes: float = 0.0
     moves_activated: list[str] = field(default_factory=list)
 
-    @property
-    def agent(self) -> Hooper:
-        """Backward-compatible alias for hooper."""
-        return self.hooper
+    # Cache for current_attributes — invalidated when current_stamina or any
+    # stamina-scaled base attribute changes.  In normal gameplay base attributes
+    # are fixed at construction, so this comparison is essentially free.
+    # Not part of the public interface; excluded from __init__ via field(init=False).
+    _cached_stamina: float = field(default=-1.0, init=False, repr=False, compare=False)
+    _cached_base_key: tuple[int, int, int, int] = field(
+        default=(-1, -1, -1, -1), init=False, repr=False, compare=False
+    )
+    _cached_attributes: PlayerAttributes | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def current_attributes(self) -> PlayerAttributes:
-        """Attributes scaled by current stamina."""
+        """Attributes scaled by current stamina.
+
+        Result is cached and reused as long as current_stamina and the
+        stamina-scaled base attributes (scoring, passing, defense, speed)
+        have not changed since the last computation.  This avoids a Pydantic
+        model allocation on every access — called 20-40 times per possession,
+        100+ possessions per game.
+
+        In normal gameplay base attributes are set at Hooper construction and
+        never mutated, so the base-key comparison is a cheap tuple equality
+        check that almost always hits the cache.
+        """
         base = self.hooper.attributes
-        s = self.current_stamina
-        return PlayerAttributes(
-            scoring=max(1, int(base.scoring * s)),
-            passing=max(1, int(base.passing * s)),
-            defense=max(1, int(base.defense * s)),
-            speed=max(1, int(base.speed * s)),
-            stamina=base.stamina,
-            iq=base.iq,
-            ego=base.ego,
-            chaotic_alignment=base.chaotic_alignment,
-            fate=base.fate,
-        )
-
-
-def AgentState(  # noqa: N802
-    agent: Hooper | None = None,
-    hooper: Hooper | None = None,
-    **kwargs: object,
-) -> HooperState:
-    """Backward-compatible factory: accepts agent= or hooper= keyword."""
-    h = hooper or agent
-    if h is None:
-        msg = "Must provide 'hooper' or 'agent'"
-        raise TypeError(msg)
-    return HooperState(hooper=h, **kwargs)  # type: ignore[arg-type]
+        base_key = (base.scoring, base.passing, base.defense, base.speed)
+        if (
+            self._cached_attributes is None
+            or self._cached_stamina != self.current_stamina
+            or self._cached_base_key != base_key
+        ):
+            s = self.current_stamina
+            self._cached_attributes = PlayerAttributes(
+                scoring=max(1, int(base.scoring * s)),
+                passing=max(1, int(base.passing * s)),
+                defense=max(1, int(base.defense * s)),
+                speed=max(1, int(base.speed * s)),
+                stamina=base.stamina,
+                iq=base.iq,
+                ego=base.ego,
+                chaotic_alignment=base.chaotic_alignment,
+                fate=base.fate,
+            )
+            self._cached_stamina = self.current_stamina
+            self._cached_base_key = base_key
+        return self._cached_attributes
 
 
 @dataclass

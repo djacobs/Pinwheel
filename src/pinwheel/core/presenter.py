@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pinwheel.core.drama import DramaAnnotation, annotate_drama, get_drama_summary, normalize_delays
+from pinwheel.core.event_bus import EventBus
 from pinwheel.core.narrate import narrate_play
 from pinwheel.models.game import GameResult
 
@@ -85,7 +86,7 @@ class PresentationState:
 
 async def present_round(
     game_results: list[GameResult],
-    event_bus: object,
+    event_bus: EventBus,
     state: PresentationState,
     game_interval_seconds: int = 0,
     quarter_replay_seconds: int = 300,
@@ -195,7 +196,7 @@ async def _present_full_game(
     game_idx: int,
     game_result: GameResult,
     total_games: int,
-    event_bus: object,
+    event_bus: EventBus,
     state: PresentationState,
     quarter_replay_seconds: int,
     names: dict[str, str],
@@ -312,14 +313,14 @@ async def _present_full_game(
     if on_game_finished is not None:
         try:
             await on_game_finished(game_idx)
-        except Exception:
+        except Exception:  # Last-resort handler — arbitrary callback, unknown error types
             logger.exception("on_game_finished callback failed for game %d", game_idx)
 
 
 async def _present_game(
     game_idx: int,
     game_result: GameResult,
-    event_bus: object,
+    event_bus: EventBus,
     state: PresentationState,
     quarter_replay_seconds: int,
     names: dict[str, str],

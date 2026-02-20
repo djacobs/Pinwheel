@@ -77,13 +77,15 @@ def compute_safety_summary(
         gqi_score = gqi_trend[-1].get("composite", 0.0)
 
     # Eval coverage: count how many of the 5 eval signal types have data
-    eval_types_with_data = sum([
-        grounding_total > 0,
-        prescriptive_flagged >= 0 and grounding_total > 0,  # prescriptive runs with grounding
-        len(gqi_trend) > 0,
-        golden_pass_rate > 0,
-        len(active_flags) > 0,
-    ])
+    eval_types_with_data = sum(
+        [
+            grounding_total > 0,
+            prescriptive_flagged >= 0 and grounding_total > 0,  # prescriptive runs with grounding
+            len(gqi_trend) > 0,
+            golden_pass_rate > 0,
+            len(active_flags) > 0,
+        ]
+    )
     eval_coverage_pct = (eval_types_with_data / 5) * 100
 
     # Determine traffic-light status
@@ -115,13 +117,8 @@ def compute_safety_summary(
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
-    from sqlalchemy import select
-
-    from pinwheel.db.models import SeasonRow
-
-    stmt = select(SeasonRow).limit(1)
-    result = await repo.session.execute(stmt)
-    row = result.scalar_one_or_none()
+    """Get the active season ID (most recent non-terminal)."""
+    row = await repo.get_active_season()
     return row.id if row else None
 
 
@@ -156,7 +153,9 @@ def _parse_round_param(request: Request) -> int | None:
 
 
 @router.get("/evals", response_class=HTMLResponse)
-async def eval_dashboard(request: Request, repo: RepoDep, current_user: OptionalUser):
+async def eval_dashboard(
+    request: Request, repo: RepoDep, current_user: OptionalUser
+) -> HTMLResponse:
     """Eval dashboard — aggregate stats, no report text.
 
     Supports ``?round=N`` to filter eval results to a specific round.
@@ -254,9 +253,7 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
     ab_rates = await get_ab_win_rates(repo, season_id, round_number=rn_filter)
 
     # GQI trend (last 5 rounds) — when filtering by round, show only that round
-    gqi_results = await repo.get_eval_results(
-        season_id, eval_type="gqi", round_number=rn_filter
-    )
+    gqi_results = await repo.get_eval_results(season_id, eval_type="gqi", round_number=rn_filter)
     gqi_trend = []
     for r in sorted(gqi_results, key=lambda x: x.round_number)[-5:]:
         details = r.details_json or {}
@@ -272,9 +269,7 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
         )
 
     # Active scenario flags
-    flag_results = await repo.get_eval_results(
-        season_id, eval_type="flag", round_number=rn_filter
-    )
+    flag_results = await repo.get_eval_results(season_id, eval_type="flag", round_number=rn_filter)
     active_flags = []
     for r in sorted(flag_results, key=lambda x: x.created_at, reverse=True)[:10]:
         details = r.details_json or {}
@@ -311,9 +306,7 @@ async def eval_dashboard(request: Request, repo: RepoDep, current_user: Optional
 
     injection_classifications = await get_injection_classifications(repo, season_id, limit=20)
     injection_attempts = sum(
-        1
-        for c in injection_classifications
-        if c.classification in ("injection", "suspicious")
+        1 for c in injection_classifications if c.classification in ("injection", "suspicious")
     )
     injection_total = len(injection_classifications)
     injection_blocked = sum(1 for c in injection_classifications if c.blocked)

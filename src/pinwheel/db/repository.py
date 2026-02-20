@@ -25,6 +25,7 @@ from pinwheel.db.models import (
     SeasonRow,
     TeamRow,
 )
+from pinwheel.models.tokens import TokenBalance
 
 
 class Repository:
@@ -191,15 +192,8 @@ class Repository:
         await self.session.flush()
         return row
 
-    # Backward-compatible alias
-    create_agent = create_hooper
-
     async def get_hooper(self, hooper_id: str) -> HooperRow | None:
         return await self.session.get(HooperRow, hooper_id)
-
-    # Backward-compatible alias
-    async def get_agent(self, agent_id: str) -> HooperRow | None:
-        return await self.get_hooper(agent_id)
 
     async def get_hoopers_for_team(self, team_id: str) -> list[HooperRow]:
         """Return all hoopers currently assigned to a team."""
@@ -253,12 +247,9 @@ class Repository:
         game_id: str,
         hooper_id: str = "",
         team_id: str = "",
-        agent_id: str = "",
         **stats: int | float,
     ) -> BoxScoreRow:
-        # Support both hooper_id and legacy agent_id parameter
-        _hooper_id = hooper_id or agent_id
-        row = BoxScoreRow(game_id=game_id, hooper_id=_hooper_id, team_id=team_id, **stats)
+        row = BoxScoreRow(game_id=game_id, hooper_id=hooper_id, team_id=team_id, **stats)
         self.session.add(row)
         await self.session.flush()
         return row
@@ -519,8 +510,6 @@ class Repository:
         - proposal_list: list of dicts with proposal details + outcomes
         - token_balance: TokenBalance (propose, amend, boost)
         """
-        from pinwheel.core.tokens import get_token_balance
-
         # Get proposals submitted by this governor
         submitted_events = await self.get_events_by_type_and_governor(
             season_id=season_id,
@@ -616,7 +605,34 @@ class Repository:
                 }
             )
 
-        balance = await get_token_balance(self, governor_id, season_id)
+        # Derive token balance from event log (same logic as core/tokens.get_token_balance,
+        # inlined here to avoid a db → core layer violation).
+        token_events = await self.get_events_by_type_and_governor(
+            season_id=season_id,
+            governor_id=governor_id,
+            event_types=["token.regenerated", "token.spent"],
+        )
+        balance = TokenBalance(
+            governor_id=governor_id, season_id=season_id, propose=0, amend=0, boost=0
+        )
+        for tok_evt in token_events:
+            tok_payload = tok_evt.payload
+            tok_type = tok_payload.get("token_type", "")
+            tok_amount = tok_payload.get("amount", 0)
+            if tok_evt.event_type == "token.regenerated":
+                if tok_type == "propose":
+                    balance.propose += tok_amount
+                elif tok_type == "amend":
+                    balance.amend += tok_amount
+                elif tok_type == "boost":
+                    balance.boost += tok_amount
+            elif tok_evt.event_type == "token.spent":
+                if tok_type == "propose":
+                    balance.propose -= tok_amount
+                elif tok_type == "amend":
+                    balance.amend -= tok_amount
+                elif tok_type == "boost":
+                    balance.boost -= tok_amount
 
         return {
             "proposals_submitted": len(proposal_list),
@@ -997,9 +1013,6 @@ class Repository:
         hooper.team_id = new_team_id
         await self.session.flush()
 
-    # Backward-compatible alias
-    swap_agent_team = swap_hooper_team
-
     async def get_governors_for_team(
         self,
         team_id: str,
@@ -1150,10 +1163,28 @@ class Repository:
         Returns a list of dicts with: round_number, opponent_team_id,
         opponent_team_name, team_score, opponent_score, won (bool), margin.
         Used for trajectory analysis on team pages.
+
+        Uses a single batch query for opponent team names instead of one
+        query per game (avoids N+1).
         """
         games = await self.get_games_for_team(season_id, team_id)
-        results: list[dict] = []
+        if not games:
+            return []
 
+        # Collect all unique opponent IDs, then batch-fetch their names
+        opponent_ids = {
+            (game.away_team_id if game.home_team_id == team_id else game.home_team_id)
+            for game in games
+        }
+        opponent_stmt = select(TeamRow.id, TeamRow.name).where(
+            TeamRow.id.in_(opponent_ids)
+        )
+        opponent_result = await self.session.execute(opponent_stmt)
+        team_name_map: dict[str, str] = {
+            row[0]: row[1] for row in opponent_result.all()
+        }
+
+        results: list[dict] = []
         for game in games:
             is_home = game.home_team_id == team_id
             team_score = game.home_score if is_home else game.away_score
@@ -1161,10 +1192,7 @@ class Repository:
             opponent_score = game.away_score if is_home else game.home_score
             won = game.winner_team_id == team_id
             margin = team_score - opponent_score
-
-            # Get opponent team name
-            opponent_team = await self.get_team(opponent_team_id)
-            opponent_team_name = opponent_team.name if opponent_team else opponent_team_id
+            opponent_team_name = team_name_map.get(opponent_team_id, opponent_team_id)
 
             results.append({
                 "round_number": game.round_number,
@@ -1197,9 +1225,6 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.tuples().all())
 
-    # Backward-compatible alias
-    get_box_scores_for_agent = get_box_scores_for_hooper
-
     async def get_league_attribute_averages(self, season_id: str) -> dict[str, float]:
         """Average each of the 9 attributes across all hoopers in a season."""
         stmt = select(HooperRow.attributes).where(
@@ -1212,7 +1237,7 @@ class Repository:
         if not all_attrs:
             return {}
 
-        from pinwheel.api.charts import ATTRIBUTE_ORDER
+        from pinwheel.models.constants import ATTRIBUTE_ORDER
 
         totals: dict[str, float] = {a: 0.0 for a in ATTRIBUTE_ORDER}
         count = len(all_attrs)
@@ -1229,9 +1254,6 @@ class Repository:
             hooper.backstory = backstory
             await self.session.flush()
         return hooper
-
-    # Backward-compatible alias
-    update_agent_backstory = update_hooper_backstory
 
     async def get_hooper_season_stats(
         self, hooper_id: str, season_id: str

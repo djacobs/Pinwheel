@@ -73,7 +73,7 @@ SAMPLE_PROPOSALS: list[dict[str, str]] = [
 
 
 @router.get("/workbench", response_class=HTMLResponse)
-async def admin_workbench(request: Request, current_user: OptionalUser):
+async def admin_workbench(request: Request, current_user: OptionalUser) -> HTMLResponse:
     """Admin safety workbench -- injection classifier test bench and config.
 
     Auth-gated: requires admin Discord ID match when OAuth is enabled.
@@ -161,7 +161,7 @@ async def test_classifier(
     request: Request,
     current_user: OptionalUser,
     body: ClassifierTestRequest | None = None,
-):
+) -> HTMLResponse:
     """Test the injection classifier with arbitrary text.
 
     Returns an HTML fragment (HTMX partial) showing the classification
@@ -182,7 +182,7 @@ async def test_classifier(
         try:
             data = await request.json()
             raw_text = str(data.get("text", "")).strip()
-        except Exception:
+        except (ValueError, AttributeError):
             raw_text = ""
 
     if not raw_text:

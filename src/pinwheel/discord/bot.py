@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord import Intents, app_commands
 from discord.ext import commands
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.discord.embeds import (
@@ -519,7 +520,7 @@ class PinwheelBot(commands.Bot):
             async for event in subscription:
                 try:
                     await self._dispatch_event(event)
-                except Exception:
+                except Exception:  # Last-resort handler — all exceptions logged above
                     logger.exception("discord_event_dispatch_error event=%s", event.get("type"))
 
     async def _try_acquire_setup_lock(self) -> bool:
@@ -566,7 +567,7 @@ class PinwheelBot(commands.Bot):
                 acquired = result.rowcount > 0  # type: ignore[union-attr]
                 await session.commit()
                 return acquired
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_setup_lock_acquire_failed")
             return True  # On error, proceed (better than deadlocking)
 
@@ -583,7 +584,7 @@ class PinwheelBot(commands.Bot):
                 if row:
                     await session.delete(row)
                     await session.flush()
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_setup_lock_release_failed")
 
     async def _setup_server(self) -> None:
@@ -639,7 +640,7 @@ class PinwheelBot(commands.Bot):
                 try:
                     category = await guild.create_category(category_name)
                     logger.info("discord_setup_created category=%s", category_name)
-                except Exception:
+                except discord.HTTPException:
                     logger.exception("discord_setup_category_failed name=%s", category_name)
                     return
 
@@ -705,7 +706,7 @@ class PinwheelBot(commands.Bot):
                                     len(stale_keys),
                                     stale_keys,
                                 )
-                except Exception:
+                except (discord.HTTPException, SQLAlchemyError):
                     logger.exception("discord_setup_team_channels_failed")
 
             # --- Self-heal: re-enroll members with team roles missing from DB ---
@@ -744,7 +745,7 @@ class PinwheelBot(commands.Bot):
                         len(list(rows)),
                         [r.key for r in rows],
                     )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_setup_load_persisted_ids_failed")
 
     async def _persist_bot_state(self, key: str, value: str) -> None:
@@ -758,7 +759,7 @@ class PinwheelBot(commands.Bot):
             async with get_session(self.engine) as session:
                 repo = Repository(session)
                 await repo.set_bot_state(key, value)
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_setup_persist_state_failed key=%s", key)
 
     async def _persist_bot_state_delete(self, key: str) -> None:
@@ -774,7 +775,7 @@ class PinwheelBot(commands.Bot):
                 if row:
                     await session.delete(row)
                     await session.flush()
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_setup_delete_state_failed key=%s", key)
 
     async def _get_or_create_shared_channel(
@@ -823,7 +824,7 @@ class PinwheelBot(commands.Bot):
             )
             logger.info("discord_setup_created channel=%s id=%d", ch_name, new_ch.id)
             return new_ch
-        except Exception:
+        except discord.HTTPException:
             logger.exception("discord_setup_create_channel_failed name=%s", ch_name)
             return None
 
@@ -860,7 +861,7 @@ class PinwheelBot(commands.Bot):
                 color = discord.Color(int(team.color.lstrip("#"), 16))  # type: ignore[union-attr]
                 role = await guild.create_role(name=team.name, color=color)  # type: ignore[union-attr]
                 logger.info("discord_setup_created role=%s", team.name)  # type: ignore[union-attr]
-            except Exception:
+            except discord.HTTPException:
                 logger.exception("discord_setup_create_role_failed name=%s", team.name)  # type: ignore[union-attr]
                 return
         else:
@@ -909,7 +910,7 @@ class PinwheelBot(commands.Bot):
                     topic=f"Team channel for {team.name}",  # type: ignore[union-attr]
                 )
                 logger.info("discord_setup_created team_channel=%s id=%d", slug, team_ch.id)
-            except Exception:
+            except discord.HTTPException:
                 logger.exception("discord_setup_create_team_channel_failed name=%s", slug)
                 return
 
@@ -987,7 +988,7 @@ class PinwheelBot(commands.Bot):
                     )
                 else:
                     logger.info("sync_role_enrollments_complete all_ok=true")
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("sync_role_enrollments_failed")
 
     async def _post_welcome_message(self, guild: discord.Guild) -> None:
@@ -1025,7 +1026,7 @@ class PinwheelBot(commands.Bot):
                             hooper_names = ", ".join(h.name for h in team.hoopers)
                             lines.append(f"**{team.name}** -- {hooper_names}")
                         team_lines = "\n".join(lines)
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("discord_welcome_team_query_failed")
 
         if not team_lines:
@@ -1130,7 +1131,7 @@ class PinwheelBot(commands.Bot):
                             app_commands.Choice(name=display, value=pid),
                         )
                 return choices[:25]
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_proposal_autocomplete_failed")
             return []
 
@@ -1374,7 +1375,7 @@ class PinwheelBot(commands.Bot):
             if last_error is not None:
                 raise last_error
 
-        except Exception as exc:
+        except Exception as exc:  # Last-resort handler — DB, Discord, and logic errors
             logger.exception(
                 "discord_join_failed user=%s team=%s",
                 interaction.user.display_name if interaction.user else "unknown",
@@ -1706,7 +1707,7 @@ class PinwheelBot(commands.Bot):
                     if team:
                         s["team_name"] = team.name
                 return standings
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_standings_query_failed")
             return []
 
@@ -1794,7 +1795,7 @@ class PinwheelBot(commands.Bot):
             embed = build_search_result_embed(question, answer, result.query_type)
             await interaction.followup.send(embed=embed)
 
-        except Exception:
+        except Exception:  # Last-resort handler — DB, AI (Anthropic), and Discord errors
             logger.exception(
                 "discord_ask_failed user=%s question=%s",
                 interaction.user.display_name if interaction.user else "unknown",
@@ -1855,7 +1856,7 @@ class PinwheelBot(commands.Bot):
             embed = build_onboarding_embed(league_context, team_name=user_team_name)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_status_failed")
             await interaction.followup.send(
                 "Something went wrong fetching the league status. "
@@ -1945,7 +1946,7 @@ class PinwheelBot(commands.Bot):
                 )
                 await interaction.followup.send(embed=embed)
 
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_history_failed")
             await interaction.followup.send(
                 "Something went wrong fetching the history. "
@@ -2006,7 +2007,7 @@ class PinwheelBot(commands.Bot):
                     season_name=season.name or "this season",
                 )
                 await interaction.followup.send(embed=embed)
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_roster_failed")
             await interaction.followup.send(
                 "Could not load the governor roster right now. "
@@ -2070,7 +2071,7 @@ class PinwheelBot(commands.Bot):
                     await interaction.followup.send(embeds=embeds[:10])
                 else:
                     await interaction.followup.send("No proposals found.")
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_proposals_failed")
             await interaction.followup.send(
                 "Could not load proposals right now. "
@@ -2349,7 +2350,7 @@ class PinwheelBot(commands.Bot):
                 embed=embed,
                 view=view,
             )
-        except Exception:
+        except Exception:  # Last-resort handler — DB, AI interpreter, and Discord errors
             logger.exception("discord_propose_failed")
             # If the thinking message was sent, edit it with the error;
             # otherwise fall back to a new followup.
@@ -2618,7 +2619,7 @@ class PinwheelBot(commands.Bot):
                 view=view,
                 ephemeral=True,
             )
-        except Exception:
+        except Exception:  # Last-resort handler — DB, AI interpreter, and Discord errors
             logger.exception("discord_amend_failed")
             await interaction.followup.send(
                 "Your amendment could not be processed right now. "
@@ -2690,7 +2691,7 @@ class PinwheelBot(commands.Bot):
             season_name = season.name if season else "this season"
             embed = build_effects_list_embed(effects_data, season_name=season_name)
             await interaction.followup.send(embed=embed)
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_effects_failed")
             await interaction.followup.send(
                 "Could not load active effects right now.",
@@ -2821,7 +2822,7 @@ class PinwheelBot(commands.Bot):
                 view=view,
                 ephemeral=True,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_repeal_failed")
             await interaction.followup.send(
                 "Your repeal proposal could not be processed right now. "
@@ -2873,7 +2874,7 @@ class PinwheelBot(commands.Bot):
                     break
 
             return choices
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_effect_autocomplete_failed")
             return []
 
@@ -2923,7 +2924,7 @@ class PinwheelBot(commands.Bot):
                             "games": slot_games,
                         }
                     )
-            except Exception:
+            except (ValueError, TypeError, KeyError):
                 logger.debug("discord_schedule_slots_failed", exc_info=True)
                 # Fallback: show rounds without slot grouping
                 for rd in upcoming_rounds:
@@ -2981,7 +2982,7 @@ class PinwheelBot(commands.Bot):
                         }
                     )
                 return result
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_schedule_query_failed")
             return []
 
@@ -3042,7 +3043,7 @@ class PinwheelBot(commands.Bot):
                             }
                         ]
                 return []
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_reports_query_failed")
             return []
 
@@ -3237,7 +3238,7 @@ class PinwheelBot(commands.Bot):
                 embed=embed,
                 ephemeral=True,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_vote_failed")
             await interaction.followup.send(
                 "Your vote could not be recorded right now. "
@@ -3294,7 +3295,7 @@ class PinwheelBot(commands.Bot):
                 embed=embed,
                 ephemeral=True,
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_tokens_failed")
             await interaction.followup.send(
                 "Could not retrieve your token balance right now. "
@@ -3349,7 +3350,7 @@ class PinwheelBot(commands.Bot):
                 embed=embed,
                 ephemeral=True,
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_profile_failed")
             await interaction.followup.send(
                 "Could not load your governor profile right now. "
@@ -3469,7 +3470,7 @@ class PinwheelBot(commands.Bot):
                 f"Trade offer sent to **{target.display_name}**!",
                 ephemeral=True,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_trade_failed")
             await interaction.followup.send(
                 f"Could not send the trade offer to **{target.display_name}** right now. "
@@ -3513,7 +3514,7 @@ class PinwheelBot(commands.Bot):
                     for h in hoopers
                     if lowered in h.name.lower()
                 ][:25]
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("hooper_autocomplete_failed")
             return []
 
@@ -3672,7 +3673,7 @@ class PinwheelBot(commands.Bot):
                 "Both teams' governors must vote in their team channels.",
                 ephemeral=True,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_trade_hooper_failed")
             await interaction.followup.send(
                 "The hooper trade could not be created right now. "
@@ -3825,7 +3826,7 @@ class PinwheelBot(commands.Bot):
                 embed=embed,
                 ephemeral=True,
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("discord_bio_failed")
             await interaction.followup.send(
                 f"Could not save the bio for **{hooper_name}** right now. "
@@ -3848,9 +3849,10 @@ class PinwheelBot(commands.Bot):
             )
             return
 
-        if not interaction.user.guild_permissions.administrator:
+        admin_discord_id = self.settings.pinwheel_admin_discord_id
+        if not admin_discord_id or str(interaction.user.id) != admin_discord_id:
             await interaction.response.send_message(
-                "`/new-season` is restricted to server administrators. "
+                "`/new-season` is restricted to the configured league administrator. "
                 "Ask an admin to start the new season for you.",
                 ephemeral=True,
             )
@@ -3941,7 +3943,7 @@ class PinwheelBot(commands.Bot):
                 with contextlib.suppress(discord.Forbidden, discord.HTTPException):
                     await channel.send(embed=announce_embed)
 
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("discord_new_season_failed")
             await interaction.followup.send(
                 f"Could not create season **{name}** right now. "
@@ -3965,16 +3967,11 @@ class PinwheelBot(commands.Bot):
             )
             return
 
-        # Admin check
-        is_admin = (
-            interaction.user.guild_permissions.administrator  # type: ignore[union-attr]
-            if hasattr(interaction.user, "guild_permissions")
-            else False
-        )
-        admin_id = self.settings.pinwheel_admin_discord_id
-        if not is_admin and str(interaction.user.id) != admin_id:
+        # Admin check — use configured admin Discord ID (same model as web auth)
+        admin_discord_id = self.settings.pinwheel_admin_discord_id
+        if not admin_discord_id or str(interaction.user.id) != admin_discord_id:
             await interaction.response.send_message(
-                "`/activate-mechanic` is restricted to administrators.",
+                "`/activate-mechanic` is restricted to the configured league administrator.",
                 ephemeral=True,
             )
             return
@@ -4044,7 +4041,7 @@ class PinwheelBot(commands.Bot):
                     "Effect not found or not a pending custom mechanic.",
                     ephemeral=True,
                 )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("activate_mechanic_failed")
             await interaction.followup.send(
                 "Could not activate the mechanic. Check the server logs.",
@@ -4085,7 +4082,7 @@ class PinwheelBot(commands.Bot):
                 if len(choices) >= 25:
                     break
             return choices
-        except Exception:
+        except SQLAlchemyError:
             logger.debug("mechanic_autocomplete_failed", exc_info=True)
             return []
 
@@ -4122,7 +4119,7 @@ class PinwheelBot(commands.Bot):
             embed = build_report_embed(report)
             embed.title = f"Private Report -- Round {round_num}"
             await user.send(embed=embed)
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException, discord.Forbidden):
             logger.exception(
                 "private_report_dm_failed governor=%s",
                 governor_id,
@@ -4198,7 +4195,7 @@ class PinwheelBot(commands.Bot):
             )
             await interaction.response.send_modal(modal)
 
-        except Exception:
+        except (SQLAlchemyError, AttributeError, discord.HTTPException):
             logger.exception("edit_series_failed")
             await interaction.response.send_message(
                 "Could not open the series report editor right now.",
@@ -4246,7 +4243,7 @@ class PinwheelBot(commands.Bot):
 
                     if len(choices) >= 25:
                         break
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("series_report_autocomplete_failed")
 
         return choices
@@ -4292,7 +4289,7 @@ async def _gather_season_context(
         schedule = await repo.get_full_schedule(season_id, phase="regular")  # type: ignore[union-attr]
         if schedule:
             total_rounds = max(s.round_number for s in schedule)
-    except Exception:
+    except SQLAlchemyError:
         logger.debug("welcome_season_context_round_lookup_failed", exc_info=True)
 
     return {
@@ -4335,7 +4332,7 @@ async def start_discord_bot(
             await bot.start(settings.discord_bot_token)
         except asyncio.CancelledError:
             logger.info("discord_bot_cancelled")
-        except Exception:
+        except Exception:  # Last-resort handler — bot.start can raise connection and auth errors
             logger.exception("discord_bot_error")
         finally:
             if not bot.is_closed():

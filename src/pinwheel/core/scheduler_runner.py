@@ -17,7 +17,9 @@ import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pinwheel.core.event_bus import EventBus
@@ -392,7 +394,7 @@ async def tick_round(
     lock_acquired = False
     try:
         lock_acquired = await _try_acquire_tick_lock(engine, machine_id)
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("tick_round_lock_acquire_error")
         return
 
@@ -428,7 +430,7 @@ async def tick_round(
                             from pinwheel.config import Settings
 
                             offseason_window = Settings().pinwheel_offseason_window
-                        except Exception:
+                        except (ValidationError, ValueError, TypeError):
                             offseason_window = 3600
 
                         await enter_offseason(
@@ -456,7 +458,7 @@ async def tick_round(
                         from pinwheel.config import Settings
 
                         offseason_window = Settings().pinwheel_offseason_window
-                    except Exception:
+                    except (ValidationError, ValueError, TypeError):
                         offseason_window = 3600
 
                     await enter_offseason(
@@ -720,7 +722,7 @@ async def tick_round(
             season_id,
             next_round,
         )
-    except Exception:
+    except Exception:  # Last-resort handler — step_round, DB, AI, and event-bus errors
         logger.exception("tick_round_error")
     finally:
         await _release_tick_lock(engine, machine_id)

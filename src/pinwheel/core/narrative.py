@@ -15,6 +15,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import SQLAlchemyError
+
 if TYPE_CHECKING:
     from pinwheel.db.repository import Repository
     from pinwheel.models.rules import RuleSet
@@ -384,7 +386,7 @@ async def compute_narrative_context(
                 if notable:
                     summary["notable_rules"] = notable
             ctx.prior_seasons.append(summary)
-    except Exception:
+    except SQLAlchemyError:
         logger.debug("prior_seasons_skipped — archives not available", exc_info=True)
 
     return ctx

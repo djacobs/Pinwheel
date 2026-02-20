@@ -278,7 +278,7 @@ async def load_effect_registry(
         try:
             effect = RegisteredEffect.from_dict(ev.payload)
             registry.register(effect)
-        except Exception:
+        except (ValueError, TypeError, KeyError):
             logger.exception("failed_to_load_effect id=%s", effect_id)
 
     logger.info(

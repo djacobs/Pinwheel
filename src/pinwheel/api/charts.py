@@ -7,17 +7,9 @@ from __future__ import annotations
 
 import math
 
-ATTRIBUTE_ORDER: list[str] = [
-    "scoring",
-    "passing",
-    "defense",
-    "speed",
-    "stamina",
-    "iq",
-    "ego",
-    "chaotic_alignment",
-    "fate",
-]
+from pinwheel.models.constants import ATTRIBUTE_ORDER  # noqa: F401 — re-exported for callers
+
+__all__ = ["ATTRIBUTE_ORDER"]
 
 ATTRIBUTE_LABELS: dict[str, str] = {
     "scoring": "SCO",

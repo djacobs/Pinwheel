@@ -67,18 +67,6 @@ class HooperBoxScore(BaseModel):
             else 0.0
         )
 
-    # Backward-compatible aliases
-    @property
-    def agent_id(self) -> str:
-        return self.hooper_id
-
-    @property
-    def agent_name(self) -> str:
-        return self.hooper_name
-
-
-# Backward-compatible alias
-AgentBoxScore = HooperBoxScore
 
 
 class QuarterScore(BaseModel):

@@ -10,6 +10,8 @@ import re
 import uuid
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from pinwheel.models.governance import (
     Amendment,
     EffectSpec,
@@ -979,7 +981,7 @@ def get_proposal_effects_v2(
         if isinstance(item, dict):
             try:
                 effects.append(EffectSpec(**item))
-            except Exception:
+            except (ValidationError, TypeError):
                 continue
     return effects
 

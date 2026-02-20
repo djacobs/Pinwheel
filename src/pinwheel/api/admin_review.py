@@ -10,12 +10,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
 
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
 from pinwheel.config import PROJECT_ROOT
-from pinwheel.db.models import SeasonRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -23,10 +21,8 @@ templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
-    """Get the first available season. Hackathon shortcut."""
-    stmt = select(SeasonRow).limit(1)
-    result = await repo.session.execute(stmt)
-    row = result.scalar_one_or_none()
+    """Get the active season ID (most recent non-terminal)."""
+    row = await repo.get_active_season()
     return row.id if row else None
 
 
@@ -108,7 +104,7 @@ async def _build_review_queue(
 
 
 @router.get("/review", response_class=HTMLResponse)
-async def admin_review(request: Request, repo: RepoDep, current_user: OptionalUser):
+async def admin_review(request: Request, repo: RepoDep, current_user: OptionalUser) -> HTMLResponse:
     """Admin proposal review queue.
 
     Shows proposals flagged for admin review. In dev mode without OAuth,

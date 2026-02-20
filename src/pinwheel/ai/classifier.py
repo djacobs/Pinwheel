@@ -160,7 +160,7 @@ async def classify_injection(
             reason=reason,
         )
 
-    except Exception as e:
+    except Exception as e:  # Last-resort handler — AI (Anthropic), JSON parse, and Pydantic errors
         # Fail-open: classifier failure should not block governance
         logger.warning("injection_classifier_failed error=%s text=%s", e, text[:80])
         return ClassificationResult(

@@ -15,7 +15,7 @@ from pinwheel.ai.usage import PRICING
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, admin_auth_context, check_admin_access
 from pinwheel.config import PROJECT_ROOT
-from pinwheel.db.models import AIUsageLogRow, SeasonRow
+from pinwheel.db.models import AIUsageLogRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -23,15 +23,15 @@ templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
-    """Get the first season ID."""
-    stmt = select(SeasonRow).limit(1)
-    result = await repo.session.execute(stmt)
-    row = result.scalar_one_or_none()
+    """Get the active season ID (most recent non-terminal)."""
+    row = await repo.get_active_season()
     return row.id if row else None
 
 
 @router.get("/costs", response_class=HTMLResponse)
-async def costs_dashboard(request: Request, repo: RepoDep, current_user: OptionalUser):
+async def costs_dashboard(
+    request: Request, repo: RepoDep, current_user: OptionalUser
+) -> HTMLResponse:
     """AI costs dashboard — token usage, cost breakdown, per-round trends.
 
     Auth-gated: redirects to login if OAuth is enabled and user is not
@@ -89,15 +89,17 @@ async def costs_dashboard(request: Request, repo: RepoDep, current_user: Optiona
         )
         result = await session.execute(stmt)
         for row in result.all():
-            by_caller.append({
-                "call_type": row[0],
-                "count": row[1],
-                "input_tokens": row[2],
-                "output_tokens": row[3],
-                "cache_read_tokens": row[4],
-                "cost_usd": float(row[5]),
-                "avg_latency_ms": round(float(row[6]), 1),
-            })
+            by_caller.append(
+                {
+                    "call_type": row[0],
+                    "count": row[1],
+                    "input_tokens": row[2],
+                    "output_tokens": row[3],
+                    "cache_read_tokens": row[4],
+                    "cost_usd": float(row[5]),
+                    "avg_latency_ms": round(float(row[6]), 1),
+                }
+            )
 
     # --- Per-round breakdown ---
     by_round: list[dict] = []
@@ -119,13 +121,15 @@ async def costs_dashboard(request: Request, repo: RepoDep, current_user: Optiona
         )
         result = await session.execute(stmt)
         for row in result.all():
-            by_round.append({
-                "round_number": row[0],
-                "count": row[1],
-                "input_tokens": row[2],
-                "output_tokens": row[3],
-                "cost_usd": float(row[4]),
-            })
+            by_round.append(
+                {
+                    "round_number": row[0],
+                    "count": row[1],
+                    "input_tokens": row[2],
+                    "output_tokens": row[3],
+                    "cost_usd": float(row[4]),
+                }
+            )
 
     # --- Compute average cost per round ---
     avg_cost_per_round = 0.0
@@ -138,10 +142,7 @@ async def costs_dashboard(request: Request, repo: RepoDep, current_user: Optiona
         cache_hit_rate = total_cache_read_tokens / (total_input_tokens + total_cache_read_tokens)
 
     # --- Pricing reference ---
-    pricing_ref = [
-        {"model": model, **rates}
-        for model, rates in PRICING.items()
-    ]
+    pricing_ref = [{"model": model, **rates} for model, rates in PRICING.items()]
 
     return templates.TemplateResponse(
         request,

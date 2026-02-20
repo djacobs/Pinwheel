@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from itsdangerous import URLSafeTimedSerializer
@@ -458,7 +459,7 @@ async def test_callback_handles_token_exchange_error(
     client, _settings = oauth_app_client
 
     with patch("pinwheel.auth.oauth._exchange_code", new_callable=AsyncMock) as mock_ex:
-        mock_ex.side_effect = Exception("Discord API timeout")
+        mock_ex.side_effect = httpx.ConnectError("Discord API timeout")
 
         login_resp = await client.get("/auth/login", follow_redirects=False)
         state = login_resp.cookies.get("pinwheel_oauth_state", "")
@@ -483,7 +484,7 @@ async def test_callback_handles_user_fetch_error(
         patch("pinwheel.auth.oauth._fetch_user", new_callable=AsyncMock) as mock_fu,
     ):
         mock_ex.return_value = {"access_token": "tok"}
-        mock_fu.side_effect = Exception("Discord API error")
+        mock_fu.side_effect = httpx.ConnectError("Discord API error")
 
         login_resp = await client.get("/auth/login", follow_redirects=False)
         state = login_resp.cookies.get("pinwheel_oauth_state", "")

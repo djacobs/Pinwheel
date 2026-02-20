@@ -91,9 +91,8 @@ ALL_MOVES = [
 
 def check_gate(move: Move, agent: HooperState) -> bool:
     """Check if agent meets the attribute gate for a move."""
-    attrs = agent.hooper.attributes.model_dump()
     for attr_name, min_val in move.attribute_gate.items():
-        if attrs.get(attr_name, 0) < min_val:
+        if getattr(agent.hooper.attributes, attr_name, 0) < min_val:
             return False
     return True
 

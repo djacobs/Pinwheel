@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import anthropic
 from pydantic import BaseModel, model_validator
+from sqlalchemy.exc import SQLAlchemyError
 
 from pinwheel.db.models import HooperRow, TeamRow
 
@@ -449,7 +450,7 @@ async def execute_query(
                 },
             )
 
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.exception("query_execution_failed type=%s", plan.query_type)
         return QueryResult(
             query_type=plan.query_type,

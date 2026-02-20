@@ -20,19 +20,13 @@ templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 async def _get_active_season_id(repo: RepoDep) -> str | None:
-    """Get the first available season. Hackathon shortcut."""
-    from sqlalchemy import select
-
-    from pinwheel.db.models import SeasonRow
-
-    stmt = select(SeasonRow).limit(1)
-    result = await repo.session.execute(stmt)
-    row = result.scalar_one_or_none()
+    """Get the active season ID (most recent non-terminal)."""
+    row = await repo.get_active_season()
     return row.id if row else None
 
 
 @router.get("/roster", response_class=HTMLResponse)
-async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUser):
+async def admin_roster(request: Request, repo: RepoDep, current_user: OptionalUser) -> HTMLResponse:
     """Admin roster -- table of all enrolled governors.
 
     Auth-gated: requires admin Discord ID match when OAuth is enabled.

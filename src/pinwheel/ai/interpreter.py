@@ -642,7 +642,7 @@ async def _opus_escalate(
         )
         return result
 
-    except Exception as e:
+    except Exception as e:  # Last-resort handler — AI (Anthropic), JSON parse, and DB errors
         logger.warning("Opus escalation failed: %s", e)
         return None
 
@@ -803,7 +803,7 @@ async def interpret_proposal_v2(
 
         return haiku_result
 
-    except Exception as haiku_err:
+    except Exception as haiku_err:  # Last-resort handler — AI, JSON parse, and DB errors
         logger.warning("Haiku fallback also failed: %s", haiku_err)
 
     # Last resort: mock interpreter (tests + total API outage only)

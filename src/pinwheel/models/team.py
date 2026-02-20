@@ -74,10 +74,6 @@ class TeamStrategy(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
-# Backward-compatible alias
-Agent = Hooper
-
-
 class Team(BaseModel):
     """A group of 4 Hoopers (3 starters + 1 bench)."""
 
@@ -88,14 +84,3 @@ class Team(BaseModel):
     motto: str = ""
     venue: Venue
     hoopers: list[Hooper] = Field(default_factory=list)
-
-    def __init__(self, **data: object) -> None:
-        # Accept 'agents' as backward-compatible alias for 'hoopers'
-        if "agents" in data and "hoopers" not in data:
-            data["hoopers"] = data.pop("agents")  # type: ignore[assignment]
-        super().__init__(**data)
-
-    @property
-    def agents(self) -> list[Hooper]:
-        """Backward-compatible alias for hoopers."""
-        return self.hoopers

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from pinwheel.auth.deps import require_api_admin
 from pinwheel.config import PACE_CRON_MAP, VALID_PACES, Settings
 
 router = APIRouter(prefix="/api/pace", tags=["pace"])
@@ -58,9 +60,14 @@ async def get_pace(request: Request) -> PaceResponse:
 
 
 @router.post("", response_model=PaceResponse)
-async def set_pace(body: PaceRequest, request: Request) -> PaceResponse:
+async def set_pace(
+    body: PaceRequest,
+    request: Request,
+    _: Annotated[None, Depends(require_api_admin)],
+) -> PaceResponse:
     """Change the presentation pace in memory (not persisted to env).
 
+    Admin-only: requires authenticated admin in production/staging.
     This is a demo convenience endpoint — not meant for production use.
     """
     if body.pace not in VALID_PACES:
@@ -83,11 +90,13 @@ async def set_pace(body: PaceRequest, request: Request) -> PaceResponse:
 @router.post("/advance", response_model=AdvanceResponse)
 async def advance_round(
     request: Request,
+    _: Annotated[None, Depends(require_api_admin)],
     quarter_seconds: int = 300,
     game_gap_seconds: int = 0,
 ) -> AdvanceResponse:
     """Trigger a round advance within the server process.
 
+    Admin-only: requires authenticated admin in production/staging.
     Forces presentation_mode="replay" with demo-friendly timing defaults.
     Returns 409 if a presentation is already active.
     """

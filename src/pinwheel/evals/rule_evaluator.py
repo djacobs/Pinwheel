@@ -132,7 +132,7 @@ async def evaluate_rules(
 
         # Parse structured output from free-form analysis
         return _parse_evaluation(analysis_text, season_id, round_number)
-    except Exception:
+    except Exception:  # Last-resort handler — AI (Anthropic) and response-parse errors
         logger.exception("rule_evaluator_failed season=%s round=%d", season_id, round_number)
         return _mock_evaluation(season_id, round_number)
 

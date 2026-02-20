@@ -79,15 +79,6 @@ class TeamRow(Base):
     season: Mapped[SeasonRow] = relationship(back_populates="teams")
     hoopers: Mapped[list[HooperRow]] = relationship(back_populates="team")
 
-    @property
-    def agents(self) -> list[HooperRow]:
-        """Backward-compatible alias for hoopers."""
-        return self.hoopers
-
-
-# Backward-compatible alias
-AgentRow = None  # Defined after HooperRow
-
 
 class HooperRow(Base):
     __tablename__ = "hoopers"
@@ -108,9 +99,6 @@ class HooperRow(Base):
     team: Mapped[TeamRow] = relationship(back_populates="hoopers")
 
     __table_args__ = (Index("ix_hoopers_team_id", "team_id"),)
-
-
-AgentRow = HooperRow  # type: ignore[assignment]
 
 
 class GameResultRow(Base):
@@ -150,7 +138,7 @@ class BoxScoreRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     game_id: Mapped[str] = mapped_column(ForeignKey("game_results.id"), nullable=False)
     hooper_id: Mapped[str] = mapped_column(ForeignKey("hoopers.id"), nullable=False)
-    team_id: Mapped[str] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    team_id: Mapped[str] = mapped_column(ForeignKey("teams.id"), nullable=False, index=True)
     points: Mapped[int] = mapped_column(Integer, default=0)
     field_goals_made: Mapped[int] = mapped_column(Integer, default=0)
     field_goals_attempted: Mapped[int] = mapped_column(Integer, default=0)
@@ -166,11 +154,6 @@ class BoxScoreRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     game: Mapped[GameResultRow] = relationship(back_populates="box_scores")
-
-    @property
-    def agent_id(self) -> str:
-        """Backward-compatible alias for hooper_id."""
-        return self.hooper_id
 
     __table_args__ = (
         Index("ix_box_scores_game_id", "game_id"),
@@ -199,6 +182,14 @@ class GovernanceEventRow(Base):
         Index("ix_gov_events_aggregate", "aggregate_type", "aggregate_id"),
         Index("ix_gov_events_season_round", "season_id", "round_number"),
         Index("ix_gov_events_type", "event_type"),
+        # Sequence numbers are assigned per-season via SELECT MAX(); this
+        # constraint enforces uniqueness at the DB level for fresh databases.
+        # Existing databases will NOT get this constraint automatically because
+        # auto_migrate_schema() only adds missing columns, not constraints or
+        # indexes. Run a manual migration on existing DBs if needed:
+        #   CREATE UNIQUE INDEX IF NOT EXISTS uq_gov_events_season_seq
+        #   ON governance_events (season_id, sequence_number);
+        UniqueConstraint("season_id", "sequence_number", name="uq_gov_events_season_seq"),
     )
 
 
@@ -233,7 +224,7 @@ class PlayerRow(Base):
     discord_id: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[str] = mapped_column(String(512), default="")
-    team_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    team_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     enrolled_season_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)

@@ -110,7 +110,7 @@ async def callback(
             client_secret=s.discord_client_secret,
             redirect_uri=s.discord_redirect_uri,
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.exception("Discord token exchange error")
         return RedirectResponse(url="/", status_code=302)
 
@@ -122,7 +122,7 @@ async def callback(
     # Fetch the Discord user profile.
     try:
         user_info = await _fetch_user(access_token)
-    except Exception:
+    except httpx.HTTPError:
         logger.exception("Discord user fetch error")
         return RedirectResponse(url="/", status_code=302)
 

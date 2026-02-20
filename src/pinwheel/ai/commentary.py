@@ -338,7 +338,7 @@ def _build_game_context(
     for bs in sorted(game_result.box_scores, key=lambda b: b.points, reverse=True):
         team_name = home_team.name if bs.team_id == home_team.id else away_team.name
         lines.append(
-            f"  {bs.agent_name} ({team_name}): "
+            f"  {bs.hooper_name} ({team_name}): "
             f"{bs.points}pts {bs.rebounds}reb {bs.assists}ast {bs.steals}stl {bs.turnovers}to"
         )
 
@@ -589,13 +589,13 @@ def generate_game_commentary_mock(
     if top_scorer:
         scorer_team = home_team.name if top_scorer.team_id == home_team.id else away_team.name
         star_line = (
-            f"{top_scorer.agent_name} of the {scorer_team} led all scorers with "
+            f"{top_scorer.hooper_name} of the {scorer_team} led all scorers with "
             f"{top_scorer.points} points"
         )
-        if top_assist and top_assist.agent_id != top_scorer.agent_id and top_assist.assists > 0:
+        if top_assist and top_assist.hooper_id != top_scorer.hooper_id and top_assist.assists > 0:
             assist_team = home_team.name if top_assist.team_id == home_team.id else away_team.name
             star_line += (
-                f", while {top_assist.agent_name} ({assist_team}) orchestrated the offense "
+                f", while {top_assist.hooper_name} ({assist_team}) orchestrated the offense "
                 f"with {top_assist.assists} assists"
             )
         star_line += "."

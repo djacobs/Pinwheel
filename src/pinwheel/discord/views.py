@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import discord
+from sqlalchemy.exc import SQLAlchemyError
 
 from pinwheel.discord.embeds import (
     build_interpretation_embed,
@@ -106,7 +107,7 @@ class ProposalConfirmView(discord.ui.View):
                 self.governor_info.player_id,
                 self.token_cost,
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("proposal_view_timeout_refund_failed")
 
     @discord.ui.button(
@@ -215,7 +216,7 @@ class ProposalConfirmView(discord.ui.View):
                     governor_name=interaction.user.display_name,
                     interpretation_v2=self.interpretation_v2,
                 )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("proposal_confirm_failed")
             await interaction.response.send_message(
                 "Your proposal could not be submitted right now. "
@@ -273,7 +274,7 @@ class ProposalConfirmView(discord.ui.View):
                         },
                     )
                     await session.commit()
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("proposal_cancel_refund_failed")
 
         self._disable_all()
@@ -428,7 +429,7 @@ class ReviseProposalModal(discord.ui.Modal, title="Revise Your Proposal"):
                 embed=embed,
                 view=self.parent_view,
             )
-        except Exception:
+        except Exception:  # Last-resort handler — AI interpreter and Discord errors
             logger.exception("proposal_revise_failed")
             await interaction.response.send_message(
                 "Your revised proposal could not be re-interpreted right now. "
@@ -590,7 +591,7 @@ class AmendConfirmView(discord.ui.View):
                 with contextlib.suppress(discord.Forbidden, discord.HTTPException):
                     await interaction.channel.send(embed=announcement)
 
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("amendment_confirm_failed")
             await interaction.response.send_message(
                 "Your amendment could not be submitted right now. "
@@ -692,7 +693,7 @@ class TradeOfferView(discord.ui.View):
                 embed=embed,
                 view=self,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("trade_accept_failed")
             await interaction.response.send_message(
                 "The trade could not be accepted right now. "
@@ -749,7 +750,7 @@ class TradeOfferView(discord.ui.View):
                 embed=embed,
                 view=self,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("trade_reject_failed")
             await interaction.response.send_message(
                 "The trade could not be rejected right now. "
@@ -863,7 +864,7 @@ class StrategyConfirmView(discord.ui.View):
                 embed=embed,
                 view=self,
             )
-        except Exception:
+        except Exception:  # Last-resort handler — AI interpreter and Discord errors
             logger.exception("strategy_confirm_failed")
             await interaction.response.send_message(
                 f"Could not set the strategy for **{self.team_name}** right now. "
@@ -1002,7 +1003,7 @@ class HooperTradeView(discord.ui.View):
                             self.season_id,
                         )
                         await session.commit()
-                except Exception:
+                except SQLAlchemyError:
                     logger.exception("hooper_trade_execute_failed")
                     await interaction.response.send_message(
                         "Both teams approved the trade, but it could not be executed right now. "
@@ -1149,7 +1150,7 @@ class RepealConfirmView(discord.ui.View):
                     discord.HTTPException,
                 ):
                     await interaction.channel.send(embed=announcement)
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("repeal_confirm_failed")
             await interaction.response.send_message(
                 "Your repeal proposal could not be submitted right now. "
@@ -1196,7 +1197,7 @@ class RepealConfirmView(discord.ui.View):
                         },
                     )
                     await session.commit()
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("repeal_cancel_refund_failed")
 
         self._disable_all()
@@ -1293,7 +1294,7 @@ class EditSeriesModal(discord.ui.Modal, title="Edit Series Report"):
                 embed=embed,
                 ephemeral=True,
             )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("series_report_edit_failed report_id=%s", self.report_id)
             await interaction.response.send_message(
                 "The series report could not be updated right now. "
@@ -1334,7 +1335,7 @@ async def _notify_admin_for_review(
             admin_user = await interaction.client.fetch_user(
                 int(settings.pinwheel_admin_discord_id),
             )
-        except Exception:
+        except (discord.HTTPException, discord.NotFound):
             logger.warning(
                 "admin_review_fetch_admin_failed id=%s",
                 settings.pinwheel_admin_discord_id,
@@ -1444,7 +1445,7 @@ class AdminReviewView(discord.ui.View):
                 await proposer.send(
                     "Admin has cleared your proposal. Voting continues normally.",
                 )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("admin_clear_failed")
             await interaction.response.send_message(
                 "The proposal could not be cleared right now. "
@@ -1533,7 +1534,7 @@ class AdminVetoReasonModal(discord.ui.Modal, title="Veto Proposal"):
                     f"{reason_msg} "
                     "Your PROPOSE token has been refunded.",
                 )
-        except Exception:
+        except (SQLAlchemyError, discord.HTTPException):
             logger.exception("admin_veto_failed")
             await interaction.response.send_message(
                 "The proposal could not be vetoed right now. "

@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2058 tests**, zero lint errors (Session 116)
+- **2077 tests**, zero lint errors (Session 117)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -72,3 +72,47 @@ Duplicate proposals — cancelled:
 **2058 tests, zero lint errors.**
 
 **What could have gone better:** The 3-run duplication was caused by running the resubmit script before deploying the Session 114 JSON parsing fix, then re-running after. The resubmit script should have checked for existing open proposals with the same text before submitting.
+
+---
+
+## Session 117 — Full Codebase Audit + Systematic P1/P2 Fixes
+
+**What was asked:** Run a full codebase audit using all available review agents, then spin off parallel background agents to fix every P1 and P2 issue found.
+
+**What was built:**
+
+Audit:
+- Ran 8 review agents simultaneously (kieran-python-reviewer, security-sentinel, performance-oracle, architecture-strategist, pattern-recognition-specialist, data-integrity-guardian, git-history-analyzer, code-simplicity-reviewer)
+- Synthesized 30 findings: 4 P1 critical, 15 P2 important, 11 P3 nice-to-have
+- Written to `docs/CODE_REVIEW_2026-02-20.md`
+
+P1 fixes (all 4 resolved):
+- FK enforcement: added `PRAGMA foreign_keys=ON` to `_set_sqlite_pragmas` — exposed 3 latent test bugs in `test_discord.py` (missing season_id in vote payloads, reversed create_team args), all fixed
+- Auth: added `require_api_admin` dependency to `POST /api/seasons`, `POST /api/pace`, `POST /api/pace/advance` — dev mode bypasses auth, prod enforces admin session
+- XSS: added `nh3.clean()` after markdown conversion in `_prose_to_html` — prevents script injection via AI-generated content
+- Parallel AI: refactored `_phase_ai` in game_loop.py to use `asyncio.gather()` for all independent calls — expected 40–200s wall-clock → 2–10s per round
+
+P2 fixes (11 of 15 resolved; 4 deferred as too large):
+- Session factory: module-level `_session_factories` dict cache in `db/engine.py`, `api/deps.py`
+- DB constraints: `UniqueConstraint("season_id", "sequence_number")` on governance_events + `index=True` on `BoxScoreRow.team_id` and `PlayerRow.team_id`; applied unique index to both local and production DB
+- Dead code: deleted `ai/mirror.py`, `models/mirror.py`, `api/mirrors.py` (639 lines); confirmed all 7 flagged repository methods have callers
+- N+1 queries: standings API (50+N → 2 queries), `get_team_game_results` (N → 2 queries)
+- Admin season bug: fixed `select(SeasonRow).limit(1)` → `repo.get_active_season()` in 4 admin files
+- Return types: added `-> HTMLResponse` to 20+ handlers across 7 files
+- SSE security: 19-entry `ALLOWED_EVENT_TYPES` frozenset + 100-connection semaphore; 19 new tests in `test_sse_security.py`
+- `current_attributes` cache: two-key cache (stamina + base attrs tuple) — eliminates 24K–48K Pydantic allocations per round
+- `model_dump()` → `getattr()` in `check_gate()` — 2,400 serializations/game eliminated
+- Discord admin auth: unified `/new-season` and `/activate-mechanic` to use `PINWHEEL_ADMIN_DISCORD_ID` (fail-closed when unset)
+- Type annotations: `object` → real types in `ai/usage.py`, `core/deferred_interpreter.py`, `core/presenter.py`, `core/game_loop.py` (`_row_to_team`); removed all associated `# type: ignore` comments
+
+Deferred items (also resolved this session):
+- P2.17 rename: removed 23 `AgentRow`/`create_agent` aliases across 6 files; created `models/constants.py` as home for `ATTRIBUTE_ORDER` (was in `api/charts.py` — layer violation)
+- P2.8 bare excepts: narrowed all 106 `except Exception:` blocks across 24 files to specific exception families; kept last-resort handlers with explanatory comments
+- P2.6 layer violations: inlined `get_token_balance` from `core/tokens` into `repository.py`; `ATTRIBUTE_ORDER` moved to `models/constants.py`
+- P2.5 god objects: wrote architectural split plan to `docs/plans/god-object-split-plan.md` (repository → 8 mixins, pages → 9 routers, bot → 5 handler modules, game_loop → 6 phase modules)
+
+**Files modified (40+):** `db/engine.py`, `db/models.py`, `db/repository.py`, `models/constants.py` (new), `models/team.py`, `models/game.py`, `models/tokens.py`, `api/seasons.py`, `api/pace.py`, `api/pages.py`, `api/admin_costs.py`, `api/admin_review.py`, `api/admin_roster.py`, `api/admin_season.py`, `api/admin_workbench.py`, `api/eval_dashboard.py`, `api/events.py`, `api/standings.py`, `api/deps.py`, `api/charts.py`, `auth/deps.py`, `auth/oauth.py`, `ai/usage.py`, `ai/search.py`, `ai/classifier.py`, `ai/interpreter.py`, `core/game_loop.py`, `core/state.py`, `core/moves.py`, `core/deferred_interpreter.py`, `core/presenter.py`, `core/hooks.py`, `core/governance.py`, `core/narrative.py`, `core/scheduler_runner.py`, `core/season.py`, `core/effects.py`, `discord/bot.py`, `discord/views.py`, `config.py`, `evals/rule_evaluator.py`; deleted `ai/mirror.py`, `models/mirror.py`, `api/mirrors.py`; new `tests/test_sse_security.py`, `docs/CODE_REVIEW_2026-02-20.md`, `docs/plans/god-object-split-plan.md`
+
+**2077 tests, zero lint errors.**
+
+**What could have gone better:** The return-type annotations added by Agent 4 introduced 10 E501 lint errors (lines over 100 chars) that needed a post-hoc `ruff format` pass. Agents should run `ruff format` on their files before reporting clean lint.

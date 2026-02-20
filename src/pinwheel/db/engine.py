@@ -43,14 +43,31 @@ def create_engine(database_url: str) -> AsyncEngine:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA busy_timeout=15000")
+        # Enforce ForeignKey constraints — without this all FK declarations are
+        # decorative and orphaned records can accumulate silently.
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
     return engine
 
 
+# Module-level cache: one session factory per engine instance.
+# Keyed by the engine's sync_engine identity so multiple test engines remain
+# isolated, while all production requests share a single factory.
+_session_factories: dict[int, async_sessionmaker[AsyncSession]] = {}
+
+
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Create a session factory bound to the given engine."""
-    return async_sessionmaker(engine, expire_on_commit=False)
+    """Return a cached session factory bound to *engine*.
+
+    The factory is created once per engine instance and reused on every
+    subsequent call.  This avoids the overhead of constructing a new
+    ``async_sessionmaker`` for every inbound HTTP request.
+    """
+    key = id(engine.sync_engine)
+    if key not in _session_factories:
+        _session_factories[key] = async_sessionmaker(engine, expire_on_commit=False)
+    return _session_factories[key]
 
 
 @asynccontextmanager
@@ -61,7 +78,7 @@ async def get_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception:  # Re-raise pattern — must catch all to ensure rollback on any error
             await session.rollback()
             raise
 

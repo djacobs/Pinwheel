@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from pinwheel.config import APP_VERSION, Settings
 
@@ -55,7 +55,7 @@ async def get_current_user(request: Request) -> SessionUser | None:
     except BadSignature:
         logger.debug("Invalid or expired session cookie — ignoring")
         return None
-    except Exception:
+    except (ValidationError, TypeError):
         logger.debug("Failed to deserialise session cookie", exc_info=True)
         return None
 
@@ -119,6 +119,54 @@ def check_admin_access(
         return HTMLResponse("Unauthorized — admin access required.", status_code=403)
 
     return None
+
+
+async def require_api_admin(
+    request: Request,
+    current_user: Annotated[SessionUser | None, Depends(get_current_user)],
+) -> None:
+    """Dependency that gates JSON API endpoints to admin users only.
+
+    Raises HTTPException instead of returning HTML responses, making it
+    suitable for use with ``Depends()`` on POST/PUT/DELETE API routes.
+
+    Fail-closed: in production/staging, denies access when OAuth is
+    misconfigured rather than falling through to unauthenticated access.
+    In development mode, allows unauthenticated access for local testing.
+
+    Usage in a route handler::
+
+        @router.post("/api/something")
+        async def my_endpoint(_: Annotated[None, Depends(require_api_admin)]) -> dict:
+            ...
+    """
+    settings: Settings = request.app.state.settings
+
+    # Development mode: allow unauthenticated access for local testing.
+    if settings.pinwheel_env == "development":
+        return
+
+    # Production / staging: require authenticated admin.
+    oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
+
+    if not oauth_enabled:
+        # Fail closed — OAuth not configured in non-dev = no admin access.
+        raise HTTPException(
+            status_code=503,
+            detail="Admin access unavailable — OAuth not configured.",
+        )
+
+    if current_user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required — please log in.",
+        )
+
+    if not is_admin(current_user, settings):
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized — admin access required.",
+        )
 
 
 def admin_auth_context(request: Request, current_user: SessionUser | None) -> dict:

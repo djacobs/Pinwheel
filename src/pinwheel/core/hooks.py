@@ -727,7 +727,7 @@ def fire_effects(
             if effect.should_fire(hook, context):
                 result = effect.apply(hook, context)
                 results.append(result)
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             logger.exception(
                 "effect_fire_failed effect_id=%s hook=%s",
                 effect.effect_id,

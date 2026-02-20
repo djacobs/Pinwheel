@@ -14,10 +14,13 @@ or stepped manually for testing.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import time
 import uuid
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from pinwheel.ai.commentary import (
     generate_game_commentary,
@@ -62,6 +65,7 @@ from pinwheel.core.narrative import NarrativeContext, compute_narrative_context
 from pinwheel.core.scheduler import compute_standings
 from pinwheel.core.simulation import simulate_game
 from pinwheel.core.tokens import regenerate_tokens
+from pinwheel.db.models import TeamRow
 from pinwheel.db.repository import Repository
 from pinwheel.models.game import GameResult
 from pinwheel.models.governance import EffectSpec, Proposal, Vote, VoteTally
@@ -72,33 +76,33 @@ from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
 logger = logging.getLogger(__name__)
 
 
-def _row_to_team(team_row: object) -> Team:
+def _row_to_team(team_row: TeamRow) -> Team:
     """Convert a TeamRow + HooperRows to domain Team model."""
     hoopers = []
-    for idx, a in enumerate(team_row.hoopers):  # type: ignore[attr-defined]
-        attrs = PlayerAttributes(**a.attributes)  # type: ignore[attr-defined]
-        raw_moves = a.moves if hasattr(a, "moves") and a.moves else []  # type: ignore[attr-defined]
+    for idx, a in enumerate(team_row.hoopers):
+        attrs = PlayerAttributes(**a.attributes)
+        raw_moves = a.moves if hasattr(a, "moves") and a.moves else []
         moves = [Move(**m) if isinstance(m, dict) else m for m in raw_moves]
         hoopers.append(
             Hooper(
-                id=a.id,  # type: ignore[attr-defined]
-                name=a.name,  # type: ignore[attr-defined]
-                team_id=a.team_id,  # type: ignore[attr-defined]
-                archetype=a.archetype,  # type: ignore[attr-defined]
+                id=a.id,
+                name=a.name,
+                team_id=a.team_id,
+                archetype=a.archetype,
                 attributes=attrs,
                 moves=moves,
                 is_starter=idx < 3,
             )
         )
 
-    venue_data = team_row.venue  # type: ignore[attr-defined]
+    venue_data = team_row.venue
     venue = Venue(**(venue_data or {"name": "Default Arena"}))
 
     return Team(
-        id=team_row.id,  # type: ignore[attr-defined]
-        name=team_row.name,  # type: ignore[attr-defined]
-        color=getattr(team_row, "color", "#000000") or "#000000",
-        color_secondary=getattr(team_row, "color_secondary", "#ffffff") or "#ffffff",
+        id=team_row.id,
+        name=team_row.name,
+        color=team_row.color or "#000000",
+        color_secondary=team_row.color_secondary or "#ffffff",
         venue=venue,
         hoopers=hoopers,
     )
@@ -343,7 +347,7 @@ async def _advance_playoff_series(
                             },
                         )
                     )
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "enter_championship_failed season=%s", season_id
                 )
@@ -510,7 +514,7 @@ async def _advance_playoff_series(
                             },
                         )
                     )
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "enter_championship_failed season=%s", season_id
                 )
@@ -752,7 +756,7 @@ async def _run_evals(
                 score=1.0 if flag.severity == "critical" else 0.5,
                 details_json=flag.model_dump(mode="json"),
             )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("flag_detection_failed season=%s round=%d", season_id, round_number)
 
     # GQI (Governance Quality Index)
@@ -767,7 +771,7 @@ async def _run_evals(
             round_number,
             gqi_result.composite,
         )
-    except Exception:
+    except (SQLAlchemyError, ValueError, TypeError):
         logger.exception("gqi_computation_failed season=%s round=%d", season_id, round_number)
 
     # Rule Evaluator (Opus-powered admin analysis)
@@ -782,7 +786,7 @@ async def _run_evals(
             round_number,
             len(rule_eval.suggested_experiments),
         )
-    except Exception:
+    except Exception:  # Last-resort handler — AI (Anthropic) and DB errors
         logger.exception(
             "rule_evaluation_failed season=%s round=%d", season_id, round_number
         )
@@ -1063,7 +1067,7 @@ async def _phase_simulate_and_govern(
                 season_id,
                 effect_registry.count,
             )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("effect_registry_load_failed season=%s", season_id)
         effect_registry = None
         meta_store = None
@@ -1081,7 +1085,7 @@ async def _phase_simulate_and_govern(
             if evt.payload.get("team_id") == tid:
                 try:
                     strategies[tid] = TeamStrategy(**evt.payload.get("strategy", {}))
-                except Exception:
+                except (ValueError, TypeError):
                     logger.warning("invalid_strategy_payload team=%s", tid)
                 break
 
@@ -1370,7 +1374,7 @@ async def _phase_simulate_and_govern(
                     round_number,
                     len(dirty),
                 )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception(
                 "meta_flush_failed season=%s round=%d", season_id, round_number
             )
@@ -1381,7 +1385,7 @@ async def _phase_simulate_and_govern(
         if expired_ids:
             try:
                 await persist_expired_effects(repo, season_id, expired_ids)
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "effect_expiration_persist_failed season=%s round=%d",
                     season_id,
@@ -1394,7 +1398,7 @@ async def _phase_simulate_and_govern(
         milestone_grants = await _check_earned_moves(
             repo, season_id, round_number, teams_cache, event_bus,
         )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception(
             "milestone_check_failed season=%s round=%d", season_id, round_number
         )
@@ -1463,7 +1467,7 @@ async def _phase_simulate_and_govern(
                 repo, gov_id, season_id, round_number,
             )
             governor_activity[gov_id] = enriched
-        except Exception:
+        except SQLAlchemyError:
             logger.exception(
                 "private_report_context_failed gov=%s season=%s round=%d",
                 gov_id, season_id, round_number,
@@ -1493,7 +1497,7 @@ async def _phase_simulate_and_govern(
             repo, season_id, round_number, governance_interval,
             ruleset=ruleset,
         )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception(
             "narrative_context_failed season=%s round=%d", season_id, round_number
         )
@@ -1538,7 +1542,7 @@ async def _phase_simulate_and_govern(
         impact_validation_data = await compute_impact_validation(
             repo, season_id, round_number, governance_data,
         )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception(
             "insight_compute_impact_failed season=%s round=%d", season_id, round_number,
         )
@@ -1550,7 +1554,7 @@ async def _phase_simulate_and_govern(
                 governor_leverage_data[gov_id] = await compute_governor_leverage(
                     repo, gov_id, season_id,
                 )
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "insight_compute_leverage_failed gov=%s season=%s", gov_id, season_id,
                 )
@@ -1558,7 +1562,7 @@ async def _phase_simulate_and_govern(
                 governor_behavioral_data[gov_id] = await compute_behavioral_profile(
                     repo, gov_id, season_id,
                 )
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "insight_compute_behavioral_failed gov=%s season=%s", gov_id, season_id,
                 )
@@ -1668,163 +1672,303 @@ async def _phase_ai(
         else:
             narrative.effects_narrative = combined
 
-    # Commentary per game
+    # --- All AI calls below are independent and can run concurrently ---
+    # We build coroutines for each call, then execute them via asyncio.gather().
+    # Mock (sync) calls are wrapped in trivial coroutines for uniformity.
+
+    # -- Commentary per game --
+    commentary_game_ids: list[str] = []
+    commentary_coros: list[asyncio.Future[str]] = []
     for i, result in enumerate(sim.game_results):
         if i >= len(sim.game_summaries):
             break
         game_id = sim.game_summaries[i].get("game_id", "")
-
-        # Find teams from cache
         home = sim.teams_cache.get(result.home_team_id)
         away = sim.teams_cache.get(result.away_team_id)
         if not home or not away:
             continue
-
-        try:
-            if api_key:
-                commentary = await generate_game_commentary(
-                    result,
-                    home,
-                    away,
-                    sim.ruleset,
-                    api_key,
+        commentary_game_ids.append(game_id)
+        if api_key:
+            commentary_coros.append(
+                generate_game_commentary(
+                    result, home, away, sim.ruleset, api_key,
                     playoff_context=sim.playoff_context,
                     narrative=narrative,
                 )
-            else:
-                commentary = generate_game_commentary_mock(
-                    result, home, away,
-                    playoff_context=sim.playoff_context,
-                    narrative=narrative,
-                )
-            commentaries[game_id] = commentary
-        except Exception:
-            logger.exception(
-                "commentary_failed game=%s season=%s round=%d",
-                game_id,
-                sim.season_id,
-                sim.round_number,
+            )
+        else:
+            # Wrap sync mock in a coroutine
+            _mock_commentary = generate_game_commentary_mock(
+                result, home, away,
+                playoff_context=sim.playoff_context,
+                narrative=narrative,
             )
 
-    # Highlight reel
-    highlight_reel = ""
-    if sim.game_summaries:
-        try:
-            if api_key:
-                highlight_reel = await generate_highlight_reel(
-                    sim.game_summaries,
-                    sim.round_number,
-                    api_key,
-                    playoff_context=sim.playoff_context,
-                    narrative=narrative,
-                )
-            else:
-                highlight_reel = generate_highlight_reel_mock(
-                    sim.game_summaries,
-                    sim.round_number,
-                    playoff_context=sim.playoff_context,
-                    narrative=narrative,
-                )
-        except Exception:
-            logger.exception(
-                "highlight_reel_failed season=%s round=%d",
-                sim.season_id,
-                sim.round_number,
-            )
+            async def _wrap_commentary(c: str = _mock_commentary) -> str:
+                return c
 
-    # Simulation report
-    if api_key:
-        sim_report = await generate_simulation_report(
-            round_data, sim.season_id, sim.round_number, api_key,
+            commentary_coros.append(_wrap_commentary())
+
+    # -- Highlight reel --
+    async def _gen_highlight() -> str:
+        if not sim.game_summaries:
+            return ""
+        if api_key:
+            return await generate_highlight_reel(
+                sim.game_summaries, sim.round_number, api_key,
+                playoff_context=sim.playoff_context,
+                narrative=narrative,
+            )
+        return generate_highlight_reel_mock(
+            sim.game_summaries, sim.round_number,
+            playoff_context=sim.playoff_context,
             narrative=narrative,
         )
-    else:
-        sim_report = generate_simulation_report_mock(
+
+    # -- Simulation report --
+    async def _gen_sim_report() -> Report:
+        if api_key:
+            return await generate_simulation_report(
+                round_data, sim.season_id, sim.round_number, api_key,
+                narrative=narrative,
+            )
+        return generate_simulation_report_mock(
             round_data, sim.season_id, sim.round_number,
             narrative=narrative,
         )
 
-    # Governance report
-    if api_key:
-        gov_report = await generate_governance_report(
-            sim.governance_data, sim.season_id, sim.round_number, api_key,
-            narrative=narrative,
-        )
-    else:
-        gov_report = generate_governance_report_mock(
+    # -- Governance report --
+    async def _gen_gov_report() -> Report:
+        if api_key:
+            return await generate_governance_report(
+                sim.governance_data, sim.season_id, sim.round_number, api_key,
+                narrative=narrative,
+            )
+        return generate_governance_report_mock(
             sim.governance_data, sim.season_id, sim.round_number,
             narrative=narrative,
         )
 
-    # Private reports for active governors
-    private_reports: list[tuple[str, Report]] = []
-    for gov_id in sim.active_governor_ids:
+    # -- Private reports per governor --
+    private_gov_ids: list[str] = list(sim.active_governor_ids)
+    private_coros: list[asyncio.Future[Report]] = []
+    for gov_id in private_gov_ids:
         governor_data = sim.governor_activity.get(gov_id, {})
         if api_key:
-            priv_report = await generate_private_report(
-                governor_data, gov_id, sim.season_id, sim.round_number, api_key
+            private_coros.append(
+                generate_private_report(
+                    governor_data, gov_id, sim.season_id, sim.round_number, api_key,
+                )
             )
         else:
-            priv_report = generate_private_report_mock(
-                governor_data, gov_id, sim.season_id, sim.round_number
-            )
-        private_reports.append((gov_id, priv_report))
-
-    # Impact validation report — only when rules changed
-    impact_report: Report | None = None
-    if sim.impact_validation_data:
-        try:
-            if api_key:
-                impact_report = await generate_impact_validation(
-                    sim.impact_validation_data, sim.season_id, sim.round_number, api_key,
-                )
-            else:
-                impact_report = generate_impact_validation_mock(
-                    sim.impact_validation_data, sim.season_id, sim.round_number,
-                )
-        except Exception:
-            logger.exception(
-                "impact_validation_failed season=%s round=%d",
-                sim.season_id, sim.round_number,
+            _mock_priv = generate_private_report_mock(
+                governor_data, gov_id, sim.season_id, sim.round_number,
             )
 
-    # Leverage reports — private, every N rounds
-    leverage_reports: list[tuple[str, Report]] = []
-    for gov_id, lev_data in sim.governor_leverage_data.items():
-        try:
-            if api_key:
-                lev_report = await generate_leverage_report(
+            async def _wrap_priv(r: Report = _mock_priv) -> Report:
+                return r
+
+            private_coros.append(_wrap_priv())
+
+    # -- Impact validation report (only when rules changed) --
+    async def _gen_impact() -> Report | None:
+        if not sim.impact_validation_data:
+            return None
+        if api_key:
+            return await generate_impact_validation(
+                sim.impact_validation_data, sim.season_id, sim.round_number, api_key,
+            )
+        return generate_impact_validation_mock(
+            sim.impact_validation_data, sim.season_id, sim.round_number,
+        )
+
+    # -- Leverage reports per governor --
+    leverage_gov_ids: list[str] = list(sim.governor_leverage_data.keys())
+    leverage_coros: list[asyncio.Future[Report]] = []
+    for gov_id in leverage_gov_ids:
+        lev_data = sim.governor_leverage_data[gov_id]
+        if api_key:
+            leverage_coros.append(
+                generate_leverage_report(
                     lev_data, gov_id, sim.season_id, sim.round_number, api_key,
                 )
-            else:
-                lev_report = generate_leverage_report_mock(
-                    lev_data, gov_id, sim.season_id, sim.round_number,
+            )
+        else:
+            _mock_lev = generate_leverage_report_mock(
+                lev_data, gov_id, sim.season_id, sim.round_number,
+            )
+
+            async def _wrap_lev(r: Report = _mock_lev) -> Report:
+                return r
+
+            leverage_coros.append(_wrap_lev())
+
+    # -- Behavioral reports per governor --
+    behavioral_gov_ids: list[str] = list(sim.governor_behavioral_data.keys())
+    behavioral_coros: list[asyncio.Future[Report]] = []
+    for gov_id in behavioral_gov_ids:
+        beh_data = sim.governor_behavioral_data[gov_id]
+        if api_key:
+            behavioral_coros.append(
+                generate_behavioral_report(
+                    beh_data, gov_id, sim.season_id, sim.round_number, api_key,
                 )
-            leverage_reports.append((gov_id, lev_report))
-        except Exception:
+            )
+        else:
+            _mock_beh = generate_behavioral_report_mock(
+                beh_data, gov_id, sim.season_id, sim.round_number,
+            )
+
+            async def _wrap_beh(r: Report = _mock_beh) -> Report:
+                return r
+
+            behavioral_coros.append(_wrap_beh())
+
+    # --- Execute all AI calls concurrently ---
+    # Gather commentary, highlight, sim_report, gov_report, impact, and all
+    # per-governor reports (private, leverage, behavioral) in a single gather.
+    # Each call is independent — they read shared data but don't write to it.
+
+    all_coros: list[asyncio.Future[str | Report | None]] = []  # type: ignore[type-arg]
+    # Track offsets into the results list for each category
+    _commentary_start = len(all_coros)
+    all_coros.extend(commentary_coros)  # type: ignore[arg-type]
+    _commentary_end = len(all_coros)
+
+    _highlight_idx = len(all_coros)
+    all_coros.append(_gen_highlight())  # type: ignore[arg-type]
+
+    _sim_report_idx = len(all_coros)
+    all_coros.append(_gen_sim_report())  # type: ignore[arg-type]
+
+    _gov_report_idx = len(all_coros)
+    all_coros.append(_gen_gov_report())  # type: ignore[arg-type]
+
+    _private_start = len(all_coros)
+    all_coros.extend(private_coros)  # type: ignore[arg-type]
+    _private_end = len(all_coros)
+
+    _impact_idx = len(all_coros)
+    all_coros.append(_gen_impact())  # type: ignore[arg-type]
+
+    _leverage_start = len(all_coros)
+    all_coros.extend(leverage_coros)  # type: ignore[arg-type]
+    _leverage_end = len(all_coros)
+
+    _behavioral_start = len(all_coros)
+    all_coros.extend(behavioral_coros)  # type: ignore[arg-type]
+    _behavioral_end = len(all_coros)
+
+    # return_exceptions=True so one failure doesn't cancel the rest
+    all_results = await asyncio.gather(*all_coros, return_exceptions=True)
+
+    # --- Unpack results ---
+
+    # Commentary per game
+    for idx_c, game_id in enumerate(commentary_game_ids):
+        res = all_results[_commentary_start + idx_c]
+        if isinstance(res, BaseException):
+            logger.exception(
+                "commentary_failed game=%s season=%s round=%d",
+                game_id, sim.season_id, sim.round_number,
+                exc_info=res,
+            )
+        else:
+            commentaries[game_id] = res  # type: ignore[assignment]
+
+    # Highlight reel
+    highlight_reel = ""
+    res_hl = all_results[_highlight_idx]
+    if isinstance(res_hl, BaseException):
+        logger.exception(
+            "highlight_reel_failed season=%s round=%d",
+            sim.season_id, sim.round_number,
+            exc_info=res_hl,
+        )
+    else:
+        highlight_reel = res_hl  # type: ignore[assignment]
+
+    # Simulation report
+    res_sim = all_results[_sim_report_idx]
+    if isinstance(res_sim, BaseException):
+        logger.exception(
+            "sim_report_failed season=%s round=%d",
+            sim.season_id, sim.round_number,
+            exc_info=res_sim,
+        )
+        # Fallback to mock so we always have a report
+        sim_report = generate_simulation_report_mock(
+            round_data, sim.season_id, sim.round_number,
+            narrative=narrative,
+        )
+    else:
+        sim_report = res_sim  # type: ignore[assignment]
+
+    # Governance report
+    res_gov = all_results[_gov_report_idx]
+    if isinstance(res_gov, BaseException):
+        logger.exception(
+            "gov_report_failed season=%s round=%d",
+            sim.season_id, sim.round_number,
+            exc_info=res_gov,
+        )
+        gov_report = generate_governance_report_mock(
+            sim.governance_data, sim.season_id, sim.round_number,
+            narrative=narrative,
+        )
+    else:
+        gov_report = res_gov  # type: ignore[assignment]
+
+    # Private reports per governor
+    private_reports: list[tuple[str, Report]] = []
+    for idx_p, gov_id in enumerate(private_gov_ids):
+        res_p = all_results[_private_start + idx_p]
+        if isinstance(res_p, BaseException):
+            logger.exception(
+                "private_report_failed gov=%s season=%s round=%d",
+                gov_id, sim.season_id, sim.round_number,
+                exc_info=res_p,
+            )
+        else:
+            private_reports.append((gov_id, res_p))  # type: ignore[arg-type]
+
+    # Impact validation report
+    impact_report: Report | None = None
+    res_impact = all_results[_impact_idx]
+    if isinstance(res_impact, BaseException):
+        logger.exception(
+            "impact_validation_failed season=%s round=%d",
+            sim.season_id, sim.round_number,
+            exc_info=res_impact,
+        )
+    else:
+        impact_report = res_impact  # type: ignore[assignment]
+
+    # Leverage reports per governor
+    leverage_reports: list[tuple[str, Report]] = []
+    for idx_l, gov_id in enumerate(leverage_gov_ids):
+        res_l = all_results[_leverage_start + idx_l]
+        if isinstance(res_l, BaseException):
             logger.exception(
                 "leverage_report_failed gov=%s season=%s round=%d",
                 gov_id, sim.season_id, sim.round_number,
+                exc_info=res_l,
             )
+        else:
+            leverage_reports.append((gov_id, res_l))  # type: ignore[arg-type]
 
-    # Behavioral reports — private, every N rounds
+    # Behavioral reports per governor
     behavioral_reports: list[tuple[str, Report]] = []
-    for gov_id, beh_data in sim.governor_behavioral_data.items():
-        try:
-            if api_key:
-                beh_report = await generate_behavioral_report(
-                    beh_data, gov_id, sim.season_id, sim.round_number, api_key,
-                )
-            else:
-                beh_report = generate_behavioral_report_mock(
-                    beh_data, gov_id, sim.season_id, sim.round_number,
-                )
-            behavioral_reports.append((gov_id, beh_report))
-        except Exception:
+    for idx_b, gov_id in enumerate(behavioral_gov_ids):
+        res_b = all_results[_behavioral_start + idx_b]
+        if isinstance(res_b, BaseException):
             logger.exception(
                 "behavioral_report_failed gov=%s season=%s round=%d",
                 gov_id, sim.season_id, sim.round_number,
+                exc_info=res_b,
             )
+        else:
+            behavioral_reports.append((gov_id, res_b))  # type: ignore[arg-type]
 
     return _AIPhaseResult(
         commentaries=commentaries,
@@ -1957,7 +2101,7 @@ async def _generate_series_reports(
                         season_id,
                         winner_name,
                     )
-                except Exception:
+                except Exception:  # Last-resort handler — AI (Anthropic) and DB errors
                     logger.exception(
                         "series_report_failed season=%s type=semifinal winner=%s",
                         season_id,
@@ -2060,7 +2204,7 @@ async def _generate_series_reports(
                     season_id,
                     winner_name,
                 )
-            except Exception:
+            except Exception:  # Last-resort handler — AI (Anthropic) and DB errors
                 logger.exception(
                     "series_report_failed season=%s type=finals winner=%s",
                     season_id,
@@ -2214,7 +2358,7 @@ async def _phase_persist_and_finalize(
                 sim.teams_cache,
                 api_key=api_key,
             )
-    except Exception:
+    except Exception:  # Last-resort handler — AI (Anthropic) and DB errors
         logger.exception(
             "eval_step_failed season=%s round=%d", sim.season_id, sim.round_number
         )
@@ -2240,7 +2384,7 @@ async def _phase_persist_and_finalize(
     ):
         try:
             season_complete = await _check_season_complete(repo, sim.season_id)
-        except Exception:
+        except SQLAlchemyError:
             logger.exception(
                 "season_complete_check_failed season=%s round=%d",
                 sim.season_id,
@@ -2264,7 +2408,7 @@ async def _phase_persist_and_finalize(
                     sim.season_id,
                     event_bus=event_bus,
                 )
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception(
                     "tiebreaker_check_failed season=%s",
                     sim.season_id,
@@ -2280,7 +2424,7 @@ async def _phase_persist_and_finalize(
                         sim.season_id,
                         len(playoff_bracket),
                     )
-                except Exception:
+                except SQLAlchemyError:
                     logger.exception(
                         "playoff_bracket_failed season=%s",
                         sim.season_id,
@@ -2324,7 +2468,7 @@ async def _phase_persist_and_finalize(
                         sim.season_id,
                         len(playoff_bracket),
                     )
-                except Exception:
+                except SQLAlchemyError:
                     logger.exception(
                         "playoff_bracket_failed_after_tiebreaker season=%s",
                         sim.season_id,
@@ -2356,13 +2500,13 @@ async def _phase_persist_and_finalize(
                         api_key=api_key,
                     )
                     deferred_report_events.extend(series_report_events)
-                except Exception:
+                except Exception:  # Last-resort handler — AI (Anthropic) and DB errors
                     logger.exception(
                         "series_reports_failed season=%s round=%d",
                         sim.season_id,
                         sim.round_number,
                     )
-        except Exception:
+        except Exception:  # Last-resort handler — playoff logic, DB, and event-bus errors
             logger.exception(
                 "playoff_series_advance_failed season=%s round=%d",
                 sim.season_id,

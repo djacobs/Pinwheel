@@ -23,7 +23,7 @@ templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 @router.get("/season", response_class=HTMLResponse)
-async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUser):
+async def admin_season(request: Request, repo: RepoDep, current_user: OptionalUser) -> HTMLResponse:
     """Admin season dashboard -- current config, past seasons, new season form."""
     if denied := check_admin_access(current_user, request):
         return denied

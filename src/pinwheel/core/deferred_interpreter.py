@@ -11,11 +11,15 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING
 
+import discord
+from pydantic import ValidationError
+
 from pinwheel.models.governance import GovernanceEvent
 
 if TYPE_CHECKING:
-    import discord
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from pinwheel.config import Settings
     from pinwheel.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -97,7 +101,7 @@ async def retry_pending_interpretation(
 
     try:
         ruleset = RuleSet(**ruleset_data) if isinstance(ruleset_data, dict) else RuleSet()
-    except Exception:
+    except (ValidationError, TypeError):
         ruleset = RuleSet()
 
     try:
@@ -107,7 +111,7 @@ async def retry_pending_interpretation(
             api_key=api_key,
             season_id=pending.season_id,
         )
-    except Exception:
+    except Exception:  # Last-resort handler — AI (Anthropic) and network errors
         logger.warning(
             "deferred_retry_failed aggregate=%s attempt=%d",
             pending.aggregate_id,
@@ -274,7 +278,7 @@ async def _dm_player_with_interpretation(
 
     try:
         interpretation_v2 = ProposalInterpretation(**interp_data)
-    except Exception:
+    except (ValidationError, TypeError):
         logger.warning("deferred_dm_bad_interpretation aggregate=%s", ready_event.aggregate_id)
         return
 
@@ -296,7 +300,7 @@ async def _dm_player_with_interpretation(
 
     try:
         user = await bot.fetch_user(int(discord_user_id))
-    except Exception:
+    except (discord.HTTPException, discord.NotFound, ValueError):
         logger.warning(
             "deferred_dm_user_not_found discord_id=%s",
             discord_user_id,
@@ -311,8 +315,8 @@ async def _dm_player_with_interpretation(
         token_cost=cost,
         tokens_remaining=0,  # Unknown from here; player sees /tokens
         governor_info=governor_info,
-        engine=engine,  # type: ignore[arg-type]
-        settings=settings,  # type: ignore[arg-type]
+        engine=engine,
+        settings=settings,
         interpretation_v2=interpretation_v2,
         token_already_spent=True,
     )
@@ -338,10 +342,10 @@ async def _dm_player_with_interpretation(
 
 
 async def tick_deferred_interpretations(
-    engine: object,
+    engine: AsyncEngine,
     api_key: str,
     bot: discord.Client | None = None,
-    settings: object | None = None,
+    settings: Settings | None = None,
 ) -> None:
     """Scheduler entry point — called every 60 seconds.
 
@@ -357,7 +361,7 @@ async def tick_deferred_interpretations(
         return
 
     try:
-        async with get_session(engine) as session:  # type: ignore[arg-type]
+        async with get_session(engine) as session:
             repo = Repository(session)
 
             # Check ALL seasons for pending interpretations — proposals can
@@ -408,5 +412,5 @@ async def tick_deferred_interpretations(
 
             await session.commit()
 
-    except Exception:
+    except Exception:  # Last-resort handler — DB, AI interpreter, and Discord errors
         logger.exception("deferred_tick_failed")

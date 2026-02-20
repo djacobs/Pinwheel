@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from pinwheel.api.deps import RepoDep
+from pinwheel.auth.deps import require_api_admin
 
 router = APIRouter(prefix="/api/seasons", tags=["seasons"])
 
@@ -23,6 +26,7 @@ class CreateSeasonRequest(BaseModel):
 async def create_season_endpoint(
     body: CreateSeasonRequest,
     repo: RepoDep,
+    _: Annotated[None, Depends(require_api_admin)],
 ) -> dict:
     """Admin endpoint to start a new season.
 

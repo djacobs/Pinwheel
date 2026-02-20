@@ -1740,6 +1740,7 @@ class TestVoteCommand:
                     "id": "prop-1",
                     "governor_id": "other-gov",
                     "team_id": gov_data["team_id"],
+                    "season_id": gov_data["season_id"],
                     "raw_text": "Make threes worth 5",
                     "status": "submitted",
                     "tier": 1,
@@ -1791,6 +1792,7 @@ class TestVoteCommand:
                     "id": "prop-1",
                     "governor_id": "other-gov",
                     "team_id": gov_data["team_id"],
+                    "season_id": gov_data["season_id"],
                     "raw_text": "Test proposal",
                     "status": "submitted",
                     "tier": 1,
@@ -3386,8 +3388,9 @@ class TestGetGovernorCompletedSeason:
 
         async with get_session(engine) as session:
             repo = Repository(session)
-            season = await repo.create_season("League 1", "Season 1")
-            team = await repo.create_team("Testers", season.id)
+            league = await repo.create_league("League 1")
+            season = await repo.create_season(league.id, "Season 1")
+            team = await repo.create_team(season.id, "Testers")
             player = await repo.get_or_create_player(
                 discord_id="12345",
                 username="TestGov",

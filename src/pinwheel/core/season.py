@@ -927,7 +927,7 @@ async def close_offseason(
     try:
         await archive_season(repo, season_id, api_key=api_key, event_bus=event_bus)
         logger.info("close_offseason_archived season=%s", season_id)
-    except Exception:
+    except Exception:  # Last-resort handler — AI (Anthropic) and DB errors in archive_season
         logger.exception("close_offseason_archive_failed season=%s", season_id)
 
     if event_bus:

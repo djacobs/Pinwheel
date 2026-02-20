@@ -21,10 +21,13 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from pinwheel.db.models import AIUsageLogRow
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +93,7 @@ def compute_cost(
 
 async def record_ai_usage(
     *,
-    session: object,
+    session: AsyncSession,
     call_type: str,
     model: str,
     input_tokens: int,
@@ -141,10 +144,10 @@ async def record_ai_usage(
         season_id=season_id,
         round_number=round_number,
     )
-    session.add(row)  # type: ignore[union-attr]
+    session.add(row)
     try:
-        await session.flush()  # type: ignore[union-attr]
-    except Exception:
+        await session.flush()
+    except SQLAlchemyError:
         # Usage logging should never break the caller.
         logger.warning("Failed to flush AI usage log row", exc_info=True)
     return row
