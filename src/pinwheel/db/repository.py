@@ -195,6 +195,16 @@ class Repository:
     async def get_hooper(self, hooper_id: str) -> HooperRow | None:
         return await self.session.get(HooperRow, hooper_id)
 
+    async def get_hoopers_by_name(self, name: str) -> list[HooperRow]:
+        """Return all hooper records across all seasons with this exact name.
+
+        Since carry_over_teams creates a new HooperRow (new ID) each season,
+        name is the only stable identifier linking a player across seasons.
+        """
+        stmt = select(HooperRow).where(HooperRow.name == name)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_hoopers_for_team(self, team_id: str) -> list[HooperRow]:
         """Return all hoopers currently assigned to a team."""
         stmt = select(HooperRow).where(HooperRow.team_id == team_id)

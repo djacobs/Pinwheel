@@ -2313,15 +2313,15 @@ async def hooper_page(
 
     # Game log — grouped by season so current season shows game-level detail
     # and past seasons collapse to aggregate rows.
-    # Note: carry_over_teams creates new hooper IDs per season, so all entries
-    # normally belong to hooper.season_id. This structure is forward-compatible.
-    box_score_rows = await repo.get_box_scores_for_hooper(hooper_id)
-
+    # carry_over_teams creates new hooper IDs per season; we link across seasons
+    # by name (the only stable identifier) to build a full career view.
     from collections import defaultdict
 
+    all_hoopers = await repo.get_hoopers_by_name(hooper.name)
     games_by_season: dict[str, list] = defaultdict(list)
-    for bs, game in box_score_rows:
-        games_by_season[game.season_id].append((bs, game))
+    for h in all_hoopers:
+        for bs, game in await repo.get_box_scores_for_hooper(h.id):
+            games_by_season[game.season_id].append((bs, game))
 
     hooper_season_id: str = hooper.season_id or ""
     current_entries = games_by_season.get(hooper_season_id, [])
