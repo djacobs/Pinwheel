@@ -2387,51 +2387,47 @@ async def hooper_page(
         entry["stl_is_league_best"] = g["steals"] > 0 and g["steals"] == lb_stl
         game_log.append(entry)
 
-    # Past-season aggregates (collapsed to one row per season)
-    past_seasons: list[dict] = []
+    def _bs_to_dict(bs: object) -> dict:
+        return {
+            "points": bs.points,  # type: ignore[attr-defined]
+            "assists": bs.assists,  # type: ignore[attr-defined]
+            "steals": bs.steals,  # type: ignore[attr-defined]
+            "turnovers": bs.turnovers,  # type: ignore[attr-defined]
+            "field_goals_made": bs.field_goals_made,  # type: ignore[attr-defined]
+            "field_goals_attempted": bs.field_goals_attempted,  # type: ignore[attr-defined]
+            "three_pointers_made": bs.three_pointers_made,  # type: ignore[attr-defined]
+            "three_pointers_attempted": bs.three_pointers_attempted,  # type: ignore[attr-defined]
+            "free_throws_made": bs.free_throws_made,  # type: ignore[attr-defined]
+            "free_throws_attempted": bs.free_throws_attempted,  # type: ignore[attr-defined]
+        }
+
+    # Season averages from current-season games only (used in sidebar stats grid)
+    bs_dicts = [_bs_to_dict(bs) for bs, _ in current_entries]
+    season_averages = compute_season_averages(bs_dicts)
+
+    # Career seasons — current season first, then past seasons in iteration order.
+    # Each entry: season_name, games_played, averages dict, is_current flag.
+    career_seasons: list[dict] = []
+    if current_entries:
+        career_seasons.append(
+            {
+                "season_name": current_season_name,
+                "games_played": len(current_entries),
+                "averages": season_averages,
+                "is_current": True,
+            }
+        )
     for sid in past_season_ids:
         entries = games_by_season[sid]
         s = await repo.get_season(sid)
-        agg_bs = [
-            {
-                "points": bs.points,
-                "assists": bs.assists,
-                "steals": bs.steals,
-                "turnovers": bs.turnovers,
-                "field_goals_made": bs.field_goals_made,
-                "field_goals_attempted": bs.field_goals_attempted,
-                "three_pointers_made": bs.three_pointers_made,
-                "three_pointers_attempted": bs.three_pointers_attempted,
-                "free_throws_made": bs.free_throws_made,
-                "free_throws_attempted": bs.free_throws_attempted,
-            }
-            for bs, _ in entries
-        ]
-        past_seasons.append(
+        career_seasons.append(
             {
                 "season_name": s.name if s else "Past Season",
                 "games_played": len(entries),
-                "averages": compute_season_averages(agg_bs),
+                "averages": compute_season_averages([_bs_to_dict(bs) for bs, _ in entries]),
+                "is_current": False,
             }
         )
-
-    # Season averages from current-season games only
-    bs_dicts = [
-        {
-            "points": bs.points,
-            "assists": bs.assists,
-            "steals": bs.steals,
-            "turnovers": bs.turnovers,
-            "field_goals_made": bs.field_goals_made,
-            "field_goals_attempted": bs.field_goals_attempted,
-            "three_pointers_made": bs.three_pointers_made,
-            "three_pointers_attempted": bs.three_pointers_attempted,
-            "free_throws_made": bs.free_throws_made,
-            "free_throws_attempted": bs.free_throws_attempted,
-        }
-        for bs, _ in current_entries
-    ]
-    season_averages = compute_season_averages(bs_dicts)
 
     # Check if current user is governor on this hooper's team (can edit bio)
     can_edit_bio = False
@@ -2455,7 +2451,7 @@ async def hooper_page(
             "avg_poly": polygon_points(avg_pts) if avg_pts else "",
             "game_log": game_log,
             "current_season_name": current_season_name,
-            "past_seasons": past_seasons,
+            "career_seasons": career_seasons,
             "personal_bests": personal_bests,
             "league_bests": league_bests,
             "season_averages": season_averages,

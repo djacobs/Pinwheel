@@ -95,11 +95,11 @@
   </div>
 </div>
 
-{# Past Seasons (collapsed aggregate rows) #}
-{% if past_seasons %}
+{# Career Performance (one aggregate row per season) #}
+{% if career_seasons %}
 <div class="card mb-2">
   <div class="card-header">
-    <h3>Past Seasons</h3>
+    <h3>Career Performance</h3>
   </div>
   <div class="card-body" style="padding: 0;">
     <table class="box-score-table">
@@ -110,25 +110,29 @@
           <th>PPG</th>
           <th>FG%</th>
           <th>3P%</th>
+          <th>FT%</th>
           <th>APG</th>
           <th>SPG</th>
           <th>TOPG</th>
         </tr>
       </thead>
       <tbody>
-        {% for ps in past_seasons %}
-        <tr>
-          <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">{{ ps.season_name }}</td>
-          <td>{{ ps.games_played }}</td>
-          {% if ps.averages %}
-          <td>{{ ps.averages.ppg }}</td>
-          <td>{{ ps.averages.fg_pct }}%</td>
-          <td>{{ ps.averages.three_pct }}%</td>
-          <td>{{ ps.averages.apg }}</td>
-          <td>{{ ps.averages.spg }}</td>
-          <td>{{ ps.averages.topg }}</td>
+        {% for cs in career_seasons %}
+        <tr{% if cs.is_current %} class="career-current-season"{% endif %}>
+          <td style="text-align:left; font-family: var(--font-body); font-weight: 600;">
+            {{ cs.season_name }}{% if cs.is_current %} <span class="text-muted text-xs">(current)</span>{% endif %}
+          </td>
+          <td>{{ cs.games_played }}</td>
+          {% if cs.averages %}
+          <td>{{ cs.averages.ppg }}</td>
+          <td>{{ cs.averages.fg_pct }}%</td>
+          <td>{{ cs.averages.three_pct }}%</td>
+          <td>{{ cs.averages.ft_pct }}%</td>
+          <td>{{ cs.averages.apg }}</td>
+          <td>{{ cs.averages.spg }}</td>
+          <td>{{ cs.averages.topg }}</td>
           {% else %}
-          <td colspan="6" class="text-muted">—</td>
+          <td colspan="7" class="text-muted">—</td>
           {% endif %}
         </tr>
         {% endfor %}

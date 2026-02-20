@@ -856,6 +856,10 @@ h3 { font-size: 1.05rem; }
   font-weight: 600;
 }
 
+.box-score-table .career-current-season td {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
 .box-score-table .team-header td {
   background: var(--bg-secondary);
   font-weight: 700;
