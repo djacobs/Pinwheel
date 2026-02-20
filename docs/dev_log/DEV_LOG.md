@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2077 tests**, zero lint errors (Session 118)
+- **2077 tests**, zero lint errors (Session 119)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -25,8 +25,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 24:** Generic condition evaluator, conditional_sequence gate fix, World 2 architecture design
 - **Day 25 Session 116:** Production audit — 0 effect.registered events ever, fixed interpreter busy UX, raw param names, duplicate proposals
 - **Day 25 Sessions 117-118:** Full audit + P1/P2 fixes; playoff schedule gap fixed; deferred_interpreter crash fixed
+- **Day 25 Session 119:** Arena UX polish — subtitle shows round + phase, leader separator, series game numbers
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `2373b6b` — fix: deferred_interpreter expire_stale uses created_at with timestamp fallback
+- **Latest commit:** `e6d65e2` — fix: playoff game cards show correct series game number
 
 ## Today's Agenda
 
@@ -140,3 +141,21 @@ Fixes:
 **2077 tests, zero lint errors.**
 
 **What could have gone better:** The `get_pending_interpretations` function has a wrong return type annotation (`-> list[GovernanceEvent]`) but actually returns `list[GovernanceEventRow]`. The real fix would be to make it consistently return one type; the `getattr` fallback is a symptom-fix. Also, the `_phase_persist_and_finalize` should catch `BaseException` (or specifically `asyncio.CancelledError`) to ensure playoff advancement always runs, or be split so schedule insertion is done in its own commit.
+
+---
+
+## Session 119 — Arena UX Polish (subtitle, leader separator, series game numbers)
+
+**What was asked:** Three UX bugs spotted: (1) Arena subtitle showed "4 rounds · 8 games" (the recent-slice count, not full season info), (2) star performer names ran together "Rosa Vex 28 ptsWren Silvas 35 pts" with no separator, (3) all three Rose City/St. Johns playoff games were labeled "Game 2" instead of Game 1, Game 2, Game 3.
+
+**What was built:**
+- Arena subtitle: replaced `rounds|length` count with `Round {{ arena_round }}` + `· Playoffs` / `· Offseason` using `latest_round` and `season.status` passed from the route
+- Leader separator: added `<span class="live-leader-sep">·</span>` between home/away leader spans (both server-rendered and SSE JS paths); CSS `.live-leader-sep` with `margin: 0 0.4rem` and dimmed opacity
+- Series game numbers: `matchup_index` is the slot in the round (always 1 for the St. Johns/Rose City semifinal), not the game in the series. Added `series_game_number` computed by counting each team-pair's appearances in `rounds` oldest-first; template uses it for playoff games and falls back to `matchup_index + 1` for regular season
+- Bonus: venv was corrupted (pytest not in `.venv/bin/`); rebuilt with `uv sync --extra dev`
+
+**Files modified (3):** `src/pinwheel/api/pages.py`, `templates/pages/arena.html`, `static/css/pinwheel.css`
+
+**2077 tests, zero lint errors.**
+
+**What could have gone better:** The `series_game_number` fix only applies to games in the 4-round display window. If a series spans rounds outside that window, the count would be off. A more robust fix would store `series_game_number` directly on `GameResultRow` when the game is recorded.

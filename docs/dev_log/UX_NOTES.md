@@ -825,3 +825,15 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 132. [DONE] "Interpreter busy / overwhelmed" message removed
 **Problem:** When the AI interpreter fell back to mock (rare after Session 114 fix), the bot showed "The Interpreter is overwhelmed right now. Your proposal has been queued — you'll get a DM when it's ready." This interrupted the proposal flow and left proposals in limbo.
 **Fix:** Removed the entire deferred retry path from `bot.py`. Mock fallback now proceeds immediately to the Confirm/Revise UI. Player always gets an interactive response — no queued limbo state, no "busy" message ever.
+
+### 133. [DONE] Arena subtitle showed wrong round/game count
+**Problem:** The Arena subtitle showed "4 rounds · 8 games" — computed from the last 4 *displayed* rounds only. Made it look like the entire season had 4 rounds.
+**Fix:** Replaced count with `Round N · Playoffs` (or `· Offseason`) using `latest_round` and `season.status` from the DB.
+
+### 134. [DONE] Star performers ran together with no separator
+**Problem:** `Rosa Vex 28 ptsWren Silvas 35 pts` — no space or delimiter between the two leader spans in the live zone.
+**Fix:** Added a `·` separator span between home/away leaders in both server-rendered and SSE-updated JS paths; CSS `.live-leader-sep` with `margin: 0 0.4rem`.
+
+### 135. [DONE] Playoff game cards all showed "Game 2"
+**Problem:** All three Rose City/St. Johns semifinal games were labeled "Game 2" because `matchup_index` (their slot in the round — 0 for Burnside/Hawthorne, 1 for Rose City/St. Johns) was used as the series game number.
+**Fix:** Added `series_game_number` computed by counting each team-pair's appearances oldest-first across the displayed rounds. Template uses it for playoff games, falls back to `matchup_index + 1` for regular season.
