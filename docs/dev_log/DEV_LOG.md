@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2077 tests**, zero lint errors (Session 119)
+- **2077 tests**, zero lint errors (Session 120)
 - **Days 1-7 complete:** simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish
 - **Day 8:** Discord notification timing, substitution fix, narration clarity, Elam display polish, SSE dedup, deploy-during-live resilience
 - **Day 9:** The Floor rename, voting UX, admin veto, profiles, trades, seasons, doc updates, mirror->report rename
@@ -26,8 +26,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - **Day 25 Session 116:** Production audit — 0 effect.registered events ever, fixed interpreter busy UX, raw param names, duplicate proposals
 - **Day 25 Sessions 117-118:** Full audit + P1/P2 fixes; playoff schedule gap fixed; deferred_interpreter crash fixed
 - **Day 25 Session 119:** Arena UX polish — subtitle shows round + phase, leader separator, series game numbers
+- **Day 25 Session 120:** Playoff chaos — two simultaneous finals, Burnside ghosted; fixed series record logic, cleaned production data, fixed series game number to use full history
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `e6d65e2` — fix: playoff game cards show correct series game number
+- **Latest commit:** `747be35` — fix: series_game_number uses full season history, not display window
 
 ## Today's Agenda
 
@@ -159,3 +160,34 @@ Fixes:
 **2077 tests, zero lint errors.**
 
 **What could have gone better:** The `series_game_number` fix only applies to games in the 4-round display window. If a series spans rounds outside that window, the count would be off. A more robust fix would store `series_game_number` directly on `GameResultRow` when the game is recorded.
+
+---
+
+## Session 120 — Playoff Chaos: Two Simultaneous Finals, Burnside Ghosted
+
+**What was asked:** Two bugs reported via screenshots: (1) Round 12 game labeled "Game 1" when it was Game 3, (2) Two identical Rose City vs St. Johns games scheduled simultaneously at 3pm. Then a third screenshot revealed the real disaster: two "Championship Finals" games running live simultaneously between Rose City and St. Johns — Burnside Breakers (who swept Hawthorne 2-0) had never been scheduled for the finals at all.
+
+**What was built:**
+
+Root cause analysis:
+- `_get_playoff_series_record` filtered games by `playoff_rounds = {ALL rounds with any playoff schedule entry}`. When round 12's manually-inserted schedule entry was committed after `_advance_playoff_series` started running, round 12's game result was excluded from the count — making Rose City/St. Johns look 1-1 instead of 2-1
+- Result: a 3rd semifinal was scheduled (round 13 idx=1), AND the finals were created with St. Johns (wrong!) instead of Burnside — so two simultaneous "Championship Finals" games between Rose City and St. Johns appeared, while Burnside was entirely absent
+
+Code fix — `game_loop.py`:
+- `_get_playoff_series_record`: changed `playoff_rounds` from all-playoff-rounds to pair-specific scheduled rounds — `scheduled_rounds = {s.round_number for s in playoff_schedule if frozenset({s.home_team_id, s.away_team_id}) == pair}`
+- `_schedule_next_series_game`: added `IntegrityError` guard so duplicate-schedule attempts from retries log a warning instead of crashing
+
+Production data cleanup (via `/tmp/fix_playoff_chaos3.py`):
+- Deleted 2 wrong game_results for rounds 13+ (Rose City vs St. Johns phantom finals games), plus their box_scores
+- Deleted 3 wrong schedule entries for rounds 13-14
+- Inserted correct finals: Burnside Breakers (home) vs Rose City Thorns (away), round 13, idx=0, phase=finals
+
+Series game number — full history fix (`pages.py`):
+- The Session 119 `series_game_number` fix counted appearances in the 4-round display window. Round 12 (Game 3) was the only game in the window, so it showed as "Game 1"
+- Fixed: fetch all season game_results + full playoff schedule via `repo.get_all_games` + `repo.get_full_schedule`; build `pair→scheduled_rounds` map; count games per pair up to each game's `round_number`
+
+**Files modified (2):** `src/pinwheel/core/game_loop.py`, `src/pinwheel/api/pages.py`
+
+**2077 tests, zero lint errors.**
+
+**What could have gone better:** The root trigger was `asyncio.CancelledError` escaping `_phase_persist_and_finalize`'s `except Exception` guard during a server restart — silently dropping the round 12 schedule entry while game results were already committed. The real fix is to catch `BaseException` (or split schedule insertion into its own commit so it can't be lost). The `_get_playoff_series_record` bug was a latent logic error that turned a missing schedule entry into cascading chaos.
