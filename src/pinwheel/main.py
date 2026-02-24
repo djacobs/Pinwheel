@@ -1,10 +1,11 @@
 """FastAPI application factory."""
 
 import logging
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from pinwheel.api.admin_costs import router as admin_costs_router
@@ -197,6 +198,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+
+    # Request timing middleware — logs method, path, status, duration for every request
+    request_logger = logging.getLogger("pinwheel.middleware.timing")
+
+    @app.middleware("http")
+    async def request_timing_middleware(request: Request, call_next: object) -> Response:
+        """Time every HTTP request and log structured timing data."""
+        start = time.perf_counter()
+        response: Response = await call_next(request)  # type: ignore[misc]
+        duration_ms = (time.perf_counter() - start) * 1000
+        # Skip noisy static asset and SSE stream logs
+        path = request.url.path
+        if not path.startswith("/static/"):
+            request_logger.info(
+                "http_request method=%s path=%s status=%d duration_ms=%.1f",
+                request.method,
+                path,
+                response.status_code,
+                duration_ms,
+            )
+        return response
 
     # Static files
     static_dir = PROJECT_ROOT / "static"

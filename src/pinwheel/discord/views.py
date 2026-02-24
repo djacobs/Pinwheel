@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from pinwheel.config import Settings
+    from pinwheel.core.event_bus import EventBus
     from pinwheel.discord.helpers import GovernorInfo
     from pinwheel.models.governance import ProposalInterpretation, RuleInterpretation
     from pinwheel.models.tokens import HooperTrade, Trade
@@ -47,6 +48,7 @@ class ProposalConfirmView(discord.ui.View):
         settings: Settings,
         interpretation_v2: ProposalInterpretation | None = None,
         token_already_spent: bool = False,
+        event_bus: EventBus | None = None,
     ) -> None:
         super().__init__(timeout=300)
         self.original_user_id = original_user_id
@@ -60,6 +62,7 @@ class ProposalConfirmView(discord.ui.View):
         self.settings = settings
         self.interpretation_v2 = interpretation_v2
         self.token_already_spent = token_already_spent
+        self.event_bus = event_bus
 
     async def _check_user(
         self,
@@ -156,6 +159,20 @@ class ProposalConfirmView(discord.ui.View):
                     repo, proposal, interpretation_v2=self.interpretation_v2,
                 )
                 await session.commit()
+
+            # Publish governance event for instrumentation
+            if self.event_bus is not None:
+                await self.event_bus.publish(
+                    "governor.proposal_submitted",
+                    {
+                        "governor_id": self.governor_info.player_id,
+                        "team_id": self.governor_info.team_id,
+                        "proposal_id": proposal.id,
+                        "tier": self.tier,
+                        "token_cost": self.token_cost,
+                        "season_id": self.governor_info.season_id,
+                    },
+                )
 
             self._disable_all()
 
@@ -772,6 +789,7 @@ class StrategyConfirmView(discord.ui.View):
         governor_info: GovernorInfo,
         engine: AsyncEngine,
         api_key: str = "",
+        event_bus: EventBus | None = None,
     ) -> None:
         super().__init__(timeout=300)
         self.original_user_id = original_user_id
@@ -780,6 +798,7 @@ class StrategyConfirmView(discord.ui.View):
         self.governor_info = governor_info
         self.engine = engine
         self.api_key = api_key
+        self.event_bus = event_bus
 
     @discord.ui.button(
         label="Confirm",
@@ -838,6 +857,17 @@ class StrategyConfirmView(discord.ui.View):
                     },
                 )
                 await session.commit()
+
+            # Publish governance event for instrumentation
+            if self.event_bus is not None:
+                await self.event_bus.publish(
+                    "governor.strategy_set",
+                    {
+                        "governor_id": self.governor_info.player_id,
+                        "team_id": self.governor_info.team_id,
+                        "season_id": self.governor_info.season_id,
+                    },
+                )
 
             for item in self.children:
                 if isinstance(item, discord.ui.Button):

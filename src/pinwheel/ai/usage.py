@@ -132,6 +132,24 @@ async def record_ai_usage(
     cost = compute_cost(
         model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
     )
+
+    # Structured log line — every AI call gets a log entry with full context
+    logger.info(
+        "ai_call call_type=%s model=%s input_tokens=%d output_tokens=%d "
+        "cache_read_tokens=%d cache_creation_tokens=%d latency_ms=%.1f "
+        "cost_usd=%.6f season=%s round=%s",
+        call_type,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_creation_tokens,
+        latency_ms,
+        cost,
+        season_id or "-",
+        str(round_number) if round_number is not None else "-",
+    )
+
     row = AIUsageLogRow(
         call_type=call_type,
         model=model,

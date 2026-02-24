@@ -2335,6 +2335,7 @@ class PinwheelBot(commands.Bot):
                 settings=self.settings,
                 interpretation_v2=interpretation_v2,
                 token_already_spent=True,
+                event_bus=self.event_bus,
             )
             embed = build_interpretation_embed(
                 raw_text=text,
@@ -3222,6 +3223,31 @@ class PinwheelBot(commands.Bot):
                 )
                 await session.commit()
 
+            # Publish governance events for instrumentation
+            await self.event_bus.publish(
+                "governor.vote_cast",
+                {
+                    "governor_id": gov.player_id,
+                    "team_id": gov.team_id,
+                    "proposal_id": proposal_id,
+                    "choice": choice,
+                    "boost_used": boost,
+                    "season_id": gov.season_id,
+                },
+            )
+            if boost:
+                await self.event_bus.publish(
+                    "governor.token_spent",
+                    {
+                        "governor_id": gov.player_id,
+                        "team_id": gov.team_id,
+                        "token_type": "boost",
+                        "amount": 1,
+                        "reason": "vote_boost",
+                        "season_id": gov.season_id,
+                    },
+                )
+
             boost_note = " (BOOSTED)" if boost else ""
             embed = discord.Embed(
                 title="Vote Recorded",
@@ -3729,6 +3755,7 @@ class PinwheelBot(commands.Bot):
             governor_info=gov,
             engine=self.engine,
             api_key=self.settings.anthropic_api_key if self.settings else "",
+            event_bus=self.event_bus,
         )
         embed = build_strategy_embed(text, gov.team_name)
         embed.set_footer(

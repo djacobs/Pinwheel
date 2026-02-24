@@ -2621,6 +2621,7 @@ async def step_round(
     start = time.monotonic()
     logger.info("round_start season=%s round=%d", season_id, round_number)
 
+    phase1_start = time.perf_counter()
     sim = await _phase_simulate_and_govern(
         repo,
         season_id,
@@ -2629,12 +2630,28 @@ async def step_round(
         governance_interval=governance_interval,
         suppress_spoiler_events=suppress_spoiler_events,
     )
+    phase1_ms = (time.perf_counter() - phase1_start) * 1000
+    logger.info(
+        "phase_timing phase=simulate_and_govern season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase1_ms,
+    )
     if sim is None:
         return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
 
+    phase2_start = time.perf_counter()
     ai = await _phase_ai(sim, api_key)
+    phase2_ms = (time.perf_counter() - phase2_start) * 1000
+    logger.info(
+        "phase_timing phase=ai_generation season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase2_ms,
+    )
 
-    return await _phase_persist_and_finalize(
+    phase3_start = time.perf_counter()
+    result = await _phase_persist_and_finalize(
         repo,
         sim,
         ai,
@@ -2643,6 +2660,25 @@ async def step_round(
         start_time=start,
         api_key=api_key,
     )
+    phase3_ms = (time.perf_counter() - phase3_start) * 1000
+    total_ms = (time.perf_counter() - phase1_start) * 1000
+    logger.info(
+        "phase_timing phase=persist_and_finalize season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase3_ms,
+    )
+    logger.info(
+        "round_timing season=%s round=%d "
+        "phase1_ms=%.1f phase2_ms=%.1f phase3_ms=%.1f total_ms=%.1f",
+        season_id,
+        round_number,
+        phase1_ms,
+        phase2_ms,
+        phase3_ms,
+        total_ms,
+    )
+    return result
 
 
 async def step_round_multisession(
@@ -2677,6 +2713,7 @@ async def step_round_multisession(
     logger.info("round_start_multisession season=%s round=%d", season_id, round_number)
 
     # Session 1: simulate + govern (fast)
+    phase1_start = time.perf_counter()
     async with _get_session(engine) as session:
         repo = _Repository(session)
         sim = await _phase_simulate_and_govern(
@@ -2688,17 +2725,33 @@ async def step_round_multisession(
             suppress_spoiler_events=suppress_spoiler_events,
         )
     # Session closed — lock released
+    phase1_ms = (time.perf_counter() - phase1_start) * 1000
+    logger.info(
+        "phase_timing phase=simulate_and_govern season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase1_ms,
+    )
 
     if sim is None:
         return RoundResult(round_number=round_number, games=[], reports=[], tallies=[])
 
     # NO SESSION: AI calls (slow, 30-90s)
+    phase2_start = time.perf_counter()
     ai = await _phase_ai(sim, api_key)
+    phase2_ms = (time.perf_counter() - phase2_start) * 1000
+    logger.info(
+        "phase_timing phase=ai_generation season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase2_ms,
+    )
 
     # Session 2: persist + finalize (fast)
+    phase3_start = time.perf_counter()
     async with _get_session(engine) as session:
         repo = _Repository(session)
-        return await _phase_persist_and_finalize(
+        result = await _phase_persist_and_finalize(
             repo,
             sim,
             ai,
@@ -2708,6 +2761,25 @@ async def step_round_multisession(
             api_key=api_key,
         )
     # Session closed
+    phase3_ms = (time.perf_counter() - phase3_start) * 1000
+    total_ms = (time.perf_counter() - phase1_start) * 1000
+    logger.info(
+        "phase_timing phase=persist_and_finalize season=%s round=%d duration_ms=%.1f",
+        season_id,
+        round_number,
+        phase3_ms,
+    )
+    logger.info(
+        "round_timing season=%s round=%d "
+        "phase1_ms=%.1f phase2_ms=%.1f phase3_ms=%.1f total_ms=%.1f",
+        season_id,
+        round_number,
+        phase1_ms,
+        phase2_ms,
+        phase3_ms,
+        total_ms,
+    )
+    return result
 
 
 class RoundResult:
