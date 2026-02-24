@@ -77,6 +77,14 @@ WILD_CARD = Move(
     source="archetype",
 )
 
+FATES_HAND = Move(
+    name="Fate's Hand",
+    trigger="any_possession",
+    effect="small chance of extraordinary outcome",
+    attribute_gate={"fate": 80},
+    source="archetype",
+)
+
 ALL_MOVES = [
     HEAT_CHECK,
     NO_LOOK_PASS,
@@ -86,6 +94,7 @@ ALL_MOVES = [
     CHESS_MOVE,
     CLUTCH_GENE,
     WILD_CARD,
+    FATES_HAND,
 ]
 
 
@@ -160,5 +169,19 @@ def apply_move_modifier(
         return min(0.99, base_probability + 0.10)
     if name == "Wild Card":
         delta = rng.choice([0.25, -0.15])
+        return max(0.01, min(0.99, base_probability + delta))
+    if name == "Lockdown Stance":
+        # Defensive move — when a lockdown defender activates this move,
+        # it reduces the offensive player's shot probability by 12%
+        # representing tighter, more disciplined defense on this possession.
+        return max(0.01, base_probability - 0.12)
+    if name == "Iron Will":
+        # Stamina move — negates the shot penalty from fatigue.
+        # Flat +8% bonus representing performing through exhaustion.
+        return min(0.99, base_probability + 0.08)
+    if name == "Fate's Hand":
+        # Fate move — extraordinary outcomes. High ceiling, low floor.
+        # 30% chance of a big boost (+18%), 70% chance of a small penalty (-5%).
+        delta = rng.choices([0.18, -0.05], weights=[30, 70], k=1)[0]
         return max(0.01, min(0.99, base_probability + delta))
     return base_probability
