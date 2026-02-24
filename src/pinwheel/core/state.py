@@ -127,6 +127,14 @@ class GameState:
     home_strategy: TeamStrategy | None = None
     away_strategy: TeamStrategy | None = None
 
+    # Home/away venue data for home-court mechanics
+    home_venue_altitude_ft: int = 0
+    travel_distance_miles: float = 0.0
+
+    # Team foul tracking (reset each quarter)
+    home_team_fouls: int = 0
+    away_team_fouls: int = 0
+
     # Cross-possession tracking (for condition evaluation)
     last_action: str = ""
     last_result: str = ""

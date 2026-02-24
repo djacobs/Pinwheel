@@ -8,6 +8,7 @@ See SIMULATION.md.
 from __future__ import annotations
 
 import logging
+import math
 import random
 import time
 
@@ -93,6 +94,28 @@ def _fire_sim_effects(
 def _build_hooper_states(team: Team) -> list[HooperState]:
     """Create mutable HooperState for each hooper on a team."""
     return [HooperState(hooper=h, on_court=h.is_starter) for h in team.hoopers]
+
+
+def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Compute distance in miles between two lat/lon points using Haversine formula."""
+    r = 3958.8  # Earth radius in miles
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _compute_travel_distance(home: Team, away: Team) -> float:
+    """Compute travel distance in miles from away team's venue to home venue."""
+    h_loc = home.venue.location
+    a_loc = away.venue.location
+    if len(h_loc) >= 2 and len(a_loc) >= 2:
+        return _haversine_miles(a_loc[0], a_loc[1], h_loc[0], h_loc[1])
+    return 0.0
 
 
 def _check_substitution(
@@ -188,6 +211,10 @@ def _run_quarter(
 ) -> None:
     """Run one quarter using the game clock."""
     game_state.game_clock_seconds = rules.quarter_minutes * 60.0
+
+    # Reset team fouls at the start of each quarter
+    game_state.home_team_fouls = 0
+    game_state.away_team_fouls = 0
 
     # Fire sim.quarter.pre
     _fire_sim_effects("sim.quarter.pre", game_state, rules, rng, new_effects, meta_store)
@@ -373,12 +400,21 @@ def simulate_game(
         game_id = f"g-0-{seed}"
 
     # Build mutable state
+    travel_distance = _compute_travel_distance(home, away)
     game_state = GameState(
         home_agents=_build_hooper_states(home),
         away_agents=_build_hooper_states(away),
         home_strategy=home_strategy,
         away_strategy=away_strategy,
+        home_venue_altitude_ft=home.venue.altitude_ft,
+        travel_distance_miles=travel_distance,
     )
+
+    # Apply pre-game travel fatigue to the away team
+    if rules.home_court_enabled and rules.travel_fatigue_enabled and travel_distance > 0:
+        travel_penalty = travel_distance * rules.travel_fatigue_per_mile
+        for agent in game_state.away_agents:
+            agent.current_stamina = max(0.15, agent.current_stamina - travel_penalty)
 
     quarter_scores: list[QuarterScore] = []
     possession_log: list[PossessionLog] = []

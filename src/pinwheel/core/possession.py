@@ -49,11 +49,32 @@ class PossessionResult:
     log: PossessionLog | None = None
 
 
-def select_ball_handler(offense: list[HooperState], rng: random.Random) -> HooperState:
-    """Pick who handles the ball. Weighted by passing + IQ."""
+def select_ball_handler(
+    offense: list[HooperState],
+    rng: random.Random,
+    rules: RuleSet | None = None,
+    total_team_fga: int = 0,
+) -> HooperState:
+    """Pick who handles the ball. Weighted by passing + IQ.
+
+    When rules.max_shot_share < 1.0, players who have exceeded their share
+    of the team's field goal attempts get a reduced selection weight.
+    """
     if not offense:
         raise ValueError("No offensive players available")
-    weights = [max(1, a.current_attributes.passing + a.current_attributes.iq) for a in offense]
+    max_share = rules.max_shot_share if rules else 1.0
+    weights = []
+    for a in offense:
+        base = max(1, a.current_attributes.passing + a.current_attributes.iq)
+        # Reduce weight for players exceeding their max shot share
+        if max_share < 1.0 and total_team_fga > 0:
+            player_share = a.field_goals_attempted / total_team_fga
+            if player_share > max_share:
+                # Scale down proportionally — the more over the cap, the less likely
+                overshoot = player_share - max_share
+                penalty = max(0.1, 1.0 - overshoot * 5.0)
+                base = max(1, int(base * penalty))
+        weights.append(base)
     return rng.choices(offense, weights=weights, k=1)[0]
 
 
@@ -69,10 +90,16 @@ def select_action(
     speed = handler.current_attributes.speed
     iq = handler.current_attributes.iq
 
+    # three_point_distance: default 22.15 ft (NBA 3PT distance).
+    # Farther distance reduces three-point selection weight; closer increases it.
+    # Scale: each foot from default shifts weight by ~2 points.
+    distance_from_default = rules.three_point_distance - 22.15
+    three_distance_penalty = distance_from_default * 2.0
+
     weights = {
         "at_rim": 30.0 + speed * 0.3,
         "mid_range": 25.0 + iq * 0.2,
-        "three_point": 20.0 + scoring * 0.3,
+        "three_point": 20.0 + scoring * 0.3 - three_distance_penalty,
     }
 
     # Apply team strategy biases
@@ -107,11 +134,13 @@ def check_turnover(
     rng: random.Random,
     rules: RuleSet | None = None,
     effect_turnover_modifier: float = 0.0,
+    crowd_pressure_modifier: float = 0.0,
 ) -> bool:
     """Check if the offense turns the ball over.
 
     The base turnover rate is scaled by rules.turnover_rate_modifier (default 1.0).
     effect_turnover_modifier is additive from PossessionContext.
+    crowd_pressure_modifier is additive from home court advantage (applied to away offense).
     """
     base_to_rate = 0.08
     modifier = rules.turnover_rate_modifier if rules else 1.0
@@ -124,6 +153,7 @@ def check_turnover(
         + scheme_bonus
         + stamina_penalty
         + effect_turnover_modifier
+        + crowd_pressure_modifier
     )
     return rng.random() < max(0.01, min(0.25, to_prob))
 
@@ -165,6 +195,11 @@ def attempt_rebound(
 
     The offensive rebound base weight is governed by rules.offensive_rebound_weight
     (default 5.0) while defensive is fixed at 10.0.
+
+    **Fate — lucky bounces:** High-Fate offensive players get a bonus to
+    offensive rebound weight, representing fortunate ball bounces.
+    ``fate_bonus = (fate / 100.0) * 3.0`` — a Fate-90 player adds +2.7
+    to their offensive rebound weight.
     """
     all_players = [(a, True) for a in offense] + [(a, False) for a in defense]
     if not all_players:
@@ -181,6 +216,10 @@ def attempt_rebound(
         base += agent.current_attributes.defense * 0.2
         base += agent.current_attributes.speed * 0.1
         base += agent.current_attributes.stamina * 50 * 0.1
+        # Fate — lucky bounces: high-Fate offensive players get lucky bounces
+        if is_off:
+            fate = agent.hooper.attributes.fate
+            base += (fate / 100.0) * 3.0
         weights.append(max(1, base))
 
     idx = rng.choices(range(len(all_players)), weights=weights, k=1)[0]
@@ -221,6 +260,8 @@ def drain_stamina(
     rules: RuleSet | None = None,
     defensive_intensity: float = 0.0,
     pace_modifier: float = 1.0,
+    is_away: bool = False,
+    altitude_ft: int = 0,
 ) -> None:
     """Drain stamina for all agents after a possession.
 
@@ -231,6 +272,10 @@ def drain_stamina(
 
     Faster pace (pace_modifier < 1.0) increases stamina drain for both teams —
     faster possessions mean more physical effort per unit of game time.
+
+    When home_court_enabled, away teams drain extra stamina (away_fatigue_factor).
+    High-altitude venues (altitude_ft) add stamina drain scaled by
+    rules.altitude_stamina_penalty.
     """
     base_drain = rules.stamina_drain_rate if rules else 0.007
     scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
@@ -238,9 +283,21 @@ def drain_stamina(
     intensity_drain = (max(0.0, defensive_intensity) * 0.005) if is_defense else 0.0
     # Faster pace (< 1.0) increases drain; slower pace (> 1.0) decreases
     pace_drain = (1.0 - pace_modifier) * 0.003
+    # Away fatigue: extra drain for the visiting team when home court is enabled
+    away_drain = 0.0
+    if rules and rules.home_court_enabled and is_away:
+        away_drain = rules.away_fatigue_factor
+    # Altitude drain: scales with venue altitude (normalized to 5000 ft baseline).
+    # Higher altitude = harder to breathe = more stamina drain for everyone.
+    altitude_drain = 0.0
+    if rules and rules.home_court_enabled and altitude_ft > 0:
+        altitude_drain = rules.altitude_stamina_penalty * (altitude_ft / 5000.0)
     for agent in agents:
         recovery = agent.hooper.attributes.stamina / 3000.0
-        drain = base_drain + scheme_drain + intensity_drain + pace_drain - recovery
+        drain = (
+            base_drain + scheme_drain + intensity_drain + pace_drain
+            + away_drain + altitude_drain - recovery
+        )
         agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
 
 
@@ -278,6 +335,18 @@ def resolve_possession(
     def_strategy = game_state.defense_strategy
     pace = off_strategy.pace_modifier if off_strategy else 1.0
     def_intensity = def_strategy.defensive_intensity if def_strategy else 0.0
+
+    # Home court advantage modifiers — computed once per possession
+    offense_is_away = not game_state.home_has_ball
+    hc_enabled = rules.home_court_enabled
+    # Shot probability boost for the home team only (away team is unmodified)
+    home_crowd_shot_mod = 0.0
+    if hc_enabled and not offense_is_away:
+        home_crowd_shot_mod = rules.home_crowd_boost
+    # Crowd pressure: increased turnover rate for away offense
+    crowd_pressure_mod = rules.crowd_pressure if (hc_enabled and offense_is_away) else 0.0
+    # Altitude and away fatigue data for drain_stamina
+    altitude = game_state.home_venue_altitude_ft
 
     # Consume clock time first (consistent RNG position)
     time_used = compute_possession_duration(rules, rng, pace_modifier=pace)
@@ -325,13 +394,65 @@ def resolve_possession(
     if def_strategy:
         scheme_mod += def_strategy.defensive_intensity
 
-    # 2. Select ball handler
-    handler = select_ball_handler(offense, rng)
+    # 2. Select ball handler (max_shot_share reduces weight for overused shooters)
+    total_team_fga = sum(a.field_goals_attempted for a in offense)
+    handler = select_ball_handler(offense, rng, rules=rules, total_team_fga=total_team_fga)
 
-    # 3. Check turnover (live-ball: steal) — with effect modifier
+    # 2b. min_pass_per_possession: if the rule requires passes before shooting,
+    # model it as a forced turnover chance. Each required pass has a small
+    # probability of going wrong (fumble/bad pass), increasing with the number
+    # of required passes.
+    if rules.min_pass_per_possession > 0:
+        pass_turnover_rate = 0.03  # ~3% chance per required pass
+        for _ in range(rules.min_pass_per_possession):
+            if rng.random() < pass_turnover_rate:
+                stealer = rng.choice(defense)
+                stealer.steals += 1
+                handler.turnovers += 1
+                drain_stamina(
+                    offense, scheme, is_defense=False, rules=rules,
+                    pace_modifier=pace,
+                    is_away=offense_is_away, altitude_ft=altitude,
+                )
+                drain_stamina(
+                    defense, scheme, is_defense=True, rules=rules,
+                    defensive_intensity=def_intensity, pace_modifier=pace,
+                    is_away=not offense_is_away, altitude_ft=altitude,
+                )
+                game_state.last_action = "turnover"
+                game_state.last_result = "turnover"
+                game_state.consecutive_makes = 0
+                game_state.consecutive_misses += 1
+                team_id = (
+                    game_state.home_agents[0].hooper.team_id
+                    if game_state.home_has_ball
+                    else game_state.away_agents[0].hooper.team_id
+                )
+                log = PossessionLog(
+                    quarter=game_state.quarter,
+                    possession_number=game_state.possession_number,
+                    offense_team_id=team_id,
+                    ball_handler_id=handler.hooper.id,
+                    defender_id=stealer.hooper.id,
+                    action="turnover",
+                    result="turnover",
+                    defensive_scheme=scheme,
+                    home_score=game_state.home_score,
+                    away_score=game_state.away_score,
+                )
+                return PossessionResult(
+                    turnover=True,
+                    scoring_team_home=game_state.home_has_ball,
+                    defensive_scheme=scheme,
+                    time_used=time_used,
+                    log=log,
+                )
+
+    # 3. Check turnover (live-ball: steal) — with effect + crowd pressure modifiers
     if check_turnover(
         handler, scheme, rng, rules=rules,
         effect_turnover_modifier=ctx.turnover_modifier,
+        crowd_pressure_modifier=crowd_pressure_mod,
     ):
         stealer = rng.choice(defense)
         stealer.steals += 1
@@ -339,10 +460,12 @@ def resolve_possession(
         drain_stamina(
             offense, scheme, is_defense=False, rules=rules,
             pace_modifier=pace,
+            is_away=offense_is_away, altitude_ft=altitude,
         )
         drain_stamina(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
+            is_away=not offense_is_away, altitude_ft=altitude,
         )
 
         # Update cross-possession tracking
@@ -381,10 +504,12 @@ def resolve_possession(
         drain_stamina(
             offense, scheme, is_defense=False, rules=rules,
             pace_modifier=pace,
+            is_away=offense_is_away, altitude_ft=altitude,
         )
         drain_stamina(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
+            is_away=not offense_is_away, altitude_ft=altitude,
         )
 
         # Update cross-possession tracking
@@ -425,14 +550,14 @@ def resolve_possession(
         game_state.last_result = "turnover"
         game_state.consecutive_makes = 0
         game_state.consecutive_misses += 1
-        drain_stamina(offense, scheme, is_defense=False, rules=rules, pace_modifier=pace)
         drain_stamina(
-            defense,
-            scheme,
-            is_defense=True,
-            rules=rules,
-            defensive_intensity=def_intensity,
-            pace_modifier=pace,
+            offense, scheme, is_defense=False, rules=rules, pace_modifier=pace,
+            is_away=offense_is_away, altitude_ft=altitude,
+        )
+        drain_stamina(
+            defense, scheme, is_defense=True, rules=rules,
+            defensive_intensity=def_intensity, pace_modifier=pace,
+            is_away=not offense_is_away, altitude_ft=altitude,
         )
         team_id = (
             game_state.home_agents[0].hooper.team_id
@@ -464,7 +589,7 @@ def resolve_possession(
     ):
         shot_type = ctx.substitute_action  # type: ignore[assignment]
 
-    # 5. Check moves
+    # 5. Check offensive moves (ball handler)
     triggered = get_triggered_moves(
         handler,
         shot_type,
@@ -476,32 +601,44 @@ def resolve_possession(
     # 6. Find primary defender
     primary_defender = get_primary_defender(handler, matchups, defense)
 
-    # 7. Apply move modifier to probability, then resolve single shot
+    # 6b. Check defensive moves (primary defender)
+    def_triggered = get_triggered_moves(
+        primary_defender,
+        shot_type,
+        last_possession_three,
+        game_state.elam_activated,
+        rng,
+    )
+
+    # 7. Compute base shot probability and apply all modifiers
+    from pinwheel.core.scoring import compute_shot_probability, points_for_shot
+
     move_name = ""
+    score_diff = abs(game_state.home_score - game_state.away_score)
+    base_prob = compute_shot_probability(
+        handler, primary_defender, shot_type, scheme_mod, rules,
+        score_differential=score_diff,
+    )
+    # Apply effect-driven shot probability modifier + home crowd boost
+    prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier + home_crowd_shot_mod))
+
+    # 7a. Apply offensive move modifier (first triggered move wins)
     if triggered:
         move = triggered[0]
         move_name = move.name
         handler.moves_activated.append(move_name)
-        from pinwheel.core.scoring import compute_shot_probability, points_for_shot
+        prob = apply_move_modifier(move, prob, rng)
 
-        base_prob = compute_shot_probability(
-            handler, primary_defender, shot_type, scheme_mod, rules
-        )
-        # Apply effect-driven shot probability modifier
-        base_prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier))
-        modified_prob = apply_move_modifier(move, base_prob, rng)
-        made = rng.random() < modified_prob
-        pts = points_for_shot(shot_type, rules) if made else 0
-    else:
-        from pinwheel.core.scoring import compute_shot_probability, points_for_shot
+    # 7b. Apply defensive move modifiers — these stack on top of offensive moves
+    for def_move in def_triggered:
+        primary_defender.moves_activated.append(def_move.name)
+        prob = apply_move_modifier(def_move, prob, rng)
+        if not move_name:
+            move_name = def_move.name
 
-        base_prob = compute_shot_probability(
-            handler, primary_defender, shot_type, scheme_mod, rules
-        )
-        # Apply effect-driven shot probability modifier
-        final_prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier))
-        made = rng.random() < final_prob
-        pts = points_for_shot(shot_type, rules) if made else 0
+    # 7c. Resolve the shot
+    made = rng.random() < prob
+    pts = points_for_shot(shot_type, rules) if made else 0
 
     # Apply effect-driven shot value modifier and pass bonus
     if made:
@@ -527,12 +664,27 @@ def resolve_possession(
         foul_on_defender = True
         primary_defender.fouls += 1
         fouling_id = primary_defender.hooper.id
+
+        # Track team fouls for bonus threshold
+        if game_state.home_has_ball:
+            # Defender is on the away team
+            game_state.away_team_fouls += 1
+            defense_team_fouls = game_state.away_team_fouls
+        else:
+            # Defender is on the home team
+            game_state.home_team_fouls += 1
+            defense_team_fouls = game_state.home_team_fouls
+
         if primary_defender.fouls >= rules.personal_foul_limit:
             primary_defender.ejected = True
 
         # Free throws on foul
         if not made:
             ft_attempts = 2 if shot_type != "three_point" else 3
+            # team_foul_bonus_threshold: when team fouls exceed threshold,
+            # award bonus free throws (1 extra FT regardless of shot type)
+            if defense_team_fouls >= rules.team_foul_bonus_threshold:
+                ft_attempts += 1
             for _ in range(ft_attempts):
                 ft_made, ft_pts = resolve_shot(
                     handler, primary_defender, "free_throw", 0.0, rules, rng
@@ -567,14 +719,16 @@ def resolve_possession(
         else:
             game_state.away_score += pts
 
-    # 13. Drain stamina — with extra drain from effects
+    # 13. Drain stamina — with extra drain from effects + home court modifiers
     drain_stamina(
         offense, scheme, is_defense=False, rules=rules,
         pace_modifier=pace,
+        is_away=offense_is_away, altitude_ft=altitude,
     )
     drain_stamina(
         defense, scheme, is_defense=True, rules=rules,
         defensive_intensity=def_intensity, pace_modifier=pace,
+        is_away=not offense_is_away, altitude_ft=altitude,
     )
     # Extra stamina drain on ball handler from effects
     if ctx.extra_stamina_drain > 0.0:

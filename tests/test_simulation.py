@@ -7,8 +7,17 @@ from pinwheel.core.defense import (
     get_primary_defender,
     select_scheme,
 )
-from pinwheel.core.moves import HEAT_CHECK, LOCKDOWN_STANCE, check_gate, check_trigger
+from pinwheel.core.moves import (
+    FATES_HAND,
+    HEAT_CHECK,
+    IRON_WILL,
+    LOCKDOWN_STANCE,
+    apply_move_modifier,
+    check_gate,
+    check_trigger,
+)
 from pinwheel.core.scoring import (
+    compute_fate_clutch_bonus,
     compute_shot_probability,
     compute_stamina_modifier,
     logistic,
@@ -312,12 +321,19 @@ class TestElamEnding:
 
 class TestGameClock:
     def test_timed_quarters_have_game_clock(self):
-        """Possession logs from timed quarters must have non-empty M:SS game_clock."""
+        """Possession logs from timed quarters must have non-empty M:SS game_clock.
+
+        Substitution entries are excluded — they're generated outside the main
+        game loop and don't carry game_clock data.
+        """
         home = _make_team("home")
         away = _make_team("away")
         result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
         elam_quarter = DEFAULT_RULESET.elam_trigger_quarter + 1
-        timed_logs = [p for p in result.possession_log if p.quarter < elam_quarter]
+        timed_logs = [
+            p for p in result.possession_log
+            if p.quarter < elam_quarter and p.action != "substitution"
+        ]
         assert len(timed_logs) > 0
         import re
 
@@ -582,10 +598,15 @@ class TestSubstitution:
 
 class TestBatchStatistics:
     def test_100_game_distributions(self):
-        """Run 100 games and verify basketball-like distributions."""
+        """Run 100 games and verify basketball-like distributions.
+
+        Uses home_court_enabled=False so equal teams produce balanced results.
+        Home court advantage is tested separately.
+        """
         home = _make_team("home")
         away = _make_team("away")
-        results = [simulate_game(home, away, DEFAULT_RULESET, seed=s) for s in range(100)]
+        neutral_rules = RuleSet(home_court_enabled=False)
+        results = [simulate_game(home, away, neutral_rules, seed=s) for s in range(100)]
         total_scores = [r.home_score + r.away_score for r in results]
         avg_score = sum(total_scores) / len(total_scores)
         avg_possessions = sum(r.total_possessions for r in results) / len(results)
@@ -595,7 +616,7 @@ class TestBatchStatistics:
         # 15 possessions/quarter * 3 quarters + Elam possessions
         assert 30 < avg_score < 200, f"avg total score {avg_score} out of range"
         assert 45 < avg_possessions < 200, f"avg possessions {avg_possessions} out of range"
-        # With equal teams, home/away should be roughly balanced
+        # With equal teams on neutral court, home/away should be roughly balanced
         assert 25 < home_wins < 75, f"home wins {home_wins}/100 too skewed"
 
 
@@ -826,3 +847,304 @@ class TestRebounds:
                 assert p.rebound_id in all_hooper_ids, (
                     f"Rebound ID {p.rebound_id} not in game hoopers"
                 )
+
+
+# --- Lockdown Stance ---
+
+
+class TestLockdownStance:
+    def test_lockdown_stance_reduces_probability(self):
+        """Lockdown Stance should reduce shot probability by 12%."""
+        base_prob = 0.50
+        modified = apply_move_modifier(LOCKDOWN_STANCE, base_prob, random.Random(42))
+        assert modified == base_prob - 0.12
+
+    def test_lockdown_stance_floor(self):
+        """Lockdown Stance should not reduce probability below 0.01."""
+        base_prob = 0.05
+        modified = apply_move_modifier(LOCKDOWN_STANCE, base_prob, random.Random(42))
+        assert modified == 0.01
+
+    def test_lockdown_stance_gate(self):
+        """Lockdown Stance requires defense >= 70."""
+        high_def = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(defense=80), moves=[LOCKDOWN_STANCE])
+        )
+        low_def = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(defense=50), moves=[LOCKDOWN_STANCE])
+        )
+        assert check_gate(LOCKDOWN_STANCE, high_def)
+        assert not check_gate(LOCKDOWN_STANCE, low_def)
+
+    def test_lockdown_stance_triggers_on_iso_actions(self):
+        """Lockdown Stance triggers on drive, at_rim, mid_range actions."""
+        hooper = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(defense=80), moves=[LOCKDOWN_STANCE])
+        )
+        for action in ("drive", "at_rim", "mid_range"):
+            assert check_trigger(LOCKDOWN_STANCE, hooper, action, False, False), (
+                f"Lockdown Stance should trigger on {action}"
+            )
+        # Should NOT trigger on three_point or pass
+        assert not check_trigger(LOCKDOWN_STANCE, hooper, "three_point", False, False)
+        assert not check_trigger(LOCKDOWN_STANCE, hooper, "pass", False, False)
+
+    def test_lockdown_defender_reduces_scoring_in_game(self):
+        """Teams facing lockdown defenders should score less on average."""
+        # Lockdown team: high defense hoopers with Lockdown Stance
+        lockdown_attrs = _make_attrs(scoring=30, defense=85, speed=50, stamina=50)
+        lockdown_moves = [LOCKDOWN_STANCE]
+        lockdown_team = _make_team(
+            "lock", attrs=lockdown_attrs, moves=lockdown_moves,
+        )
+        # Normal team: average attributes, no moves
+        normal_team = _make_team("norm")
+
+        # Lockdown is away team (defense), normal team is home (offense)
+        scores_vs_lockdown = []
+        scores_vs_normal = []
+        normal_away = _make_team("norm2")
+        for s in range(100):
+            r1 = simulate_game(normal_team, lockdown_team, DEFAULT_RULESET, seed=s)
+            scores_vs_lockdown.append(r1.home_score)
+            r2 = simulate_game(normal_team, normal_away, DEFAULT_RULESET, seed=s)
+            scores_vs_normal.append(r2.home_score)
+
+        avg_vs_lockdown = sum(scores_vs_lockdown) / len(scores_vs_lockdown)
+        avg_vs_normal = sum(scores_vs_normal) / len(scores_vs_normal)
+        # Scoring against lockdown defenders should be lower
+        assert avg_vs_lockdown < avg_vs_normal, (
+            f"Expected lower scoring vs lockdown: {avg_vs_lockdown:.1f} vs {avg_vs_normal:.1f}"
+        )
+
+
+# --- Iron Will ---
+
+
+class TestIronWill:
+    def test_iron_will_increases_probability(self):
+        """Iron Will should boost shot probability by 8%."""
+        base_prob = 0.40
+        modified = apply_move_modifier(IRON_WILL, base_prob, random.Random(42))
+        assert modified == base_prob + 0.08
+
+    def test_iron_will_cap(self):
+        """Iron Will should not raise probability above 0.99."""
+        base_prob = 0.95
+        modified = apply_move_modifier(IRON_WILL, base_prob, random.Random(42))
+        assert modified == 0.99
+
+    def test_iron_will_gate(self):
+        """Iron Will requires stamina >= 70."""
+        high_stam = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(stamina=80), moves=[IRON_WILL])
+        )
+        low_stam = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(stamina=50), moves=[IRON_WILL])
+        )
+        assert check_gate(IRON_WILL, high_stam)
+        assert not check_gate(IRON_WILL, low_stam)
+
+    def test_iron_will_triggers_on_low_stamina(self):
+        """Iron Will triggers when current stamina < 40%."""
+        hooper = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(stamina=80), moves=[IRON_WILL])
+        )
+        hooper.current_stamina = 0.35
+        assert check_trigger(IRON_WILL, hooper, "mid_range", False, False)
+        hooper.current_stamina = 0.50
+        assert not check_trigger(IRON_WILL, hooper, "mid_range", False, False)
+
+    def test_iron_will_helps_fatigued_player_in_game(self):
+        """Iron Horse archetype with Iron Will should score better when fatigued."""
+        # Iron Horse attrs: high stamina (85) so the move gate is met
+        iron_attrs = _make_attrs(scoring=45, stamina=85)
+        iron_moves = [IRON_WILL]
+        iron_team = _make_team("iron", attrs=iron_attrs, moves=iron_moves)
+        no_move_team = _make_team("plain", attrs=iron_attrs)
+        away = _make_team("away")
+
+        iron_scores = []
+        plain_scores = []
+        for s in range(200):
+            r1 = simulate_game(iron_team, away, DEFAULT_RULESET, seed=s)
+            r2 = simulate_game(no_move_team, away, DEFAULT_RULESET, seed=s)
+            iron_scores.append(r1.home_score)
+            plain_scores.append(r2.home_score)
+
+        avg_iron = sum(iron_scores) / len(iron_scores)
+        avg_plain = sum(plain_scores) / len(plain_scores)
+        # Iron Will team should score at least as much (likely more late-game)
+        assert avg_iron >= avg_plain * 0.95, (
+            f"Iron Will should help: {avg_iron:.1f} vs {avg_plain:.1f}"
+        )
+
+
+# --- Fate's Hand Move ---
+
+
+class TestFatesHand:
+    def test_fates_hand_gate(self):
+        """Fate's Hand requires fate >= 80."""
+        high_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(fate=90), moves=[FATES_HAND])
+        )
+        low_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(fate=50), moves=[FATES_HAND])
+        )
+        assert check_gate(FATES_HAND, high_fate)
+        assert not check_gate(FATES_HAND, low_fate)
+
+    def test_fates_hand_triggers_any_possession(self):
+        """Fate's Hand triggers on any possession."""
+        hooper = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(fate=90), moves=[FATES_HAND])
+        )
+        for action in ("at_rim", "mid_range", "three_point", "drive"):
+            assert check_trigger(FATES_HAND, hooper, action, False, False)
+
+    def test_fates_hand_can_boost(self):
+        """Fate's Hand should sometimes produce a +18% boost."""
+        base_prob = 0.40
+        found_boost = False
+        for seed in range(100):
+            modified = apply_move_modifier(FATES_HAND, base_prob, random.Random(seed))
+            if modified > base_prob + 0.10:
+                found_boost = True
+                break
+        assert found_boost, "Fate's Hand never produced boost in 100 seeds"
+
+    def test_fates_hand_can_penalize(self):
+        """Fate's Hand should sometimes produce a -5% penalty."""
+        base_prob = 0.40
+        found_penalty = False
+        for seed in range(100):
+            modified = apply_move_modifier(FATES_HAND, base_prob, random.Random(seed))
+            if modified < base_prob:
+                found_penalty = True
+                break
+        assert found_penalty, "Fate's Hand never produced penalty in 100 seeds"
+
+
+# --- Fate Attribute ---
+
+
+class TestFateAttribute:
+    def test_fate_clutch_bonus_close_game(self):
+        """High-Fate hooper gets a bonus in close games (diff < 5)."""
+        bonus = compute_fate_clutch_bonus(fate=80, score_differential=3)
+        assert abs(bonus - 0.064) < 0.001  # 80/100 * 0.08 = 0.064
+
+    def test_fate_clutch_bonus_blowout(self):
+        """No Fate bonus in blowout games (diff >= 5)."""
+        bonus = compute_fate_clutch_bonus(fate=80, score_differential=5)
+        assert bonus == 0.0
+        bonus = compute_fate_clutch_bonus(fate=80, score_differential=10)
+        assert bonus == 0.0
+
+    def test_fate_clutch_bonus_tied_game(self):
+        """Tied game (diff=0) should give the full Fate clutch bonus."""
+        bonus = compute_fate_clutch_bonus(fate=90, score_differential=0)
+        assert abs(bonus - 0.072) < 0.001  # 90/100 * 0.08 = 0.072
+
+    def test_low_fate_small_bonus(self):
+        """Low-Fate hooper gets a smaller clutch bonus."""
+        bonus = compute_fate_clutch_bonus(fate=20, score_differential=2)
+        assert abs(bonus - 0.016) < 0.001  # 20/100 * 0.08 = 0.016
+
+    def test_fate_increases_shot_probability_in_close_game(self):
+        """compute_shot_probability with score_differential < 5 boosts high-Fate."""
+        high_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50, fate=90))
+        )
+        low_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50, fate=10))
+        )
+        defender = HooperState(hooper=_make_hooper(attrs=_make_attrs(defense=40)))
+
+        prob_high = compute_shot_probability(
+            high_fate, defender, "mid_range", 0.05, DEFAULT_RULESET, score_differential=2,
+        )
+        prob_low = compute_shot_probability(
+            low_fate, defender, "mid_range", 0.05, DEFAULT_RULESET, score_differential=2,
+        )
+        assert prob_high > prob_low, (
+            f"High-Fate should have higher prob in close game: {prob_high:.4f} vs {prob_low:.4f}"
+        )
+
+    def test_fate_no_effect_in_blowout(self):
+        """In a blowout (diff >= 5), Fate should not affect probability."""
+        high_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50, fate=90))
+        )
+        low_fate = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50, fate=10))
+        )
+        defender = HooperState(hooper=_make_hooper(attrs=_make_attrs(defense=40)))
+
+        prob_high = compute_shot_probability(
+            high_fate, defender, "mid_range", 0.05, DEFAULT_RULESET, score_differential=10,
+        )
+        prob_low = compute_shot_probability(
+            low_fate, defender, "mid_range", 0.05, DEFAULT_RULESET, score_differential=10,
+        )
+        # In a blowout, Fate clutch bonus is 0 so probabilities should be equal
+        # (same scoring attribute, same defender)
+        assert abs(prob_high - prob_low) < 0.001, (
+            f"Fate should not matter in blowout: {prob_high:.4f} vs {prob_low:.4f}"
+        )
+
+    def test_fate_lucky_bounces_offensive_rebound(self):
+        """High-Fate offensive players should get more offensive rebounds."""
+        from pinwheel.core.possession import attempt_rebound
+
+        high_fate_attrs = _make_attrs(scoring=40, defense=30, fate=90)
+        low_fate_attrs = _make_attrs(scoring=40, defense=30, fate=10)
+
+        # Run many rebound attempts and compare offensive rebound rates
+        high_fate_off_rebs = 0
+        low_fate_off_rebs = 0
+        n = 2000
+
+        for s in range(n):
+            # High-fate offense
+            off = [HooperState(hooper=_make_hooper("hf", attrs=high_fate_attrs))]
+            dfn = [HooperState(hooper=_make_hooper("d1", "t-2", attrs=_make_attrs()))]
+            _, is_off = attempt_rebound(off, dfn, random.Random(s), rules=DEFAULT_RULESET)
+            if is_off:
+                high_fate_off_rebs += 1
+
+            # Low-fate offense
+            off_low = [HooperState(hooper=_make_hooper("lf", attrs=low_fate_attrs))]
+            dfn_low = [HooperState(hooper=_make_hooper("d2", "t-2", attrs=_make_attrs()))]
+            _, is_off_low = attempt_rebound(
+                off_low, dfn_low, random.Random(s), rules=DEFAULT_RULESET,
+            )
+            if is_off_low:
+                low_fate_off_rebs += 1
+
+        assert high_fate_off_rebs > low_fate_off_rebs, (
+            f"High-Fate should get more offensive rebounds: "
+            f"{high_fate_off_rebs} vs {low_fate_off_rebs}"
+        )
+
+
+# --- All Moves Have Branches ---
+
+
+class TestAllMovesHaveBranches:
+    def test_every_move_modifies_probability(self):
+        """Every defined move should either increase or decrease probability."""
+        from pinwheel.core.moves import ALL_MOVES
+
+        base_prob = 0.50
+        for move in ALL_MOVES:
+            found_change = False
+            for seed in range(200):
+                modified = apply_move_modifier(move, base_prob, random.Random(seed))
+                if modified != base_prob:
+                    found_change = True
+                    break
+            assert found_change, (
+                f"Move '{move.name}' never modified probability across 200 seeds"
+            )

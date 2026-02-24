@@ -61,20 +61,60 @@ def compute_stamina_modifier(stamina: float) -> float:
     return 0.7 + 0.3 * stamina
 
 
+def compute_fate_clutch_bonus(
+    fate: int,
+    score_differential: int,
+) -> float:
+    """Fate clutch bonus: in close games, high-Fate players get a shot boost.
+
+    Args:
+        fate: The shooter's Fate attribute (1-100).
+        score_differential: Absolute difference between team scores.
+
+    Returns:
+        Additive bonus in [0.0, ~0.064]. A Fate-80 hooper in a game within 5
+        points gets +6.4%.
+    """
+    if score_differential >= 5:
+        return 0.0
+    return (fate / 100.0) * 0.08
+
+
 def compute_shot_probability(
     shooter: HooperState,
     defender: HooperState,
     shot_type: ShotType,
     scheme_modifier: float,
     rules: RuleSet,
+    score_differential: int = 0,
 ) -> float:
-    """Compute probability of making a shot. Returns value in [0.01, 0.99]."""
+    """Compute probability of making a shot. Returns value in [0.01, 0.99].
+
+    Args:
+        score_differential: Absolute difference between team scores.
+            When > 0 and < 5, high-Fate shooters get a clutch bonus.
+    """
     scoring = shooter.current_attributes.scoring
-    base = logistic(scoring, BASE_MIDPOINTS[shot_type], BASE_STEEPNESS[shot_type])
+    midpoint = BASE_MIDPOINTS[shot_type]
+
+    # three_point_distance shifts the difficulty curve for three-pointers:
+    # farther distance = higher midpoint = harder to make.
+    # Each foot from default (22.15) shifts midpoint by ~1.5 attribute points.
+    if shot_type == "three_point":
+        distance_shift = (rules.three_point_distance - 22.15) * 1.5
+        midpoint += distance_shift
+
+    base = logistic(scoring, midpoint, BASE_STEEPNESS[shot_type])
     contest = compute_contest(defender, shot_type, scheme_modifier)
     iq_mod = compute_iq_modifier(shooter.current_attributes.iq)
     stamina_mod = compute_stamina_modifier(shooter.current_stamina)
     prob = base * contest * iq_mod * stamina_mod
+
+    # Fate clutch bonus: high-Fate players shine in close games
+    fate = shooter.hooper.attributes.fate
+    fate_bonus = compute_fate_clutch_bonus(fate, score_differential)
+    prob += fate_bonus
+
     return max(0.01, min(0.99, prob))
 
 
