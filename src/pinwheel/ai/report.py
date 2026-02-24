@@ -2107,6 +2107,398 @@ def generate_series_report_mock(series_data: dict) -> Report:
     )
 
 
+# --- State of the League Report ---
+
+STATE_OF_THE_LEAGUE_PROMPT = """\
+You are the beat reporter for Pinwheel Fates, a 3v3 basketball governance game.
+
+Every 7 rounds (one full round-robin), you step back from individual games and \
+write a State of the League address: 3-5 paragraphs covering the big picture.
+
+## What to Cover
+1. **Standings and power balance.** Who is dominant, who is struggling, how \
+tight is the race?
+2. **Rule drift.** How has the ruleset evolved since the season opened? What \
+is the cumulative effect of governance on the game being played today versus \
+Round 1?
+3. **Power dynamics.** Which governors and teams are driving change? Are \
+coalitions forming or fracturing? Is the governance system being used or \
+ignored?
+4. **Emerging narratives.** Storylines that span multiple rounds: rivalries, \
+streaks, comeback arcs, teams that benefit from rule changes, teams that get \
+hurt.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Write in the style of a state-of-the-union address by a sports columnist.
+3. Name specific teams, hoopers, and governors when central to the story.
+4. Every paragraph must contain at least one specific insight tied to data.
+5. Close with the trajectory: where is this season headed?
+
+The AI observes. Humans decide.
+
+## League Data
+
+{league_data}
+"""
+
+
+async def generate_state_of_the_league(
+    league_data: dict,
+    season_id: str,
+    round_number: int,
+    api_key: str,
+    narrative: NarrativeContext | None = None,
+    db_session: object | None = None,
+) -> Report:
+    """Generate a State of the League report using Claude.
+
+    Triggered every 7 rounds (one full round-robin) as a periodic zoom-out
+    on standings, rule drift, power dynamics, and emerging narratives.
+    """
+    data_str = json.dumps(league_data, indent=2)
+    if narrative:
+        narrative_block = format_narrative_for_prompt(narrative)
+        data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
+    content = await _call_claude(
+        system=STATE_OF_THE_LEAGUE_PROMPT.format(
+            league_data=data_str
+        ),
+        user_message=(
+            "Write a State of the League address "
+            "for this point in the season."
+        ),
+        api_key=api_key,
+        call_type="report.state_of_the_league",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
+    )
+    return Report(
+        id=f"r-sotl-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type="state_of_the_league",
+        round_number=round_number,
+        content=content,
+    )
+
+
+def generate_state_of_the_league_mock(
+    league_data: dict,
+    season_id: str,
+    round_number: int,
+    narrative: NarrativeContext | None = None,
+) -> Report:
+    """Generate a mock State of the League report for testing."""
+    standings = league_data.get("standings", [])
+    rule_changes = league_data.get("rule_changes", [])
+
+    lines: list[str] = []
+    lines.append(f"State of the League — Round {round_number}.")
+
+    if standings:
+        leader = standings[0] if standings else {}
+        leader_name = leader.get("team_name", "Unknown")
+        leader_wins = leader.get("wins", 0)
+        leader_losses = leader.get("losses", 0)
+        lines.append(
+            f"{leader_name} leads the league at "
+            f"{leader_wins}-{leader_losses}."
+        )
+        if len(standings) >= 2:
+            trailer = standings[-1]
+            trailer_name = trailer.get("team_name", "Unknown")
+            gap = leader_wins - trailer.get("wins", 0)
+            if gap > 0:
+                lines.append(
+                    f"The gap between first and last is "
+                    f"{gap} wins — {trailer_name} has "
+                    f"ground to make up."
+                )
+            else:
+                lines.append(
+                    "The standings are tight — "
+                    "every game matters."
+                )
+
+    if rule_changes:
+        lines.append(
+            f"{len(rule_changes)} rule changes have reshaped "
+            f"the game since opening day."
+        )
+    else:
+        lines.append(
+            "The ruleset remains unchanged — governors "
+            "have been conservative so far."
+        )
+
+    lines.append(
+        "The season is taking shape. The next round-robin "
+        "will reveal whether the current order holds or "
+        "the league is headed for upheaval."
+    )
+
+    return Report(
+        id=f"r-sotl-{round_number}-mock",
+        report_type="state_of_the_league",
+        round_number=round_number,
+        content=" ".join(lines),
+    )
+
+
+# --- Tiebreaker Report ---
+
+TIEBREAKER_REPORT_PROMPT = """\
+You are the Sports Chronicler for Pinwheel Fates, a 3v3 basketball governance \
+game.
+
+The regular season ended in a tie. Before tiebreaker games were played, \
+governors had one extra governance window to adjust the rules. Now the \
+tiebreaker games are done.
+
+Write a 2-3 paragraph report covering:
+1. **What was at stake.** Which teams were tied, and what playoff positioning \
+hung in the balance.
+2. **Governance before the tiebreaker.** What changes (if any) were enacted \
+in the extra governance window?
+3. **The tiebreaker outcome.** Who won, what it means for playoff seeding, \
+and how any last-minute rule changes shaped the game.
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Write in vivid sports journalism style.
+3. Name teams, scores, and rule changes specifically.
+
+## Tiebreaker Data
+
+{tiebreaker_data}
+"""
+
+
+async def generate_tiebreaker_report(
+    tiebreaker_data: dict,
+    season_id: str,
+    round_number: int,
+    api_key: str,
+    db_session: object | None = None,
+) -> Report:
+    """Generate a tiebreaker report using Claude.
+
+    Triggered after tiebreaker games resolve.
+    """
+    data_str = json.dumps(tiebreaker_data, indent=2)
+    content = await _call_claude(
+        system=TIEBREAKER_REPORT_PROMPT.format(
+            tiebreaker_data=data_str
+        ),
+        user_message="Write a tiebreaker report for this round.",
+        api_key=api_key,
+        call_type="report.tiebreaker",
+        season_id=season_id,
+        round_number=round_number,
+        db_session=db_session,
+    )
+    return Report(
+        id=f"r-tb-{round_number}-{uuid.uuid4().hex[:8]}",
+        report_type="tiebreaker",
+        round_number=round_number,
+        content=content,
+    )
+
+
+def generate_tiebreaker_report_mock(
+    tiebreaker_data: dict,
+    season_id: str,
+    round_number: int,
+) -> Report:
+    """Generate a mock tiebreaker report for testing."""
+    tied_teams = tiebreaker_data.get("tied_teams", [])
+    games = tiebreaker_data.get("games", [])
+    rule_changes = tiebreaker_data.get("rule_changes", [])
+
+    lines: list[str] = []
+
+    if tied_teams:
+        team_names = [
+            t.get("team_name", "Unknown") for t in tied_teams
+        ]
+        lines.append(
+            "The regular season ended in a dead heat "
+            f"between {', '.join(team_names)}."
+        )
+    else:
+        lines.append(
+            "Tiebreaker games determined the final "
+            "playoff seeding."
+        )
+
+    if rule_changes:
+        lines.append(
+            "Governors used the extra governance window — "
+            f"{len(rule_changes)} rule changes were enacted "
+            "before the tiebreaker tip-off."
+        )
+    else:
+        lines.append(
+            "Governors held steady through the extra "
+            "governance window — no rule changes before "
+            "the tiebreaker."
+        )
+
+    if games:
+        for g in games:
+            home = g.get("home_team", "Home")
+            away = g.get("away_team", "Away")
+            hs = g.get("home_score", 0)
+            aws = g.get("away_score", 0)
+            winner = home if hs > aws else away
+            lines.append(
+                f"{winner} won the tiebreaker "
+                f"{max(hs, aws)}-{min(hs, aws)}, "
+                f"securing their playoff position."
+            )
+    else:
+        lines.append("The tiebreakers are resolved.")
+
+    return Report(
+        id=f"r-tb-{round_number}-mock",
+        report_type="tiebreaker",
+        round_number=round_number,
+        content=" ".join(lines),
+    )
+
+
+# --- Offseason Report ---
+
+OFFSEASON_REPORT_PROMPT = """\
+You are the Governance Mirror for Pinwheel Fates, a 3v3 basketball governance \
+game.
+
+The season is over. The offseason governance window has closed. Write a 2-3 \
+paragraph report on the transition between seasons.
+
+## What to Cover
+1. **What carried forward.** Which rules survived from the old season into \
+the new one? What does the carry-forward vote reveal about what the \
+community values?
+2. **What was reset.** New rosters, fresh standings, clean slates.
+3. **What it says about the community.** Did the winners entrench their \
+advantage, or did the league vote for balance?
+
+## Rules
+1. You DESCRIBE. You never PRESCRIBE.
+2. Write in a reflective, end-of-era tone.
+3. Name specific rules, teams, and governance actions when relevant.
+
+## Offseason Data
+
+{offseason_data}
+"""
+
+
+async def generate_offseason_report(
+    offseason_data: dict,
+    season_id: str,
+    api_key: str,
+    db_session: object | None = None,
+) -> Report:
+    """Generate an offseason report using Claude.
+
+    Triggered at season transitions when the offseason governance
+    window closes.
+    """
+    data_str = json.dumps(offseason_data, indent=2)
+    content = await _call_claude(
+        system=OFFSEASON_REPORT_PROMPT.format(
+            offseason_data=data_str
+        ),
+        user_message=(
+            "Write an offseason report for this "
+            "season transition."
+        ),
+        api_key=api_key,
+        call_type="report.offseason",
+        season_id=season_id,
+        db_session=db_session,
+    )
+    return Report(
+        id=(
+            f"r-offseason-{season_id[:8]}-"
+            f"{uuid.uuid4().hex[:8]}"
+        ),
+        report_type="offseason",
+        round_number=0,
+        content=content,
+    )
+
+
+def generate_offseason_report_mock(
+    offseason_data: dict,
+    season_id: str,
+) -> Report:
+    """Generate a mock offseason report for testing."""
+    rules_carried = offseason_data.get("rules_carried", [])
+    rules_reset = offseason_data.get("rules_reset", [])
+    offseason_proposals = offseason_data.get(
+        "offseason_proposals", 0
+    )
+    champion = offseason_data.get("champion_team_name", "")
+
+    lines: list[str] = []
+
+    if champion:
+        lines.append(
+            f"The {champion} era ends — or continues. "
+            f"The offseason governance window has closed."
+        )
+    else:
+        lines.append(
+            "The offseason governance window has closed."
+        )
+
+    if rules_carried:
+        lines.append(
+            f"{len(rules_carried)} rules carried forward "
+            "into the new season, preserving the governance "
+            "legacy of the outgoing campaign."
+        )
+    else:
+        lines.append(
+            "The ruleset was reset to defaults — a clean "
+            "slate for the new season."
+        )
+
+    if rules_reset:
+        lines.append(
+            f"{len(rules_reset)} parameters were returned "
+            "to their default values."
+        )
+
+    if offseason_proposals > 0:
+        lines.append(
+            f"Governors filed {offseason_proposals} proposals "
+            "during the offseason window, shaping the "
+            "foundation for what comes next."
+        )
+    else:
+        lines.append(
+            "No proposals were filed during the offseason. "
+            "The community chose continuity."
+        )
+
+    lines.append(
+        "A new season begins. The rules are set, the "
+        "rosters are locked, and the governance slate "
+        "is wiped clean."
+    )
+
+    return Report(
+        id=f"r-offseason-{season_id[:8]}-mock",
+        report_type="offseason",
+        round_number=0,
+        content=" ".join(lines),
+    )
+
+
 # --- Season Memorial Generation ---
 
 SEASON_NARRATIVE_PROMPT = """\

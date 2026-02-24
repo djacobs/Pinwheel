@@ -54,15 +54,17 @@ Player-submitted text is sanitized before it reaches the AI interpreter.
 - **Log raw input.** The original, unsanitized text is logged (alongside the sanitized version) for audit and red-teaming.
 
 ```python
-def sanitize_proposal_text(raw_text: str) -> str:
-    """Sanitize player-submitted governance text before AI interpretation."""
-    # Strip zero-width and invisible characters
-    text = remove_invisible_chars(raw_text)
-    # Enforce length limit
-    text = text[:MAX_PROPOSAL_LENGTH]
-    # Strip any attempt at prompt-like formatting
-    text = strip_prompt_markers(text)  # removes "System:", "Human:", "Assistant:", etc.
-    return text
+# Actual implementation in core/governance.py:
+def sanitize_text(raw: str, max_length: int = 500) -> str:
+    """Strip dangerous content from governor-submitted text.
+
+    Pipeline: invisible chars -> HTML tags -> prompt markers -> whitespace -> length.
+    """
+    text = remove_invisible_chars(raw)           # zero-width, directional, invisible Unicode
+    text = re.sub(r"<[^>]+>", "", text)          # HTML/XML tags
+    text = strip_prompt_markers(text)            # "System:", "Human:", "Assistant:", etc.
+    text = re.sub(r"\s+", " ", text).strip()     # collapse whitespace
+    return text[:max_length]
 ```
 
 ### Layer 2: Sandboxed AI Interpretation (The Core Boundary)
@@ -286,16 +288,22 @@ Admin-gated: requires `PINWHEEL_ADMIN_DISCORD_ID` match when OAuth is enabled. I
 
 ## Implementation Checklist
 
-- [ ] Input sanitization function with invisible character stripping, length limits, prompt marker removal
-- [ ] Sandboxed interpreter system prompt (separate from all other AI contexts)
-- [ ] RuleChange Pydantic model with schema validation, range enforcement, tier checks
-- [ ] Governor confirmation step in the `/propose` flow (bot shows interpretation, waits for confirm)
-- [ ] Governance event log capturing raw input, sanitized input, AI output, validation result
-- [ ] Separate API call contexts for: interpreter, sim report, gov report, private report, bot chat
-- [ ] Red team exercise against the interpreter before launch
-- [ ] Rate limiting on proposals per governor per window
-- [ ] Anomaly alerting on high rejection rates or unusual patterns
-- [ ] Strategy instruction validation through the same interpreter pipeline
+- [x] Input sanitization function with invisible character stripping, length limits, prompt marker removal
+  - `sanitize_text()` in `core/governance.py` -- pipeline: `remove_invisible_chars()` -> HTML strip -> `strip_prompt_markers()` -> whitespace collapse -> length cap
+  - `remove_invisible_chars()`: strips C0/C1 controls, zero-width chars, directional overrides/isolates, invisible operators, BOM, annotation anchors
+  - `strip_prompt_markers()`: removes plain-text role markers (`System:`, `Human:`, `Assistant:`, `Claude:`, `User:`) case-insensitively, plus triple-backtick fences
+- [x] Sandboxed interpreter system prompt (separate from all other AI contexts)
+- [x] RuleChange Pydantic model with schema validation, range enforcement, tier checks
+- [x] Governor confirmation step in the `/propose` flow (bot shows interpretation, waits for confirm)
+- [x] Governance event log capturing raw input, sanitized input, AI output, validation result
+- [x] Separate API call contexts for: interpreter, sim report, gov report, private report, bot chat
+- [ ] Red team exercise against the interpreter before launch *(process item -- TODO in `ai/interpreter.py`)*
+- [x] Rate limiting on proposals per governor per window
+- [ ] Anomaly alerting on high rejection rates or unusual patterns *(process/ops item -- TODO in `core/governance.py`)*
+- [x] Strategy instruction validation through the same interpreter pipeline
+  - `interpret_strategy()` now sanitizes input via `sanitize_text()` before AI call
+  - Strategy system prompt updated with security rules (reject non-strategy input, untrusted data labeling)
+- [x] Effect chain depth limit (max 3) on `conditional_sequence` recursion in `hooks.py`
 
 ## References
 

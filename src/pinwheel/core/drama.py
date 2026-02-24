@@ -12,6 +12,10 @@ The total wall-clock time per quarter is preserved — dramatic moments steal ti
 from routine moments. The ``normalize_delays`` function redistributes the time
 budget so the quarter finishes on schedule.
 
+``compute_drama_score`` provides a single game-level drama score (0.0-1.0)
+based on score differential, lead changes, Elam ending, and playoff context.
+This score is included in game completion events for frontend and analytics use.
+
 This is a pure computation module — no AI calls, no DB access, no async.
 """
 
@@ -201,6 +205,90 @@ def normalize_delays(
 
     base_delay = quarter_seconds / total_raw
     return [m * base_delay for m in raw_multipliers]
+
+
+def compute_drama_score(
+    game_result: GameResult,
+    *,
+    is_playoff: bool = False,
+) -> float:
+    """Compute a single game-level drama score from 0.0 (boring) to 1.0 (incredible).
+
+    The score is a weighted combination of four factors:
+
+    1. **Score differential** (weight 0.35) -- Close finishes are dramatic.
+       A 1-point margin scores 1.0; a 30+ point blowout scores 0.0.
+    2. **Lead changes** (weight 0.25) -- Games with many lead changes are dramatic.
+       6+ lead changes scores 1.0; 0 scores 0.0.
+    3. **Elam ending** (weight 0.20) -- Games that activated the Elam ending
+       get a drama boost. Elam itself scores 0.6; if the Elam margin was
+       also close (target reached by <= 3 points), scores 1.0.
+    4. **Playoff context** (weight 0.20) -- Playoff games are inherently
+       more dramatic. Playoff scores 1.0; regular season scores 0.0.
+
+    Args:
+        game_result: The completed game's result.
+        is_playoff: Whether this game is a playoff game.
+
+    Returns:
+        A float between 0.0 and 1.0 (clamped).
+    """
+    possessions = game_result.possession_log
+
+    # --- Factor 1: Score differential (0.0 = blowout, 1.0 = nail-biter) ---
+    margin = abs(game_result.home_score - game_result.away_score)
+    # Linear scale: 0-point margin = 1.0, 30+ point margin = 0.0
+    margin_score = max(0.0, 1.0 - margin / 30.0)
+
+    # --- Factor 2: Lead changes ---
+    lead_changes = 0
+    prev_leader: str | None = None
+    for poss in possessions:
+        if poss.home_score > poss.away_score:
+            leader = "home"
+        elif poss.away_score > poss.home_score:
+            leader = "away"
+        else:
+            leader = "tied"
+
+        if (
+            prev_leader is not None
+            and leader != prev_leader
+            and leader != "tied"
+            and prev_leader != "tied"
+        ):
+            lead_changes += 1
+        prev_leader = leader
+
+    # 6+ lead changes = max drama; 0 = none
+    lead_change_score = min(1.0, lead_changes / 6.0)
+
+    # --- Factor 3: Elam ending ---
+    elam_score = 0.0
+    if game_result.elam_activated:
+        elam_score = 0.6
+        # Bonus for close Elam finish: if both teams were within 3 of target
+        if game_result.elam_target_score is not None:
+            winning_margin = game_result.elam_target_score - min(
+                game_result.home_score, game_result.away_score
+            )
+            if winning_margin <= 3:
+                elam_score = 1.0
+            elif winning_margin <= 7:
+                elam_score = 0.8
+
+    # --- Factor 4: Playoff context ---
+    playoff_score = 1.0 if is_playoff else 0.0
+
+    # --- Weighted combination ---
+    score = (
+        0.35 * margin_score
+        + 0.25 * lead_change_score
+        + 0.20 * elam_score
+        + 0.20 * playoff_score
+    )
+
+    return max(0.0, min(1.0, round(score, 3)))
 
 
 def get_drama_summary(annotations: list[DramaAnnotation]) -> dict[str, int]:

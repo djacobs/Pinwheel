@@ -22,7 +22,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from pinwheel.core.drama import DramaAnnotation, annotate_drama, get_drama_summary, normalize_delays
+from pinwheel.core.drama import (
+    DramaAnnotation,
+    annotate_drama,
+    compute_drama_score,
+    get_drama_summary,
+    normalize_delays,
+)
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.narrate import narrate_play
 from pinwheel.models.game import GameResult
@@ -305,7 +311,14 @@ async def _present_full_game(
                 "total_possessions": summary.get("total_possessions", 0),
                 "commentary": summary.get("commentary", ""),
                 "playoff_context": summary.get("playoff_context"),
+                "drama_score": summary.get("drama_score", 0.0),
             }
+        )
+    else:
+        # Fallback: compute drama_score directly when no summary is available
+        is_playoff = _playoff_context is not None
+        finished_data["drama_score"] = compute_drama_score(
+            game_result, is_playoff=is_playoff,
         )
 
     await event_bus.publish("presentation.game_finished", finished_data)

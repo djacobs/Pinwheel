@@ -113,6 +113,7 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
     oauth_enabled = bool(settings.discord_client_id and settings.discord_client_secret)
     admin_id = settings.pinwheel_admin_discord_id
     is_admin = current_user is not None and bool(admin_id) and current_user.discord_id == admin_id
+    followed_team_id = request.cookies.get("pinwheel_followed_team")
     return {
         "current_user": current_user,
         "oauth_enabled": oauth_enabled,
@@ -120,6 +121,7 @@ def _auth_context(request: Request, current_user: SessionUser | None) -> dict:
         "app_version": APP_VERSION,
         "discord_invite_url": settings.discord_invite_url,
         "is_admin": is_admin,
+        "followed_team_id": followed_team_id,
     }
 
 
@@ -2269,6 +2271,8 @@ async def team_page(
                 rule_change_rounds=rule_change_rounds,
             )
 
+    followed_team_id = request.cookies.get("pinwheel_followed_team")
+
     return templates.TemplateResponse(
         request,
         "pages/team.html",
@@ -2286,6 +2290,7 @@ async def team_page(
             "avg_points": avg_points,
             "avg_poly": avg_poly,
             "trajectory": trajectory,
+            "followed_team_id": followed_team_id,
             **_auth_context(request, current_user),
         },
     )

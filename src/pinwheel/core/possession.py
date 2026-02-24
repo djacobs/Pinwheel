@@ -1,6 +1,6 @@
 """Possession model — the atomic unit of gameplay.
 
-Ball handler → action selection → shot resolution → rebounds → fouls → stamina.
+Ball handler -> action selection -> shot resolution -> rebounds -> fouls -> stamina.
 See SIMULATION.md "Possession Model".
 """
 
@@ -26,6 +26,70 @@ from pinwheel.models.rules import RuleSet
 
 # Legacy constant — now governed by rules.dead_ball_time_seconds
 _DEFAULT_DEAD_TIME_SECONDS = 9.0
+
+
+@dataclass
+class SurfaceModifiers:
+    """Modifiers derived from the home venue's playing surface.
+
+    Applied alongside home-court mechanics in resolve_possession().
+    See SIMULATION.md "Surface modifier".
+    """
+
+    at_rim_weight_modifier: float = 0.0
+    """Additive modifier to at_rim shot selection weight (percentage of base)."""
+
+    mid_range_weight_modifier: float = 0.0
+    """Additive modifier to mid_range shot selection weight (percentage of base)."""
+
+    three_point_weight_modifier: float = 0.0
+    """Additive modifier to three_point shot selection weight (percentage of base)."""
+
+    stamina_drain_multiplier: float = 1.0
+    """Multiplicative factor on stamina drain (1.0 = normal)."""
+
+    turnover_rate_modifier: float = 0.0
+    """Additive modifier to turnover probability."""
+
+    shot_probability_modifier: float = 0.0
+    """Additive modifier to all shot probabilities."""
+
+    speed_at_rim_modifier: float = 0.0
+    """Modifier to the speed component of at_rim weight (fraction, e.g. -0.10 = -10%)."""
+
+
+# Surface effects table — each surface maps to its modifiers.
+# "hardwood" is the default with no modifications.
+SURFACE_EFFECTS: dict[str, SurfaceModifiers] = {
+    "hardwood": SurfaceModifiers(),
+    "grass": SurfaceModifiers(
+        speed_at_rim_modifier=-0.10,    # -10% at_rim weight (speed penalty)
+        stamina_drain_multiplier=1.20,  # +20% stamina drain
+        turnover_rate_modifier=0.05,    # +5% turnover rate
+    ),
+    "sand": SurfaceModifiers(
+        speed_at_rim_modifier=-0.20,    # -20% at_rim weight (heavy speed penalty)
+        stamina_drain_multiplier=1.40,  # +40% stamina drain
+        three_point_weight_modifier=0.10,  # +10% three-point weight (shoot from outside)
+    ),
+    "ice": SurfaceModifiers(
+        turnover_rate_modifier=0.15,    # +15% turnover rate (slippery)
+        shot_probability_modifier=-0.05,  # -5% all shot probabilities
+        speed_at_rim_modifier=0.10,     # +10% at_rim weight (sliding momentum)
+    ),
+    "clay": SurfaceModifiers(
+        mid_range_weight_modifier=0.10,  # +10% mid_range weight
+        stamina_drain_multiplier=1.10,  # +10% stamina drain
+    ),
+}
+
+
+def get_surface_modifiers(surface: str) -> SurfaceModifiers:
+    """Look up surface modifiers for a venue surface type.
+
+    Unknown surfaces are treated as hardwood (no modifiers).
+    """
+    return SURFACE_EFFECTS.get(surface, SurfaceModifiers())
 
 
 @dataclass
@@ -84,8 +148,14 @@ def select_action(
     rules: RuleSet,
     rng: random.Random,
     effect_biases: PossessionContext | None = None,
+    surface: SurfaceModifiers | None = None,
 ) -> ShotType:
-    """Select shot type based on handler attributes and game state."""
+    """Select shot type based on handler attributes and game state.
+
+    Surface modifiers adjust shot selection weights: speed_at_rim_modifier
+    scales the speed component of at_rim, while the per-type weight modifiers
+    are additive percentages of the pre-surface weight.
+    """
     scoring = handler.current_attributes.scoring
     speed = handler.current_attributes.speed
     iq = handler.current_attributes.iq
@@ -96,11 +166,23 @@ def select_action(
     distance_from_default = rules.three_point_distance - 22.15
     three_distance_penalty = distance_from_default * 2.0
 
+    # Surface modifier on the speed component of at_rim weight.
+    # e.g. grass (-0.10) reduces the speed*0.3 term by 10%.
+    speed_at_rim = speed * 0.3
+    if surface:
+        speed_at_rim *= 1.0 + surface.speed_at_rim_modifier
+
     weights = {
-        "at_rim": 30.0 + speed * 0.3,
+        "at_rim": 30.0 + speed_at_rim,
         "mid_range": 25.0 + iq * 0.2,
         "three_point": 20.0 + scoring * 0.3 - three_distance_penalty,
     }
+
+    # Apply surface weight modifiers (additive percentage of pre-surface weight)
+    if surface:
+        weights["at_rim"] += weights["at_rim"] * surface.at_rim_weight_modifier
+        weights["mid_range"] += weights["mid_range"] * surface.mid_range_weight_modifier
+        weights["three_point"] += weights["three_point"] * surface.three_point_weight_modifier
 
     # Apply team strategy biases
     strategy = game_state.offense_strategy
@@ -169,7 +251,7 @@ def check_foul(
     """Check if the defender commits a foul.
 
     The base foul rate is scaled by rules.foul_rate_modifier (default 1.0).
-    Higher defensive_intensity (positive) increases foul rate — tighter defense
+    Higher defensive_intensity (positive) increases foul rate --- tighter defense
     means more contact. Only positive intensity adds fouls; relaxed defense
     (negative intensity) does not reduce fouls below the base rate.
     """
@@ -196,9 +278,9 @@ def attempt_rebound(
     The offensive rebound base weight is governed by rules.offensive_rebound_weight
     (default 5.0) while defensive is fixed at 10.0.
 
-    **Fate — lucky bounces:** High-Fate offensive players get a bonus to
+    **Fate --- lucky bounces:** High-Fate offensive players get a bonus to
     offensive rebound weight, representing fortunate ball bounces.
-    ``fate_bonus = (fate / 100.0) * 3.0`` — a Fate-90 player adds +2.7
+    ``fate_bonus = (fate / 100.0) * 3.0`` --- a Fate-90 player adds +2.7
     to their offensive rebound weight.
     """
     all_players = [(a, True) for a in offense] + [(a, False) for a in defense]
@@ -216,7 +298,7 @@ def attempt_rebound(
         base += agent.current_attributes.defense * 0.2
         base += agent.current_attributes.speed * 0.1
         base += agent.current_attributes.stamina * 50 * 0.1
-        # Fate — lucky bounces: high-Fate offensive players get lucky bounces
+        # Fate --- lucky bounces: high-Fate offensive players get lucky bounces
         if is_off:
             fate = agent.hooper.attributes.fate
             base += (fate / 100.0) * 3.0
@@ -234,7 +316,7 @@ def check_shot_clock_violation(
 ) -> bool:
     """Check if the offense commits a shot clock violation.
 
-    Strong defense + low IQ + fatigue → higher chance of not getting a shot off.
+    Strong defense + low IQ + fatigue -> higher chance of not getting a shot off.
     """
     base_rate = 0.02
     # Aggressive schemes make it harder to get a shot off
@@ -262,20 +344,24 @@ def drain_stamina(
     pace_modifier: float = 1.0,
     is_away: bool = False,
     altitude_ft: int = 0,
+    surface_stamina_multiplier: float = 1.0,
 ) -> None:
     """Drain stamina for all agents after a possession.
 
     Base drain rate is governed by rules.stamina_drain_rate (default 0.007).
 
-    Higher defensive_intensity increases stamina drain for defenders — playing
+    Higher defensive_intensity increases stamina drain for defenders --- playing
     tighter defense is more physically demanding.
 
-    Faster pace (pace_modifier < 1.0) increases stamina drain for both teams —
+    Faster pace (pace_modifier < 1.0) increases stamina drain for both teams ---
     faster possessions mean more physical effort per unit of game time.
 
     When home_court_enabled, away teams drain extra stamina (away_fatigue_factor).
     High-altitude venues (altitude_ft) add stamina drain scaled by
     rules.altitude_stamina_penalty.
+
+    surface_stamina_multiplier scales the total drain by the venue surface factor
+    (e.g. 1.2 for grass = +20% drain, 1.4 for sand = +40% drain).
     """
     base_drain = rules.stamina_drain_rate if rules else 0.007
     scheme_drain = SCHEME_STAMINA_COST[scheme] if is_defense else 0.003
@@ -298,7 +384,9 @@ def drain_stamina(
             base_drain + scheme_drain + intensity_drain + pace_drain
             + away_drain + altitude_drain - recovery
         )
-        agent.current_stamina = max(0.15, agent.current_stamina - max(0, drain))
+        # Apply surface stamina multiplier to positive drain only
+        drain = max(0, drain) * surface_stamina_multiplier
+        agent.current_stamina = max(0.15, agent.current_stamina - drain)
 
 
 def compute_possession_duration(
@@ -336,7 +424,7 @@ def resolve_possession(
     pace = off_strategy.pace_modifier if off_strategy else 1.0
     def_intensity = def_strategy.defensive_intensity if def_strategy else 0.0
 
-    # Home court advantage modifiers — computed once per possession
+    # Home court advantage modifiers --- computed once per possession
     offense_is_away = not game_state.home_has_ball
     hc_enabled = rules.home_court_enabled
     # Shot probability boost for the home team only (away team is unmodified)
@@ -347,6 +435,10 @@ def resolve_possession(
     crowd_pressure_mod = rules.crowd_pressure if (hc_enabled and offense_is_away) else 0.0
     # Altitude and away fatigue data for drain_stamina
     altitude = game_state.home_venue_altitude_ft
+
+    # Surface modifiers --- derived from home venue's playing surface.
+    # Affects both teams equally (it's the court everyone plays on).
+    surface_mods = get_surface_modifiers(game_state.home_venue_surface)
 
     # Consume clock time first (consistent RNG position)
     time_used = compute_possession_duration(rules, rng, pace_modifier=pace)
@@ -413,11 +505,13 @@ def resolve_possession(
                     offense, scheme, is_defense=False, rules=rules,
                     pace_modifier=pace,
                     is_away=offense_is_away, altitude_ft=altitude,
+                    surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
                 )
                 drain_stamina(
                     defense, scheme, is_defense=True, rules=rules,
                     defensive_intensity=def_intensity, pace_modifier=pace,
                     is_away=not offense_is_away, altitude_ft=altitude,
+                    surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
                 )
                 game_state.last_action = "turnover"
                 game_state.last_result = "turnover"
@@ -448,10 +542,10 @@ def resolve_possession(
                     log=log,
                 )
 
-    # 3. Check turnover (live-ball: steal) — with effect + crowd pressure modifiers
+    # 3. Check turnover (live-ball: steal) --- with effect + crowd + surface modifiers
     if check_turnover(
         handler, scheme, rng, rules=rules,
-        effect_turnover_modifier=ctx.turnover_modifier,
+        effect_turnover_modifier=ctx.turnover_modifier + surface_mods.turnover_rate_modifier,
         crowd_pressure_modifier=crowd_pressure_mod,
     ):
         stealer = rng.choice(defense)
@@ -461,11 +555,13 @@ def resolve_possession(
             offense, scheme, is_defense=False, rules=rules,
             pace_modifier=pace,
             is_away=offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
         drain_stamina(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
             is_away=not offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
 
         # Update cross-possession tracking
@@ -505,11 +601,13 @@ def resolve_possession(
             offense, scheme, is_defense=False, rules=rules,
             pace_modifier=pace,
             is_away=offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
         drain_stamina(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
             is_away=not offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
 
         # Update cross-possession tracking
@@ -541,8 +639,10 @@ def resolve_possession(
             log=log,
         )
 
-    # 4. Select action — with effect biases
-    shot_type = select_action(handler, game_state, rules, rng, effect_biases=ctx)
+    # 4. Select action --- with effect biases + surface modifiers
+    shot_type = select_action(
+        handler, game_state, rules, rng, effect_biases=ctx, surface=surface_mods,
+    )
 
     # 4b. Flow control from governance effects
     if ctx.block_action:
@@ -553,11 +653,13 @@ def resolve_possession(
         drain_stamina(
             offense, scheme, is_defense=False, rules=rules, pace_modifier=pace,
             is_away=offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
         drain_stamina(
             defense, scheme, is_defense=True, rules=rules,
             defensive_intensity=def_intensity, pace_modifier=pace,
             is_away=not offense_is_away, altitude_ft=altitude,
+            surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
         team_id = (
             game_state.home_agents[0].hooper.team_id
@@ -619,8 +721,17 @@ def resolve_possession(
         handler, primary_defender, shot_type, scheme_mod, rules,
         score_differential=score_diff,
     )
-    # Apply effect-driven shot probability modifier + home crowd boost
-    prob = max(0.01, min(0.99, base_prob + ctx.shot_probability_modifier + home_crowd_shot_mod))
+    # Apply effect-driven shot probability modifier + home crowd boost + surface
+    prob = max(
+        0.01,
+        min(
+            0.99,
+            base_prob
+            + ctx.shot_probability_modifier
+            + home_crowd_shot_mod
+            + surface_mods.shot_probability_modifier,
+        ),
+    )
 
     # 7a. Apply offensive move modifier (first triggered move wins)
     if triggered:
@@ -629,7 +740,7 @@ def resolve_possession(
         handler.moves_activated.append(move_name)
         prob = apply_move_modifier(move, prob, rng)
 
-    # 7b. Apply defensive move modifiers — these stack on top of offensive moves
+    # 7b. Apply defensive move modifiers --- these stack on top of offensive moves
     for def_move in def_triggered:
         primary_defender.moves_activated.append(def_move.name)
         prob = apply_move_modifier(def_move, prob, rng)
@@ -719,16 +830,18 @@ def resolve_possession(
         else:
             game_state.away_score += pts
 
-    # 13. Drain stamina — with extra drain from effects + home court modifiers
+    # 13. Drain stamina --- with extra drain from effects + home court + surface modifiers
     drain_stamina(
         offense, scheme, is_defense=False, rules=rules,
         pace_modifier=pace,
         is_away=offense_is_away, altitude_ft=altitude,
+        surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
     )
     drain_stamina(
         defense, scheme, is_defense=True, rules=rules,
         defensive_intensity=def_intensity, pace_modifier=pace,
         is_away=not offense_is_away, altitude_ft=altitude,
+        surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
     )
     # Extra stamina drain on ball handler from effects
     if ctx.extra_stamina_drain > 0.0:

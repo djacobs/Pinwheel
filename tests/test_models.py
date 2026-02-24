@@ -12,7 +12,7 @@ from pinwheel.models.game import (
 from pinwheel.models.governance import Amendment, GovernanceEvent, Proposal, Vote
 from pinwheel.models.report import Report, ReportUpdate
 from pinwheel.models.rules import DEFAULT_RULESET, RuleChange, RuleSet
-from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue, suppress_budget_check
 from pinwheel.models.tokens import TokenBalance, Trade
 
 # --- RuleSet ---
@@ -94,6 +94,131 @@ class TestPlayerAttributes:
                 chaotic_alignment=20,
                 fate=28,
             )
+
+    def test_budget_enforced_exact(self):
+        """Total of exactly 360 is accepted."""
+        attrs = PlayerAttributes(
+            scoring=80,
+            passing=40,
+            defense=25,
+            speed=50,
+            stamina=30,
+            iq=55,
+            ego=32,
+            chaotic_alignment=20,
+            fate=28,
+        )
+        assert attrs.total() == 360
+
+    def test_budget_enforced_within_variance(self):
+        """Totals within +/- 10 of 360 are accepted."""
+        # Total = 350 (lower bound)
+        attrs_low = PlayerAttributes(
+            scoring=80,
+            passing=40,
+            defense=25,
+            speed=40,
+            stamina=30,
+            iq=55,
+            ego=32,
+            chaotic_alignment=20,
+            fate=28,
+        )
+        assert attrs_low.total() == 350
+
+        # Total = 370 (upper bound)
+        attrs_high = PlayerAttributes(
+            scoring=80,
+            passing=40,
+            defense=25,
+            speed=60,
+            stamina=30,
+            iq=55,
+            ego=32,
+            chaotic_alignment=20,
+            fate=28,
+        )
+        assert attrs_high.total() == 370
+
+    def test_budget_rejects_too_low(self):
+        """Total below 350 is rejected."""
+        with pytest.raises(ValidationError, match="Attribute total 349"):
+            PlayerAttributes(
+                scoring=80,
+                passing=40,
+                defense=25,
+                speed=39,
+                stamina=30,
+                iq=55,
+                ego=32,
+                chaotic_alignment=20,
+                fate=28,
+            )
+
+    def test_budget_rejects_too_high(self):
+        """Total above 370 is rejected."""
+        with pytest.raises(ValidationError, match="Attribute total 371"):
+            PlayerAttributes(
+                scoring=80,
+                passing=40,
+                defense=25,
+                speed=61,
+                stamina=30,
+                iq=55,
+                ego=32,
+                chaotic_alignment=20,
+                fate=28,
+            )
+
+    def test_model_construct_bypasses_budget(self):
+        """model_construct() allows arbitrary totals (for runtime use)."""
+        attrs = PlayerAttributes.model_construct(
+            scoring=100,
+            passing=100,
+            defense=100,
+            speed=100,
+            stamina=100,
+            iq=100,
+            ego=100,
+            chaotic_alignment=100,
+            fate=100,
+        )
+        assert attrs.total() == 900
+
+    def test_suppress_budget_check_context_manager(self):
+        """suppress_budget_check() allows arbitrary totals within context."""
+        with suppress_budget_check():
+            attrs = PlayerAttributes(
+                scoring=100,
+                passing=100,
+                defense=100,
+                speed=100,
+                stamina=100,
+                iq=100,
+                ego=100,
+                chaotic_alignment=100,
+                fate=100,
+            )
+        assert attrs.total() == 900
+
+        # Outside context, validation is active again
+        with pytest.raises(ValidationError):
+            PlayerAttributes(
+                scoring=100,
+                passing=100,
+                defense=100,
+                speed=100,
+                stamina=100,
+                iq=100,
+                ego=100,
+                chaotic_alignment=100,
+                fate=100,
+            )
+
+    def test_budget_configurable_via_class_vars(self):
+        """BUDGET and VARIANCE class vars control the allowed range."""
+        assert PlayerAttributes.BUDGET == 360
+        assert PlayerAttributes.VARIANCE == 10
 
 
 class TestTeamModels:

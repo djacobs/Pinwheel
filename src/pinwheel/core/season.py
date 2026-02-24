@@ -920,15 +920,112 @@ async def close_offseason(
         len(tallies),
     )
 
-    # Transition to COMPLETE
-    await transition_season(repo, season_id, SeasonPhase.COMPLETE, event_bus=event_bus)
-
-    # Archive the season (non-fatal — failure doesn't block COMPLETE transition)
+    # Generate offseason report before archiving
     try:
-        await archive_season(repo, season_id, api_key=api_key, event_bus=event_bus)
-        logger.info("close_offseason_archived season=%s", season_id)
-    except Exception:  # Last-resort handler — AI (Anthropic) and DB errors in archive_season
-        logger.exception("close_offseason_archive_failed season=%s", season_id)
+        from pinwheel.ai.report import (
+            generate_offseason_report,
+            generate_offseason_report_mock,
+        )
+
+        offseason_data: dict[str, object] = {
+            "season_id": season_id,
+            "offseason_proposals": len(tallies),
+            "rules_enacted": len(
+                [t for t in tallies if t.passed]
+            ),
+        }
+
+        # Identify carried and reset rules
+        current_ruleset = RuleSet(
+            **(season.current_ruleset or {})
+        )
+        default_ruleset = RuleSet()
+        rules_carried: list[dict[str, object]] = []
+        rules_reset: list[dict[str, object]] = []
+        for field_name in RuleSet.model_fields:
+            current_val = getattr(
+                current_ruleset, field_name
+            )
+            default_val = getattr(
+                default_ruleset, field_name
+            )
+            if current_val != default_val:
+                rules_carried.append({
+                    "parameter": field_name,
+                    "value": current_val,
+                    "default": default_val,
+                })
+            else:
+                rules_reset.append({
+                    "parameter": field_name,
+                    "value": default_val,
+                })
+        offseason_data["rules_carried"] = rules_carried
+        offseason_data["rules_reset"] = rules_reset
+
+        config = season.config or {}
+        if config.get("champion_team_name"):
+            offseason_data["champion_team_name"] = (
+                config["champion_team_name"]
+            )
+
+        if api_key:
+            offseason_rpt = await generate_offseason_report(
+                offseason_data, season_id, api_key,
+            )
+        else:
+            offseason_rpt = generate_offseason_report_mock(
+                offseason_data, season_id,
+            )
+        await repo.store_report(
+            season_id=season_id,
+            report_type="offseason",
+            round_number=last_round,
+            content=offseason_rpt.content,
+        )
+        logger.info(
+            "offseason_report_generated season=%s",
+            season_id,
+        )
+
+        if event_bus:
+            await event_bus.publish(
+                "report.generated",
+                {
+                    "report_type": "offseason",
+                    "season_id": season_id,
+                    "excerpt": offseason_rpt.content[:200],
+                },
+            )
+    except Exception:
+        logger.exception(
+            "offseason_report_failed season=%s", season_id
+        )
+
+    # Transition to COMPLETE
+    await transition_season(
+        repo,
+        season_id,
+        SeasonPhase.COMPLETE,
+        event_bus=event_bus,
+    )
+
+    # Archive the season
+    try:
+        await archive_season(
+            repo,
+            season_id,
+            api_key=api_key,
+            event_bus=event_bus,
+        )
+        logger.info(
+            "close_offseason_archived season=%s", season_id
+        )
+    except Exception:
+        logger.exception(
+            "close_offseason_archive_failed season=%s",
+            season_id,
+        )
 
     if event_bus:
         await event_bus.publish(

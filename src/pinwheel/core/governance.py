@@ -2,6 +2,15 @@
 
 All governance state is derived from the append-only event store.
 This module contains pure business logic; database access goes through Repository.
+
+# TODO(security): Anomaly alerting — add monitoring for:
+#   - High rejection rates from a single governor (possible probing)
+#   - Proposals with unusual character patterns post-sanitization
+#   - Interpreter output that doesn't match input's apparent intent
+#   - Sudden changes to high-impact parameters
+#   See SECURITY.md Layer 5 for the full signal list. This is a process/ops
+#   item that requires structured logging analysis or a lightweight alerting
+#   integration (e.g., Discord webhook to admin channel on anomaly).
 """
 
 from __future__ import annotations
@@ -36,22 +45,61 @@ if TYPE_CHECKING:
 # --- Input Sanitization ---
 
 
+def remove_invisible_chars(text: str) -> str:
+    """Remove zero-width, directional, and invisible Unicode characters.
+
+    Covers: C0/C1 control characters, zero-width spaces/joiners,
+    directional overrides and isolates, invisible operators, BOM,
+    and other formatting characters that could embed hidden instructions.
+    """
+    return re.sub(
+        r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f"
+        r"\u200b-\u200f"          # zero-width space, joiners, directional marks
+        r"\u2028-\u202f"          # line/paragraph separators, directional overrides
+        r"\u2060-\u2064"          # invisible operators (word joiner, etc.)
+        r"\u2066-\u206f"          # directional isolates, deprecated formatting
+        r"\ufeff"                 # BOM / zero-width no-break space
+        r"\ufff9-\ufffb"         # interlinear annotation anchors
+        r"]",
+        "",
+        text,
+    )
+
+
+def strip_prompt_markers(text: str) -> str:
+    """Remove prompt injection markers — both plain-text and XML-style.
+
+    Strips patterns like "System:", "Human:", "Assistant:" (case-insensitive)
+    that could trick an LLM into treating user text as system instructions.
+    Also strips triple-backtick code fences used to break out of delimiters.
+    """
+    # Plain-text role markers (case-insensitive, at word boundary)
+    text = re.sub(
+        r"\b(System|Human|User|Assistant|Claude)\s*:",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Triple-backtick fences (could break out of markdown delimiters)
+    text = text.replace("```", "")
+    return text
+
+
 def sanitize_text(raw: str, max_length: int = 500) -> str:
     """Strip dangerous content from governor-submitted text.
 
-    Removes: invisible chars, HTML/markdown markup, prompt injection markers.
-    Enforces max length.
+    Pipeline: invisible chars -> HTML tags -> prompt markers -> whitespace -> length.
+    This is the single entry point for all governor-submitted text sanitization.
     """
-    # Strip invisible Unicode
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202f\ufeff]", "", raw)
-    # Strip HTML tags
+    # 1. Strip invisible Unicode (zero-width, directional, formatting)
+    text = remove_invisible_chars(raw)
+    # 2. Strip HTML/XML tags
     text = re.sub(r"<[^>]+>", "", text)
-    # Strip common prompt injection markers
-    for marker in ["<system>", "</system>", "<human>", "</human>", "<assistant>", "</assistant>"]:
-        text = text.replace(marker, "")
-    # Collapse whitespace
+    # 3. Strip prompt injection markers (plain-text and XML-style)
+    text = strip_prompt_markers(text)
+    # 4. Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
-    # Enforce length
+    # 5. Enforce length
     return text[:max_length]
 
 

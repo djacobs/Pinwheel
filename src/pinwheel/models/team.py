@@ -5,13 +5,50 @@ See docs/product/GLOSSARY.md: Team, Hooper, Archetype, Venue, Move.
 
 from __future__ import annotations
 
-from typing import Literal
+import threading
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+# Thread-safe flag to suppress budget validation in runtime contexts
+# (stamina degradation, effect-generated hoopers, DB deserialization).
+_budget_check_suppressed = threading.local()
+
+
+@contextmanager
+def suppress_budget_check() -> Generator[None, None, None]:
+    """Context manager to temporarily suppress the 360-point budget validator.
+
+    Use this when creating PlayerAttributes for runtime-derived values
+    (stamina-degraded attributes, effect-generated hoopers, test fixtures)
+    that legitimately fall outside the standard 360-point budget::
+
+        with suppress_budget_check():
+            attrs = PlayerAttributes(scoring=99, passing=99, ...)
+    """
+    _budget_check_suppressed.active = True
+    try:
+        yield
+    finally:
+        _budget_check_suppressed.active = False
 
 
 class PlayerAttributes(BaseModel):
-    """Nine attributes that define a Hooper's capabilities. Budget: 360 points."""
+    """Nine attributes that define a Hooper's capabilities. Budget: 360 points.
+
+    The model enforces a 360-point total budget (+/- 10 variance) via a
+    ``model_validator``. To bypass budget enforcement for runtime-derived
+    attributes (stamina degradation, effects, test fixtures), either:
+
+    - Use ``model_construct()`` which skips all validation entirely, or
+    - Wrap creation in ``with suppress_budget_check():`` to skip only the
+      budget check while keeping field-level validation (ge=1, le=100).
+    """
+
+    BUDGET: ClassVar[int] = 360
+    VARIANCE: ClassVar[int] = 10
 
     scoring: int = Field(ge=1, le=100)
     passing: int = Field(ge=1, le=100)
@@ -26,6 +63,26 @@ class PlayerAttributes(BaseModel):
     def total(self) -> int:
         """Sum of all attribute points."""
         return sum(self.model_dump().values())
+
+    @model_validator(mode="after")
+    def _enforce_budget(self) -> PlayerAttributes:
+        """Enforce that total attribute points are within budget +/- variance.
+
+        Budget (default 360) and variance (default 10) are configurable via
+        class variables BUDGET and VARIANCE. The allowed range is
+        [BUDGET - VARIANCE, BUDGET + VARIANCE] inclusive.
+        """
+        if getattr(_budget_check_suppressed, "active", False):
+            return self
+        lo = self.BUDGET - self.VARIANCE
+        hi = self.BUDGET + self.VARIANCE
+        t = self.total()
+        if t < lo or t > hi:
+            raise ValueError(
+                f"Attribute total {t} outside allowed range "
+                f"[{lo}, {hi}] (budget={self.BUDGET}, variance={self.VARIANCE})"
+            )
+        return self
 
 
 class Move(BaseModel):

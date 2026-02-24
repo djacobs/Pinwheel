@@ -7,6 +7,15 @@
   <div class="team-color-dot tc-dot" style="--tc: {{ team.color }};"></div>
   <div class="team-info">
     <h1>{{ team.name }}</h1>
+    {% if followed_team_id == team.id %}
+    <button class="follow-btn follow-btn--following"
+            hx-delete="/api/teams/{{ team.id }}/follow"
+            hx-swap="outerHTML">Following</button>
+    {% else %}
+    <button class="follow-btn"
+            hx-post="/api/teams/{{ team.id }}/follow"
+            hx-swap="outerHTML">Follow</button>
+    {% endif %}
     {% if team_standings %}
     <div class="team-record mono" style="color: var(--accent-score); font-weight:700; font-size:0.9rem;">
       {{ team_standings.wins }}-{{ team_standings.losses }}

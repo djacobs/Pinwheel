@@ -40,7 +40,9 @@ def _make_attrs(
     chaotic: int = 20,
     fate: int = 30,
 ) -> PlayerAttributes:
-    return PlayerAttributes(
+    # Use model_construct to bypass the 360-point budget validator.
+    # Tests routinely create extreme stat profiles to isolate mechanics.
+    return PlayerAttributes.model_construct(
         scoring=scoring,
         passing=passing,
         defense=defense,
@@ -60,11 +62,13 @@ def _make_hooper(
     is_starter: bool = True,
     moves: list[Move] | None = None,
 ) -> Hooper:
-    return Hooper(
+    # Use model_construct to bypass nested PlayerAttributes re-validation.
+    return Hooper.model_construct(
         id=hooper_id,
         name=f"Hooper-{hooper_id}",
         team_id=team_id,
         archetype="sharpshooter",
+        backstory="",
         attributes=attrs or _make_attrs(),
         is_starter=is_starter,
         moves=moves or [],
@@ -1148,3 +1152,432 @@ class TestAllMovesHaveBranches:
             assert found_change, (
                 f"Move '{move.name}' never modified probability across 200 seeds"
             )
+
+
+# --- Surface Modifiers ---
+
+
+class TestSurfaceModifiers:
+    """Tests for venue surface effects on gameplay."""
+
+    def test_get_surface_modifiers_hardwood_no_effect(self):
+        """Hardwood is the default surface with no modifications."""
+        from pinwheel.core.possession import get_surface_modifiers
+
+        mods = get_surface_modifiers("hardwood")
+        assert mods.at_rim_weight_modifier == 0.0
+        assert mods.mid_range_weight_modifier == 0.0
+        assert mods.three_point_weight_modifier == 0.0
+        assert mods.stamina_drain_multiplier == 1.0
+        assert mods.turnover_rate_modifier == 0.0
+        assert mods.shot_probability_modifier == 0.0
+        assert mods.speed_at_rim_modifier == 0.0
+
+    def test_get_surface_modifiers_unknown_defaults_to_hardwood(self):
+        """Unknown surfaces are treated as hardwood (no modifiers)."""
+        from pinwheel.core.possession import SurfaceModifiers, get_surface_modifiers
+
+        mods = get_surface_modifiers("lava")
+        assert mods == SurfaceModifiers()
+
+    def test_grass_surface_values(self):
+        """Grass: speed penalty, stamina drain +20%, turnover +5%."""
+        from pinwheel.core.possession import get_surface_modifiers
+
+        mods = get_surface_modifiers("grass")
+        assert mods.speed_at_rim_modifier == -0.10
+        assert mods.stamina_drain_multiplier == 1.20
+        assert mods.turnover_rate_modifier == 0.05
+
+    def test_sand_surface_values(self):
+        """Sand: heavy speed penalty, stamina drain +40%, three-point weight +10%."""
+        from pinwheel.core.possession import get_surface_modifiers
+
+        mods = get_surface_modifiers("sand")
+        assert mods.speed_at_rim_modifier == -0.20
+        assert mods.stamina_drain_multiplier == 1.40
+        assert mods.three_point_weight_modifier == 0.10
+
+    def test_ice_surface_values(self):
+        """Ice: turnover +15%, shot prob -5%, speed at rim +10%."""
+        from pinwheel.core.possession import get_surface_modifiers
+
+        mods = get_surface_modifiers("ice")
+        assert mods.turnover_rate_modifier == 0.15
+        assert mods.shot_probability_modifier == -0.05
+        assert mods.speed_at_rim_modifier == 0.10
+
+    def test_clay_surface_values(self):
+        """Clay: mid-range bonus +10%, stamina drain +10%."""
+        from pinwheel.core.possession import get_surface_modifiers
+
+        mods = get_surface_modifiers("clay")
+        assert mods.mid_range_weight_modifier == 0.10
+        assert mods.stamina_drain_multiplier == 1.10
+
+    def test_surface_stored_in_game_state(self):
+        """GameState carries home_venue_surface from the home team's venue."""
+        home_team = _make_team("home")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home_team.hoopers if h.is_starter],
+            away_agents=[HooperState(hooper=h) for h in home_team.hoopers if h.is_starter],
+            home_venue_surface="sand",
+        )
+        assert gs.home_venue_surface == "sand"
+
+    def test_surface_defaults_to_hardwood(self):
+        """GameState defaults to hardwood if not specified."""
+        home_team = _make_team("home")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home_team.hoopers if h.is_starter],
+            away_agents=[HooperState(hooper=h) for h in home_team.hoopers if h.is_starter],
+        )
+        assert gs.home_venue_surface == "hardwood"
+
+
+class TestSurfaceSelectAction:
+    """Tests that surface modifiers affect shot selection weights."""
+
+    def test_grass_reduces_at_rim_weight(self):
+        """Grass surface should reduce at_rim selection due to speed penalty."""
+        from pinwheel.core.possession import get_surface_modifiers, select_action
+
+        rules = RuleSet()
+        handler = HooperState(hooper=_make_hooper(attrs=_make_attrs(speed=80, scoring=40, iq=40)))
+
+        def _count_at_rim(surface_name: str, n: int = 1000) -> int:
+            surface = get_surface_modifiers(surface_name)
+            count = 0
+            for seed in range(n):
+                gs = GameState(
+                    home_agents=[handler],
+                    away_agents=[HooperState(hooper=_make_hooper("d1"))],
+                )
+                rng = random.Random(seed)
+                action = select_action(handler, gs, rules, rng, surface=surface)
+                if action == "at_rim":
+                    count += 1
+            return count
+
+        hardwood_at_rim = _count_at_rim("hardwood")
+        grass_at_rim = _count_at_rim("grass")
+        assert grass_at_rim < hardwood_at_rim
+
+    def test_sand_increases_three_point_weight(self):
+        """Sand surface should increase three-point selection."""
+        from pinwheel.core.possession import get_surface_modifiers, select_action
+
+        rules = RuleSet()
+        handler = HooperState(hooper=_make_hooper(attrs=_make_attrs(scoring=60, speed=60, iq=40)))
+
+        def _count_threes(surface_name: str, n: int = 1000) -> int:
+            surface = get_surface_modifiers(surface_name)
+            count = 0
+            for seed in range(n):
+                gs = GameState(
+                    home_agents=[handler],
+                    away_agents=[HooperState(hooper=_make_hooper("d1"))],
+                )
+                rng = random.Random(seed)
+                action = select_action(handler, gs, rules, rng, surface=surface)
+                if action == "three_point":
+                    count += 1
+            return count
+
+        hardwood_threes = _count_threes("hardwood")
+        sand_threes = _count_threes("sand")
+        assert sand_threes > hardwood_threes
+
+    def test_ice_increases_at_rim_weight_via_speed_bonus(self):
+        """Ice surface gives +10% speed at rim (sliding momentum)."""
+        from pinwheel.core.possession import get_surface_modifiers, select_action
+
+        rules = RuleSet()
+        handler = HooperState(hooper=_make_hooper(attrs=_make_attrs(speed=80, scoring=30, iq=30)))
+
+        def _count_at_rim(surface_name: str, n: int = 1000) -> int:
+            surface = get_surface_modifiers(surface_name)
+            count = 0
+            for seed in range(n):
+                gs = GameState(
+                    home_agents=[handler],
+                    away_agents=[HooperState(hooper=_make_hooper("d1"))],
+                )
+                rng = random.Random(seed)
+                action = select_action(handler, gs, rules, rng, surface=surface)
+                if action == "at_rim":
+                    count += 1
+            return count
+
+        hardwood_at_rim = _count_at_rim("hardwood")
+        ice_at_rim = _count_at_rim("ice")
+        assert ice_at_rim > hardwood_at_rim
+
+    def test_clay_increases_mid_range_weight(self):
+        """Clay surface should increase mid-range selection."""
+        from pinwheel.core.possession import get_surface_modifiers, select_action
+
+        rules = RuleSet()
+        handler = HooperState(hooper=_make_hooper(attrs=_make_attrs(iq=60, speed=40, scoring=40)))
+
+        def _count_mid(surface_name: str, n: int = 1000) -> int:
+            surface = get_surface_modifiers(surface_name)
+            count = 0
+            for seed in range(n):
+                gs = GameState(
+                    home_agents=[handler],
+                    away_agents=[HooperState(hooper=_make_hooper("d1"))],
+                )
+                rng = random.Random(seed)
+                action = select_action(handler, gs, rules, rng, surface=surface)
+                if action == "mid_range":
+                    count += 1
+            return count
+
+        hardwood_mid = _count_mid("hardwood")
+        clay_mid = _count_mid("clay")
+        assert clay_mid > hardwood_mid
+
+
+class TestSurfaceTurnover:
+    """Tests that surface modifiers affect turnover rate."""
+
+    def test_grass_increases_turnovers(self):
+        """Grass surface should increase turnover rate (+5%)."""
+        from pinwheel.core.possession import resolve_possession
+
+        rules = RuleSet(home_court_enabled=False)
+
+        def _count_turnovers(surface: str, n: int = 500) -> int:
+            to_count = 0
+            for seed in range(n):
+                home = _make_team("home")
+                away = _make_team("away")
+                gs = GameState(
+                    home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+                    away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+                    home_venue_surface=surface,
+                )
+                rng = random.Random(seed)
+                result = resolve_possession(gs, rules, rng)
+                if result.turnover:
+                    to_count += 1
+            return to_count
+
+        hardwood_to = _count_turnovers("hardwood")
+        grass_to = _count_turnovers("grass")
+        assert grass_to > hardwood_to
+
+    def test_ice_increases_turnovers_more_than_grass(self):
+        """Ice surface should increase turnovers more than grass (+15% vs +5%)."""
+        from pinwheel.core.possession import resolve_possession
+
+        rules = RuleSet(home_court_enabled=False)
+
+        def _count_turnovers(surface: str, n: int = 500) -> int:
+            to_count = 0
+            for seed in range(n):
+                home = _make_team("home")
+                away = _make_team("away")
+                gs = GameState(
+                    home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+                    away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+                    home_venue_surface=surface,
+                )
+                rng = random.Random(seed)
+                result = resolve_possession(gs, rules, rng)
+                if result.turnover:
+                    to_count += 1
+            return to_count
+
+        grass_to = _count_turnovers("grass")
+        ice_to = _count_turnovers("ice")
+        assert ice_to > grass_to
+
+
+class TestSurfaceStaminaDrain:
+    """Tests that surface modifiers affect stamina drain."""
+
+    def test_sand_drains_more_stamina_than_hardwood(self):
+        """Sand surface (1.4x multiplier) should drain stamina faster."""
+        from pinwheel.core.possession import drain_stamina
+
+        rules = RuleSet(home_court_enabled=False)
+
+        def _run_drain(multiplier: float) -> float:
+            agent = HooperState(hooper=_make_hooper(attrs=_make_attrs(stamina=10)))
+            agent.current_stamina = 0.80
+            drain_stamina(
+                [agent], "man_switch", is_defense=False, rules=rules,
+                surface_stamina_multiplier=multiplier,
+            )
+            return agent.current_stamina
+
+        hardwood_stamina = _run_drain(1.0)
+        sand_stamina = _run_drain(1.4)
+        assert sand_stamina < hardwood_stamina
+
+    def test_grass_drains_more_stamina_than_hardwood(self):
+        """Grass surface (1.2x multiplier) should drain stamina faster."""
+        from pinwheel.core.possession import drain_stamina
+
+        rules = RuleSet(home_court_enabled=False)
+
+        def _run_drain(multiplier: float) -> float:
+            agent = HooperState(hooper=_make_hooper(attrs=_make_attrs(stamina=10)))
+            agent.current_stamina = 0.80
+            drain_stamina(
+                [agent], "man_switch", is_defense=False, rules=rules,
+                surface_stamina_multiplier=multiplier,
+            )
+            return agent.current_stamina
+
+        hardwood_stamina = _run_drain(1.0)
+        grass_stamina = _run_drain(1.2)
+        assert grass_stamina < hardwood_stamina
+
+    def test_hardwood_multiplier_is_identity(self):
+        """Hardwood (1.0x) should produce the same drain as no multiplier."""
+        from pinwheel.core.possession import drain_stamina
+
+        rules = RuleSet(home_court_enabled=False)
+
+        agent_default = HooperState(hooper=_make_hooper(attrs=_make_attrs(stamina=10)))
+        agent_default.current_stamina = 0.80
+        drain_stamina([agent_default], "man_switch", is_defense=False, rules=rules)
+
+        agent_hardwood = HooperState(hooper=_make_hooper(attrs=_make_attrs(stamina=10)))
+        agent_hardwood.current_stamina = 0.80
+        drain_stamina(
+            [agent_hardwood], "man_switch", is_defense=False, rules=rules,
+            surface_stamina_multiplier=1.0,
+        )
+        assert agent_default.current_stamina == agent_hardwood.current_stamina
+
+
+class TestSurfaceShotProbability:
+    """Tests that surface modifiers affect shot probability."""
+
+    def test_ice_reduces_shot_probability(self):
+        """Ice surface (-5% shot prob) should reduce scoring."""
+        from pinwheel.core.possession import resolve_possession
+
+        rules = RuleSet(home_court_enabled=False)
+
+        def _total_points(surface: str, n: int = 500) -> int:
+            pts = 0
+            for seed in range(n):
+                home = _make_team("home")
+                away = _make_team("away")
+                gs = GameState(
+                    home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+                    away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+                    home_venue_surface=surface,
+                )
+                rng = random.Random(seed)
+                result = resolve_possession(gs, rules, rng)
+                pts += result.points_scored
+            return pts
+
+        hardwood_pts = _total_points("hardwood")
+        ice_pts = _total_points("ice")
+        assert ice_pts < hardwood_pts
+
+
+class TestSurfaceFullGame:
+    """Full-game integration tests for surface modifiers."""
+
+    def test_simulate_game_passes_surface_to_game_state(self):
+        """simulate_game should propagate home venue surface to GameState."""
+        home_venue = Venue(name="Sand Pit", capacity=5000, surface="sand")
+        home = Team(
+            id="home", name="Home", venue=home_venue,
+            hoopers=[
+                _make_hooper(f"h-s{i}", "home", is_starter=True)
+                for i in range(3)
+            ] + [_make_hooper("h-b0", "home", is_starter=False)],
+        )
+        away = _make_team("away")
+        result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+        assert result.total_possessions > 0
+
+    def test_sand_game_more_threes_than_hardwood(self):
+        """Games on sand should see more three-point attempts."""
+        def _count_three_attempts(surface: str, n_games: int = 30) -> int:
+            total_3pa = 0
+            for seed in range(n_games):
+                home_venue = Venue(name="Court", capacity=5000, surface=surface)
+                home = Team(
+                    id="home", name="Home", venue=home_venue,
+                    hoopers=[
+                        _make_hooper(f"h-s{i}", "home", is_starter=True)
+                        for i in range(3)
+                    ] + [_make_hooper("h-b0", "home", is_starter=False)],
+                )
+                away = _make_team("away")
+                result = simulate_game(home, away, DEFAULT_RULESET, seed=seed)
+                for bs in result.box_scores:
+                    total_3pa += bs.three_pointers_attempted
+            return total_3pa
+
+        hardwood_3pa = _count_three_attempts("hardwood")
+        sand_3pa = _count_three_attempts("sand")
+        assert sand_3pa > hardwood_3pa
+
+    def test_ice_game_more_turnovers_than_hardwood(self):
+        """Games on ice should produce more turnovers (+15% modifier)."""
+        def _count_turnovers(surface: str, n_games: int = 30) -> int:
+            total_to = 0
+            for seed in range(n_games):
+                home_venue = Venue(name="Court", capacity=5000, surface=surface)
+                home = Team(
+                    id="home", name="Home", venue=home_venue,
+                    hoopers=[
+                        _make_hooper(f"h-s{i}", "home", is_starter=True)
+                        for i in range(3)
+                    ] + [_make_hooper("h-b0", "home", is_starter=False)],
+                )
+                away = _make_team("away")
+                result = simulate_game(home, away, DEFAULT_RULESET, seed=seed)
+                for bs in result.box_scores:
+                    total_to += bs.turnovers
+            return total_to
+
+        hardwood_to = _count_turnovers("hardwood")
+        ice_to = _count_turnovers("ice")
+        assert ice_to > hardwood_to
+
+    def test_all_surface_types_complete_game(self):
+        """All defined surface types should produce a valid, complete game."""
+        from pinwheel.core.possession import SURFACE_EFFECTS
+
+        for surface_name in SURFACE_EFFECTS:
+            home_venue = Venue(name="Court", capacity=5000, surface=surface_name)
+            home = Team(
+                id="home", name="Home", venue=home_venue,
+                hoopers=[
+                    _make_hooper(f"h-s{i}", "home", is_starter=True)
+                    for i in range(3)
+                ] + [_make_hooper("h-b0", "home", is_starter=False)],
+            )
+            away = _make_team("away")
+            result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
+            assert result.total_possessions > 0
+            assert result.home_score + result.away_score > 0
+
+    def test_determinism_with_surface(self):
+        """Games on non-standard surfaces should still be deterministic."""
+        home_venue = Venue(name="Ice Rink", capacity=5000, surface="ice")
+        home = Team(
+            id="home", name="Home", venue=home_venue,
+            hoopers=[
+                _make_hooper(f"h-s{i}", "home", is_starter=True)
+                for i in range(3)
+            ] + [_make_hooper("h-b0", "home", is_starter=False)],
+        )
+        away = _make_team("away")
+        r1 = simulate_game(home, away, DEFAULT_RULESET, seed=99)
+        r2 = simulate_game(home, away, DEFAULT_RULESET, seed=99)
+        assert r1.home_score == r2.home_score
+        assert r1.away_score == r2.away_score
+        assert r1.total_possessions == r2.total_possessions

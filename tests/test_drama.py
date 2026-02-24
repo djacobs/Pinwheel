@@ -5,6 +5,7 @@ from __future__ import annotations
 from pinwheel.core.drama import (
     DramaAnnotation,
     annotate_drama,
+    compute_drama_score,
     get_drama_summary,
     normalize_delays,
 )
@@ -695,3 +696,189 @@ class TestIntegrationShapes:
 
         for i, ann in enumerate(annotations):
             assert ann.possession_index == i
+
+
+# ---------------------------------------------------------------------------
+# Test: compute_drama_score — game-level drama score (0.0 - 1.0)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDramaScore:
+    def test_returns_float_between_zero_and_one(self) -> None:
+        """Drama score should always be in [0.0, 1.0]."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=3, home_score=3, away_score=0),
+        ]
+        game = _make_game_result(possessions)
+        score = compute_drama_score(game)
+        assert 0.0 <= score <= 1.0
+
+    def test_empty_game_returns_score(self) -> None:
+        """Empty game (no possessions) should still return a valid score."""
+        game = _make_game_result(possessions=[], home_score=0, away_score=0)
+        score = compute_drama_score(game)
+        assert 0.0 <= score <= 1.0
+
+    def test_blowout_low_drama(self) -> None:
+        """A 30-point blowout with no lead changes should have very low drama."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=i + 1,
+                             offense_team_id="home", points_scored=3,
+                             home_score=3 * (i + 1), away_score=0)
+            for i in range(10)
+        ]
+        game = _make_game_result(possessions, home_score=30, away_score=0)
+        score = compute_drama_score(game)
+        assert score < 0.3
+
+    def test_close_game_higher_drama(self) -> None:
+        """A 1-point game should score higher than a blowout."""
+        blowout_possessions = [
+            _make_possession(quarter=1, possession_number=i + 1,
+                             offense_team_id="home", points_scored=3,
+                             home_score=3 * (i + 1), away_score=0)
+            for i in range(10)
+        ]
+        blowout = _make_game_result(blowout_possessions, home_score=30, away_score=0)
+
+        close_possessions = [
+            _make_possession(quarter=1, possession_number=1,
+                             offense_team_id="home", points_scored=2,
+                             home_score=31, away_score=30),
+        ]
+        close_game = _make_game_result(close_possessions, home_score=31, away_score=30)
+
+        assert compute_drama_score(close_game) > compute_drama_score(blowout)
+
+    def test_lead_changes_increase_drama(self) -> None:
+        """More lead changes should increase drama score."""
+        no_lc_possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=3, home_score=3, away_score=0),
+            _make_possession(quarter=1, possession_number=2, offense_team_id="home",
+                             points_scored=3, home_score=6, away_score=0),
+        ]
+        no_lc_game = _make_game_result(no_lc_possessions, home_score=6, away_score=0)
+
+        lc_possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=3, home_score=3, away_score=0),
+            _make_possession(quarter=1, possession_number=2, offense_team_id="away",
+                             points_scored=5, home_score=3, away_score=5),
+            _make_possession(quarter=1, possession_number=3, offense_team_id="home",
+                             points_scored=3, home_score=6, away_score=5),
+            _make_possession(quarter=1, possession_number=4, offense_team_id="away",
+                             points_scored=3, home_score=6, away_score=8),
+            _make_possession(quarter=1, possession_number=5, offense_team_id="home",
+                             points_scored=3, home_score=9, away_score=8),
+            _make_possession(quarter=1, possession_number=6, offense_team_id="away",
+                             points_scored=3, home_score=9, away_score=11),
+        ]
+        lc_game = _make_game_result(lc_possessions, home_score=9, away_score=11)
+
+        assert compute_drama_score(lc_game) > compute_drama_score(no_lc_game)
+
+    def test_elam_game_higher_drama(self) -> None:
+        """An Elam ending should boost drama compared to a non-Elam game."""
+        possessions = [
+            _make_possession(quarter=4, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=47, away_score=45),
+        ]
+        no_elam = _make_game_result(possessions, home_score=47, away_score=45)
+        with_elam = _make_game_result(
+            possessions, home_score=47, away_score=45, elam_target=48,
+        )
+        assert compute_drama_score(with_elam) > compute_drama_score(no_elam)
+
+    def test_close_elam_higher_than_runaway_elam(self) -> None:
+        """An Elam game where the loser was close to target scores higher."""
+        close_possessions = [
+            _make_possession(quarter=4, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=48, away_score=46),
+        ]
+        close_elam = _make_game_result(
+            close_possessions, home_score=48, away_score=46, elam_target=48,
+        )
+        runaway_possessions = [
+            _make_possession(quarter=4, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=48, away_score=30),
+        ]
+        runaway_elam = _make_game_result(
+            runaway_possessions, home_score=48, away_score=30, elam_target=48,
+        )
+        assert compute_drama_score(close_elam) > compute_drama_score(runaway_elam)
+
+    def test_playoff_higher_than_regular(self) -> None:
+        """Playoff games should score higher than identical regular season games."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=30, away_score=28),
+        ]
+        game = _make_game_result(possessions, home_score=30, away_score=28)
+        regular_score = compute_drama_score(game, is_playoff=False)
+        playoff_score = compute_drama_score(game, is_playoff=True)
+        assert playoff_score > regular_score
+
+    def test_playoff_boost_is_0_2(self) -> None:
+        """Playoff boost should contribute exactly 0.2 to the score."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=20, away_score=10),
+        ]
+        game = _make_game_result(possessions, home_score=20, away_score=10)
+        regular = compute_drama_score(game, is_playoff=False)
+        playoff = compute_drama_score(game, is_playoff=True)
+        assert abs((playoff - regular) - 0.2) < 0.01
+
+    def test_maximum_drama_scenario(self) -> None:
+        """A close Elam playoff game with many lead changes should approach 1.0."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=3, home_score=3, away_score=0),
+            _make_possession(quarter=1, possession_number=2, offense_team_id="away",
+                             points_scored=5, home_score=3, away_score=5),
+            _make_possession(quarter=1, possession_number=3, offense_team_id="home",
+                             points_scored=3, home_score=6, away_score=5),
+            _make_possession(quarter=1, possession_number=4, offense_team_id="away",
+                             points_scored=3, home_score=6, away_score=8),
+            _make_possession(quarter=1, possession_number=5, offense_team_id="home",
+                             points_scored=3, home_score=9, away_score=8),
+            _make_possession(quarter=1, possession_number=6, offense_team_id="away",
+                             points_scored=3, home_score=9, away_score=11),
+            _make_possession(quarter=1, possession_number=7, offense_team_id="home",
+                             points_scored=3, home_score=12, away_score=11),
+            _make_possession(quarter=1, possession_number=8, offense_team_id="away",
+                             points_scored=3, home_score=12, away_score=14),
+            _make_possession(quarter=4, possession_number=9, offense_team_id="home",
+                             points_scored=3, home_score=48, away_score=47),
+        ]
+        game = _make_game_result(
+            possessions, home_score=48, away_score=47, elam_target=48,
+        )
+        score = compute_drama_score(game, is_playoff=True)
+        assert score > 0.7
+
+    def test_score_is_rounded_to_three_decimals(self) -> None:
+        """Drama score should be rounded to 3 decimal places."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=2, home_score=10, away_score=7),
+        ]
+        game = _make_game_result(possessions, home_score=10, away_score=7)
+        score = compute_drama_score(game)
+        assert score == round(score, 3)
+
+    def test_tied_game_through_tie_not_lead_change(self) -> None:
+        """Transitions through a tie should not count as a lead change."""
+        possessions = [
+            _make_possession(quarter=1, possession_number=1, offense_team_id="home",
+                             points_scored=3, home_score=3, away_score=0),
+            _make_possession(quarter=1, possession_number=2, offense_team_id="away",
+                             points_scored=3, home_score=3, away_score=3),
+            _make_possession(quarter=1, possession_number=3, offense_team_id="away",
+                             points_scored=3, home_score=3, away_score=6),
+        ]
+        game = _make_game_result(possessions, home_score=3, away_score=6)
+        score = compute_drama_score(game)
+        assert score < 0.5

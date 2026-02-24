@@ -90,7 +90,7 @@
   </div>
   <div class="scores-strip">
     {% for game in latest_round_games %}
-    <a href="/games/{{ game.id }}" class="score-card">
+    <a href="/games/{{ game.id }}" class="score-card{% if followed_team_id and (followed_team_id == game.home_team_id or followed_team_id == game.away_team_id) %} score-card--followed{% endif %}">
       <div class="sc-teams">
         <div class="sc-team">
           <span class="sc-dot tc-dot" style="--tc: {{ game.home_color }};"></span>
@@ -196,7 +196,7 @@
     </div>
     <div class="mini-standings">
       {% for s in standings %}
-      <a href="/teams/{{ s.team_id }}" class="ms-row">
+      <a href="/teams/{{ s.team_id }}" class="ms-row{% if followed_team_id == s.team_id %} ms-row--followed{% endif %}">
         <span class="ms-rank">{{ loop.index }}</span>
         <span class="ms-dot tc-dot" style="--tc: {{ s.color|default('#888') }};"></span>
         <span class="ms-name">{{ s.team_name }}</span>

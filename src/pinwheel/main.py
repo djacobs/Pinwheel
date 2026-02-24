@@ -9,12 +9,14 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from pinwheel.api.admin_costs import router as admin_costs_router
+from pinwheel.api.admin_perf import router as admin_perf_router
 from pinwheel.api.admin_review import router as admin_review_router
 from pinwheel.api.admin_roster import router as admin_roster_router
 from pinwheel.api.admin_season import router as admin_season_router
 from pinwheel.api.admin_workbench import router as admin_workbench_router
 from pinwheel.api.eval_dashboard import router as eval_dashboard_router
 from pinwheel.api.events import router as events_router
+from pinwheel.api.follow import router as follow_router
 from pinwheel.api.games import router as games_router
 from pinwheel.api.governance import router as governance_router
 from pinwheel.api.pace import router as pace_router
@@ -241,6 +243,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_season_router)
     app.include_router(admin_workbench_router)
     app.include_router(admin_costs_router)
+    app.include_router(admin_perf_router)
+    app.include_router(follow_router)
     app.include_router(pace_router)
     app.include_router(seasons_router)
 

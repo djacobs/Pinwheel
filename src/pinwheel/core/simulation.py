@@ -407,6 +407,7 @@ def simulate_game(
         home_strategy=home_strategy,
         away_strategy=away_strategy,
         home_venue_altitude_ft=home.venue.altitude_ft,
+        home_venue_surface=home.venue.surface,
         travel_distance_miles=travel_distance,
     )
 

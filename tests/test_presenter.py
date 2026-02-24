@@ -502,3 +502,57 @@ async def test_skip_quarters_zero_means_normal():
 
     possession_events = [e for e in bus.events if e[0] == "presentation.possession"]
     assert len(possession_events) == 2  # One from each quarter
+
+
+@pytest.mark.asyncio
+async def test_game_finished_includes_drama_score():
+    """game_finished event should include a drama_score float."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    finished = [e for e in bus.events if e[0] == "presentation.game_finished"]
+    assert len(finished) == 1
+    data = finished[0][1]
+    assert "drama_score" in data
+    assert isinstance(data["drama_score"], float)
+    assert 0.0 <= data["drama_score"] <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_game_finished_drama_score_from_summary():
+    """When game_summaries has drama_score, it should be used in game_finished."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    # Pass game_summaries with a known drama_score
+    summaries = [{"drama_score": 0.777}]
+
+    await present_round(
+        [game], bus, state, quarter_replay_seconds=0.01,
+        game_summaries=summaries,
+    )
+
+    finished = [e for e in bus.events if e[0] == "presentation.game_finished"]
+    assert len(finished) == 1
+    assert finished[0][1]["drama_score"] == 0.777
+
+
+@pytest.mark.asyncio
+async def test_possession_events_include_drama_metadata():
+    """Possession events should include drama_level and drama_tags."""
+    bus = MockEventBus()
+    state = PresentationState()
+    game = _make_game()
+
+    await present_round([game], bus, state, quarter_replay_seconds=0.01)
+
+    possessions = [e for e in bus.events if e[0] == "presentation.possession"]
+    assert len(possessions) > 0
+    for p in possessions:
+        assert "drama_level" in p[1]
+        assert "drama_tags" in p[1]
+        assert p[1]["drama_level"] in ("routine", "elevated", "high", "peak")

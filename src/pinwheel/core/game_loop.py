@@ -49,8 +49,17 @@ from pinwheel.ai.report import (
     generate_series_report_mock,
     generate_simulation_report,
     generate_simulation_report_mock,
+    generate_state_of_the_league,
+    generate_state_of_the_league_mock,
+    generate_tiebreaker_report,
+    generate_tiebreaker_report_mock,
 )
-from pinwheel.core.drama import DramaAnnotation, annotate_drama, get_drama_summary
+from pinwheel.core.drama import (  # noqa: E501
+    DramaAnnotation,
+    annotate_drama,
+    compute_drama_score,
+    get_drama_summary,
+)
 from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import (
@@ -71,29 +80,32 @@ from pinwheel.models.game import GameResult
 from pinwheel.models.governance import EffectSpec, Proposal, Vote, VoteTally
 from pinwheel.models.report import Report
 from pinwheel.models.rules import RuleSet
-from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
+from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue, suppress_budget_check
 
 logger = logging.getLogger(__name__)
 
 
 def _row_to_team(team_row: TeamRow) -> Team:
     """Convert a TeamRow + HooperRows to domain Team model."""
-    hoopers = []
-    for idx, a in enumerate(team_row.hoopers):
-        attrs = PlayerAttributes(**a.attributes)
-        raw_moves = a.moves if hasattr(a, "moves") and a.moves else []
-        moves = [Move(**m) if isinstance(m, dict) else m for m in raw_moves]
-        hoopers.append(
-            Hooper(
-                id=a.id,
-                name=a.name,
-                team_id=a.team_id,
-                archetype=a.archetype,
-                attributes=attrs,
-                moves=moves,
-                is_starter=idx < 3,
+    # suppress_budget_check() bypasses budget validation for DB-persisted
+    # hoopers that may predate the budget enforcement rule.
+    with suppress_budget_check():
+        hoopers = []
+        for idx, a in enumerate(team_row.hoopers):
+            attrs = PlayerAttributes(**a.attributes)
+            raw_moves = a.moves if hasattr(a, "moves") and a.moves else []
+            moves = [Move(**m) if isinstance(m, dict) else m for m in raw_moves]
+            hoopers.append(
+                Hooper(
+                    id=a.id,
+                    name=a.name,
+                    team_id=a.team_id,
+                    archetype=a.archetype,
+                    attributes=attrs,
+                    moves=moves,
+                    is_starter=idx < 3,
+                )
             )
-        )
 
     venue_data = team_row.venue
     venue = Venue(**(venue_data or {"name": "Default Arena"}))
@@ -1368,6 +1380,9 @@ async def _phase_simulate_and_govern(
             "total_possessions": result.total_possessions,
             "playoff_context": playoff_context,
             "series_context": _series_ctx,
+            "drama_score": compute_drama_score(
+                result, is_playoff=playoff_context is not None,
+            ),
         }
 
         game_summaries.append(summary)
@@ -1887,6 +1902,47 @@ async def _phase_ai(
     all_coros.extend(behavioral_coros)  # type: ignore[arg-type]
     _behavioral_end = len(all_coros)
 
+    # State of the League (every 7 rounds = one full round-robin)
+    _sotl_idx: int | None = None
+    if sim.round_number > 0 and sim.round_number % 7 == 0:
+        _sotl_data: dict[str, object] = {
+            "round_number": sim.round_number,
+            "season_id": sim.season_id,
+            "games_this_round": sim.game_summaries,
+            "governance_activity": sim.governance_data,
+        }
+        if narrative and narrative.standings:
+            _sotl_data["standings"] = narrative.standings
+        if narrative and narrative.active_rule_changes:
+            _sotl_data["rule_changes"] = (
+                narrative.active_rule_changes
+            )
+        if narrative and narrative.streaks:
+            _sotl_data["streaks"] = {
+                k: v
+                for k, v in narrative.streaks.items()
+                if abs(v) >= 2
+            }
+
+        async def _gen_sotl() -> Report:
+            if api_key:
+                return await generate_state_of_the_league(
+                    _sotl_data,
+                    sim.season_id,
+                    sim.round_number,
+                    api_key,
+                    narrative=narrative,
+                )
+            return generate_state_of_the_league_mock(
+                _sotl_data,
+                sim.season_id,
+                sim.round_number,
+                narrative=narrative,
+            )
+
+        _sotl_idx = len(all_coros)
+        all_coros.append(_gen_sotl())  # type: ignore[arg-type]
+
     # return_exceptions=True so one failure doesn't cancel the rest
     all_results = await asyncio.gather(*all_coros, return_exceptions=True)
 
@@ -1998,6 +2054,20 @@ async def _phase_ai(
         else:
             behavioral_reports.append((gov_id, res_b))  # type: ignore[arg-type]
 
+    # State of the League report (only on round-robin boundaries)
+    sotl_report: Report | None = None
+    if _sotl_idx is not None:
+        res_sotl = all_results[_sotl_idx]
+        if isinstance(res_sotl, BaseException):
+            logger.exception(
+                "state_of_the_league_failed season=%s round=%d",
+                sim.season_id,
+                sim.round_number,
+                exc_info=res_sotl,
+            )
+        else:
+            sotl_report = res_sotl  # type: ignore[assignment]
+
     return _AIPhaseResult(
         commentaries=commentaries,
         highlight_reel=highlight_reel,
@@ -2007,6 +2077,7 @@ async def _phase_ai(
         impact_report=impact_report,
         leverage_reports=leverage_reports,
         behavioral_reports=behavioral_reports,
+        state_of_the_league_report=sotl_report,
     )
 
 
@@ -2371,6 +2442,25 @@ async def _phase_persist_and_finalize(
             },
         )
 
+    # Store State of the League report (generated every 7 rounds)
+    if ai.state_of_the_league_report:
+        await repo.store_report(
+            season_id=sim.season_id,
+            report_type="state_of_the_league",
+            round_number=sim.round_number,
+            content=ai.state_of_the_league_report.content,
+        )
+        reports.append(ai.state_of_the_league_report)
+        deferred_report_events.append(
+            {
+                "report_type": "state_of_the_league",
+                "round": sim.round_number,
+                "excerpt": (
+                    ai.state_of_the_league_report.content[:200]
+                ),
+            },
+        )
+
     # Run evals
     try:
         from pinwheel.config import Settings
@@ -2500,6 +2590,107 @@ async def _phase_persist_and_finalize(
                     logger.exception(
                         "playoff_bracket_failed_after_tiebreaker season=%s",
                         sim.season_id,
+                    )
+
+                # Generate tiebreaker report
+                try:
+                    tb_games_data: list[dict] = []
+                    for s in tb_schedule:
+                        for g in games:
+                            if (
+                                g.round_number == s.round_number
+                                and g.matchup_index
+                                == s.matchup_index
+                            ):
+                                ht = sim.teams_cache.get(
+                                    g.home_team_id
+                                )
+                                at = sim.teams_cache.get(
+                                    g.away_team_id
+                                )
+                                tb_games_data.append({
+                                    "home_team": (
+                                        ht.name
+                                        if ht
+                                        else g.home_team_id
+                                    ),
+                                    "away_team": (
+                                        at.name
+                                        if at
+                                        else g.away_team_id
+                                    ),
+                                    "home_score": g.home_score,
+                                    "away_score": g.away_score,
+                                })
+                    tied_ids = set()
+                    for s in tb_schedule:
+                        tied_ids.add(s.home_team_id)
+                        tied_ids.add(s.away_team_id)
+                    tied_teams_data = [
+                        {
+                            "team_id": tid,
+                            "team_name": (
+                                sim.teams_cache[tid].name
+                            ),
+                        }
+                        for tid in tied_ids
+                        if tid in sim.teams_cache
+                    ]
+                    tb_ctx = {
+                        "season_id": sim.season_id,
+                        "tied_teams": tied_teams_data,
+                        "games": tb_games_data,
+                        "rule_changes": (
+                            sim.governance_data.get(
+                                "rules_changed", []
+                            )
+                        ),
+                    }
+                    if api_key:
+                        tb_report = (
+                            await generate_tiebreaker_report(
+                                tb_ctx,
+                                sim.season_id,
+                                sim.round_number,
+                                api_key,
+                            )
+                        )
+                    else:
+                        tb_report = (
+                            generate_tiebreaker_report_mock(
+                                tb_ctx,
+                                sim.season_id,
+                                sim.round_number,
+                            )
+                        )
+                    await repo.store_report(
+                        season_id=sim.season_id,
+                        report_type="tiebreaker",
+                        round_number=sim.round_number,
+                        content=tb_report.content,
+                    )
+                    reports.append(tb_report)
+                    deferred_report_events.append(
+                        {
+                            "report_type": "tiebreaker",
+                            "round": sim.round_number,
+                            "excerpt": (
+                                tb_report.content[:200]
+                            ),
+                        },
+                    )
+                    logger.info(
+                        "tiebreaker_report_generated"
+                        " season=%s round=%d",
+                        sim.season_id,
+                        sim.round_number,
+                    )
+                except Exception:
+                    logger.exception(
+                        "tiebreaker_report_failed"
+                        " season=%s round=%d",
+                        sim.season_id,
+                        sim.round_number,
                     )
 
     elif season and season.status in ("regular_season_complete", "playoffs"):
@@ -2877,3 +3068,4 @@ class _AIPhaseResult:
     behavioral_reports: list[tuple[str, Report]] = dataclasses.field(
         default_factory=list
     )  # (governor_id, report)
+    state_of_the_league_report: Report | None = None

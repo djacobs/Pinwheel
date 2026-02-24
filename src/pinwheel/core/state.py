@@ -92,7 +92,10 @@ class HooperState:
             or self._cached_base_key != base_key
         ):
             s = self.current_stamina
-            self._cached_attributes = PlayerAttributes(
+            # model_construct() bypasses budget validation — these are
+            # stamina-degraded runtime values, not player definitions.
+            # Also avoids Pydantic overhead on this hot path.
+            self._cached_attributes = PlayerAttributes.model_construct(
                 scoring=max(1, int(base.scoring * s)),
                 passing=max(1, int(base.passing * s)),
                 defense=max(1, int(base.defense * s)),
@@ -129,6 +132,7 @@ class GameState:
 
     # Home/away venue data for home-court mechanics
     home_venue_altitude_ft: int = 0
+    home_venue_surface: str = "hardwood"
     travel_distance_miles: float = 0.0
 
     # Team foul tracking (reset each quarter)

@@ -18,8 +18,11 @@ from pinwheel.ai.report import (
     compute_proposal_parameter_clustering,
     detect_governance_blind_spots,
     generate_governance_report_mock,
+    generate_offseason_report_mock,
     generate_private_report_mock,
     generate_simulation_report_mock,
+    generate_state_of_the_league_mock,
+    generate_tiebreaker_report_mock,
 )
 from pinwheel.auth.deps import SESSION_COOKIE_NAME
 from pinwheel.config import Settings
@@ -2100,3 +2103,280 @@ class TestPrivateReportsEndpointAuth:
         finally:
             await client.aclose()
             await engine.dispose()  # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------------
+# State of the League report mock tests
+# ------------------------------------------------------------------
+
+
+class TestStateOfTheLeagueMock:
+    """Tests for the State of the League mock report generator."""
+
+    def test_basic_generation(self) -> None:
+        league_data = {
+            "round_number": 7,
+            "standings": [
+                {"team_name": "Thorns", "wins": 5, "losses": 2},
+                {"team_name": "Voids", "wins": 4, "losses": 3},
+                {"team_name": "Herons", "wins": 3, "losses": 4},
+                {"team_name": "Hammers", "wins": 2, "losses": 5},
+            ],
+            "rule_changes": [
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 4,
+                },
+            ],
+        }
+        report = generate_state_of_the_league_mock(
+            league_data, "s-1", 7
+        )
+        assert report.report_type == "state_of_the_league"
+        assert report.round_number == 7
+        assert "Round 7" in report.content
+        assert "Thorns" in report.content
+        assert "5-2" in report.content
+
+    def test_tight_standings(self) -> None:
+        league_data = {
+            "round_number": 14,
+            "standings": [
+                {"team_name": "Alpha", "wins": 8, "losses": 6},
+                {"team_name": "Beta", "wins": 8, "losses": 6},
+            ],
+        }
+        report = generate_state_of_the_league_mock(
+            league_data, "s-2", 14
+        )
+        assert report.report_type == "state_of_the_league"
+        assert (
+            "tight" in report.content.lower()
+            or "every game" in report.content.lower()
+        )
+
+    def test_no_rule_changes(self) -> None:
+        league_data: dict = {
+            "round_number": 7,
+            "standings": [
+                {"team_name": "Solo", "wins": 7, "losses": 0}
+            ],
+        }
+        report = generate_state_of_the_league_mock(
+            league_data, "s-1", 7
+        )
+        assert (
+            "conservative" in report.content.lower()
+            or "unchanged" in report.content.lower()
+        )
+
+    def test_empty_standings(self) -> None:
+        league_data: dict = {"round_number": 7}
+        report = generate_state_of_the_league_mock(
+            league_data, "s-1", 7
+        )
+        assert report.report_type == "state_of_the_league"
+        assert len(report.content) > 0
+
+    def test_report_id_format(self) -> None:
+        report = generate_state_of_the_league_mock(
+            {"round_number": 21}, "s-1", 21
+        )
+        assert report.id.startswith("r-sotl-21-")
+
+
+# ------------------------------------------------------------------
+# Tiebreaker report mock tests
+# ------------------------------------------------------------------
+
+
+class TestTiebreakerReportMock:
+    """Tests for the tiebreaker mock report generator."""
+
+    def test_basic_generation(self) -> None:
+        tiebreaker_data = {
+            "tied_teams": [
+                {"team_id": "t1", "team_name": "Thorns"},
+                {"team_id": "t2", "team_name": "Voids"},
+            ],
+            "games": [
+                {
+                    "home_team": "Thorns",
+                    "away_team": "Voids",
+                    "home_score": 42,
+                    "away_score": 38,
+                },
+            ],
+            "rule_changes": [],
+        }
+        report = generate_tiebreaker_report_mock(
+            tiebreaker_data, "s-1", 10
+        )
+        assert report.report_type == "tiebreaker"
+        assert report.round_number == 10
+        assert "Thorns" in report.content
+        assert "Voids" in report.content
+
+    def test_with_rule_changes(self) -> None:
+        tiebreaker_data = {
+            "tied_teams": [
+                {"team_id": "t1", "team_name": "Alpha"},
+                {"team_id": "t2", "team_name": "Beta"},
+            ],
+            "games": [
+                {
+                    "home_team": "Alpha",
+                    "away_team": "Beta",
+                    "home_score": 50,
+                    "away_score": 48,
+                },
+            ],
+            "rule_changes": [
+                {
+                    "parameter": "three_point_value",
+                    "old_value": 3,
+                    "new_value": 4,
+                },
+            ],
+        }
+        report = generate_tiebreaker_report_mock(
+            tiebreaker_data, "s-1", 10
+        )
+        assert "rule change" in report.content.lower()
+
+    def test_no_rule_changes(self) -> None:
+        tiebreaker_data = {
+            "tied_teams": [
+                {"team_id": "t1", "team_name": "X"},
+                {"team_id": "t2", "team_name": "Y"},
+            ],
+            "games": [],
+            "rule_changes": [],
+        }
+        report = generate_tiebreaker_report_mock(
+            tiebreaker_data, "s-1", 10
+        )
+        assert (
+            "held steady" in report.content.lower()
+            or "no rule" in report.content.lower()
+        )
+
+    def test_no_tied_teams(self) -> None:
+        tiebreaker_data: dict = {
+            "tied_teams": [],
+            "games": [],
+            "rule_changes": [],
+        }
+        report = generate_tiebreaker_report_mock(
+            tiebreaker_data, "s-1", 10
+        )
+        assert report.report_type == "tiebreaker"
+        assert len(report.content) > 0
+
+    def test_report_id_format(self) -> None:
+        report = generate_tiebreaker_report_mock(
+            {
+                "tied_teams": [],
+                "games": [],
+                "rule_changes": [],
+            },
+            "s-1",
+            10,
+        )
+        assert report.id.startswith("r-tb-10-")
+
+
+# ------------------------------------------------------------------
+# Offseason report mock tests
+# ------------------------------------------------------------------
+
+
+class TestOffseasonReportMock:
+    """Tests for the offseason mock report generator."""
+
+    def test_basic_generation(self) -> None:
+        offseason_data = {
+            "champion_team_name": "Thorns",
+            "rules_carried": [
+                {
+                    "parameter": "three_point_value",
+                    "value": 4,
+                    "default": 3,
+                },
+            ],
+            "rules_reset": [],
+            "offseason_proposals": 3,
+        }
+        report = generate_offseason_report_mock(
+            offseason_data, "s-1"
+        )
+        assert report.report_type == "offseason"
+        assert report.round_number == 0
+        assert "Thorns" in report.content
+
+    def test_no_champion(self) -> None:
+        offseason_data: dict = {
+            "rules_carried": [],
+            "rules_reset": [
+                {"parameter": "three_point_value", "value": 3}
+            ],
+            "offseason_proposals": 0,
+        }
+        report = generate_offseason_report_mock(
+            offseason_data, "s-1"
+        )
+        assert (
+            "offseason" in report.content.lower()
+            or "closed" in report.content.lower()
+        )
+
+    def test_rules_reset_to_defaults(self) -> None:
+        offseason_data: dict = {
+            "rules_carried": [],
+            "rules_reset": [],
+            "offseason_proposals": 0,
+        }
+        report = generate_offseason_report_mock(
+            offseason_data, "s-1"
+        )
+        assert (
+            "reset" in report.content.lower()
+            or "clean slate" in report.content.lower()
+        )
+
+    def test_with_proposals(self) -> None:
+        offseason_data: dict = {
+            "rules_carried": [],
+            "rules_reset": [],
+            "offseason_proposals": 5,
+        }
+        report = generate_offseason_report_mock(
+            offseason_data, "s-1"
+        )
+        assert "5" in report.content
+
+    def test_no_proposals(self) -> None:
+        offseason_data: dict = {
+            "rules_carried": [],
+            "rules_reset": [],
+            "offseason_proposals": 0,
+        }
+        report = generate_offseason_report_mock(
+            offseason_data, "s-1"
+        )
+        assert (
+            "continuity" in report.content.lower()
+            or "no proposals" in report.content.lower()
+        )
+
+    def test_report_id_format(self) -> None:
+        report = generate_offseason_report_mock(
+            {
+                "rules_carried": [],
+                "rules_reset": [],
+                "offseason_proposals": 0,
+            },
+            "s-test123",
+        )
+        assert report.id.startswith("r-offseason-s-test12")

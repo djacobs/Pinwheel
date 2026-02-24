@@ -17,7 +17,14 @@ from pinwheel.core.possession import check_foul, drain_stamina
 from pinwheel.core.simulation import simulate_game
 from pinwheel.core.state import GameState, HooperState
 from pinwheel.models.rules import DEFAULT_RULESET
-from pinwheel.models.team import Hooper, PlayerAttributes, Team, TeamStrategy, Venue
+from pinwheel.models.team import (
+    Hooper,
+    PlayerAttributes,
+    Team,
+    TeamStrategy,
+    Venue,
+    suppress_budget_check,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers (reuse the same pattern as test_simulation.py)
@@ -28,24 +35,25 @@ def _make_attrs(
     scoring: int = 50,
     passing: int = 40,
     defense: int = 40,
-    speed: int = 40,
-    stamina: int = 40,
+    speed: int = 45,
+    stamina: int = 45,
     iq: int = 50,
     ego: int = 30,
-    chaotic: int = 20,
-    fate: int = 30,
+    chaotic: int = 25,
+    fate: int = 35,
 ) -> PlayerAttributes:
-    return PlayerAttributes(
-        scoring=scoring,
-        passing=passing,
-        defense=defense,
-        speed=speed,
-        stamina=stamina,
-        iq=iq,
-        ego=ego,
-        chaotic_alignment=chaotic,
-        fate=fate,
-    )
+    with suppress_budget_check():
+        return PlayerAttributes(
+            scoring=scoring,
+            passing=passing,
+            defense=defense,
+            speed=speed,
+            stamina=stamina,
+            iq=iq,
+            ego=ego,
+            chaotic_alignment=chaotic,
+            fate=fate,
+        )
 
 
 def _make_hooper(
@@ -54,14 +62,15 @@ def _make_hooper(
     attrs: PlayerAttributes | None = None,
     is_starter: bool = True,
 ) -> Hooper:
-    return Hooper(
-        id=hooper_id,
-        name=f"Hooper-{hooper_id}",
-        team_id=team_id,
-        archetype="sharpshooter",
-        attributes=attrs or _make_attrs(),
-        is_starter=is_starter,
-    )
+    with suppress_budget_check():
+        return Hooper(
+            id=hooper_id,
+            name=f"Hooper-{hooper_id}",
+            team_id=team_id,
+            archetype="sharpshooter",
+            attributes=attrs or _make_attrs(),
+            is_starter=is_starter,
+        )
 
 
 def _make_team(

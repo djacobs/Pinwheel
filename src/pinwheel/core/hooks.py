@@ -426,12 +426,22 @@ class RegisteredEffect:
 
         return result
 
+    # Maximum nesting depth for conditional_sequence recursion.
+    # Prevents infinite recursion from malicious or runaway effect chains.
+    MAX_EFFECT_CHAIN_DEPTH = 3
+
     def _apply_action_code(
         self,
         context: HookContext,
         result: HookResult,
+        _depth: int = 0,
     ) -> HookResult:
-        """Apply a structured action primitive."""
+        """Apply a structured action primitive.
+
+        The ``_depth`` parameter tracks recursion depth for ``conditional_sequence``
+        actions. Exceeding ``MAX_EFFECT_CHAIN_DEPTH`` suppresses further nested
+        actions to prevent runaway or malicious effect chains.
+        """
         if not self.action_code:
             return result
 
@@ -546,16 +556,21 @@ class RegisteredEffect:
                     if extreme_stat in attr_kwargs:
                         attr_kwargs[extreme_stat] = extreme_val
 
-                    from pinwheel.models.team import Hooper, PlayerAttributes
-
-                    crowd_hooper = Hooper(
-                        id=f"crowd-{context.rng.randint(1000, 9999)}",
-                        name="Mystery Fan",
-                        team_id=active[0].hooper.team_id,
-                        archetype="wildcard",
-                        attributes=PlayerAttributes(**attr_kwargs),
-                        is_starter=True,
+                    from pinwheel.models.team import (
+                        Hooper,
+                        PlayerAttributes,
+                        suppress_budget_check,
                     )
+
+                    with suppress_budget_check():
+                        crowd_hooper = Hooper(
+                            id=f"crowd-{context.rng.randint(1000, 9999)}",
+                            name="Mystery Fan",
+                            team_id=active[0].hooper.team_id,
+                            archetype="wildcard",
+                            attributes=PlayerAttributes(**attr_kwargs),
+                            is_starter=True,
+                        )
                     target = context.rng.choice(active)
                     from pinwheel.core.state import HooperState
 
@@ -569,6 +584,14 @@ class RegisteredEffect:
                     )
 
         elif action_type == "conditional_sequence":
+            if _depth >= self.MAX_EFFECT_CHAIN_DEPTH:
+                logger.warning(
+                    "effect_chain_depth_exceeded effect_id=%s depth=%d — "
+                    "suppressing nested conditional_sequence",
+                    self.effect_id,
+                    _depth,
+                )
+                return result
             steps = self.action_code.get("steps")
             if isinstance(steps, list):
                 for step in steps:
@@ -582,10 +605,12 @@ class RegisteredEffect:
                         continue
                     action = step.get("action")
                     if isinstance(action, dict):
-                        # Recursively apply inner action
+                        # Recursively apply inner action (depth-limited)
                         inner_code = self.action_code
                         self.action_code = action
-                        inner_result = self._apply_action_code(context, HookResult())
+                        inner_result = self._apply_action_code(
+                            context, HookResult(), _depth=_depth + 1,
+                        )
                         self.action_code = inner_code
                         # Merge inner result into main result
                         result.score_modifier += inner_result.score_modifier

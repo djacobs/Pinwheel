@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}Performance — Pinwheel Fates{% endblock %}
+
+{% block content %}
+<h1>Performance Dashboard</h1>
+<p class="text-muted" style="margin-bottom: 1.5rem;">
+  System performance metrics aggregated from game results and AI usage logs.
+  <a href="/admin" style="color: var(--accent-highlight);">&larr; Back to Admin</a>
+</p>
+
+{% if not has_data %}
+<div class="card" style="margin-top: 2rem;">
+  <div class="card-body">
+    <p class="text-muted">No performance data yet. Metrics will appear here once games are played and AI calls are made.</p>
+  </div>
+</div>
+{% else %}
+
+{# --- System Health Summary --- #}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-score);">
+        {{ total_games }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Games Played</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-highlight);">
+        {{ total_rounds }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Rounds Completed</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-governance);">
+        {{ total_ai_calls }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">AI Calls</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--accent-report);">
+        {{ total_reports }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Reports Generated</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--text-secondary);">
+        {{ db_size_mb }}MB
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Database Size</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 2rem; font-weight: 800; color: var(--text-secondary);">
+        {{ uptime }}
+      </div>
+      <div class="text-muted" style="font-size: 0.85rem;">Uptime</div>
+    </div>
+  </div>
+
+</div>
+
+{# --- Round Averages --- #}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700;">{{ avg_games_per_round }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Avg Games/Round</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700;">{{ avg_ai_calls_per_round }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Avg AI Calls/Round</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700;">{{ "%.0f"|format(avg_ai_latency_per_round) }}ms</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Avg AI Time/Round</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="text-align: center;">
+      <div style="font-size: 1.5rem; font-weight: 700;">{{ total_seasons }}</div>
+      <div class="text-muted" style="font-size: 0.8rem;">Total Seasons</div>
+    </div>
+  </div>
+
+</div>
+
+{# --- AI Call Latency (Overall) --- #}
+{% if total_ai_calls > 0 %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>AI Call Latency (Overall)</h3>
+  </div>
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
+      <div style="text-align: center;">
+        <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent-score);">{{ "%.0f"|format(overall_ai_pcts.p50) }}ms</div>
+        <div class="text-muted" style="font-size: 0.85rem;">P50</div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent-highlight);">{{ "%.0f"|format(overall_ai_pcts.p95) }}ms</div>
+        <div class="text-muted" style="font-size: 0.85rem;">P95</div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent-governance);">{{ "%.0f"|format(overall_ai_pcts.p99) }}ms</div>
+        <div class="text-muted" style="font-size: 0.85rem;">P99</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# --- AI Latency by Call Type --- #}
+{% if ai_latency_by_type %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>AI Latency by Call Type</h3>
+  </div>
+  <div class="card-body" style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border);">
+          <th style="text-align: left; padding: 0.5rem;">Call Type</th>
+          <th style="text-align: right; padding: 0.5rem;">Calls</th>
+          <th style="text-align: right; padding: 0.5rem;">Avg (ms)</th>
+          <th style="text-align: right; padding: 0.5rem;">P50 (ms)</th>
+          <th style="text-align: right; padding: 0.5rem;">P95 (ms)</th>
+          <th style="text-align: right; padding: 0.5rem;">P99 (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in ai_latency_by_type %}
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem; font-family: var(--font-mono);">{{ row.call_type }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.count }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.avg_ms }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.p50 }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.p95 }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.p99 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# --- SSE & Event Bus --- #}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>SSE Connections & Event Bus</h3>
+  </div>
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+      <div style="text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ sse_stats.active }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Active SSE Connections</div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ sse_stats.max }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Max SSE Connections</div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ event_bus_subscribers }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">EventBus Subscribers</div>
+      </div>
+      <div style="text-align: center;">
+        {% set utilization = (sse_stats.active / sse_stats.max * 100) if sse_stats.max > 0 else 0 %}
+        <div style="font-size: 1.5rem; font-weight: 700; {% if utilization > 80 %}color: var(--accent-governance);{% endif %}">{{ "%.0f"|format(utilization) }}%</div>
+        <div class="text-muted" style="font-size: 0.85rem;">SSE Utilization</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- Round Timing Table --- #}
+{% if round_timing %}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>Recent Rounds (Last 10)</h3>
+  </div>
+  <div class="card-body" style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border);">
+          <th style="text-align: left; padding: 0.5rem;">Round</th>
+          <th style="text-align: right; padding: 0.5rem;">Games</th>
+          <th style="text-align: right; padding: 0.5rem;">AI Calls</th>
+          <th style="text-align: right; padding: 0.5rem;">Total AI (ms)</th>
+          <th style="text-align: right; padding: 0.5rem;">Avg AI (ms)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in round_timing %}
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 0.5rem; font-weight: 600;">Round {{ row.round_number }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.game_count }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.ai_calls }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ "%.0f"|format(row.total_ai_latency_ms) }}</td>
+          <td style="text-align: right; padding: 0.5rem;">{{ row.avg_ai_latency_ms }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# --- Governance Activity --- #}
+<div class="card" style="margin-bottom: 2rem;">
+  <div class="card-header">
+    <h3>Activity Summary</h3>
+  </div>
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+      <div style="text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ total_governance_events }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Governance Events</div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ total_reports }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Reports Generated</div>
+      </div>
+      <div style="text-align: center;">
+        {% set games_per_round = (total_games / total_rounds) if total_rounds > 0 else 0 %}
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ "%.1f"|format(games_per_round) }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Games/Round</div>
+      </div>
+      <div style="text-align: center;">
+        {% set reports_per_round = (total_reports / total_rounds) if total_rounds > 0 else 0 %}
+        <div style="font-size: 1.5rem; font-weight: 700;">{{ "%.1f"|format(reports_per_round) }}</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Reports/Round</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

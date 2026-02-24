@@ -30,6 +30,9 @@
       <a href="/standings" class="nav-link {% if active_page == 'standings' %}active{% endif %}">Standings</a>
       <a href="/governance" class="nav-link {% if active_page == 'governance' %}active{% endif %}">The Floor</a>
       <a href="/reports" class="nav-link {% if active_page == 'reports' %}active{% endif %}">Reports</a>
+      {% if followed_team_id %}
+      <a href="/teams/{{ followed_team_id }}" class="nav-link">My Team</a>
+      {% endif %}
       {% if is_admin %}
       <a href="/admin" class="nav-link {% if active_page == 'admin' %}active{% endif %}">Admin</a>
       {% endif %}

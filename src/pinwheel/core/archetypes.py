@@ -195,12 +195,35 @@ def apply_variance(
     rng_seed: int,
     variance: int = 10,
 ) -> PlayerAttributes:
-    """Apply random variance to base archetype attributes."""
+    """Apply random variance to base archetype attributes.
+
+    After applying per-attribute jitter, the total is normalized back to
+    the original base total so the result stays within the 360-point
+    budget (+/- VARIANCE enforced by the model validator).
+    """
     import random
 
     rng = random.Random(rng_seed)
     data = base.model_dump()
+    target_total = base.total()
     for key in data:
         delta = rng.randint(-variance, variance)
         data[key] = max(1, min(100, data[key] + delta))
+
+    # Normalize: redistribute the drift so total matches the base budget.
+    current_total = sum(data.values())
+    drift = current_total - target_total
+    keys = list(data.keys())
+    rng.shuffle(keys)
+    for key in keys:
+        if drift == 0:
+            break
+        if drift > 0:
+            reduction = min(drift, data[key] - 1)
+            data[key] -= reduction
+            drift -= reduction
+        else:
+            increase = min(-drift, 100 - data[key])
+            data[key] += increase
+            drift += increase
     return PlayerAttributes(**data)

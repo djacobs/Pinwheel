@@ -55,7 +55,7 @@ from pinwheel.models.governance import (
     RuleInterpretation,
 )
 from pinwheel.models.rules import RuleSet
-from pinwheel.models.team import Hooper, PlayerAttributes
+from pinwheel.models.team import Hooper, PlayerAttributes, suppress_budget_check
 
 # --- Fixtures ---
 
@@ -101,23 +101,24 @@ def _make_hooper(
     team_id: str = "team-a",
 ) -> Hooper:
     """Create a minimal Hooper for testing."""
-    return Hooper(
-        id=hooper_id,
-        name=name,
-        team_id=team_id,
-        archetype="scorer",
-        attributes=PlayerAttributes(
-            scoring=80,
-            passing=60,
-            defense=50,
-            speed=70,
-            stamina=75,
-            iq=65,
-            ego=40,
-            chaotic_alignment=30,
-            fate=50,
-        ),
-    )
+    with suppress_budget_check():
+        return Hooper(
+            id=hooper_id,
+            name=name,
+            team_id=team_id,
+            archetype="scorer",
+            attributes=PlayerAttributes(
+                scoring=80,
+                passing=60,
+                defense=50,
+                speed=70,
+                stamina=75,
+                iq=65,
+                ego=40,
+                chaotic_alignment=30,
+                fate=50,
+            ),
+        )
 
 
 def _make_game_state() -> GameState:
@@ -1347,30 +1348,37 @@ class TestSimulationEffectsIntegration:
 
     def _make_team(self, team_id: str, name: str) -> object:
         """Build a minimal Team for simulation."""
-        from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
-
-        hoopers = []
-        for i in range(4):
-            attrs = PlayerAttributes(
-                scoring=50, passing=50, defense=50, speed=50,
-                iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
-            )
-            hoopers.append(
-                Hooper(
-                    id=f"{team_id}-h{i}",
-                    name=f"{name} Player {i}",
-                    team_id=team_id,
-                    archetype="balanced",
-                    attributes=attrs,
-                    is_starter=i < 3,
-                )
-            )
-        return Team(
-            id=team_id,
-            name=name,
-            hoopers=hoopers,
-            venue=Venue(name="Test Arena", capacity=5000),
+        from pinwheel.models.team import (
+            Hooper,
+            PlayerAttributes,
+            Team,
+            Venue,
+            suppress_budget_check,
         )
+
+        with suppress_budget_check():
+            hoopers = []
+            for i in range(4):
+                attrs = PlayerAttributes(
+                    scoring=50, passing=50, defense=50, speed=50,
+                    iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
+                )
+                hoopers.append(
+                    Hooper(
+                        id=f"{team_id}-h{i}",
+                        name=f"{name} Player {i}",
+                        team_id=team_id,
+                        archetype="balanced",
+                        attributes=attrs,
+                        is_starter=i < 3,
+                    )
+                )
+            return Team(
+                id=team_id,
+                name=name,
+                hoopers=hoopers,
+                venue=Venue(name="Test Arena", capacity=5000),
+            )
 
     def test_simulate_game_accepts_effect_registry(self):
         """simulate_game runs with effect_registry and meta_store params."""
@@ -1864,21 +1872,28 @@ class TestPossessionContext:
     def test_shot_probability_modifier_affects_game_outcome(self):
         """A large positive shot_probability_modifier increases scoring."""
         from pinwheel.core.simulation import simulate_game
-        from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
+        from pinwheel.models.team import (
+            Hooper,
+            PlayerAttributes,
+            Team,
+            Venue,
+            suppress_budget_check,
+        )
 
         def make_team(tid: str, name: str) -> Team:
-            hoopers = []
-            for i in range(4):
-                hoopers.append(Hooper(
-                    id=f"{tid}-h{i}", name=f"{name} {i}", team_id=tid,
-                    archetype="balanced", is_starter=i < 3,
-                    attributes=PlayerAttributes(
-                        scoring=50, passing=50, defense=50, speed=50,
-                        iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
-                    ),
-                ))
-            return Team(id=tid, name=name, hoopers=hoopers,
-                        venue=Venue(name="Arena", capacity=5000))
+            with suppress_budget_check():
+                hoopers = []
+                for i in range(4):
+                    hoopers.append(Hooper(
+                        id=f"{tid}-h{i}", name=f"{name} {i}", team_id=tid,
+                        archetype="balanced", is_starter=i < 3,
+                        attributes=PlayerAttributes(
+                            scoring=50, passing=50, defense=50, speed=50,
+                            iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
+                        ),
+                    ))
+                return Team(id=tid, name=name, hoopers=hoopers,
+                            venue=Venue(name="Arena", capacity=5000))
 
         home = make_team("h", "Home")
         away = make_team("a", "Away")
@@ -1994,17 +2009,18 @@ class TestNewActionPrimitives:
         import random as _random
 
         # Make a high-passing team
-        high_pass_hoopers = [
-            HooperState(hooper=Hooper(
-                id=f"hp{i}", name=f"Passer {i}", team_id="team-a",
-                archetype="facilitator",
-                attributes=PlayerAttributes(
-                    scoring=40, passing=90, defense=40, speed=40,
-                    stamina=50, iq=50, ego=30, chaotic_alignment=20, fate=50,
-                ),
-            ))
-            for i in range(3)
-        ]
+        with suppress_budget_check():
+            high_pass_hoopers = [
+                HooperState(hooper=Hooper(
+                    id=f"hp{i}", name=f"Passer {i}", team_id="team-a",
+                    archetype="facilitator",
+                    attributes=PlayerAttributes(
+                        scoring=40, passing=90, defense=40, speed=40,
+                        stamina=50, iq=50, ego=30, chaotic_alignment=20, fate=50,
+                    ),
+                ))
+                for i in range(3)
+            ]
         gs = GameState(
             home_agents=high_pass_hoopers,
             away_agents=[
@@ -2181,6 +2197,134 @@ class TestNewActionPrimitives:
         # Gate blocks: three_point shot — modifier NOT applied
         game_state.last_action = "three_point"
         result = effect.apply("sim.possession.pre", ctx)
+        assert result.score_modifier == 0
+
+    def test_conditional_sequence_depth_limit(self):
+        """conditional_sequence recursion is limited to MAX_EFFECT_CHAIN_DEPTH (3)."""
+        import random as _random
+
+        def _make_nested(depth: int) -> dict[str, object]:
+            if depth == 0:
+                return {"type": "modify_score", "modifier": 1}
+            return {
+                "type": "conditional_sequence",
+                "steps": [
+                    {"gate": None, "action": _make_nested(depth - 1)},
+                ],
+            }
+
+        # 5 levels deep — exceeds MAX_EFFECT_CHAIN_DEPTH (3)
+        action_code = _make_nested(5)
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code=action_code,
+        )
+        ctx = HookContext(rng=_random.Random(42))
+        result = effect.apply("sim.possession.pre", ctx)
+
+        # The leaf modify_score never fires because depth limit is hit first
+        assert result.score_modifier == 0
+
+    def test_conditional_sequence_within_depth_limit(self):
+        """conditional_sequence at exactly the depth limit still fires leaf actions."""
+        import random as _random
+
+        # 3 levels of conditional_sequence nesting -> leaf modify_score
+        action_code = {
+            "type": "conditional_sequence",
+            "steps": [
+                {
+                    "gate": None,
+                    "action": {
+                        "type": "conditional_sequence",
+                        "steps": [
+                            {
+                                "gate": None,
+                                "action": {
+                                    "type": "conditional_sequence",
+                                    "steps": [
+                                        {
+                                            "gate": None,
+                                            "action": {"type": "modify_score", "modifier": 7},
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        }
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code=action_code,
+        )
+        ctx = HookContext(rng=_random.Random(42))
+        result = effect.apply("sim.possession.pre", ctx)
+
+        # 3 conditional_sequences at depths 0,1,2 — all within limit
+        # The leaf modify_score at depth 3 is NOT a conditional_sequence, so it fires
+        assert result.score_modifier == 7
+
+    def test_conditional_sequence_at_exact_limit_suppressed(self):
+        """conditional_sequence at depth=MAX_EFFECT_CHAIN_DEPTH is suppressed."""
+        import random as _random
+
+        # 4 levels of conditional_sequence nesting -> leaf at depth 4
+        action_code = {
+            "type": "conditional_sequence",
+            "steps": [
+                {
+                    "gate": None,
+                    "action": {
+                        "type": "conditional_sequence",
+                        "steps": [
+                            {
+                                "gate": None,
+                                "action": {
+                                    "type": "conditional_sequence",
+                                    "steps": [
+                                        {
+                                            "gate": None,
+                                            "action": {
+                                                "type": "conditional_sequence",
+                                                "steps": [
+                                                    {
+                                                        "gate": None,
+                                                        "action": {
+                                                            "type": "modify_score",
+                                                            "modifier": 99,
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        }
+
+        effect = RegisteredEffect(
+            effect_id="e1", proposal_id="p1",
+            _hook_points=["sim.possession.pre"],
+            effect_type="hook_callback",
+            action_code=action_code,
+        )
+        ctx = HookContext(rng=_random.Random(42))
+        result = effect.apply("sim.possession.pre", ctx)
+
+        # Depth 3 is the 4th conditional_sequence — at MAX_EFFECT_CHAIN_DEPTH
+        # It is suppressed, so the modify_score(99) never fires
         assert result.score_modifier == 0
 
 
@@ -2515,20 +2659,27 @@ class TestEffectDrivenScenarios:
     """Integration tests proving effects change gameplay outcomes."""
 
     def _make_team(self, team_id: str, name: str) -> object:
-        from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
+        from pinwheel.models.team import (
+            Hooper,
+            PlayerAttributes,
+            Team,
+            Venue,
+            suppress_budget_check,
+        )
 
-        hoopers = []
-        for i in range(4):
-            hoopers.append(Hooper(
-                id=f"{team_id}-h{i}", name=f"{name} P{i}", team_id=team_id,
-                archetype="balanced", is_starter=i < 3,
-                attributes=PlayerAttributes(
-                    scoring=50, passing=50, defense=50, speed=50,
-                    iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
-                ),
-            ))
-        return Team(id=team_id, name=name, hoopers=hoopers,
-                    venue=Venue(name="Arena", capacity=5000))
+        with suppress_budget_check():
+            hoopers = []
+            for i in range(4):
+                hoopers.append(Hooper(
+                    id=f"{team_id}-h{i}", name=f"{name} P{i}", team_id=team_id,
+                    archetype="balanced", is_starter=i < 3,
+                    attributes=PlayerAttributes(
+                        scoring=50, passing=50, defense=50, speed=50,
+                        iq=50, stamina=50, ego=50, chaotic_alignment=50, fate=50,
+                    ),
+                ))
+            return Team(id=team_id, name=name, hoopers=hoopers,
+                        venue=Venue(name="Arena", capacity=5000))
 
     def test_round_court_reduces_threes(self):
         """'Round court' effect: negative three_point_bias reduces three-point attempts."""
