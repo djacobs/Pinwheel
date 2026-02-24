@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2111 tests**, zero lint errors (Session 127)
+- **2240 tests**, zero lint errors (Session 128)
 - **Days 1-24 complete:** Full simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish, career stats, league leaders
 - **Day 25:** Abstract game spine architecture — rearchitecting the simulation to be truly malleable by governance
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `7ac4e59` — docs: Phase 6 codegen frontier
+- **Latest commit:** `92ee4c5` — feat: resolve all P0/P1 audit findings
 
 ## Today's Agenda
 
@@ -98,3 +98,81 @@ Audit:
 **2111 tests, zero lint errors.**
 
 **What could have gone better:** Running 3 parallel agents that all touch the simulation engine created merge risk — agents 1 (home court) and 2 (moves/fate) both modified `possession.py`, `scoring.py`, and `state.py`. The agents happened to touch non-overlapping sections, but this was luck. A safer pattern would be to assign each agent a strict file boundary, or run them sequentially with the shared files.
+
+---
+
+## Session 128 — Resolve All P0/P1 Audit Findings (12 Parallel Agents)
+
+**What was asked:** Execute all P0 and P1 findings from the comprehensive unimplemented audit (61 findings total, 6 P0 + 21 P1 prioritized). Run them all in parallel as background agents.
+
+**What was built:**
+
+12 parallel background agents resolved the following:
+
+Budget enforcement (P0):
+- `PlayerAttributes` model_validator enforces 360±10 point budget
+- `suppress_budget_check()` context manager for legitimate bypass (test fixtures, effect-generated hoopers, DB deserialization)
+- `model_construct()` for hot-path stamina degradation
+- `apply_variance()` in archetypes normalized to prevent drift
+
+Surface modifiers (P0):
+- `SurfaceModifiers` dataclass + `SURFACE_EFFECTS` dict for 5 surface types (hardwood, grass, sand, ice, clay)
+- Applied at 4 integration points: turnover probability, shot selection, shot probability, stamina drain
+- 23 tests across 6 test classes
+
+3 missing report types (P0):
+- `generate_state_of_the_league()` — every 7 rounds, with standings/streaks/governance context
+- `generate_tiebreaker_report()` — triggered when all tiebreaker games complete
+- `generate_offseason_report()` — in `close_offseason()` with rules carried/reset analysis
+- Mock generators for all 3; wired into game_loop and season lifecycle
+- 16 tests across 3 test classes
+
+Ego x crowd pressure (P1):
+- `compute_ego_crowd_factor(ego)` scales crowd_pressure and crowd_boost by ego attribute
+- High-ego players shrug off crowd pressure; low-ego players wilt
+- 15 tests
+
+Private reports access control (P1):
+- `PRIVATE_REPORT_TYPES` frozenset as single source of truth (`private`, `leverage`, `behavioral`)
+- Filters updated in API reports, SSE events, pages, Discord bot
+- 3 tests
+
+Joy alarms (P1):
+- 5 detectors: disengagement, political exclusion, economy stalling, reports not resonating, power concentration
+- Integrated into `_run_evals()` in game loop with event bus publishing
+- 24 tests
+
+Performance dashboard (P1):
+- `/admin/perf` with P50/P95/P99 latency, round timing, SSE connection metrics
+- New template + router registration
+- 14 tests
+
+Security hardening (P1):
+- `remove_invisible_chars()`, `strip_prompt_markers()`, `sanitize_text()` composable pipeline
+- Strategy prompt injection defense in interpreter
+- `MAX_EFFECT_CHAIN_DEPTH = 3` for effect chain recursion limit
+- 18 tests
+
+Spectator journey / team following (P1):
+- Cookie-based team following (`pinwheel_followed_team`) with HTMX POST/DELETE
+- "My Team" nav link in base template when following
+- Standings row + score card highlight classes
+- Follow/unfollow button on team page
+- 17 tests
+
+Dramatic pacing (P1):
+- `compute_drama_score()` — weighted 0.0-1.0 scale (score differential, lead changes, Elam ending, playoff context)
+- Integrated into game loop summaries and presenter `game_finished` events
+- 15 tests
+
+Integration pass:
+- Registered `admin_perf_router` and `follow_router` in main.py (agents created the files but didn't register them)
+- Added `followed_team_id` to `_auth_context()` for nav bar access
+- Added follow button to team.html, "My Team" to base.html nav, highlight classes to home.html
+- All cross-agent conflicts resolved (budget validation cascading through test fixtures, shared file edits)
+
+**Files modified (35):** `docs/SECURITY.md`, `src/pinwheel/ai/interpreter.py`, `src/pinwheel/ai/report.py`, `src/pinwheel/api/admin_perf.py` (new), `src/pinwheel/api/follow.py` (new), `src/pinwheel/api/pages.py`, `src/pinwheel/core/archetypes.py`, `src/pinwheel/core/drama.py`, `src/pinwheel/core/game_loop.py`, `src/pinwheel/core/governance.py`, `src/pinwheel/core/hooks.py`, `src/pinwheel/core/possession.py`, `src/pinwheel/core/presenter.py`, `src/pinwheel/core/season.py`, `src/pinwheel/core/simulation.py`, `src/pinwheel/core/state.py`, `src/pinwheel/main.py`, `src/pinwheel/models/team.py`, `src/pinwheel/evals/joy_alarms.py` (new), `templates/base.html`, `templates/pages/admin_perf.html` (new), `templates/pages/home.html`, `templates/pages/team.html`, `tests/test_admin_perf.py` (new), `tests/test_drama.py`, `tests/test_effects.py`, `tests/test_expanded_ruleset.py`, `tests/test_follow.py` (new), `tests/test_governance.py`, `tests/test_models.py`, `tests/test_presenter.py`, `tests/test_reports.py`, `tests/test_simulation.py`, `tests/test_strategy_integration.py`, `tests/test_evals/test_joy_alarms.py` (new)
+
+**2240 tests, zero lint errors.**
+
+**What could have gone better:** Running 12 parallel agents on the same working tree was ambitious. The budget validation agent's `model_validator` on `PlayerAttributes` cascaded failures through every test file that creates attributes with non-360 totals — this was the most disruptive single change. The agents themselves handled file conflicts by re-reading before retrying edits, but none of them registered their new routers in `main.py` — that integration step had to be done manually during the merge pass. A safer pattern: have agents create files but leave registration/wiring to the integration pass, or use git worktrees for true isolation.

@@ -849,3 +849,11 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 138. [DONE] Career table order wrong; no league-leader bolding; game log unordered; no playoff marker
 **Problem:** Career Performance showed current season first then past seasons in DB iteration order instead of chronological. No visual indicator for seasons where a player led the league in any stat. Game log rows appeared in DB insertion order (e.g. 12,13,14,1,2,3...) instead of round order. Playoff games indistinguishable from regular season.
 **Fix:** Career seasons sorted by `season.created_at` ascending. Each of the 7 stat cells (`PPG`, `FG%`, `3P%`, `FT%`, `APG`, `SPG`, `TOPG`) bolded when player's rounded season average matches the league max for that season — ties get bolded equally. Game log sorted by `round_number` ascending. Playoff games (any `phase` other than "regular") show `*` appended to round number. Legend updated: `* playoff`.
+
+### 139. [DONE] Team follow button + "My Team" nav link
+**Problem:** No way for spectators to follow a team or get personalized navigation. Every visitor sees the same generic experience.
+**Fix:** Cookie-based team following via `pinwheel_followed_team`. Team page shows Follow/Following button (HTMX toggle via POST/DELETE `/api/teams/{id}/follow`). Base template nav shows "My Team" link when cookie is set. Home page standings rows get `ms-row--followed` class; score cards get `score-card--followed` class for visual highlighting.
+
+### 140. [DONE] Admin performance dashboard
+**Problem:** No visibility into system performance — request latency, round timing, SSE connections.
+**Fix:** New `/admin/perf` page with P50/P95/P99 latency percentiles, round timing breakdown, and aggregated metrics from existing instrumentation tables. Linked from admin landing page.
