@@ -66,6 +66,12 @@ def _fire_sim_effects(
         if r.narrative:
             narratives.append(r.narrative)
 
+    # Flow control: any effect that blocks wins; first substitute wins
+    any_block = any(r.block_action for r in results)
+    substitute = next(
+        (r.substitute_action for r in results if r.substitute_action), None
+    )
+
     return PossessionContext(
         shot_probability_modifier=sum(r.shot_probability_modifier for r in results),
         shot_value_modifier=sum(r.shot_value_modifier for r in results),
@@ -79,6 +85,8 @@ def _fire_sim_effects(
         ),
         bonus_pass_count=sum(r.bonus_pass_count for r in results),
         narrative_tags=narratives,
+        block_action=any_block,
+        substitute_action=substitute,
     )
 
 

@@ -783,11 +783,11 @@ async def tally_governance_with_effects(
 
     tallies: list[VoteTally] = []
     ruleset = current_ruleset
-    _effects_v2_map = effects_v2_by_proposal or {}
+    _effects_v2_map = dict(effects_v2_by_proposal) if effects_v2_by_proposal else {}
 
     # Build a lookup of repeal target IDs from proposal submitted events.
-    # The repeal_target_effect_id is stored in the proposal event payload
-    # (not in the Proposal model), so we need to check the original payload.
+    # Also backfill _effects_v2_map from submitted events for proposals
+    # not already in the explicit map.
     repeal_targets: dict[str, str] = {}
     if effect_registry is not None:
         submitted_events = await repo.get_events_by_type(
@@ -796,9 +796,16 @@ async def tally_governance_with_effects(
         )
         for se in submitted_events:
             pid = se.payload.get("id", se.aggregate_id)
+            pid_str = str(pid)
             target_eid = se.payload.get("repeal_target_effect_id")
             if target_eid:
-                repeal_targets[str(pid)] = str(target_eid)
+                repeal_targets[pid_str] = str(target_eid)
+            # Backfill: extract v2 effects from event payload if not
+            # already in the explicit map from the game loop
+            if pid_str not in _effects_v2_map:
+                v2_from_payload = get_proposal_effects_v2(se.payload)
+                if v2_from_payload:
+                    _effects_v2_map[pid_str] = v2_from_payload
 
     for proposal in proposals:
         if proposal.status not in ("confirmed", "amended", "submitted"):
@@ -949,20 +956,14 @@ async def tally_governance_with_effects(
 
 
 def _extract_effects_from_proposal(proposal: Proposal) -> list[EffectSpec]:
-    """Extract EffectSpec list from a proposal's payload.
+    """Extract EffectSpec list from a proposal's serialized payload.
 
-    Looks for effects_v2 in the proposal's interpretation or raw payload.
-    Returns empty list if no v2 effects are found.
+    Fallback path: tries to deserialize effects_v2 from the proposal's
+    model_dump(). The primary extraction happens via backfill in
+    tally_governance_with_effects from the event store payload.
     """
-    # Check if proposal has a ProposalInterpretation stored in its payload
-    # The proposal model stores interpretation as RuleInterpretation,
-    # but the event store payload may contain effects_v2 data
-    if not proposal.interpretation:
-        return []
-
-    # Base case — effects come through the explicit v2 path
-    # (stored in event payload as effects_v2, not in RuleInterpretation)
-    return []
+    payload = proposal.model_dump(mode="json")
+    return get_proposal_effects_v2(payload)
 
 
 def get_proposal_effects_v2(

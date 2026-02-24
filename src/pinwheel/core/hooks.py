@@ -610,6 +610,18 @@ class RegisteredEffect:
                             else:
                                 result.narrative = inner_result.narrative
 
+        elif action_type == "block_action":
+            result.block_action = True
+
+        elif action_type == "substitute_action":
+            replacement = self.action_code.get("shot_type", "")
+            if isinstance(replacement, str) and replacement in (
+                "at_rim",
+                "mid_range",
+                "three_point",
+            ):
+                result.substitute_action = replacement
+
         return result
 
     def _resolve_target(self, context: HookContext) -> str:

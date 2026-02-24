@@ -419,6 +419,51 @@ def resolve_possession(
     # 4. Select action — with effect biases
     shot_type = select_action(handler, game_state, rules, rng, effect_biases=ctx)
 
+    # 4b. Flow control from governance effects
+    if ctx.block_action:
+        game_state.last_action = "blocked_by_effect"
+        game_state.last_result = "turnover"
+        game_state.consecutive_makes = 0
+        game_state.consecutive_misses += 1
+        drain_stamina(offense, scheme, is_defense=False, rules=rules, pace_modifier=pace)
+        drain_stamina(
+            defense,
+            scheme,
+            is_defense=True,
+            rules=rules,
+            defensive_intensity=def_intensity,
+            pace_modifier=pace,
+        )
+        team_id = (
+            game_state.home_agents[0].hooper.team_id
+            if game_state.home_has_ball
+            else game_state.away_agents[0].hooper.team_id
+        )
+        log = PossessionLog(
+            quarter=game_state.quarter,
+            possession_number=game_state.possession_number,
+            offense_team_id=team_id,
+            ball_handler_id=handler.hooper.id,
+            action="blocked_by_effect",
+            result="turnover",
+            defensive_scheme=scheme,
+            home_score=game_state.home_score,
+            away_score=game_state.away_score,
+        )
+        return PossessionResult(
+            turnover=True,
+            scoring_team_home=game_state.home_has_ball,
+            defensive_scheme=scheme,
+            time_used=time_used,
+            log=log,
+        )
+    if ctx.substitute_action and ctx.substitute_action in (
+        "at_rim",
+        "mid_range",
+        "three_point",
+    ):
+        shot_type = ctx.substitute_action  # type: ignore[assignment]
+
     # 5. Check moves
     triggered = get_triggered_moves(
         handler,

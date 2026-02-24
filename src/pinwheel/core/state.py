@@ -29,6 +29,9 @@ class PossessionContext:
     random_ejection_probability: float = 0.0
     bonus_pass_count: int = 0
     narrative_tags: list[str] = field(default_factory=list)
+    # Flow control — effects can block or replace the chosen action
+    block_action: bool = False
+    substitute_action: str | None = None
 
 
 @dataclass
