@@ -468,6 +468,61 @@ class PinwheelBot(commands.Bot):
         ) -> list[app_commands.Choice[str]]:
             return await self._autocomplete_pending_mechanics(interaction, current)
 
+        # -- Codegen admin commands (Phase 6e) --
+
+        @self.tree.command(
+            name="review-codegen",
+            description="Show pending codegen effects for admin review",
+        )
+        async def review_codegen_command(
+            interaction: discord.Interaction,
+        ) -> None:
+            await self._handle_review_codegen(interaction)
+
+        @self.tree.command(
+            name="disable-effect",
+            description="Disable a codegen effect (admin only)",
+        )
+        @app_commands.describe(
+            effect="The codegen effect to disable",
+        )
+        async def disable_effect_command(
+            interaction: discord.Interaction,
+            effect: str,
+        ) -> None:
+            await self._handle_disable_effect(interaction, effect)
+
+        @disable_effect_command.autocomplete("effect")
+        async def _codegen_effect_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_codegen_effects(
+                interaction, current,
+            )
+
+        @self.tree.command(
+            name="rerun-council",
+            description="Re-run council review for a codegen effect (admin only)",
+        )
+        @app_commands.describe(
+            effect="The codegen effect to re-review",
+        )
+        async def rerun_council_command(
+            interaction: discord.Interaction,
+            effect: str,
+        ) -> None:
+            await self._handle_rerun_council(interaction, effect)
+
+        @rerun_council_command.autocomplete("effect")
+        async def _rerun_council_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            return await self._autocomplete_codegen_effects(
+                interaction, current,
+            )
+
     async def setup_hook(self) -> None:
         """Called when the bot is ready to start. Syncs slash commands."""
         if self.settings.discord_guild_id:
@@ -4111,6 +4166,306 @@ class PinwheelBot(commands.Bot):
             return choices
         except SQLAlchemyError:
             logger.debug("mechanic_autocomplete_failed", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # Codegen admin commands (Phase 6e)
+    # ------------------------------------------------------------------
+
+    async def _handle_review_codegen(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        """Handle /review-codegen — show pending codegen effects."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        admin_discord_id = self.settings.pinwheel_admin_discord_id
+        if (
+            not admin_discord_id
+            or str(interaction.user.id) != admin_discord_id
+        ):
+            await interaction.response.send_message(
+                "`/review-codegen` is restricted to the league admin.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database unavailable.", ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.discord.embeds import build_codegen_review_embed
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    await interaction.followup.send(
+                        "No active season.", ephemeral=True,
+                    )
+                    return
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+
+            codegen_effects = [
+                e for e in registry.get_all_active()
+                if e.effect_type == "codegen"
+            ]
+            if not codegen_effects:
+                await interaction.followup.send(
+                    "No codegen effects found.", ephemeral=True,
+                )
+                return
+
+            for effect in codegen_effects[:10]:
+                embed = build_codegen_review_embed(effect)
+                await interaction.followup.send(
+                    embed=embed, ephemeral=True,
+                )
+        except (SQLAlchemyError, discord.HTTPException):
+            logger.exception("review_codegen_failed")
+            await interaction.followup.send(
+                "Could not load codegen effects.",
+                ephemeral=True,
+            )
+
+    async def _handle_disable_effect(
+        self,
+        interaction: discord.Interaction,
+        effect_id: str,
+    ) -> None:
+        """Handle /disable-effect — disable a codegen effect."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        admin_discord_id = self.settings.pinwheel_admin_discord_id
+        if (
+            not admin_discord_id
+            or str(interaction.user.id) != admin_discord_id
+        ):
+            await interaction.response.send_message(
+                "`/disable-effect` is restricted to the league admin.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database unavailable.", ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    await interaction.followup.send(
+                        "No active season.", ephemeral=True,
+                    )
+                    return
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+                effect = registry.get_effect(effect_id)
+
+                if not effect or effect.effect_type != "codegen":
+                    await interaction.followup.send(
+                        "Effect not found or not a codegen effect.",
+                        ephemeral=True,
+                    )
+                    return
+
+                effect.codegen_enabled = False
+                effect.codegen_disabled_reason = "Disabled by admin"
+
+                # Persist the disable event
+                await repo.append_event(
+                    event_type="effect.codegen_disabled",
+                    aggregate_id=effect_id,
+                    aggregate_type="effect",
+                    season_id=season.id,
+                    payload={
+                        "effect_id": effect_id,
+                        "reason": "admin_disabled",
+                    },
+                )
+                await session.commit()
+
+            desc = effect.description or effect_id
+            embed = discord.Embed(
+                title="Codegen Effect Disabled",
+                description=f"**{desc}** has been disabled.",
+                color=0xE74C3C,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.followup.send(embed=embed)
+        except (SQLAlchemyError, discord.HTTPException):
+            logger.exception("disable_effect_failed")
+            await interaction.followup.send(
+                "Could not disable the effect.",
+                ephemeral=True,
+            )
+
+    async def _handle_rerun_council(
+        self,
+        interaction: discord.Interaction,
+        effect_id: str,
+    ) -> None:
+        """Handle /rerun-council — mark a codegen effect for re-review."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.",
+                ephemeral=True,
+            )
+            return
+
+        admin_discord_id = self.settings.pinwheel_admin_discord_id
+        if (
+            not admin_discord_id
+            or str(interaction.user.id) != admin_discord_id
+        ):
+            await interaction.response.send_message(
+                "`/rerun-council` is restricted to the league admin.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.engine:
+            await interaction.response.send_message(
+                "Database unavailable.", ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    await interaction.followup.send(
+                        "No active season.", ephemeral=True,
+                    )
+                    return
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+                effect = registry.get_effect(effect_id)
+
+                if not effect or effect.effect_type != "codegen":
+                    await interaction.followup.send(
+                        "Effect not found or not a codegen effect.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Mark for re-review via event
+                await repo.append_event(
+                    event_type="effect.council_rerun_requested",
+                    aggregate_id=effect_id,
+                    aggregate_type="effect",
+                    season_id=season.id,
+                    payload={
+                        "effect_id": effect_id,
+                        "description": effect.description or "",
+                        "codegen_code_hash": effect.codegen_code_hash or "",
+                    },
+                )
+                await session.commit()
+
+            desc = effect.description or effect_id
+            embed = discord.Embed(
+                title="Council Re-review Requested",
+                description=(
+                    f"**{desc}** has been flagged for council re-review."
+                    "\nThe council pipeline will re-evaluate this "
+                    "effect on the next governance tick."
+                ),
+                color=0xF39C12,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.followup.send(embed=embed)
+        except (SQLAlchemyError, discord.HTTPException):
+            logger.exception("rerun_council_failed")
+            await interaction.followup.send(
+                "Could not request council re-review.",
+                ephemeral=True,
+            )
+
+    async def _autocomplete_codegen_effects(
+        self,
+        interaction: discord.Interaction,  # noqa: ARG002
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete for codegen effect commands."""
+        if not self.engine:
+            return []
+
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                seasons = await repo.get_all_seasons()
+                if not seasons:
+                    return []
+
+                season = seasons[-1]
+                registry = await load_effect_registry(repo, season.id)
+
+            choices: list[app_commands.Choice[str]] = []
+            for effect in registry.get_all_active():
+                if effect.effect_type != "codegen":
+                    continue
+                label = (
+                    effect.description[:100]
+                    or effect.effect_id[:100]
+                )
+                if current and current.lower() not in label.lower():
+                    continue
+                choices.append(
+                    app_commands.Choice(
+                        name=label, value=effect.effect_id,
+                    ),
+                )
+                if len(choices) >= 25:
+                    break
+            return choices
+        except SQLAlchemyError:
+            logger.debug(
+                "codegen_effect_autocomplete_failed", exc_info=True,
+            )
             return []
 
     async def _send_private_report(self, data: dict) -> None:

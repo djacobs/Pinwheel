@@ -118,7 +118,11 @@ class EffectRegistry:
 
         lines: list[str] = []
         for effect in self._effects.values():
-            desc = effect.description or effect.narrative_instruction or effect.effect_type
+            desc = (
+                effect.description
+                or effect.narrative_instruction
+                or effect.effect_type
+            )
             lifetime_str = effect.lifetime.value
             if effect.rounds_remaining is not None:
                 lifetime_str = f"{effect.rounds_remaining} rounds remaining"
@@ -127,7 +131,20 @@ class EffectRegistry:
                 if effect.effect_type == "custom_mechanic"
                 else effect.effect_type
             )
-            lines.append(f"- [{type_label}] {desc} ({lifetime_str})")
+            line = f"- [{type_label}] {desc} ({lifetime_str})"
+
+            # Codegen metadata
+            if effect.effect_type == "codegen":
+                status = (
+                    "enabled" if effect.codegen_enabled else "DISABLED"
+                )
+                line += (
+                    f" [codegen: {status},"
+                    f" runs={effect.codegen_execution_count},"
+                    f" errors={effect.codegen_error_count}]"
+                )
+
+            lines.append(line)
 
         return "\n".join(lines)
 

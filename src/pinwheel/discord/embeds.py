@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import discord
 
 if TYPE_CHECKING:
+    from pinwheel.core.hooks import RegisteredEffect
     from pinwheel.core.onboarding import LeagueContext
     from pinwheel.models.governance import (
         Proposal,
@@ -1923,4 +1924,90 @@ def build_search_result_embed(
     )
     query_label = query_type.replace("_", " ").title()
     embed.set_footer(text=f"Pinwheel Fates -- {query_label}")
+    return embed
+
+
+# ---------------------------------------------------------------------------
+# Codegen review embed (Phase 6e)
+# ---------------------------------------------------------------------------
+
+COLOR_CODEGEN = 0x9B59B6  # Purple — AI-generated code
+
+
+def build_codegen_review_embed(
+    effect: RegisteredEffect,
+) -> discord.Embed:
+    """Build a Discord embed showing codegen effect details for admin review.
+
+    Displays the effect description, trust level, enabled status,
+    execution/error counts, and a truncated code preview.
+    """
+    status_icon = "ENABLED" if effect.codegen_enabled else "DISABLED"
+    title = f"Codegen Effect -- {status_icon}"
+
+    desc = effect.description or effect.effect_id
+    embed = discord.Embed(
+        title=title,
+        description=desc,
+        color=COLOR_CODEGEN,
+    )
+
+    embed.add_field(
+        name="Effect ID",
+        value=f"`{effect.effect_id}`",
+        inline=True,
+    )
+    embed.add_field(
+        name="Trust Level",
+        value=effect.codegen_trust_level or "unknown",
+        inline=True,
+    )
+    embed.add_field(
+        name="Hook Points",
+        value=", ".join(effect.hook_points) or "none",
+        inline=False,
+    )
+    embed.add_field(
+        name="Executions",
+        value=str(effect.codegen_execution_count),
+        inline=True,
+    )
+    embed.add_field(
+        name="Errors",
+        value=str(effect.codegen_error_count),
+        inline=True,
+    )
+
+    if effect.codegen_disabled_reason:
+        embed.add_field(
+            name="Disabled Reason",
+            value=effect.codegen_disabled_reason[:200],
+            inline=False,
+        )
+
+    if effect.codegen_last_error:
+        embed.add_field(
+            name="Last Error",
+            value=f"```\n{effect.codegen_last_error[:200]}\n```",
+            inline=False,
+        )
+
+    # Code preview (truncated for Discord embed limits)
+    code_preview = effect.codegen_code or "(no code)"
+    if len(code_preview) > 500:
+        code_preview = code_preview[:497] + "..."
+    embed.add_field(
+        name="Code Preview",
+        value=f"```python\n{code_preview}\n```",
+        inline=False,
+    )
+
+    if effect.codegen_code_hash:
+        embed.add_field(
+            name="Code Hash",
+            value=f"`{effect.codegen_code_hash[:16]}...`",
+            inline=True,
+        )
+
+    embed.set_footer(text="Pinwheel Fates -- Codegen Review")
     return embed
