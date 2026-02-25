@@ -1269,3 +1269,59 @@ def interpret_strategy_mock(raw_text: str) -> TeamStrategy:
         raw_text=raw_text,
         confidence=confidence,
     )
+
+
+async def interpret_codegen_proposal(
+    raw_text: str,
+    api_key: str | None = None,
+    model: str = "claude-opus-4-6",
+) -> ProposalInterpretation:
+    """Route a proposal through the codegen council pipeline.
+
+    If ``api_key`` is provided, runs the full council (generate → AST validate
+    → 3 reviews). Otherwise, uses the mock generator.
+
+    Returns a ProposalInterpretation with a single codegen EffectSpec.
+    """
+    from pinwheel.ai.codegen_council import (
+        generate_codegen_effect_mock,
+        run_council_review,
+    )
+
+    if api_key:
+        spec, review = await run_council_review(
+            proposal_id="pending",
+            proposal_text=raw_text,
+            api_key=api_key,
+            model=model,
+        )
+        if spec is None:
+            # Council rejected — return low-confidence interpretation
+            flag_reasons = (
+                "; ".join(review.flag_reasons) if review.flag_reasons else "Council rejected"
+            )
+            return ProposalInterpretation(
+                effects=[],
+                impact_analysis=f"Codegen council rejected: {flag_reasons}",
+                confidence=0.0,
+                rejection_reason=flag_reasons,
+                original_text_echo=raw_text,
+            )
+    else:
+        spec = generate_codegen_effect_mock(raw_text)
+
+    effects = [
+        EffectSpec(
+            effect_type="codegen",
+            codegen=spec,
+            hook_point=spec.hook_points[0] if spec.hook_points else None,
+            description=spec.description,
+        )
+    ]
+
+    return ProposalInterpretation(
+        effects=effects,
+        impact_analysis=f"AI-generated code effect: {spec.description}",
+        confidence=0.9,
+        original_text_echo=raw_text,
+    )

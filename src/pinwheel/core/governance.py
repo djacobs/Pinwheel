@@ -199,6 +199,9 @@ def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> 
             # Reuse the legacy per-parameter tier lookup
             legacy = RuleInterpretation(parameter=effect.parameter)
             tiers.append(detect_tier(legacy, ruleset))
+        elif effect.effect_type == "codegen":
+            # Codegen effects always need admin review — tier 4
+            tiers.append(4)
         elif effect.effect_type in (
             "hook_callback", "meta_mutation", "move_grant", "custom_mechanic",
             "modify_game_definition",
@@ -332,12 +335,13 @@ def _needs_admin_review(
     - If V2 has no effects or is injection-flagged → wild
     - Low confidence (< 0.5) is still flagged regardless of V2
     """
-    # custom_mechanic effects always need admin review — they require code
+    # custom_mechanic and codegen effects always need admin review
     if interpretation_v2 is not None:
-        has_custom = any(
-            e.effect_type == "custom_mechanic" for e in interpretation_v2.effects
+        has_custom_or_codegen = any(
+            e.effect_type in ("custom_mechanic", "codegen")
+            for e in interpretation_v2.effects
         )
-        if has_custom:
+        if has_custom_or_codegen:
             return True
 
     # Low confidence always triggers review, regardless of V2

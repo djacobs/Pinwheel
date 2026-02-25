@@ -158,7 +158,10 @@ def effect_spec_to_registered(
 
     # Determine hook points based on effect type
     hook_points: list[str] = []
-    if spec.effect_type == "custom_mechanic":
+    if spec.effect_type == "codegen" and spec.codegen:
+        # Codegen effects use hook points from the CodegenEffectSpec
+        hook_points = list(spec.codegen.hook_points) if spec.codegen.hook_points else []
+    elif spec.effect_type == "custom_mechanic":
         # Custom mechanics fire at report hooks so their observable behavior
         # appears in commentary even before full implementation.
         hook_points = ["report.simulation.pre", "report.commentary.pre"]
@@ -190,6 +193,15 @@ def effect_spec_to_registered(
     if spec.effect_type == "custom_mechanic" and spec.mechanic_observable_behavior:
         narrative = spec.mechanic_observable_behavior
 
+    # Codegen fields
+    codegen_code: str | None = None
+    codegen_code_hash: str | None = None
+    codegen_trust_level: str | None = None
+    if spec.effect_type == "codegen" and spec.codegen:
+        codegen_code = spec.codegen.code
+        codegen_code_hash = spec.codegen.code_hash
+        codegen_trust_level = spec.codegen.trust_level.value
+
     return RegisteredEffect(
         effect_id=effect_id,
         proposal_id=proposal_id,
@@ -207,6 +219,9 @@ def effect_spec_to_registered(
         meta_field=spec.meta_field or "",
         meta_value=spec.meta_value,
         meta_operation=spec.meta_operation or "set",
+        codegen_code=codegen_code,
+        codegen_code_hash=codegen_code_hash,
+        codegen_trust_level=codegen_trust_level,
     )
 
 

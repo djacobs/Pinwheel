@@ -227,6 +227,17 @@ class RegisteredEffect:
     meta_value: object = None
     meta_operation: str = "set"
 
+    # Codegen fields (populated when effect_type == "codegen")
+    codegen_code: str | None = None
+    codegen_code_hash: str | None = None
+    codegen_trust_level: str | None = None  # CodegenTrustLevel value string
+    codegen_enabled: bool = True
+    codegen_disabled_reason: str = ""
+    codegen_execution_count: int = 0
+    codegen_error_count: int = 0
+    codegen_consecutive_errors: int = 0
+    codegen_last_error: str = ""
+
     @property
     def hook_points(self) -> list[str]:
         """Which hook points this effect listens on."""
@@ -388,6 +399,9 @@ class RegisteredEffect:
         """Execute the effect's action and return mutations."""
         result = HookResult()
 
+        if self.effect_type == "codegen":
+            return self._fire_codegen(context) or result
+
         if self.effect_type == "meta_mutation":
             return self._apply_meta_mutation(context, result)
 
@@ -403,6 +417,97 @@ class RegisteredEffect:
             return result
 
         return result
+
+    def _fire_codegen(self, context: HookContext) -> HookResult | None:
+        """Execute generated code in sandbox, return standard HookResult."""
+        if not self.codegen_code or not self.codegen_code_hash:
+            return None
+
+        if not self.codegen_enabled:
+            return None
+
+        from pinwheel.core.codegen import (
+            SandboxViolation,
+            clamp_result,
+            enforce_trust_level,
+            execute_codegen_effect,
+            verify_code_integrity,
+        )
+        from pinwheel.models.codegen import CodegenTrustLevel
+
+        # Verify code integrity
+        if not verify_code_integrity(self.codegen_code, self.codegen_code_hash):
+            self._disable_codegen("Code integrity check failed")
+            return None
+
+        # Build sandboxed GameContext from HookContext
+        trust = (
+            CodegenTrustLevel(self.codegen_trust_level)
+            if self.codegen_trust_level
+            else CodegenTrustLevel.NUMERIC
+        )
+        game_ctx = _build_game_context(context, trust)
+
+        rng = context.rng
+        if rng is None:
+            import random as _random_mod
+            rng = _random_mod.Random()
+
+        try:
+            codegen_result = execute_codegen_effect(self.codegen_code, game_ctx, rng)
+            # Enforce trust level
+            codegen_result = enforce_trust_level(codegen_result, trust)
+            codegen_result = clamp_result(codegen_result)
+            self._record_codegen_success()
+            return _codegen_result_to_hook_result(codegen_result)
+
+        except SandboxViolation as e:
+            self._record_codegen_error(f"Sandbox violation: {e.violation_type}: {e.detail}")
+            self._disable_codegen(f"Sandbox violation: {e.violation_type}")
+            return None
+
+        except TimeoutError:
+            self._record_codegen_error("Execution timeout (>1s)")
+            self._disable_codegen("Execution timeout")
+            return None
+
+        except Exception:  # noqa: BLE001 — catch-all for sandbox safety
+            import traceback
+            err = traceback.format_exc()
+            self._record_codegen_error(err[:200])
+            # Auto-disable after 3 consecutive errors
+            if self.codegen_consecutive_errors >= 3:
+                self._disable_codegen(
+                    f"Auto-disabled after {self.codegen_consecutive_errors} errors"
+                )
+            return None
+
+    def _record_codegen_success(self) -> None:
+        """Record successful codegen execution."""
+        self.codegen_execution_count += 1
+        self.codegen_consecutive_errors = 0
+
+    def _record_codegen_error(self, error: str) -> None:
+        """Record codegen execution error."""
+        self.codegen_error_count += 1
+        self.codegen_consecutive_errors += 1
+        self.codegen_last_error = error
+        logger.warning(
+            "codegen_execution_error effect_id=%s errors=%d error=%s",
+            self.effect_id,
+            self.codegen_consecutive_errors,
+            error[:100],
+        )
+
+    def _disable_codegen(self, reason: str) -> None:
+        """Kill switch — immediately disable this codegen effect."""
+        self.codegen_enabled = False
+        self.codegen_disabled_reason = reason
+        logger.warning(
+            "codegen_disabled effect_id=%s reason=%s",
+            self.effect_id,
+            reason,
+        )
 
     def _apply_meta_mutation(
         self,
@@ -720,7 +825,7 @@ class RegisteredEffect:
 
     def to_dict(self) -> dict[str, object]:
         """Serialize for event store persistence."""
-        return {
+        d: dict[str, object] = {
             "effect_id": self.effect_id,
             "proposal_id": self.proposal_id,
             "hook_points": self._hook_points,
@@ -738,6 +843,14 @@ class RegisteredEffect:
             "meta_value": self.meta_value,
             "meta_operation": self.meta_operation,
         }
+        # Include codegen fields only when present (keep backward compat)
+        if self.effect_type == "codegen":
+            d["codegen_code"] = self.codegen_code
+            d["codegen_code_hash"] = self.codegen_code_hash
+            d["codegen_trust_level"] = self.codegen_trust_level
+            d["codegen_enabled"] = self.codegen_enabled
+            d["codegen_disabled_reason"] = self.codegen_disabled_reason
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> RegisteredEffect:
@@ -777,6 +890,16 @@ class RegisteredEffect:
             meta_field=str(data.get("meta_field", "")),
             meta_value=data.get("meta_value"),
             meta_operation=str(data.get("meta_operation", "set")),
+            # Codegen fields (present only for effect_type == "codegen")
+            codegen_code=str(data["codegen_code"]) if data.get("codegen_code") else None,
+            codegen_code_hash=(
+                str(data["codegen_code_hash"]) if data.get("codegen_code_hash") else None
+            ),
+            codegen_trust_level=(
+                str(data["codegen_trust_level"]) if data.get("codegen_trust_level") else None
+            ),
+            codegen_enabled=bool(data.get("codegen_enabled", True)),
+            codegen_disabled_reason=str(data.get("codegen_disabled_reason", "")),
         )
 
 
@@ -832,3 +955,109 @@ def apply_hook_results(
             0.0,
             min(1.0, context.hooper.current_stamina + total_stamina_mod),
         )
+
+
+# ---------------------------------------------------------------------------
+# Codegen helpers — build sandboxed context, convert results
+# ---------------------------------------------------------------------------
+
+
+def _build_game_context(
+    context: HookContext,
+    trust_level: object,  # CodegenTrustLevel — lazy import to avoid circular
+) -> object:
+    """Build a sandboxed GameContext from HookContext.
+
+    The trust level determines what the generated code can see and do.
+    """
+    from pinwheel.core.codegen import ParticipantView, SandboxedGameContext
+    from pinwheel.models.codegen import CodegenTrustLevel
+
+    trust = trust_level if isinstance(trust_level, CodegenTrustLevel) else CodegenTrustLevel.NUMERIC
+
+    # Build actor ParticipantView from offense[0]
+    actor_view = ParticipantView(
+        name="Unknown", team_id="", attributes={}, stamina=1.0, on_court=True,
+    )
+    opponent_view: ParticipantView | None = None
+    actor_is_home = True
+
+    gs = context.game_state
+    if gs:
+        offense = gs.offense
+        defense = gs.defense
+        if offense:
+            h = offense[0]
+            actor_view = ParticipantView(
+                name=h.hooper.name,
+                team_id=h.hooper.team_id,
+                attributes=h.current_attributes.model_dump(),
+                stamina=h.current_stamina,
+                on_court=h.on_court,
+            )
+        if defense:
+            d = defense[0]
+            opponent_view = ParticipantView(
+                name=d.hooper.name,
+                team_id=d.hooper.team_id,
+                attributes=d.current_attributes.model_dump(),
+                stamina=d.current_stamina,
+                on_court=d.on_court,
+            )
+        actor_is_home = gs.home_has_ball
+
+    game_ctx = SandboxedGameContext(
+        _actor=actor_view,
+        _opponent=opponent_view,
+        _home_score=gs.home_score if gs else 0,
+        _away_score=gs.away_score if gs else 0,
+        _phase_number=gs.quarter if gs else 0,
+        _turn_count=gs.possession_number if gs else 0,
+        _actor_is_home=actor_is_home,
+        _game_name="Basketball",
+    )
+
+    # Trust level STATE+: add MetaStore read access
+    if trust in (CodegenTrustLevel.STATE, CodegenTrustLevel.FLOW, CodegenTrustLevel.STRUCTURE):
+        game_ctx._meta_store_ref = context.meta_store
+
+    # Trust level FLOW+: add state dict
+    if trust in (CodegenTrustLevel.FLOW, CodegenTrustLevel.STRUCTURE) and gs:
+        import dataclasses as _dc
+        state_dict: dict[str, int | float | bool | str] = {}
+        for f in _dc.fields(gs):
+            val = getattr(gs, f.name)
+            if isinstance(val, (str, int, float, bool)):
+                state_dict[f.name] = val
+        game_ctx._state_dict = state_dict
+
+    return game_ctx
+
+
+def _codegen_result_to_hook_result(
+    codegen_result: object,  # CodegenHookResult — lazy import
+) -> HookResult:
+    """Convert a CodegenHookResult to the standard HookResult."""
+    from pinwheel.core.codegen import CodegenHookResult
+
+    if not isinstance(codegen_result, CodegenHookResult):
+        return HookResult()
+
+    result = HookResult(
+        score_modifier=codegen_result.score_modifier,
+        stamina_modifier=codegen_result.stamina_modifier,
+        shot_probability_modifier=codegen_result.shot_probability_modifier,
+        shot_value_modifier=codegen_result.shot_value_modifier,
+        extra_stamina_drain=codegen_result.extra_stamina_drain,
+        block_action=codegen_result.block_action,
+        narrative=codegen_result.narrative_note,
+        meta_writes=codegen_result.meta_writes,
+    )
+
+    # opponent_score_modifier maps to score_modifier on the opposite side
+    # This is a simplification — the caller handles which side gets it
+    if codegen_result.opponent_score_modifier != 0:
+        # Store as negative to signal "for the other team"
+        result.score_modifier -= codegen_result.opponent_score_modifier
+
+    return result
