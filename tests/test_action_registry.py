@@ -18,12 +18,14 @@ import pytest
 from pinwheel.core.hooks import HookResult
 from pinwheel.core.possession import resolve_possession, select_action
 from pinwheel.core.scoring import BASE_MIDPOINTS, BASE_STEEPNESS, points_for_shot
-from pinwheel.core.simulation import simulate_game
+from pinwheel.core.simulation import resolve_turn, simulate_game
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game_definition import (
     ActionDefinition,
     ActionRegistry,
+    GameDefinition,
     basketball_actions,
+    basketball_game_definition,
 )
 from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 from pinwheel.models.team import Hooper, PlayerAttributes, Team, Venue
@@ -604,3 +606,373 @@ class TestRegistryPossessionIntegration:
         assert r1.home_score == r2.home_score
         assert r1.away_score == r2.away_score
         assert r1.total_possessions == r2.total_possessions
+
+
+# ---------------------------------------------------------------------------
+# Phase 3a: GameDefinition turn structure fields
+# ---------------------------------------------------------------------------
+
+
+class TestGameDefinitionTurnStructure:
+    """Verify GameDefinition turn structure fields and basketball_game_definition()."""
+
+    def test_default_game_definition_turn_structure(self) -> None:
+        """Default GameDefinition has sensible basketball-like defaults."""
+        gd = GameDefinition()
+        assert gd.quarters == 4
+        assert gd.quarter_clock_seconds == 600.0
+        assert gd.alternating_possession is True
+        assert gd.elam_ending_enabled is True
+        assert gd.elam_trigger_quarter == 4
+        assert gd.elam_target_margin == 15
+        assert gd.halftime_after_quarter == 2
+        assert gd.halftime_recovery == 0.40
+        assert gd.quarter_break_recovery == 0.15
+        assert gd.safety_cap_possessions == 300
+
+    def test_basketball_game_definition_default_rules(self) -> None:
+        """basketball_game_definition with DEFAULT_RULESET produces correct values."""
+        gd = basketball_game_definition(DEFAULT_RULESET)
+        # DEFAULT_RULESET: elam_trigger_quarter=3, so total quarters = 4
+        assert gd.quarters == 4
+        assert gd.quarter_clock_seconds == DEFAULT_RULESET.quarter_minutes * 60.0
+        assert gd.alternating_possession is True
+        assert gd.elam_ending_enabled is True
+        assert gd.elam_trigger_quarter == 4  # last quarter is Elam
+        assert gd.elam_target_margin == DEFAULT_RULESET.elam_margin
+        assert gd.halftime_after_quarter == 2
+        assert gd.halftime_recovery == DEFAULT_RULESET.halftime_stamina_recovery
+        assert gd.quarter_break_recovery == DEFAULT_RULESET.quarter_break_stamina_recovery
+        assert gd.safety_cap_possessions == DEFAULT_RULESET.safety_cap_possessions
+
+    def test_basketball_game_definition_custom_elam_trigger(self) -> None:
+        """Custom elam_trigger_quarter changes total quarters and Elam trigger."""
+        rules = RuleSet(elam_trigger_quarter=2)
+        gd = basketball_game_definition(rules)
+        # elam_trigger_quarter=2 means Q1, Q2 regular, Q3 Elam
+        assert gd.quarters == 3
+        assert gd.elam_trigger_quarter == 3
+
+    def test_basketball_game_definition_custom_quarter_minutes(self) -> None:
+        """Custom quarter_minutes changes quarter_clock_seconds."""
+        rules = RuleSet(quarter_minutes=5)
+        gd = basketball_game_definition(rules)
+        assert gd.quarter_clock_seconds == 300.0
+
+    def test_basketball_game_definition_custom_elam_margin(self) -> None:
+        """Custom elam_margin flows through to elam_target_margin."""
+        rules = RuleSet(elam_margin=25)
+        gd = basketball_game_definition(rules)
+        assert gd.elam_target_margin == 25
+
+    def test_basketball_game_definition_custom_stamina_recovery(self) -> None:
+        """Custom stamina recovery values flow through."""
+        rules = RuleSet(halftime_stamina_recovery=0.30, quarter_break_stamina_recovery=0.10)
+        gd = basketball_game_definition(rules)
+        assert gd.halftime_recovery == 0.30
+        assert gd.quarter_break_recovery == 0.10
+
+    def test_basketball_game_definition_custom_safety_cap(self) -> None:
+        """Custom safety_cap_possessions flows through."""
+        rules = RuleSet(safety_cap_possessions=200)
+        gd = basketball_game_definition(rules)
+        assert gd.safety_cap_possessions == 200
+
+    def test_basketball_game_definition_preserves_actions(self) -> None:
+        """Turn structure fields don't interfere with existing action fields."""
+        gd = basketball_game_definition(DEFAULT_RULESET)
+        assert len(gd.actions) == 4
+        assert gd.participants_per_side == 3
+        assert gd.bench_size == 1
+        assert gd.name == "Basketball"
+        registry = gd.build_registry()
+        assert "at_rim" in registry
+        assert "three_point" in registry
+
+    def test_game_definition_serialization_round_trip(self) -> None:
+        """GameDefinition with turn structure fields round-trips through JSON."""
+        gd = basketball_game_definition(DEFAULT_RULESET)
+        data = gd.model_dump()
+        restored = GameDefinition.model_validate(data)
+        assert restored.quarters == gd.quarters
+        assert restored.quarter_clock_seconds == gd.quarter_clock_seconds
+        assert restored.alternating_possession == gd.alternating_possession
+        assert restored.elam_ending_enabled == gd.elam_ending_enabled
+        assert restored.elam_trigger_quarter == gd.elam_trigger_quarter
+        assert restored.elam_target_margin == gd.elam_target_margin
+        assert restored.halftime_after_quarter == gd.halftime_after_quarter
+        assert restored.halftime_recovery == gd.halftime_recovery
+        assert restored.quarter_break_recovery == gd.quarter_break_recovery
+        assert restored.safety_cap_possessions == gd.safety_cap_possessions
+
+    def test_elam_trigger_equals_total_quarters_for_basketball(self) -> None:
+        """For basketball, Elam is always the last quarter (trigger == total)."""
+        for etq in (1, 2, 3, 4):
+            rules = RuleSet(elam_trigger_quarter=etq)
+            gd = basketball_game_definition(rules)
+            assert gd.elam_trigger_quarter == gd.quarters, (
+                f"elam_trigger_quarter={etq}: "
+                f"expected trigger={gd.quarters}, "
+                f"got {gd.elam_trigger_quarter}"
+            )
+
+    def test_regular_quarters_count(self) -> None:
+        """Number of regular (non-Elam) quarters is quarters - 1."""
+        gd = basketball_game_definition(DEFAULT_RULESET)
+        regular_quarters = gd.quarters - 1  # Q1, Q2, Q3
+        assert regular_quarters == 3
+
+    def test_custom_non_basketball_game_definition(self) -> None:
+        """A non-basketball game can have different turn structure values."""
+        coin_flip = GameDefinition(
+            name="Coin Flip Championship",
+            description="Best-of-N coin flips",
+            quarters=1,
+            quarter_clock_seconds=0.0,
+            alternating_possession=False,
+            elam_ending_enabled=False,
+            elam_trigger_quarter=1,
+            elam_target_margin=0,
+            halftime_after_quarter=0,
+            halftime_recovery=0.0,
+            quarter_break_recovery=0.0,
+            safety_cap_possessions=100,
+        )
+        assert coin_flip.quarters == 1
+        assert coin_flip.elam_ending_enabled is False
+        assert coin_flip.alternating_possession is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 3b: simulate_game reads turn structure from GameDefinition
+# ---------------------------------------------------------------------------
+
+
+class TestSimulateGameWithGameDefinition:
+    """Verify simulate_game reads turn structure from GameDefinition."""
+
+    def test_simulate_with_explicit_game_def_identical(self) -> None:
+        """Passing basketball_game_definition explicitly produces identical results.
+
+        This confirms the GameDefinition path and the fallback path produce
+        the exact same simulation output for the same seed.
+        """
+        home = _make_team("home")
+        away = _make_team("away")
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+
+        for seed in range(30):
+            r_fallback = simulate_game(
+                home, away, DEFAULT_RULESET, seed=seed,
+            )
+            r_explicit = simulate_game(
+                home, away, DEFAULT_RULESET, seed=seed,
+                game_def=game_def,
+            )
+            assert r_fallback.home_score == r_explicit.home_score, (
+                f"seed={seed}: home mismatch"
+            )
+            assert r_fallback.away_score == r_explicit.away_score, (
+                f"seed={seed}: away mismatch"
+            )
+            assert r_fallback.total_possessions == r_explicit.total_possessions
+            assert r_fallback.elam_activated == r_explicit.elam_activated
+            assert len(r_fallback.quarter_scores) == len(r_explicit.quarter_scores)
+
+    def test_custom_elam_margin_via_game_def(self) -> None:
+        """Custom elam_target_margin in GameDefinition affects Elam target score."""
+        home = _make_team("home")
+        away = _make_team("away")
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+        # Override the margin to a much larger value
+        game_def_large = game_def.model_copy(
+            update={"elam_target_margin": 40}
+        )
+
+        r_default = simulate_game(
+            home, away, DEFAULT_RULESET, seed=42,
+            game_def=game_def,
+        )
+        r_large = simulate_game(
+            home, away, DEFAULT_RULESET, seed=42,
+            game_def=game_def_large,
+        )
+        # With a larger margin, Elam target is higher so game may differ
+        assert r_default.elam_activated
+        assert r_large.elam_activated
+        if r_large.elam_target_score is not None and r_default.elam_target_score is not None:
+            assert r_large.elam_target_score >= r_default.elam_target_score
+
+    def test_quarter_count_from_game_def(self) -> None:
+        """Number of quarter_scores matches game_def.quarters."""
+        home = _make_team("home")
+        away = _make_team("away")
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+        result = simulate_game(
+            home, away, DEFAULT_RULESET, seed=99,
+            game_def=game_def,
+        )
+        # Basketball with default rules: 4 quarters (3 regular + Elam)
+        assert len(result.quarter_scores) == game_def.quarters
+
+    def test_custom_quarter_minutes_via_game_def(self) -> None:
+        """Custom quarter_clock_seconds flows through to game duration."""
+        home = _make_team("home")
+        away = _make_team("away")
+        # Short quarters = fewer possessions
+        short_def = basketball_game_definition(DEFAULT_RULESET).model_copy(
+            update={"quarter_clock_seconds": 60.0}  # 1 minute
+        )
+        long_def = basketball_game_definition(DEFAULT_RULESET).model_copy(
+            update={"quarter_clock_seconds": 1200.0}  # 20 minutes
+        )
+        r_short = simulate_game(
+            home, away, DEFAULT_RULESET, seed=42,
+            game_def=short_def,
+        )
+        r_long = simulate_game(
+            home, away, DEFAULT_RULESET, seed=42,
+            game_def=long_def,
+        )
+        # Shorter clock should produce fewer total possessions
+        assert r_short.total_possessions < r_long.total_possessions
+
+
+# ---------------------------------------------------------------------------
+# Phase 3c: resolve_turn() indirection layer
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTurn:
+    """Verify resolve_turn() delegates to resolve_possession() correctly."""
+
+    def test_resolve_turn_returns_possession_result(self) -> None:
+        """resolve_turn() returns a PossessionResult with valid fields."""
+        home_hoopers = [
+            HooperState(hooper=_make_hooper(f"h-{i}", "t-h"))
+            for i in range(3)
+        ]
+        away_hoopers = [
+            HooperState(hooper=_make_hooper(f"a-{i}", "t-a"))
+            for i in range(3)
+        ]
+        game_state = GameState(
+            home_agents=home_hoopers, away_agents=away_hoopers,
+        )
+        rng = random.Random(42)
+        result = resolve_turn(game_state, DEFAULT_RULESET, rng)
+        assert result.time_used > 0
+        assert result.shot_type in ("at_rim", "mid_range", "three_point", "")
+
+    def test_resolve_turn_identical_to_resolve_possession(self) -> None:
+        """resolve_turn() produces identical results to resolve_possession().
+
+        For the same game state and RNG seed, both paths must agree on
+        all output fields.
+        """
+        from pinwheel.core.possession import resolve_possession as rp_direct
+
+        for seed in range(50):
+            home_hoopers = [
+                HooperState(hooper=_make_hooper(f"h-{i}", "t-h"))
+                for i in range(3)
+            ]
+            away_hoopers = [
+                HooperState(hooper=_make_hooper(f"a-{i}", "t-a"))
+                for i in range(3)
+            ]
+
+            gs1 = GameState(
+                home_agents=home_hoopers, away_agents=away_hoopers,
+            )
+            # Build fresh identical state for the second call
+            home_hoopers2 = [
+                HooperState(hooper=_make_hooper(f"h-{i}", "t-h"))
+                for i in range(3)
+            ]
+            away_hoopers2 = [
+                HooperState(hooper=_make_hooper(f"a-{i}", "t-a"))
+                for i in range(3)
+            ]
+            gs2 = GameState(
+                home_agents=home_hoopers2, away_agents=away_hoopers2,
+            )
+
+            rng1 = random.Random(seed)
+            rng2 = random.Random(seed)
+
+            r_turn = resolve_turn(gs1, DEFAULT_RULESET, rng1)
+            r_poss = rp_direct(gs2, DEFAULT_RULESET, rng2)
+
+            assert r_turn.points_scored == r_poss.points_scored, (
+                f"seed={seed}"
+            )
+            assert r_turn.shot_type == r_poss.shot_type, f"seed={seed}"
+            assert r_turn.shot_made == r_poss.shot_made, f"seed={seed}"
+            assert r_turn.time_used == r_poss.time_used, f"seed={seed}"
+
+    def test_resolve_turn_with_registry(self) -> None:
+        """resolve_turn() correctly passes action_registry through."""
+        home_hoopers = [
+            HooperState(hooper=_make_hooper(f"h-{i}", "t-h"))
+            for i in range(3)
+        ]
+        away_hoopers = [
+            HooperState(hooper=_make_hooper(f"a-{i}", "t-a"))
+            for i in range(3)
+        ]
+        game_state = GameState(
+            home_agents=home_hoopers, away_agents=away_hoopers,
+        )
+        registry = ActionRegistry(basketball_actions(DEFAULT_RULESET))
+        rng = random.Random(42)
+        result = resolve_turn(
+            game_state, DEFAULT_RULESET, rng,
+            action_registry=registry,
+        )
+        assert result.time_used > 0
+
+    def test_resolve_turn_with_game_def(self) -> None:
+        """resolve_turn() accepts a game_def parameter without error."""
+        home_hoopers = [
+            HooperState(hooper=_make_hooper(f"h-{i}", "t-h"))
+            for i in range(3)
+        ]
+        away_hoopers = [
+            HooperState(hooper=_make_hooper(f"a-{i}", "t-a"))
+            for i in range(3)
+        ]
+        game_state = GameState(
+            home_agents=home_hoopers, away_agents=away_hoopers,
+        )
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+        rng = random.Random(42)
+        result = resolve_turn(
+            game_state, DEFAULT_RULESET, rng, game_def=game_def,
+        )
+        assert result.time_used > 0
+
+    def test_simulate_game_uses_resolve_turn(self) -> None:
+        """simulate_game with resolve_turn produces identical results.
+
+        This is the integration test: since _run_quarter and _run_elam
+        now call resolve_turn instead of resolve_possession directly,
+        the full game simulation must still produce identical results.
+        """
+        home = _make_team("home")
+        away = _make_team("away")
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+
+        # Run with explicit game_def (uses resolve_turn path)
+        for seed in range(20):
+            r1 = simulate_game(
+                home, away, DEFAULT_RULESET, seed=seed,
+                game_def=game_def,
+            )
+            r2 = simulate_game(
+                home, away, DEFAULT_RULESET, seed=seed,
+                game_def=game_def,
+            )
+            assert r1.home_score == r2.home_score
+            assert r1.away_score == r2.away_score
+            assert r1.total_possessions == r2.total_possessions

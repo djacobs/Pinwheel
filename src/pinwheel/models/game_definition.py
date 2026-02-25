@@ -7,6 +7,8 @@ default game definition; governance can modify it at runtime.
 Phase 1: ActionDefinition and ActionRegistry for data-driven actions.
 Phase 2a: GameDefinition bundles ActionRegistry + game structure config.
           simulate_game() always uses the registry — no more dual-path.
+Phase 3a: Turn structure config — quarters, clock, Elam Ending, alternating
+          possession. All derived from RuleSet for basketball.
 """
 
 from __future__ import annotations
@@ -139,6 +141,10 @@ class GameDefinition(BaseModel):
     The ActionRegistry is NOT serialized — it is rebuilt from the actions
     list on construction. This keeps the Pydantic model serializable while
     the registry provides fast runtime lookup.
+
+    Turn structure fields (Phase 3a) make the quarter/period/Elam structure
+    data-driven. For basketball, these are derived from the RuleSet by
+    ``basketball_game_definition()``.
     """
 
     name: str = "Basketball"
@@ -155,6 +161,75 @@ class GameDefinition(BaseModel):
 
     bench_size: int = 1
     """Number of bench participants per team."""
+
+    # ---- Turn Structure (Phase 3a) ----
+
+    quarters: int = 4
+    """Number of periods (quarters) in the game, including the Elam period.
+
+    For basketball with default rules: 4 (Q1, Q2, Q3, Elam).
+    The first ``quarters - 1`` periods are clock-based; the last may be
+    Elam-style (target score) if ``elam_ending_enabled`` is True.
+    """
+
+    quarter_clock_seconds: float = 600.0
+    """Duration of each clock-based period in seconds.
+
+    For basketball: ``quarter_minutes * 60``. This is the initial value
+    of the game clock for each regular (non-Elam) quarter.
+    """
+
+    alternating_possession: bool = True
+    """Whether possession alternates between teams each turn.
+
+    True for basketball (and most team games). False for games where
+    the same team can act multiple times in a row.
+    """
+
+    elam_ending_enabled: bool = True
+    """Whether the final period uses Elam Ending (target score) rules.
+
+    When True, the last quarter (``elam_trigger_quarter``) switches
+    from clock-based to target-score-based play.
+    """
+
+    elam_trigger_quarter: int = 4
+    """Which quarter triggers the Elam Ending.
+
+    For basketball: typically the last quarter. Must be >= 1 and
+    <= ``quarters``. Derived from ``rules.elam_trigger_quarter + 1``
+    because the RuleSet field counts regular quarters before Elam.
+    """
+
+    elam_target_margin: int = 15
+    """Points added to the leading score to compute the Elam target.
+
+    Derived from ``rules.elam_margin``.
+    """
+
+    halftime_after_quarter: int = 2
+    """Apply halftime recovery after this quarter number.
+
+    For basketball: halftime after Q2. Set to 0 to disable halftime.
+    """
+
+    halftime_recovery: float = 0.40
+    """Stamina recovery fraction at halftime.
+
+    Derived from ``rules.halftime_stamina_recovery``.
+    """
+
+    quarter_break_recovery: float = 0.15
+    """Stamina recovery fraction at non-halftime quarter breaks.
+
+    Derived from ``rules.quarter_break_stamina_recovery``.
+    """
+
+    safety_cap_possessions: int = 300
+    """Maximum total possessions before forcing game over.
+
+    Derived from ``rules.safety_cap_possessions``.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -257,7 +332,17 @@ def basketball_game_definition(rules: RuleSet) -> GameDefinition:
     """Build a complete basketball GameDefinition from a RuleSet.
 
     This is the primary factory for creating a game definition. The returned
-    definition bundles all basketball actions with the standard 3v3 structure.
+    definition bundles all basketball actions with the standard 3v3 structure,
+    plus turn structure fields derived from the RuleSet.
+
+    Turn structure mapping:
+    - ``quarters``: ``elam_trigger_quarter + 1`` (regular quarters + Elam)
+    - ``quarter_clock_seconds``: ``quarter_minutes * 60``
+    - ``elam_trigger_quarter``: ``rules.elam_trigger_quarter + 1`` (1-indexed)
+    - ``elam_target_margin``: ``rules.elam_margin``
+    - ``halftime_recovery``: ``rules.halftime_stamina_recovery``
+    - ``quarter_break_recovery``: ``rules.quarter_break_stamina_recovery``
+    - ``safety_cap_possessions``: ``rules.safety_cap_possessions``
 
     Args:
         rules: The current RuleSet, used to derive point values and game parameters.
@@ -265,12 +350,29 @@ def basketball_game_definition(rules: RuleSet) -> GameDefinition:
     Returns:
         A GameDefinition configured for 3v3 basketball.
     """
+    # In the RuleSet, elam_trigger_quarter counts regular quarters BEFORE Elam.
+    # E.g. elam_trigger_quarter=3 means Q1, Q2, Q3 are regular, Q4 is Elam.
+    # So total quarters = elam_trigger_quarter + 1.
+    total_quarters = rules.elam_trigger_quarter + 1
+    elam_quarter = total_quarters  # Elam is always the last quarter
+
     return GameDefinition(
         name="Basketball",
         description="3v3 basketball with Elam Ending",
         actions=basketball_actions(rules),
         participants_per_side=3,
         bench_size=1,
+        # Turn structure
+        quarters=total_quarters,
+        quarter_clock_seconds=rules.quarter_minutes * 60.0,
+        alternating_possession=True,
+        elam_ending_enabled=True,
+        elam_trigger_quarter=elam_quarter,
+        elam_target_margin=rules.elam_margin,
+        halftime_after_quarter=2,
+        halftime_recovery=rules.halftime_stamina_recovery,
+        quarter_break_recovery=rules.quarter_break_stamina_recovery,
+        safety_cap_possessions=rules.safety_cap_possessions,
     )
 
 

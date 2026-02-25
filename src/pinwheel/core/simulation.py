@@ -6,6 +6,11 @@ See SIMULATION.md.
 
 Phase 2a: simulate_game always constructs an ActionRegistry from the RuleSet.
 The registry is the single code path — no more dual-path branching.
+
+Phase 3b: simulate_game reads turn structure (quarters, clock, Elam trigger,
+recovery, safety cap) from a GameDefinition instead of hardcoded values.
+Basketball behavior is preserved — basketball_game_definition() produces
+identical values to what was previously hardcoded.
 """
 
 from __future__ import annotations
@@ -25,10 +30,15 @@ from pinwheel.core.hooks import (
     fire_hooks,
 )
 from pinwheel.core.meta import MetaStore
-from pinwheel.core.possession import resolve_possession
+from pinwheel.core.possession import PossessionResult, resolve_possession
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
-from pinwheel.models.game_definition import ActionRegistry, basketball_actions
+from pinwheel.models.game_definition import (
+    ActionRegistry,
+    GameDefinition,
+    basketball_actions,
+    basketball_game_definition,
+)
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team, TeamStrategy
 
@@ -220,6 +230,45 @@ def _check_substitution(
                     possession_log.append(log)
 
 
+def resolve_turn(
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    last_three: bool = False,
+    poss_ctx: PossessionContext | None = None,
+    action_registry: ActionRegistry | None = None,
+    game_def: GameDefinition | None = None,
+) -> PossessionResult:
+    """Resolve one turn of the game.
+
+    This is the single dispatch point between the turn-structure loop
+    (``_run_quarter`` / ``_run_elam``) and the possession-level engine.
+    For basketball (the only game right now), it delegates directly to
+    ``resolve_possession()``.
+
+    Future game types can be dispatched here based on
+    ``game_def.name`` or a ``turn_type`` field, routing to different
+    resolution functions without modifying the callers.
+
+    Args:
+        game_state: Mutable game state.
+        rules: Current RuleSet.
+        rng: Seeded random number generator.
+        last_three: Whether the previous possession ended with a made three.
+        poss_ctx: Effect-derived modifiers for this possession.
+        action_registry: Data-driven action definitions.
+        game_def: Game structure definition (currently unused but
+            threaded for future dispatch).
+
+    Returns:
+        A PossessionResult with the outcome of the turn.
+    """
+    return resolve_possession(
+        game_state, rules, rng, last_three, poss_ctx,
+        action_registry=action_registry,
+    )
+
+
 def _run_quarter(
     game_state: GameState,
     rules: RuleSet,
@@ -229,9 +278,18 @@ def _run_quarter(
     new_effects: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
+    game_def: GameDefinition | None = None,
 ) -> None:
-    """Run one quarter using the game clock."""
-    game_state.game_clock_seconds = rules.quarter_minutes * 60.0
+    """Run one quarter using the game clock.
+
+    The clock duration is read from ``game_def.quarter_clock_seconds``
+    when a GameDefinition is provided, falling back to
+    ``rules.quarter_minutes * 60`` otherwise.
+    """
+    if game_def is not None:
+        game_state.game_clock_seconds = game_def.quarter_clock_seconds
+    else:
+        game_state.game_clock_seconds = rules.quarter_minutes * 60.0
 
     # Reset team fouls at the start of each quarter
     game_state.home_team_fouls = 0
@@ -255,9 +313,10 @@ def _run_quarter(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
 
-        result = resolve_possession(
+        result = resolve_turn(
             game_state, rules, rng, last_three, poss_ctx,
             action_registry=action_registry,
+            game_def=game_def,
         )
 
         # Decrement game clock
@@ -283,10 +342,12 @@ def _run_quarter(
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
         # Alternate possession
-        game_state.home_has_ball = not game_state.home_has_ball
+        if game_def is None or game_def.alternating_possession:
+            game_state.home_has_ball = not game_state.home_has_ball
 
         # Safety cap
-        if game_state.total_possessions >= rules.safety_cap_possessions:
+        cap = game_def.safety_cap_possessions if game_def else rules.safety_cap_possessions
+        if game_state.total_possessions >= cap:
             game_state.game_over = True
             break
 
@@ -300,10 +361,16 @@ def _run_elam(
     new_effects: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
+    game_def: GameDefinition | None = None,
 ) -> None:
-    """Run the Elam Ending period."""
+    """Run the Elam Ending period.
+
+    The Elam target margin is read from ``game_def.elam_target_margin``
+    when a GameDefinition is provided, falling back to ``rules.elam_margin``.
+    """
+    margin = game_def.elam_target_margin if game_def else rules.elam_margin
     leading_score = max(game_state.home_score, game_state.away_score)
-    game_state.elam_target_score = leading_score + rules.elam_margin
+    game_state.elam_target_score = leading_score + margin
     game_state.elam_activated = True
 
     fire_hooks(HookPoint.ELAM_START, game_state, effects)
@@ -319,9 +386,10 @@ def _run_elam(
         poss_ctx = _fire_sim_effects(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
-        result = resolve_possession(
+        result = resolve_turn(
             game_state, rules, rng, last_three, poss_ctx,
             action_registry=action_registry,
+            game_def=game_def,
         )
         if result.log:
             possession_log.append(result.log)
@@ -338,10 +406,13 @@ def _run_elam(
         # Check for foul-out substitutions
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
-        game_state.home_has_ball = not game_state.home_has_ball
+        # Alternate possession
+        if game_def is None or game_def.alternating_possession:
+            game_state.home_has_ball = not game_state.home_has_ball
 
         # Safety cap
-        if game_state.total_possessions >= rules.safety_cap_possessions:
+        cap = game_def.safety_cap_possessions if game_def else rules.safety_cap_possessions
+        if game_state.total_possessions >= cap:
             game_state.game_over = True
             break
 
@@ -349,18 +420,39 @@ def _run_elam(
 def _halftime_recovery(
     game_state: GameState,
     rules: RuleSet,
+    game_def: GameDefinition | None = None,
 ) -> None:
-    """Recover stamina at halftime."""
+    """Recover stamina at halftime.
+
+    Recovery amount is read from ``game_def.halftime_recovery`` when a
+    GameDefinition is provided, falling back to
+    ``rules.halftime_stamina_recovery``.
+    """
+    recovery = (
+        game_def.halftime_recovery
+        if game_def is not None
+        else rules.halftime_stamina_recovery
+    )
     for agent in game_state.home_agents + game_state.away_agents:
-        agent.current_stamina = min(1.0, agent.current_stamina + rules.halftime_stamina_recovery)
+        agent.current_stamina = min(1.0, agent.current_stamina + recovery)
 
 
 def _quarter_break_recovery(
     game_state: GameState,
     rules: RuleSet,
+    game_def: GameDefinition | None = None,
 ) -> None:
-    """Recover stamina between quarters (not halftime)."""
-    recovery = rules.quarter_break_stamina_recovery
+    """Recover stamina between quarters (not halftime).
+
+    Recovery amount is read from ``game_def.quarter_break_recovery``
+    when a GameDefinition is provided, falling back to
+    ``rules.quarter_break_stamina_recovery``.
+    """
+    recovery = (
+        game_def.quarter_break_recovery
+        if game_def is not None
+        else rules.quarter_break_stamina_recovery
+    )
     for agent in game_state.home_agents + game_state.away_agents:
         agent.current_stamina = min(1.0, agent.current_stamina + recovery)
 
@@ -411,11 +503,13 @@ def simulate_game(
     effect_registry: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
+    game_def: GameDefinition | None = None,
 ) -> GameResult:
     """Simulate a complete 3v3 basketball game.
 
     Pure function: deterministic given inputs + seed.
-    4 quarters + Elam Ending. Returns immutable GameResult.
+    Turn structure (quarters, Elam Ending, recovery) is read from the
+    ``game_def`` GameDefinition when provided. Returns immutable GameResult.
 
     Args:
         effect_registry: New-style effects to fire at hook points.
@@ -424,10 +518,17 @@ def simulate_game(
             (default), a basketball registry is built automatically from
             the provided RuleSet. The registry is always used — there is
             no separate hardcoded path.
+        game_def: Data-driven game structure. When ``None`` (default),
+            a basketball definition is built automatically from the
+            provided RuleSet.
     """
     start_time = time.monotonic()
     rng = random.Random(seed)
     _effects = effects or []
+
+    # Always ensure we have a GameDefinition — build from rules if not provided
+    if game_def is None:
+        game_def = basketball_game_definition(rules)
 
     # Always ensure we have an ActionRegistry — build from rules if not provided
     if action_registry is None:
@@ -460,9 +561,13 @@ def simulate_game(
     # Fire sim.game.pre for new-style effects
     _fire_sim_effects("sim.game.pre", game_state, rules, rng, effect_registry, meta_store)
 
-    # Quarters 1 through elam_trigger_quarter
-    num_quarters = rules.elam_trigger_quarter + 1  # e.g., Q1-Q3 then Elam
-    for q in range(1, num_quarters):
+    # Read turn structure from game definition
+    total_quarters = game_def.quarters
+    elam_quarter = game_def.elam_trigger_quarter
+    halftime_q = game_def.halftime_after_quarter
+
+    # Regular quarters (everything before the Elam quarter)
+    for q in range(1, elam_quarter):
         game_state.quarter = q
         home_before = game_state.home_score
         away_before = game_state.away_score
@@ -471,10 +576,14 @@ def simulate_game(
             game_state, rules, rng, _effects, possession_log,
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
+            game_def=game_def,
         )
 
         fire_hooks(HookPoint.QUARTER_END, game_state, _effects)
-        _fire_sim_effects("sim.quarter.end", game_state, rules, rng, effect_registry, meta_store)
+        _fire_sim_effects(
+            "sim.quarter.end", game_state, rules, rng,
+            effect_registry, meta_store,
+        )
 
         quarter_scores.append(
             QuarterScore(
@@ -484,21 +593,22 @@ def simulate_game(
             )
         )
 
-        # Quarter breaks: halftime after Q2, shorter break after Q1/Q3
-        if q == 2:
-            _halftime_recovery(game_state, rules)
+        # Quarter breaks: halftime after the designated quarter
+        if q == halftime_q:
+            _halftime_recovery(game_state, rules, game_def=game_def)
             _fire_sim_effects(
-                "sim.halftime", game_state, rules, rng, effect_registry, meta_store,
+                "sim.halftime", game_state, rules, rng,
+                effect_registry, meta_store,
             )
         else:
-            _quarter_break_recovery(game_state, rules)
+            _quarter_break_recovery(game_state, rules, game_def=game_def)
 
         # Fatigue-based substitution at quarter breaks
         _check_substitution(game_state, rules, possession_log, reason="fatigue")
 
-    # Elam Ending
-    if not game_state.game_over:
-        game_state.quarter = num_quarters
+    # Elam Ending (or final quarter if Elam is disabled)
+    if not game_state.game_over and game_def.elam_ending_enabled:
+        game_state.quarter = total_quarters
         home_before = game_state.home_score
         away_before = game_state.away_score
 
@@ -506,11 +616,32 @@ def simulate_game(
             game_state, rules, rng, _effects, possession_log,
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
+            game_def=game_def,
         )
 
         quarter_scores.append(
             QuarterScore(
-                quarter=num_quarters,
+                quarter=total_quarters,
+                home_score=game_state.home_score - home_before,
+                away_score=game_state.away_score - away_before,
+            )
+        )
+    elif not game_state.game_over and not game_def.elam_ending_enabled:
+        # No Elam: run the final quarter as a regular clock-based quarter
+        game_state.quarter = total_quarters
+        home_before = game_state.home_score
+        away_before = game_state.away_score
+
+        _run_quarter(
+            game_state, rules, rng, _effects, possession_log,
+            new_effects=effect_registry, meta_store=meta_store,
+            action_registry=action_registry,
+            game_def=game_def,
+        )
+
+        quarter_scores.append(
+            QuarterScore(
+                quarter=total_quarters,
                 home_score=game_state.home_score - home_before,
                 away_score=game_state.away_score - away_before,
             )
