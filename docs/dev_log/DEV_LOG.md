@@ -4,11 +4,11 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2402 tests**, zero lint errors (Session 129)
+- **2447 tests**, zero lint errors (Session 130)
 - **Days 1-25 complete:** Full simulation engine, governance + AI interpretation, reports + game loop, web dashboard + Discord bot + OAuth + evals framework, APScheduler, presenter pacing, AI commentary, UX overhaul, security hardening, production fixes, player pages overhaul, simulation tuning, home page redesign, live arena, team colors, live zone polish, career stats, league leaders, P0/P1 audit fixes
 - **Day 26:** Abstract game spine implementation — Phases 1-4 complete, simulation is now fully data-driven
 - **Live at:** https://pinwheel.fly.dev
-- **Latest commit:** `3a3f3bc` — feat: abstract game spine Phase 4 — governance can change the sport
+- **Latest commit:** `a80d43d` — feat: abstract game spine Phase 5 — data-driven narration
 
 ## Today's Agenda
 
@@ -16,7 +16,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Abstract game spine Phase 2: Single-path registry, GameDefinition, unified biases
 - [x] Abstract game spine Phase 3: Data-driven turn structure (quarters, Elam, resolve_turn)
 - [x] Abstract game spine Phase 4: GameDefinitionPatch — governance can change the sport
-- [ ] Abstract game spine Phase 5: Data-driven narration
+- [x] Abstract game spine Phase 5: Data-driven narration
 - [ ] Abstract game spine Phase 6: AI codegen frontier
 
 ---
@@ -66,3 +66,37 @@ Phase 4 — Governance can change the sport:
 **2402 tests, zero lint errors.**
 
 **What could have gone better:** The sequential Phase 1a→1b→1c→2→3→4 pipeline worked well — each phase built cleanly on the last with zero regressions. The key discipline was the 50-seed identity test in Phase 1c proving behavioral equivalence before consolidating in Phase 2. The dual-path approach (add new path, prove equivalence, then consolidate) should be the template for future architectural changes. No complaints this session — the background agent chaining pattern worked exactly as intended.
+
+---
+
+## Session 130 — Abstract Game Spine Phase 5: Data-Driven Narration
+
+**What was asked:** Implement Phase 5 of the abstract game spine — make narration data-driven so governance-created actions get proper play-by-play text.
+
+**What was built:**
+
+ActionDefinition narration fields (6 new fields):
+- `narration_made: list[str]` — templates for successful shots with `{player}`/`{defender}` placeholders
+- `narration_missed: list[str]` — templates for missed shots
+- `narration_verb: str` — short verb for summary text ("shoots", "heaves")
+- `narration_display: str` — box score display name ("3PT", "MID", "RIM")
+- `narration_winner: list[str]` — game-winning shot narration
+- `narration_foul_desc: str` — foul description ("three", "drive")
+
+Narration refactor:
+- `narrate_play()` and `narrate_winner()` accept optional `ActionRegistry`
+- When registry is provided, templates come from `ActionDefinition` via `rng.choice()`
+- Extracted `_narrate_made()`, `_narrate_missed()`, `_resolve_foul_desc()` helpers
+- Falls back to legacy hardcoded text when no registry is passed
+- Generic fallback for completely unknown actions ("X scores" / "X misses")
+- Perfect backward compat — all existing call sites work unchanged
+
+EXAMPLE_ACTIONS updated:
+- `half_court_heave` and `layup` include vivid narration templates
+- Governance proposals that add actions automatically get proper narration
+
+**Files modified (4):** `src/pinwheel/models/game_definition.py`, `src/pinwheel/core/narrate.py`, `tests/test_narrate.py`, `tests/test_game_definition_patch.py`
+
+**2447 tests, zero lint errors.**
+
+**What could have gone better:** Nothing notable — clean single-agent execution. The `PatchValue` type union needed `list[str]` added so governance patches can modify narration templates, which required updating one test that relied on type-level rejection.
