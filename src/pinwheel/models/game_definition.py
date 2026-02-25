@@ -9,6 +9,8 @@ Phase 2a: GameDefinition bundles ActionRegistry + game structure config.
           simulate_game() always uses the registry — no more dual-path.
 Phase 3a: Turn structure config — quarters, clock, Elam Ending, alternating
           possession. All derived from RuleSet for basketball.
+Phase 4a: GameDefinitionPatch — governance can mutate the game definition
+          by adding/removing/modifying actions and turn structure.
 """
 
 from __future__ import annotations
@@ -240,6 +242,158 @@ class GameDefinition(BaseModel):
         by action name — much faster than scanning the list each possession.
         """
         return ActionRegistry(self.actions)
+
+
+# Type alias for values that can appear in action/structure modification dicts.
+# Pydantic fields on ActionDefinition and GameDefinition use these types.
+PatchValue = str | int | float | bool | None | dict[str, float]
+
+
+class GameDefinitionPatch(BaseModel):
+    """A mutation to apply to a GameDefinition.
+
+    Produced by governance effects when proposals modify the game itself.
+    Each patch describes a set of additive, subtractive, or modifying
+    operations on the game's actions and turn structure.
+
+    Applying a patch produces a NEW GameDefinition — the original is not
+    mutated. Patches are stored in effect ``params`` dicts and serialized
+    as JSON via Pydantic's ``model_dump(mode="json")``.
+    """
+
+    add_actions: list[ActionDefinition] = Field(default_factory=list)
+    """New actions to add to the game. Duplicate names overwrite existing actions."""
+
+    remove_actions: list[str] = Field(default_factory=list)
+    """Action names to remove from the game. Missing names are silently ignored."""
+
+    modify_actions: dict[str, dict[str, PatchValue]] = Field(default_factory=dict)
+    """Partial updates to existing actions.
+
+    Keys are action names; values are dicts of field names to new values.
+    Example: ``{"three_point": {"points_on_success": 4}}`` changes the
+    three-pointer to be worth 4 points.
+    Only fields present in ActionDefinition are applied; unknown fields
+    are silently ignored.
+    """
+
+    modify_structure: dict[str, PatchValue] = Field(default_factory=dict)
+    """Partial updates to GameDefinition turn structure fields.
+
+    Example: ``{"quarters": 6, "elam_ending_enabled": False}`` changes
+    the game to 6 quarters with no Elam Ending.
+    Only fields present on GameDefinition are applied; unknown fields
+    are silently ignored. The ``actions`` field cannot be modified this
+    way — use ``add_actions``, ``remove_actions``, or ``modify_actions``.
+    """
+
+    description: str = ""
+    """Human-readable description of what this patch does."""
+
+    def apply(self, game_def: GameDefinition) -> GameDefinition:
+        """Apply this patch to a GameDefinition, returning a new one.
+
+        Operations are applied in order:
+        1. Remove actions (by name)
+        2. Modify existing actions (partial field updates)
+        3. Add new actions (overwrites if name already exists)
+        4. Modify structure fields
+
+        The original GameDefinition is not mutated.
+
+        Args:
+            game_def: The base game definition to patch.
+
+        Returns:
+            A new GameDefinition with patches applied.
+        """
+        # Start with a deep copy of the actions list
+        actions_by_name: dict[str, ActionDefinition] = {
+            a.name: a.model_copy(deep=True) for a in game_def.actions
+        }
+
+        # 1. Remove actions
+        for name in self.remove_actions:
+            actions_by_name.pop(name, None)
+
+        # 2. Modify existing actions
+        for name, modifications in self.modify_actions.items():
+            existing = actions_by_name.get(name)
+            if existing is None:
+                continue
+            # Build a dict of the current action, apply modifications
+            action_data = existing.model_dump()
+            valid_fields = set(ActionDefinition.model_fields.keys())
+            for field_name, value in modifications.items():
+                if field_name in valid_fields:
+                    action_data[field_name] = value
+            actions_by_name[name] = ActionDefinition(**action_data)
+
+        # 3. Add new actions (overwrites existing with same name)
+        for action in self.add_actions:
+            actions_by_name[action.name] = action.model_copy(deep=True)
+
+        # 4. Build new structure from base, applying modifications
+        structure_data = game_def.model_dump()
+        structure_data["actions"] = list(actions_by_name.values())
+        valid_structure_fields = set(GameDefinition.model_fields.keys()) - {"actions"}
+        for field_name, value in self.modify_structure.items():
+            if field_name in valid_structure_fields:
+                structure_data[field_name] = value
+
+        return GameDefinition(**structure_data)
+
+
+# ---------------------------------------------------------------------------
+# Example Actions — governance can add these to the game
+#
+# These are NOT active by default. They serve as examples of what governance
+# proposals could add, and are used in integration tests to prove the
+# add-action flow works end-to-end.
+# ---------------------------------------------------------------------------
+
+EXAMPLE_ACTIONS: dict[str, ActionDefinition] = {
+    "half_court_heave": ActionDefinition(
+        name="half_court_heave",
+        display_name="Half-Court Heave",
+        description=(
+            "A desperate long-range shot from half court. Almost never goes in, "
+            "but when it does, the crowd goes wild."
+        ),
+        category="shot",
+        selection_weight=5.0,
+        weight_attributes={},
+        resolution_type="attribute_check",
+        base_midpoint=80.0,
+        base_steepness=0.03,
+        primary_attribute="scoring",
+        stamina_factor=0.2,
+        points_on_success=4,
+        requires_opponent=True,
+        is_free_throw=False,
+        free_throw_attempts_on_foul=3,
+    ),
+    "layup": ActionDefinition(
+        name="layup",
+        display_name="Layup",
+        description=(
+            "An easy close-range shot. High probability of going in, "
+            "but only worth 2 points. Favored by fast, agile players."
+        ),
+        category="shot",
+        selection_weight=10.0,
+        weight_attributes={"speed": 0.4},
+        resolution_type="attribute_check",
+        base_midpoint=20.0,
+        base_steepness=0.06,
+        primary_attribute="scoring",
+        stamina_factor=0.2,
+        points_on_success=2,
+        requires_opponent=True,
+        is_free_throw=False,
+        free_throw_attempts_on_foul=2,
+    ),
+}
 
 
 def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:

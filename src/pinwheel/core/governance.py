@@ -201,6 +201,7 @@ def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> 
             tiers.append(detect_tier(legacy, ruleset))
         elif effect.effect_type in (
             "hook_callback", "meta_mutation", "move_grant", "custom_mechanic",
+            "modify_game_definition",
         ):
             tiers.append(3)
         elif effect.effect_type == "narrative":

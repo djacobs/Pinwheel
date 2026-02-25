@@ -36,7 +36,7 @@ from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, Quar
 from pinwheel.models.game_definition import (
     ActionRegistry,
     GameDefinition,
-    basketball_actions,
+    GameDefinitionPatch,
     basketball_game_definition,
 )
 from pinwheel.models.rules import RuleSet
@@ -530,9 +530,26 @@ def simulate_game(
     if game_def is None:
         game_def = basketball_game_definition(rules)
 
-    # Always ensure we have an ActionRegistry — build from rules if not provided
+    # Apply any active game definition patches from governance effects.
+    # Patches are applied in registration order (oldest first) so that
+    # later proposals can build on earlier changes.
+    if effect_registry:
+        from pinwheel.core.effects import collect_game_def_patches
+
+        patch_dicts = collect_game_def_patches(effect_registry)
+        for patch_dict in patch_dicts:
+            try:
+                patch = GameDefinitionPatch(**patch_dict)
+                game_def = patch.apply(game_def)
+            except (ValueError, TypeError, KeyError):
+                logger.exception(
+                    "game_def_patch_failed patch=%s",
+                    patch_dict,
+                )
+
+    # Always ensure we have an ActionRegistry — build from game_def's actions
     if action_registry is None:
-        action_registry = ActionRegistry(basketball_actions(rules))
+        action_registry = game_def.build_registry()
 
     if not game_id:
         game_id = f"g-0-{seed}"

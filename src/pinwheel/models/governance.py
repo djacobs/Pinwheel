@@ -156,6 +156,7 @@ EffectType = Literal[
     "composite",
     "move_grant",
     "custom_mechanic",
+    "modify_game_definition",
 ]
 
 EffectDuration = Literal[
@@ -211,6 +212,11 @@ class EffectSpec(BaseModel):
     mechanic_hook_point: str | None = None
     mechanic_observable_behavior: str | None = None
     mechanic_implementation_spec: str | None = None
+
+    # modify_game_definition — mutates the GameDefinition (actions, structure)
+    # Stored as a serialized GameDefinitionPatch dict. Use
+    # ``GameDefinitionPatch(**spec.game_def_patch)`` to reconstruct.
+    game_def_patch: dict | None = None
 
     # lifetime
     duration: EffectDuration = "permanent"

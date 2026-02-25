@@ -162,6 +162,11 @@ def effect_spec_to_registered(
         # Custom mechanics fire at report hooks so their observable behavior
         # appears in commentary even before full implementation.
         hook_points = ["report.simulation.pre", "report.commentary.pre"]
+    elif spec.effect_type == "modify_game_definition":
+        # Game definition patches don't fire at hook points — they are
+        # collected and applied to the GameDefinition before simulation.
+        # The hook point is a sentinel used for filtering only.
+        hook_points = ["sim.game_definition.patch"]
     elif spec.hook_point:
         hook_points = [spec.hook_point]
     elif spec.effect_type == "meta_mutation":
@@ -171,9 +176,12 @@ def effect_spec_to_registered(
         # Narratives fire at report hooks
         hook_points = ["report.simulation.pre", "report.commentary.pre"]
 
-    # Build action_code from spec if it's a hook_callback
+    # Build action_code from spec
     action_code = spec.action_code
-    if spec.effect_type == "meta_mutation" and not action_code:
+    if spec.effect_type == "modify_game_definition" and spec.game_def_patch:
+        # Store the patch dict in action_code for uniform serialization
+        action_code = {"type": "game_def_patch", "patch": spec.game_def_patch}
+    elif spec.effect_type == "meta_mutation" and not action_code:
         # Wrap meta mutation as action_code for uniform handling
         action_code = None  # meta_mutation effects use their own fields
 
@@ -200,6 +208,34 @@ def effect_spec_to_registered(
         meta_value=spec.meta_value,
         meta_operation=spec.meta_operation or "set",
     )
+
+
+def collect_game_def_patches(
+    effects: list[RegisteredEffect],
+) -> list[dict[str, object]]:
+    """Extract game definition patch dicts from active effects.
+
+    Returns a list of raw patch dicts (suitable for constructing
+    ``GameDefinitionPatch`` objects) from effects whose type is
+    ``modify_game_definition``. Patches are returned in registration
+    order (by ``registered_at_round``, then by ``effect_id``).
+
+    Args:
+        effects: All active effects (typically from ``EffectRegistry.get_all_active()``).
+
+    Returns:
+        List of patch dicts, each deserializable via ``GameDefinitionPatch(**d)``.
+    """
+    game_def_effects = [
+        e for e in effects
+        if e.effect_type == "modify_game_definition"
+        and e.action_code
+        and isinstance(e.action_code.get("patch"), dict)
+    ]
+    # Sort by registration order for deterministic application
+    game_def_effects.sort(key=lambda e: (e.registered_at_round, e.effect_id))
+
+    return [e.action_code["patch"] for e in game_def_effects]  # type: ignore[index]
 
 
 async def register_effects_for_proposal(
