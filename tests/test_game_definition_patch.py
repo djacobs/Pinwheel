@@ -157,9 +157,7 @@ class TestModifyActions:
     def test_modify_single_field(self) -> None:
         """Modifying a single field on an existing action works."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            modify_actions={"three_point": {"points_on_success": 4}}
-        )
+        patch = GameDefinitionPatch(modify_actions={"three_point": {"points_on_success": 4}})
 
         result = patch.apply(base)
         three = next(a for a in result.actions if a.name == "three_point")
@@ -205,9 +203,7 @@ class TestModifyActions:
     def test_modify_nonexistent_silently_ignored(self) -> None:
         """Modifying a nonexistent action does not raise."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            modify_actions={"nonexistent": {"points_on_success": 10}}
-        )
+        patch = GameDefinitionPatch(modify_actions={"nonexistent": {"points_on_success": 10}})
 
         result = patch.apply(base)
         assert len(result.actions) == len(base.actions)
@@ -235,9 +231,7 @@ class TestModifyActions:
         original_three_points = next(
             a for a in base.actions if a.name == "three_point"
         ).points_on_success
-        patch = GameDefinitionPatch(
-            modify_actions={"three_point": {"points_on_success": 10}}
-        )
+        patch = GameDefinitionPatch(modify_actions={"three_point": {"points_on_success": 10}})
 
         _result = patch.apply(base)
 
@@ -264,9 +258,7 @@ class TestModifyStructure:
     def test_modify_elam_disabled(self) -> None:
         """Disabling the Elam Ending."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            modify_structure={"elam_ending_enabled": False}
-        )
+        patch = GameDefinitionPatch(modify_structure={"elam_ending_enabled": False})
 
         result = patch.apply(base)
         assert result.elam_ending_enabled is False
@@ -292,28 +284,26 @@ class TestModifyStructure:
     def test_modify_structure_unknown_field_ignored(self) -> None:
         """Unknown structure fields are silently ignored."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            modify_structure={"fake_field": 42, "quarters": 6}
-        )
+        patch = GameDefinitionPatch(modify_structure={"fake_field": 42, "quarters": 6})
 
         result = patch.apply(base)
         assert result.quarters == 6
         assert not hasattr(result, "fake_field")
 
-    def test_modify_structure_cannot_change_actions_via_type_safety(self) -> None:
-        """The 'actions' field cannot be set via modify_structure.
+    def test_modify_structure_cannot_change_actions_at_apply(self) -> None:
+        """The 'actions' field cannot be changed via modify_structure.
 
-        PatchValue is str|int|float|bool|None|dict[str,float], so a list
-        (like an actions list) is rejected at Pydantic validation time.
-        This test verifies the type safety boundary.
+        PatchValue now includes list[str] (for narration templates), so
+        an empty list passes Pydantic validation. However, the apply()
+        method explicitly excludes 'actions' from structure modifications.
+        This test verifies that functional protection.
         """
-        import pytest
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            GameDefinitionPatch(
-                modify_structure={"actions": []}  # type: ignore[dict-item]
-            )
+        base = _base_game_def()
+        original_count = len(base.actions)
+        patch = GameDefinitionPatch(modify_structure={"actions": []})
+        result = patch.apply(base)
+        # actions should be unchanged — the 'actions' key is excluded at apply time
+        assert len(result.actions) == original_count
 
     def test_modify_structure_actions_field_excluded_at_apply(self) -> None:
         """Even if 'actions' key sneaks in (e.g. via model_construct), it is excluded."""
@@ -521,9 +511,7 @@ class TestPatchedRegistry:
     def test_patched_registry_includes_added_action(self) -> None:
         """A registry built from a patched definition includes added actions."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            add_actions=[EXAMPLE_ACTIONS["half_court_heave"]]
-        )
+        patch = GameDefinitionPatch(add_actions=[EXAMPLE_ACTIONS["half_court_heave"]])
         patched = patch.apply(base)
         registry = patched.build_registry()
 
@@ -544,9 +532,7 @@ class TestPatchedRegistry:
     def test_patched_registry_reflects_modifications(self) -> None:
         """A registry reflects modified action properties."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            modify_actions={"three_point": {"points_on_success": 4}}
-        )
+        patch = GameDefinitionPatch(modify_actions={"three_point": {"points_on_success": 4}})
         patched = patch.apply(base)
         registry = patched.build_registry()
 
@@ -555,9 +541,7 @@ class TestPatchedRegistry:
     def test_shot_actions_excludes_special(self) -> None:
         """shot_actions() on a patched registry still excludes specials."""
         base = _base_game_def()
-        patch = GameDefinitionPatch(
-            add_actions=[EXAMPLE_ACTIONS["half_court_heave"]]
-        )
+        patch = GameDefinitionPatch(add_actions=[EXAMPLE_ACTIONS["half_court_heave"]])
         patched = patch.apply(base)
         registry = patched.build_registry()
 

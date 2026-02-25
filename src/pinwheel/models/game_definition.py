@@ -83,6 +83,51 @@ class ActionDefinition(BaseModel):
     free_throw_attempts_on_foul: int = 2
     """Number of free throw attempts awarded when fouled during this action."""
 
+    # ---- Narration (Phase 5) ----
+
+    narration_made: list[str] = Field(default_factory=list)
+    """Templates for successful action narration.
+
+    Each template can include ``{player}`` and ``{defender}`` placeholders.
+    Example: ``["{player} drains it from three over {defender}"]``.
+    When empty, the narration layer falls back to generic text.
+    """
+
+    narration_missed: list[str] = Field(default_factory=list)
+    """Templates for failed action narration.
+
+    Each template can include ``{player}`` and ``{defender}`` placeholders.
+    Example: ``["{player} fires from three — off the rim"]``.
+    When empty, the narration layer falls back to generic text.
+    """
+
+    narration_verb: str = ""
+    """Short verb for summary text, e.g. 'shoots', 'heaves', 'flips'.
+
+    Used in condensed play-by-play and log summaries.
+    """
+
+    narration_display: str = ""
+    """How to refer to this action in box scores and logs, e.g. '3PT', 'MID', 'RIM'.
+
+    Used in stat displays and compact game summaries.
+    """
+
+    narration_winner: list[str] = Field(default_factory=list)
+    """Templates for game-winning shot narration (Elam banner).
+
+    Each template can include a ``{player}`` placeholder.
+    Example: ``["{player} buries the three from deep — ballgame"]``.
+    When empty, the narration layer falls back to generic text.
+    """
+
+    narration_foul_desc: str = ""
+    """Short description of the action used in foul narration, e.g. 'three', 'drive'.
+
+    Used in foul templates like '{defender} fouls {player} on the {shot_desc}'.
+    When empty, defaults to 'shot'.
+    """
+
 
 class ActionRegistry:
     """Container for ActionDefinitions with lookup by name.
@@ -124,9 +169,7 @@ class ActionRegistry:
         Excludes actions where category == 'special' or is_free_throw is True.
         """
         return [
-            a
-            for a in self._actions.values()
-            if a.category != "special" and not a.is_free_throw
+            a for a in self._actions.values() if a.category != "special" and not a.is_free_throw
         ]
 
     def action_names(self) -> list[str]:
@@ -246,7 +289,7 @@ class GameDefinition(BaseModel):
 
 # Type alias for values that can appear in action/structure modification dicts.
 # Pydantic fields on ActionDefinition and GameDefinition use these types.
-PatchValue = str | int | float | bool | None | dict[str, float]
+PatchValue = str | int | float | bool | None | dict[str, float] | list[str]
 
 
 class GameDefinitionPatch(BaseModel):
@@ -372,6 +415,26 @@ EXAMPLE_ACTIONS: dict[str, ActionDefinition] = {
         requires_opponent=True,
         is_free_throw=False,
         free_throw_attempts_on_foul=3,
+        narration_made=[
+            "{player} heaves it from half court — BANG! IT GOES!",
+            "{player} launches from midcourt — ARE YOU KIDDING ME?!",
+            "{player} lets it fly from half court over {defender} — NOTHING BUT NET!",
+            "{player} bombs it from the logo — THE CROWD ERUPTS!",
+        ],
+        narration_missed=[
+            "{player} heaves it from half court — not even close",
+            "{player} launches from midcourt — off the backboard",
+            "{player} flings it from half — airballed",
+            "{player} chucks it from the logo — way off",
+        ],
+        narration_verb="heaves",
+        narration_display="HEAVE",
+        narration_winner=[
+            "{player} heaves it from half court at the buzzer — IT GOES! UNBELIEVABLE!",
+            "{player} from the logo — THE HALF-COURT MIRACLE!",
+            "{player} launches from midcourt — THE GREATEST SHOT IN LEAGUE HISTORY!",
+        ],
+        narration_foul_desc="heave",
     ),
     "layup": ActionDefinition(
         name="layup",
@@ -392,6 +455,26 @@ EXAMPLE_ACTIONS: dict[str, ActionDefinition] = {
         requires_opponent=True,
         is_free_throw=False,
         free_throw_attempts_on_foul=2,
+        narration_made=[
+            "{player} flips in the layup past {defender}",
+            "{player} scoops it up and in — easy two",
+            "{player} with the finger roll — good",
+            "{player} kisses it off the glass over {defender}",
+        ],
+        narration_missed=[
+            "{player} goes up for the layup — rimmed out",
+            "{player} flips it up — {defender} gets a hand on it",
+            "{player} can't finish the layup",
+            "{player} lays it up and {defender} swats it away",
+        ],
+        narration_verb="flips",
+        narration_display="LAYUP",
+        narration_winner=[
+            "{player} glides in for the game-winning layup",
+            "{player} flips in the layup — that's the ball game!",
+            "{player} scoops it in for the win — too easy!",
+        ],
+        narration_foul_desc="layup",
     ),
 }
 
@@ -427,6 +510,27 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             requires_opponent=True,
             is_free_throw=False,
             free_throw_attempts_on_foul=2,
+            narration_made=[
+                "{player} drives on {defender} — finishes at the rim",
+                "{player} takes it strong to the hole — converts",
+                "{player} slashes past {defender} for the layup",
+                "{player} attacks the basket — and it's good",
+            ],
+            narration_missed=[
+                "{player} drives on {defender} — blocked at the rim",
+                "{player} takes it to the hole — can't finish",
+                "{player} gets into the lane but {defender} forces the miss",
+            ],
+            narration_verb="drives",
+            narration_display="RIM",
+            narration_winner=[
+                "{player} attacks the rim — finishes through contact",
+                "{player} slashes to the basket and lays it in",
+                "{player} drives hard and converts at the rim",
+                "{player} takes it coast to coast for the game-winner",
+                "{player} muscles through the lane — and one!",
+            ],
+            narration_foul_desc="drive",
         ),
         ActionDefinition(
             name="mid_range",
@@ -444,6 +548,27 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             requires_opponent=True,
             is_free_throw=False,
             free_throw_attempts_on_foul=2,
+            narration_made=[
+                "{player} pulls up from mid-range over {defender} — good",
+                "{player} hits the elbow jumper, {defender} a step late",
+                "{player} with the smooth mid-range — bucket",
+                "{player} stops, pops — money from fifteen feet",
+            ],
+            narration_missed=[
+                "{player} pulls up mid-range — rattles out, {defender} in the face",
+                "{player} fires from the elbow — off the iron",
+                "{player} can't get the mid-range to drop",
+            ],
+            narration_verb="shoots",
+            narration_display="MID",
+            narration_winner=[
+                "{player} hits the mid-range dagger from the elbow",
+                "{player} pulls up, rises, buries the jumper — game over",
+                "{player} with the silky mid-range to seal it",
+                "{player} fades away from fifteen feet — nothing but net",
+                "{player} stops on a dime, fires — money from mid-range",
+            ],
+            narration_foul_desc="jumper",
         ),
         ActionDefinition(
             name="three_point",
@@ -461,6 +586,27 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             requires_opponent=True,
             is_free_throw=False,
             free_throw_attempts_on_foul=3,
+            narration_made=[
+                "{player} drains it from three over {defender}",
+                "{player} connects from deep — {defender} too late on the close-out",
+                "{player} buries the three, {defender} watching",
+                "{player} from downtown — splash",
+            ],
+            narration_missed=[
+                "{player} fires from three — off the rim, {defender} contesting",
+                "{player} launches from deep — no good",
+                "{player} can't connect from beyond the arc",
+            ],
+            narration_verb="shoots",
+            narration_display="3PT",
+            narration_winner=[
+                "{player} buries the three from deep — ballgame",
+                "{player} pulls up from beyond the arc — nothing but net",
+                "{player} drains the dagger three",
+                "{player} rises and fires from downtown — it's good",
+                "{player} with ice in the veins — three-pointer to win it",
+            ],
+            narration_foul_desc="three",
         ),
         ActionDefinition(
             name="free_throw",
@@ -478,6 +624,8 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             requires_opponent=False,
             is_free_throw=True,
             free_throw_attempts_on_foul=2,
+            narration_verb="shoots",
+            narration_display="FT",
         ),
     ]
 
@@ -538,9 +686,8 @@ def basketball_game_definition(rules: RuleSet) -> GameDefinition:
 # of truth is basketball_actions() — these are generated, not hand-maintained.
 # ---------------------------------------------------------------------------
 
-def _build_basketball_constants() -> (
-    tuple[dict[str, float], dict[str, float]]
-):
+
+def _build_basketball_constants() -> tuple[dict[str, float], dict[str, float]]:
     """Build BASE_MIDPOINTS and BASE_STEEPNESS from basketball_actions.
 
     Uses DEFAULT_RULESET since midpoints/steepness do not depend on
