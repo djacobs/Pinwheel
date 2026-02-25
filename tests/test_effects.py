@@ -1936,7 +1936,7 @@ class TestNewActionPrimitives:
         assert result.shot_value_modifier == 2
 
     def test_modify_shot_selection(self):
-        """modify_shot_selection sets bias fields on HookResult."""
+        """modify_shot_selection writes biases to action_biases dict."""
         effect = RegisteredEffect(
             effect_id="e1", proposal_id="p1",
             _hook_points=["sim.possession.pre"],
@@ -1949,9 +1949,9 @@ class TestNewActionPrimitives:
             },
         )
         result = effect.apply("sim.possession.pre", HookContext())
-        assert result.at_rim_bias == pytest.approx(8.0)
-        assert result.three_point_bias == pytest.approx(-12.0)
-        assert result.mid_range_bias == pytest.approx(4.0)
+        assert result.action_biases.get("at_rim", 0.0) == pytest.approx(8.0)
+        assert result.action_biases.get("three_point", 0.0) == pytest.approx(-12.0)
+        assert result.action_biases.get("mid_range", 0.0) == pytest.approx(4.0)
 
     def test_modify_turnover_rate(self):
         """modify_turnover_rate sets turnover_modifier on HookResult."""

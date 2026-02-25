@@ -499,10 +499,20 @@ class RegisteredEffect:
                 result.shot_value_modifier = int(modifier)
 
         elif action_type == "modify_shot_selection":
-            for bias_key in ("at_rim_bias", "mid_range_bias", "three_point_bias"):
+            # Write biases to action_biases dict (primary interface).
+            # Legacy field names (at_rim_bias, mid_range_bias, three_point_bias)
+            # are mapped to action names (at_rim, mid_range, three_point).
+            _bias_map = {
+                "at_rim_bias": "at_rim",
+                "mid_range_bias": "mid_range",
+                "three_point_bias": "three_point",
+            }
+            for bias_key, action_name in _bias_map.items():
                 val = self.action_code.get(bias_key, 0.0)
-                if isinstance(val, (int, float)):
-                    setattr(result, bias_key, float(val))
+                if isinstance(val, (int, float)) and val != 0.0:
+                    result.action_biases[action_name] = (
+                        result.action_biases.get(action_name, 0.0) + float(val)
+                    )
 
         elif action_type == "modify_turnover_rate":
             modifier = self.action_code.get("modifier", 0.0)
@@ -631,9 +641,22 @@ class RegisteredEffect:
                             inner_result.random_ejection_probability
                         )
                         result.bonus_pass_count += inner_result.bonus_pass_count
-                        result.at_rim_bias += inner_result.at_rim_bias
-                        result.mid_range_bias += inner_result.mid_range_bias
-                        result.three_point_bias += inner_result.three_point_bias
+                        # Merge legacy bias fields into action_biases
+                        if inner_result.at_rim_bias != 0.0:
+                            result.action_biases["at_rim"] = (
+                                result.action_biases.get("at_rim", 0.0)
+                                + inner_result.at_rim_bias
+                            )
+                        if inner_result.mid_range_bias != 0.0:
+                            result.action_biases["mid_range"] = (
+                                result.action_biases.get("mid_range", 0.0)
+                                + inner_result.mid_range_bias
+                            )
+                        if inner_result.three_point_bias != 0.0:
+                            result.action_biases["three_point"] = (
+                                result.action_biases.get("three_point", 0.0)
+                                + inner_result.three_point_bias
+                            )
                         for k, v in inner_result.action_biases.items():
                             result.action_biases[k] = result.action_biases.get(k, 0.0) + v
                         if inner_result.narrative:

@@ -1,8 +1,11 @@
 """Top-level simulation engine.
 
-simulate_game(home, away, rules, seed) → GameResult
+simulate_game(home, away, rules, seed) -> GameResult
 Pure function. No side effects, no database, no API calls.
 See SIMULATION.md.
+
+Phase 2a: simulate_game always constructs an ActionRegistry from the RuleSet.
+The registry is the single code path — no more dual-path branching.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from pinwheel.core.meta import MetaStore
 from pinwheel.core.possession import resolve_possession
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
-from pinwheel.models.game_definition import ActionRegistry
+from pinwheel.models.game_definition import ActionRegistry, basketball_actions
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team, TeamStrategy
 
@@ -74,20 +77,21 @@ def _fire_sim_effects(
         (r.substitute_action for r in results if r.substitute_action), None
     )
 
-    # Merge action biases: legacy per-field biases + new action_biases dicts.
-    # Legacy fields on HookResult (at_rim_bias etc.) are summed first for the
-    # three standard shot types.  Then action_biases dicts from each result are
-    # merged additively on top, supporting both standard and custom action names.
+    # Merge all action biases into a single dict. Legacy per-field biases
+    # on HookResult (at_rim_bias, mid_range_bias, three_point_bias) are
+    # folded into the action_biases dict alongside any custom action names.
     merged_biases: dict[str, float] = {}
-    legacy_sums: dict[str, float] = {
-        "at_rim": sum(r.at_rim_bias for r in results),
-        "mid_range": sum(r.mid_range_bias for r in results),
-        "three_point": sum(r.three_point_bias for r in results),
-    }
-    for name, val in legacy_sums.items():
-        if val != 0.0:
-            merged_biases[name] = val
     for r in results:
+        # Legacy fields → standard action names
+        if r.at_rim_bias != 0.0:
+            merged_biases["at_rim"] = merged_biases.get("at_rim", 0.0) + r.at_rim_bias
+        if r.mid_range_bias != 0.0:
+            merged_biases["mid_range"] = merged_biases.get("mid_range", 0.0) + r.mid_range_bias
+        if r.three_point_bias != 0.0:
+            merged_biases["three_point"] = (
+                merged_biases.get("three_point", 0.0) + r.three_point_bias
+            )
+        # action_biases dict entries (additive, supports any action name)
         for k, v in r.action_biases.items():
             merged_biases[k] = merged_biases.get(k, 0.0) + v
 
@@ -416,14 +420,18 @@ def simulate_game(
     Args:
         effect_registry: New-style effects to fire at hook points.
         meta_store: In-memory metadata store for effects to read/write.
-        action_registry: Data-driven action definitions (Phase 1c). When
-            provided, ``select_action()`` and ``resolve_possession()`` use
-            registry-based weights and resolution. When ``None`` (default),
-            the hardcoded basketball path is used unchanged.
+        action_registry: Data-driven action definitions. When ``None``
+            (default), a basketball registry is built automatically from
+            the provided RuleSet. The registry is always used — there is
+            no separate hardcoded path.
     """
     start_time = time.monotonic()
     rng = random.Random(seed)
     _effects = effects or []
+
+    # Always ensure we have an ActionRegistry — build from rules if not provided
+    if action_registry is None:
+        action_registry = ActionRegistry(basketball_actions(rules))
 
     if not game_id:
         game_id = f"g-0-{seed}"

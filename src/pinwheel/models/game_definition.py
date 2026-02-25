@@ -1,18 +1,17 @@
-"""Game definition models — data-driven action registry.
+"""Game definition models — data-driven action registry and game structure.
 
-Phase 1a of the Abstract Game Spine: ActionDefinition and ActionRegistry
-provide a declarative way to define the actions participants can take during
-gameplay. The basketball_actions() factory produces ActionDefinitions that
-exactly reproduce the hardcoded constants in scoring.py and possession.py.
+The Abstract Game Spine provides a declarative way to define game actions,
+resolution parameters, and structural configuration. Basketball is the
+default game definition; governance can modify it at runtime.
 
-This module is PURELY ADDITIVE — no existing code references it yet.
-Future phases will wire the simulation engine to read from the registry
-instead of hardcoded constants.
+Phase 1: ActionDefinition and ActionRegistry for data-driven actions.
+Phase 2a: GameDefinition bundles ActionRegistry + game structure config.
+          simulate_game() always uses the registry — no more dual-path.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from pinwheel.models.rules import RuleSet
 
@@ -131,11 +130,50 @@ class ActionRegistry:
         return sorted(self._actions.keys())
 
 
+class GameDefinition(BaseModel):
+    """Complete description of how the game is played.
+
+    Bundles an ActionRegistry with game structure configuration. Basketball
+    is one instance; governance can produce modified definitions at runtime.
+
+    The ActionRegistry is NOT serialized — it is rebuilt from the actions
+    list on construction. This keeps the Pydantic model serializable while
+    the registry provides fast runtime lookup.
+    """
+
+    name: str = "Basketball"
+    """Human-readable game name."""
+
+    description: str = "3v3 basketball with Elam Ending"
+    """Short description of the game variant."""
+
+    actions: list[ActionDefinition] = Field(default_factory=list)
+    """All action definitions for this game."""
+
+    participants_per_side: int = 3
+    """Number of active participants per team."""
+
+    bench_size: int = 1
+    """Number of bench participants per team."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def build_registry(self) -> ActionRegistry:
+        """Build an ActionRegistry from this definition's actions.
+
+        Called at simulation startup. The registry provides O(1) lookup
+        by action name — much faster than scanning the list each possession.
+        """
+        return ActionRegistry(self.actions)
+
+
 def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
     """Build the 4 standard basketball actions from a RuleSet.
 
-    The values exactly reproduce the hardcoded constants in scoring.py
-    (BASE_MIDPOINTS, BASE_STEEPNESS) and possession.py (select_action weights).
+    The values here are the single source of truth for basketball shot
+    parameters (midpoints, steepness, weights). The scoring module's
+    ``BASE_MIDPOINTS`` and ``BASE_STEEPNESS`` dicts are derived from
+    these definitions for backward compatibility.
 
     Args:
         rules: The current RuleSet, used to derive point values.
@@ -213,3 +251,51 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             free_throw_attempts_on_foul=2,
         ),
     ]
+
+
+def basketball_game_definition(rules: RuleSet) -> GameDefinition:
+    """Build a complete basketball GameDefinition from a RuleSet.
+
+    This is the primary factory for creating a game definition. The returned
+    definition bundles all basketball actions with the standard 3v3 structure.
+
+    Args:
+        rules: The current RuleSet, used to derive point values and game parameters.
+
+    Returns:
+        A GameDefinition configured for 3v3 basketball.
+    """
+    return GameDefinition(
+        name="Basketball",
+        description="3v3 basketball with Elam Ending",
+        actions=basketball_actions(rules),
+        participants_per_side=3,
+        bench_size=1,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Derived constants for backward compatibility
+#
+# These dicts are derived from the basketball ActionDefinitions so that
+# scoring.py and other modules can import them without change. The source
+# of truth is basketball_actions() — these are generated, not hand-maintained.
+# ---------------------------------------------------------------------------
+
+def _build_basketball_constants() -> (
+    tuple[dict[str, float], dict[str, float]]
+):
+    """Build BASE_MIDPOINTS and BASE_STEEPNESS from basketball_actions.
+
+    Uses DEFAULT_RULESET since midpoints/steepness do not depend on
+    point values — only on the action definitions themselves.
+    """
+    from pinwheel.models.rules import DEFAULT_RULESET as _default
+
+    actions = basketball_actions(_default)
+    midpoints = {a.name: a.base_midpoint for a in actions}
+    steepness = {a.name: a.base_steepness for a in actions}
+    return midpoints, steepness
+
+
+BASKETBALL_MIDPOINTS, BASKETBALL_STEEPNESS = _build_basketball_constants()

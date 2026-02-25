@@ -22,7 +22,7 @@ from pinwheel.core.moves import apply_move_modifier, get_triggered_moves
 from pinwheel.core.scoring import ShotType, resolve_shot
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import PossessionLog
-from pinwheel.models.game_definition import ActionRegistry
+from pinwheel.models.game_definition import ActionRegistry, basketball_actions
 from pinwheel.models.rules import RuleSet
 
 # Legacy constant — now governed by rules.dead_ball_time_seconds
@@ -154,73 +154,19 @@ def select_action(
 ) -> ShotType:
     """Select shot type based on handler attributes and game state.
 
-    When ``action_registry`` is provided, weights are built from the
-    registry's ``shot_actions()`` instead of hardcoded constants. The
-    registry path produces identical results for the standard basketball
-    actions because ``basketball_actions()`` encodes the same constants.
+    Always uses the registry-based path. When ``action_registry`` is
+    ``None``, a default basketball registry is built from the rules.
 
     Surface modifiers adjust shot selection weights: speed_at_rim_modifier
     scales the speed component of at_rim, while the per-type weight modifiers
     are additive percentages of the pre-surface weight.
     """
-    if action_registry is not None:
-        return _select_action_registry(
-            handler, game_state, rules, rng,
-            effect_biases, surface, action_registry,
-        )
-
-    scoring = handler.current_attributes.scoring
-    speed = handler.current_attributes.speed
-    iq = handler.current_attributes.iq
-
-    # three_point_distance: default 22.15 ft (NBA 3PT distance).
-    # Farther distance reduces three-point selection weight; closer increases it.
-    # Scale: each foot from default shifts weight by ~2 points.
-    distance_from_default = rules.three_point_distance - 22.15
-    three_distance_penalty = distance_from_default * 2.0
-
-    # Surface modifier on the speed component of at_rim weight.
-    # e.g. grass (-0.10) reduces the speed*0.3 term by 10%.
-    speed_at_rim = speed * 0.3
-    if surface:
-        speed_at_rim *= 1.0 + surface.speed_at_rim_modifier
-
-    weights = {
-        "at_rim": 30.0 + speed_at_rim,
-        "mid_range": 25.0 + iq * 0.2,
-        "three_point": 20.0 + scoring * 0.3 - three_distance_penalty,
-    }
-
-    # Apply surface weight modifiers (additive percentage of pre-surface weight)
-    if surface:
-        weights["at_rim"] += weights["at_rim"] * surface.at_rim_weight_modifier
-        weights["mid_range"] += weights["mid_range"] * surface.mid_range_weight_modifier
-        weights["three_point"] += weights["three_point"] * surface.three_point_weight_modifier
-
-    # Apply team strategy biases
-    strategy = game_state.offense_strategy
-    if strategy:
-        weights["at_rim"] += strategy.at_rim_bias
-        weights["mid_range"] += strategy.mid_range_bias
-        weights["three_point"] += strategy.three_point_bias
-
-    # Apply effect-derived biases
-    if effect_biases:
-        weights["at_rim"] += effect_biases.at_rim_bias
-        weights["mid_range"] += effect_biases.mid_range_bias
-        weights["three_point"] += effect_biases.three_point_bias
-
-    # Elam: trailing team takes more threes
-    if game_state.elam_activated and game_state.elam_target_score:
-        my_score = game_state.home_score if game_state.home_has_ball else game_state.away_score
-        gap = game_state.elam_target_score - my_score
-        if gap > 5:
-            weights["three_point"] += 15.0
-
-    types = list(weights.keys())
-    w = [max(1.0, weights[t]) for t in types]  # floor at 1.0 to avoid negative weights
-    chosen: ShotType = rng.choices(types, weights=w, k=1)[0]
-    return chosen
+    if action_registry is None:
+        action_registry = ActionRegistry(basketball_actions(rules))
+    return _select_action_registry(
+        handler, game_state, rules, rng,
+        effect_biases, surface, action_registry,
+    )
 
 
 def _select_action_registry(
@@ -512,13 +458,18 @@ def resolve_possession(
 ) -> PossessionResult:
     """Resolve one complete possession.
 
+    Always uses the registry-based path for action selection and shot
+    resolution. When ``action_registry`` is ``None``, a default basketball
+    registry is built from the rules.
+
     Args:
         context: Effect-derived modifiers for this possession. Built by
             _fire_sim_effects from accumulated HookResults.
-        action_registry: Data-driven action definitions (Phase 1c). When
-            provided, uses registry-based action selection and shot resolution.
-            When ``None`` (default), the hardcoded path is used unchanged.
+        action_registry: Data-driven action definitions. When ``None``
+            (default), a basketball registry is built from the rules.
     """
+    if action_registry is None:
+        action_registry = ActionRegistry(basketball_actions(rules))
     ctx = context or PossessionContext()
 
     # Extract strategy parameters once for use throughout the possession
@@ -818,17 +769,15 @@ def resolve_possession(
 
     # 7. Compute base shot probability and apply all modifiers
     from pinwheel.core.scoring import (
-        compute_shot_probability,
         compute_shot_probability_v2,
         points_for_action,
-        points_for_shot,
     )
 
     move_name = ""
     score_diff = abs(game_state.home_score - game_state.away_score)
 
-    # Look up the ActionDefinition when registry is available
-    action_def = action_registry.get(shot_type) if action_registry is not None else None
+    # Look up the ActionDefinition from the registry (always available)
+    action_def = action_registry.get(shot_type)
 
     if action_def is not None:
         base_prob = compute_shot_probability_v2(
@@ -836,8 +785,16 @@ def resolve_possession(
             score_differential=score_diff,
         )
     else:
-        base_prob = compute_shot_probability(
-            handler, primary_defender, shot_type, scheme_mod, rules,
+        # Fallback for unknown action names — use default midpoint/steepness
+        from pinwheel.models.game_definition import ActionDefinition
+
+        fallback_def = ActionDefinition(
+            name=shot_type,
+            base_midpoint=40.0,
+            base_steepness=0.05,
+        )
+        base_prob = compute_shot_probability_v2(
+            handler, primary_defender, fallback_def, scheme_mod, rules,
             score_differential=score_diff,
         )
     # Apply effect-driven shot probability modifier + home crowd boost + surface
@@ -871,6 +828,8 @@ def resolve_possession(
     if action_def is not None:
         pts = points_for_action(action_def, rules) if made else 0
     else:
+        from pinwheel.core.scoring import points_for_shot
+
         pts = points_for_shot(shot_type, rules) if made else 0
 
     # Apply effect-driven shot value modifier and pass bonus
@@ -911,38 +870,46 @@ def resolve_possession(
         if primary_defender.fouls >= rules.personal_foul_limit:
             primary_defender.ejected = True
 
-        # Free throws on foul
+        # Free throws on foul — fully data-driven via ActionDefinition.
+        # The fouled action's free_throw_attempts_on_foul determines the
+        # count; the free throw ActionDefinition drives resolution.
         if not made:
-            if action_def is not None:
-                ft_attempts = action_def.free_throw_attempts_on_foul
-            else:
-                ft_attempts = 2 if shot_type != "three_point" else 3
+            ft_attempts = (
+                action_def.free_throw_attempts_on_foul
+                if action_def is not None
+                else 2
+            )
             # team_foul_bonus_threshold: when team fouls exceed threshold,
             # award bonus free throws (1 extra FT regardless of shot type)
             if defense_team_fouls >= rules.team_foul_bonus_threshold:
                 ft_attempts += 1
-            # Use v2 free throw resolution when registry is available
-            ft_action_def = (
-                action_registry.get("free_throw")
-                if action_registry is not None
-                else None
-            )
-            for _ in range(ft_attempts):
-                if ft_action_def is not None:
-                    from pinwheel.core.scoring import resolve_shot_v2
+            # Resolve each free throw using the registry's free throw def
+            ft_action_def = action_registry.get("free_throw")
+            if ft_action_def is not None:
+                from pinwheel.core.scoring import resolve_shot_v2
 
+                for _ in range(ft_attempts):
                     ft_made, ft_pts = resolve_shot_v2(
-                        handler, primary_defender, ft_action_def, 0.0, rules, rng
+                        handler, primary_defender, ft_action_def,
+                        0.0, rules, rng,
                     )
-                else:
+                    handler.free_throws_attempted += 1
+                    if ft_made:
+                        handler.free_throws_made += 1
+                        handler.points += ft_pts
+                        pts += ft_pts
+            else:
+                # Fallback: no free throw action in registry
+                for _ in range(ft_attempts):
                     ft_made, ft_pts = resolve_shot(
-                        handler, primary_defender, "free_throw", 0.0, rules, rng
+                        handler, primary_defender, "free_throw",
+                        0.0, rules, rng,
                     )
-                handler.free_throws_attempted += 1
-                if ft_made:
-                    handler.free_throws_made += 1
-                    handler.points += ft_pts
-                    pts += ft_pts
+                    handler.free_throws_attempted += 1
+                    if ft_made:
+                        handler.free_throws_made += 1
+                        handler.points += ft_pts
+                        pts += ft_pts
 
     # 10. Rebound on miss
     rebound_id = ""

@@ -3,9 +3,11 @@
 Logistic curves for base probability, modified by defense, IQ, stamina, and rules.
 See SIMULATION.md "Scoring Resolution".
 
-Phase 1b adds v2 functions that read from ActionDefinition instead of hardcoded
-dicts. Both paths produce identical results — the v2 functions are additive and
-the originals are untouched.
+The v2 functions read from ActionDefinition — these are the primary implementation.
+The v1 functions (compute_shot_probability, resolve_shot, etc.) are thin wrappers
+that look up the ActionDefinition from a default basketball registry and delegate
+to v2. BASE_MIDPOINTS and BASE_STEEPNESS are re-exported for backward compatibility
+but derived from the game definition module.
 """
 
 from __future__ import annotations
@@ -15,27 +17,19 @@ import random
 from typing import Literal
 
 from pinwheel.core.state import HooperState
-from pinwheel.models.game_definition import ActionDefinition
+from pinwheel.models.game_definition import (
+    BASKETBALL_MIDPOINTS,
+    BASKETBALL_STEEPNESS,
+    ActionDefinition,
+)
 from pinwheel.models.rules import RuleSet
 
 ShotType = Literal["at_rim", "mid_range", "three_point", "free_throw"]
 
-# Base probability midpoints per shot type (scoring attribute value where P = 0.5)
-# Tuned so average agents (scoring ~40-50) produce basketball-like FG% (~45%)
-BASE_MIDPOINTS: dict[ShotType, float] = {
-    "at_rim": 30.0,
-    "mid_range": 40.0,
-    "three_point": 50.0,
-    "free_throw": 25.0,
-}
-
-# Steepness of logistic curve per shot type
-BASE_STEEPNESS: dict[ShotType, float] = {
-    "at_rim": 0.05,
-    "mid_range": 0.045,
-    "three_point": 0.04,
-    "free_throw": 0.06,
-}
+# Backward-compatible re-exports — derived from basketball_actions() in
+# game_definition.py. The source of truth is there, not here.
+BASE_MIDPOINTS: dict[ShotType, float] = BASKETBALL_MIDPOINTS  # type: ignore[assignment]
+BASE_STEEPNESS: dict[ShotType, float] = BASKETBALL_STEEPNESS  # type: ignore[assignment]
 
 
 def logistic(x: float, midpoint: float, steepness: float) -> float:
@@ -43,17 +37,28 @@ def logistic(x: float, midpoint: float, steepness: float) -> float:
     return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
 
 
+def _get_default_action_def(shot_type: ShotType) -> ActionDefinition:
+    """Look up the default basketball ActionDefinition for a shot type.
+
+    Uses a module-level cache built from DEFAULT_RULESET. This avoids
+    constructing ActionDefinitions on every call while keeping the v1
+    functions as thin wrappers over v2.
+    """
+    return _DEFAULT_ACTION_DEFS[shot_type]
+
+
 def compute_contest(
     defender: HooperState,
     shot_type: ShotType,
     scheme_modifier: float,
 ) -> float:
-    """Defense contest modifier. Returns multiplier in [0.5, 1.0]."""
-    if shot_type == "free_throw":
-        return 1.0
-    defense = defender.current_attributes.defense
-    contest = 1.0 - (defense / 200.0) - scheme_modifier
-    return max(0.5, min(1.0, contest))
+    """Defense contest modifier. Returns multiplier in [0.5, 1.0].
+
+    Thin wrapper over ``compute_contest_v2`` using the default basketball
+    action definition for the given shot type.
+    """
+    action_def = _get_default_action_def(shot_type)
+    return compute_contest_v2(defender, action_def, scheme_modifier)
 
 
 def compute_iq_modifier(iq: int) -> float:
@@ -95,32 +100,17 @@ def compute_shot_probability(
 ) -> float:
     """Compute probability of making a shot. Returns value in [0.01, 0.99].
 
+    Thin wrapper over ``compute_shot_probability_v2`` using the default
+    basketball action definition for the given shot type.
+
     Args:
         score_differential: Absolute difference between team scores.
             When > 0 and < 5, high-Fate shooters get a clutch bonus.
     """
-    scoring = shooter.current_attributes.scoring
-    midpoint = BASE_MIDPOINTS[shot_type]
-
-    # three_point_distance shifts the difficulty curve for three-pointers:
-    # farther distance = higher midpoint = harder to make.
-    # Each foot from default (22.15) shifts midpoint by ~1.5 attribute points.
-    if shot_type == "three_point":
-        distance_shift = (rules.three_point_distance - 22.15) * 1.5
-        midpoint += distance_shift
-
-    base = logistic(scoring, midpoint, BASE_STEEPNESS[shot_type])
-    contest = compute_contest(defender, shot_type, scheme_modifier)
-    iq_mod = compute_iq_modifier(shooter.current_attributes.iq)
-    stamina_mod = compute_stamina_modifier(shooter.current_stamina)
-    prob = base * contest * iq_mod * stamina_mod
-
-    # Fate clutch bonus: high-Fate players shine in close games
-    fate = shooter.hooper.attributes.fate
-    fate_bonus = compute_fate_clutch_bonus(fate, score_differential)
-    prob += fate_bonus
-
-    return max(0.01, min(0.99, prob))
+    action_def = _get_default_action_def(shot_type)
+    return compute_shot_probability_v2(
+        shooter, defender, action_def, scheme_modifier, rules, score_differential,
+    )
 
 
 def points_for_shot(shot_type: ShotType, rules: RuleSet) -> int:
@@ -140,11 +130,13 @@ def resolve_shot(
     rules: RuleSet,
     rng: random.Random,
 ) -> tuple[bool, int]:
-    """Resolve a shot attempt. Returns (made, points)."""
-    prob = compute_shot_probability(shooter, defender, shot_type, scheme_modifier, rules)
-    made = rng.random() < prob
-    pts = points_for_shot(shot_type, rules) if made else 0
-    return made, pts
+    """Resolve a shot attempt. Returns (made, points).
+
+    Thin wrapper over ``resolve_shot_v2`` using the default basketball
+    action definition for the given shot type.
+    """
+    action_def = _get_default_action_def(shot_type)
+    return resolve_shot_v2(shooter, defender, action_def, scheme_modifier, rules, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -249,3 +241,23 @@ def resolve_shot_v2(
     made = rng.random() < prob
     pts = points_for_action(action_def, rules) if made else 0
     return made, pts
+
+
+# ---------------------------------------------------------------------------
+# Module-level cache of default basketball ActionDefinitions
+#
+# Built once at import time from DEFAULT_RULESET. Used by the v1 wrapper
+# functions (compute_contest, compute_shot_probability, resolve_shot) to
+# delegate to the v2 implementations without allocating ActionDefinitions
+# on every call.
+# ---------------------------------------------------------------------------
+
+def _build_default_action_defs() -> dict[str, ActionDefinition]:
+    """Build a name->ActionDefinition map for default basketball actions."""
+    from pinwheel.models.game_definition import basketball_actions
+    from pinwheel.models.rules import DEFAULT_RULESET as _default
+
+    return {a.name: a for a in basketball_actions(_default)}
+
+
+_DEFAULT_ACTION_DEFS: dict[str, ActionDefinition] = _build_default_action_defs()
