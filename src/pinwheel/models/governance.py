@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from pinwheel.models.codegen import CodegenEffectSpec
+
 GovernanceEventType = Literal[
     "proposal.submitted",
     "proposal.confirmed",
@@ -157,6 +159,7 @@ EffectType = Literal[
     "move_grant",
     "custom_mechanic",
     "modify_game_definition",
+    "codegen",
 ]
 
 EffectDuration = Literal[
@@ -217,6 +220,9 @@ class EffectSpec(BaseModel):
     # Stored as a serialized GameDefinitionPatch dict. Use
     # ``GameDefinitionPatch(**spec.game_def_patch)`` to reconstruct.
     game_def_patch: dict | None = None
+
+    # codegen — AI-generated Python code effect (Phase 6)
+    codegen: CodegenEffectSpec | None = None
 
     # lifetime
     duration: EffectDuration = "permanent"
