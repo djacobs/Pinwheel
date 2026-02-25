@@ -17,14 +17,16 @@ class PossessionContext:
 
     Built from HookResult accumulation at sim.possession.pre,
     consumed by resolve_possession(). Ephemeral — one per possession.
+
+    Action selection biases live in ``action_biases`` — a dict keyed by
+    action name (e.g. ``"at_rim"``, ``"mid_range"``, ``"three_point"``).
+    The three legacy fields are backward-compatible property bridges.
     """
 
     shot_probability_modifier: float = 0.0
     shot_value_modifier: int = 0
     extra_stamina_drain: float = 0.0
-    at_rim_bias: float = 0.0
-    mid_range_bias: float = 0.0
-    three_point_bias: float = 0.0
+    action_biases: dict[str, float] = field(default_factory=dict)
     turnover_modifier: float = 0.0
     random_ejection_probability: float = 0.0
     bonus_pass_count: int = 0
@@ -32,6 +34,37 @@ class PossessionContext:
     # Flow control — effects can block or replace the chosen action
     block_action: bool = False
     substitute_action: str | None = None
+
+    # Backward-compatible property bridges for the three standard shot biases.
+    # Existing code that reads/writes ctx.at_rim_bias continues to work;
+    # new code can use ctx.action_biases["at_rim"] (or any custom action name).
+
+    @property
+    def at_rim_bias(self) -> float:
+        """Backward-compat: read at_rim bias from action_biases dict."""
+        return self.action_biases.get("at_rim", 0.0)
+
+    @at_rim_bias.setter
+    def at_rim_bias(self, value: float) -> None:
+        self.action_biases["at_rim"] = value
+
+    @property
+    def mid_range_bias(self) -> float:
+        """Backward-compat: read mid_range bias from action_biases dict."""
+        return self.action_biases.get("mid_range", 0.0)
+
+    @mid_range_bias.setter
+    def mid_range_bias(self, value: float) -> None:
+        self.action_biases["mid_range"] = value
+
+    @property
+    def three_point_bias(self) -> float:
+        """Backward-compat: read three_point bias from action_biases dict."""
+        return self.action_biases.get("three_point", 0.0)
+
+    @three_point_bias.setter
+    def three_point_bias(self, value: float) -> None:
+        self.action_biases["three_point"] = value
 
 
 @dataclass

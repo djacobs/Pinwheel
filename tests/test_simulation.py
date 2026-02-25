@@ -2,6 +2,8 @@
 
 import random
 
+import pytest
+
 from pinwheel.core.defense import (
     assign_matchups,
     get_primary_defender,
@@ -19,12 +21,17 @@ from pinwheel.core.moves import (
 from pinwheel.core.scoring import (
     compute_fate_clutch_bonus,
     compute_shot_probability,
+    compute_shot_probability_v2,
     compute_stamina_modifier,
     logistic,
+    points_for_action,
+    points_for_shot,
     resolve_shot,
+    resolve_shot_v2,
 )
 from pinwheel.core.simulation import simulate_game
 from pinwheel.core.state import GameState, HooperState
+from pinwheel.models.game_definition import ActionRegistry, basketball_actions
 from pinwheel.models.rules import DEFAULT_RULESET, RuleSet
 from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue
 
@@ -1581,3 +1588,188 @@ class TestSurfaceFullGame:
         assert r1.home_score == r2.home_score
         assert r1.away_score == r2.away_score
         assert r1.total_possessions == r2.total_possessions
+
+
+# ---------------------------------------------------------------------------
+# Phase 1b: Dual-path equivalence tests
+# ---------------------------------------------------------------------------
+
+SHOT_TYPES = ("at_rim", "mid_range", "three_point", "free_throw")
+ATTRIBUTE_VALUES = (20, 50, 90)
+
+
+class TestScoringDualPath:
+    """Equivalence tests proving v2 scoring functions match the originals.
+
+    Every test in this class constructs identical inputs for both the v1
+    (hardcoded dict) and v2 (ActionDefinition) code paths and asserts that
+    the outputs are exactly equal.
+    """
+
+    @pytest.mark.parametrize("shot_type", SHOT_TYPES)
+    @pytest.mark.parametrize("scoring_val", ATTRIBUTE_VALUES)
+    def test_compute_shot_probability_equivalence(
+        self, shot_type: str, scoring_val: int
+    ) -> None:
+        """v1 and v2 shot probability match for all types and levels."""
+        rules = DEFAULT_RULESET
+        registry = ActionRegistry(basketball_actions(rules))
+        action_def = registry[shot_type]
+
+        shooter = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=scoring_val))
+        )
+        defender = HooperState(
+            hooper=_make_hooper(hooper_id="d-1", attrs=_make_attrs(defense=50))
+        )
+        scheme_mod = 0.02
+
+        v1 = compute_shot_probability(
+            shooter, defender, shot_type, scheme_mod, rules  # type: ignore[arg-type]
+        )
+        v2 = compute_shot_probability_v2(
+            shooter, defender, action_def, scheme_mod, rules
+        )
+        assert v1 == v2, (
+            f"{shot_type} scoring={scoring_val}: v1={v1}, v2={v2}"
+        )
+
+    @pytest.mark.parametrize("shot_type", SHOT_TYPES)
+    def test_points_for_shot_equivalence_default_rules(
+        self, shot_type: str
+    ) -> None:
+        """points_for_shot() == points_for_action() with default RuleSet."""
+        rules = DEFAULT_RULESET
+        registry = ActionRegistry(basketball_actions(rules))
+        action_def = registry[shot_type]
+
+        v1 = points_for_shot(shot_type, rules)  # type: ignore[arg-type]
+        v2 = points_for_action(action_def, rules)
+        assert v1 == v2, f"{shot_type}: v1={v1}, v2={v2}"
+
+    @pytest.mark.parametrize("shot_type", SHOT_TYPES)
+    def test_points_for_shot_equivalence_custom_rules(
+        self, shot_type: str
+    ) -> None:
+        """points_for_shot() == points_for_action() with custom RuleSet."""
+        custom_rules = RuleSet(
+            two_point_value=4, three_point_value=5, free_throw_value=2
+        )
+        registry = ActionRegistry(basketball_actions(custom_rules))
+        action_def = registry[shot_type]
+
+        v1 = points_for_shot(shot_type, custom_rules)  # type: ignore[arg-type]
+        v2 = points_for_action(action_def, custom_rules)
+        assert v1 == v2, f"{shot_type}: v1={v1}, v2={v2}"
+
+    @pytest.mark.parametrize("shot_type", SHOT_TYPES)
+    def test_resolve_shot_equivalence(self, shot_type: str) -> None:
+        """resolve_shot v1/v2 produce same result with same seed (100 iters)."""
+        rules = DEFAULT_RULESET
+        registry = ActionRegistry(basketball_actions(rules))
+        action_def = registry[shot_type]
+
+        shooter = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=55))
+        )
+        defender = HooperState(
+            hooper=_make_hooper(hooper_id="d-1", attrs=_make_attrs(defense=45))
+        )
+        scheme_mod = 0.01
+
+        for seed in range(100):
+            rng_v1 = random.Random(seed)
+            rng_v2 = random.Random(seed)
+
+            made_v1, pts_v1 = resolve_shot(
+                shooter, defender, shot_type, scheme_mod, rules, rng_v1  # type: ignore[arg-type]
+            )
+            made_v2, pts_v2 = resolve_shot_v2(
+                shooter, defender, action_def, scheme_mod, rules, rng_v2
+            )
+            assert made_v1 == made_v2, (
+                f"{shot_type} seed={seed}: made v1={made_v1}, v2={made_v2}"
+            )
+            assert pts_v1 == pts_v2, (
+                f"{shot_type} seed={seed}: pts v1={pts_v1}, v2={pts_v2}"
+            )
+
+    def test_three_point_distance_equivalence(self) -> None:
+        """compute_shot_probability_v2 respects three_point_distance the same way as v1."""
+        for distance in (18.0, 22.15, 25.0, 30.0):
+            rules = RuleSet(three_point_distance=distance)
+            registry = ActionRegistry(basketball_actions(rules))
+            action_def = registry["three_point"]
+
+            shooter = HooperState(
+                hooper=_make_hooper(attrs=_make_attrs(scoring=60))
+            )
+            defender = HooperState(
+                hooper=_make_hooper(hooper_id="d-1", attrs=_make_attrs(defense=40))
+            )
+
+            v1 = compute_shot_probability(
+                shooter, defender, "three_point", 0.0, rules
+            )
+            v2 = compute_shot_probability_v2(
+                shooter, defender, action_def, 0.0, rules
+            )
+            assert v1 == v2, (
+                f"three_point_distance={distance}: v1={v1}, v2={v2}"
+            )
+
+    @pytest.mark.parametrize("scheme_mod", (-0.05, 0.0, 0.02, 0.05, 0.10))
+    def test_scheme_modifier_applied_identically(
+        self, scheme_mod: float
+    ) -> None:
+        """scheme_modifier is applied identically in both paths."""
+        rules = DEFAULT_RULESET
+        registry = ActionRegistry(basketball_actions(rules))
+
+        shooter = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50))
+        )
+        defender = HooperState(
+            hooper=_make_hooper(hooper_id="d-1", attrs=_make_attrs(defense=60))
+        )
+
+        for shot_type in ("at_rim", "mid_range", "three_point"):
+            action_def = registry[shot_type]
+            v1 = compute_shot_probability(
+                shooter, defender, shot_type, scheme_mod, rules  # type: ignore[arg-type]
+            )
+            v2 = compute_shot_probability_v2(
+                shooter, defender, action_def, scheme_mod, rules
+            )
+            assert v1 == v2, (
+                f"{shot_type} scheme_mod={scheme_mod}: v1={v1}, v2={v2}"
+            )
+
+    @pytest.mark.parametrize("defense_val", (10, 30, 50, 70, 90))
+    def test_contest_penalty_applied_identically(
+        self, defense_val: int
+    ) -> None:
+        """Contest penalty (defender strength) is applied identically in both paths."""
+        rules = DEFAULT_RULESET
+        registry = ActionRegistry(basketball_actions(rules))
+
+        shooter = HooperState(
+            hooper=_make_hooper(attrs=_make_attrs(scoring=50))
+        )
+        defender = HooperState(
+            hooper=_make_hooper(
+                hooper_id="d-1", attrs=_make_attrs(defense=defense_val)
+            )
+        )
+
+        for shot_type in SHOT_TYPES:
+            action_def = registry[shot_type]
+            v1 = compute_shot_probability(
+                shooter, defender, shot_type, 0.0, rules  # type: ignore[arg-type]
+            )
+            v2 = compute_shot_probability_v2(
+                shooter, defender, action_def, 0.0, rules
+            )
+            assert v1 == v2, (
+                f"{shot_type} defense={defense_val}: v1={v1}, v2={v2}"
+            )

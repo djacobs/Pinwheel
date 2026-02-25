@@ -124,6 +124,11 @@ class HookResult:
     """Structured mutations returned by an effect.
 
     The effect execution engine applies these to the game state.
+
+    Action selection biases can be set via the three legacy fields
+    (``at_rim_bias``, ``mid_range_bias``, ``three_point_bias``) OR via
+    the ``action_biases`` dict for arbitrary action names.  Both paths
+    are additive — ``_fire_sim_effects`` merges them together.
     """
 
     # Meta writes: {entity_key: {field: value}}
@@ -138,6 +143,7 @@ class HookResult:
     at_rim_bias: float = 0.0
     mid_range_bias: float = 0.0
     three_point_bias: float = 0.0
+    action_biases: dict[str, float] = field(default_factory=dict)
     turnover_modifier: float = 0.0
     random_ejection_probability: float = 0.0
     bonus_pass_count: int = 0
@@ -628,6 +634,8 @@ class RegisteredEffect:
                         result.at_rim_bias += inner_result.at_rim_bias
                         result.mid_range_bias += inner_result.mid_range_bias
                         result.three_point_bias += inner_result.three_point_bias
+                        for k, v in inner_result.action_biases.items():
+                            result.action_biases[k] = result.action_biases.get(k, 0.0) + v
                         if inner_result.narrative:
                             existing = result.narrative
                             if existing:

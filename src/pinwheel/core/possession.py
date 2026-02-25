@@ -22,6 +22,7 @@ from pinwheel.core.moves import apply_move_modifier, get_triggered_moves
 from pinwheel.core.scoring import ShotType, resolve_shot
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import PossessionLog
+from pinwheel.models.game_definition import ActionRegistry
 from pinwheel.models.rules import RuleSet
 
 # Legacy constant — now governed by rules.dead_ball_time_seconds
@@ -149,13 +150,25 @@ def select_action(
     rng: random.Random,
     effect_biases: PossessionContext | None = None,
     surface: SurfaceModifiers | None = None,
+    action_registry: ActionRegistry | None = None,
 ) -> ShotType:
     """Select shot type based on handler attributes and game state.
+
+    When ``action_registry`` is provided, weights are built from the
+    registry's ``shot_actions()`` instead of hardcoded constants. The
+    registry path produces identical results for the standard basketball
+    actions because ``basketball_actions()`` encodes the same constants.
 
     Surface modifiers adjust shot selection weights: speed_at_rim_modifier
     scales the speed component of at_rim, while the per-type weight modifiers
     are additive percentages of the pre-surface weight.
     """
+    if action_registry is not None:
+        return _select_action_registry(
+            handler, game_state, rules, rng,
+            effect_biases, surface, action_registry,
+        )
+
     scoring = handler.current_attributes.scoring
     speed = handler.current_attributes.speed
     iq = handler.current_attributes.iq
@@ -205,6 +218,92 @@ def select_action(
             weights["three_point"] += 15.0
 
     types = list(weights.keys())
+    w = [max(1.0, weights[t]) for t in types]  # floor at 1.0 to avoid negative weights
+    chosen: ShotType = rng.choices(types, weights=w, k=1)[0]
+    return chosen
+
+
+def _select_action_registry(
+    handler: HooperState,
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    effect_biases: PossessionContext | None,
+    surface: SurfaceModifiers | None,
+    action_registry: ActionRegistry,
+) -> ShotType:
+    """Registry-based action selection — data-driven weights.
+
+    Builds selection weights from ``registry.shot_actions()`` instead of
+    hardcoded constants. For the standard basketball registry, this produces
+    identical RNG draws because the weights are algebraically equivalent.
+    """
+    # three_point_distance: default 22.15 ft (NBA 3PT distance).
+    distance_from_default = rules.three_point_distance - 22.15
+    three_distance_penalty = distance_from_default * 2.0
+
+    # Build weights from registry shot actions, sorted by name for determinism
+    shot_actions = sorted(action_registry.shot_actions(), key=lambda a: a.name)
+    weights: dict[str, float] = {}
+
+    for action_def in shot_actions:
+        name = action_def.name
+        # Base weight from action definition
+        w = action_def.selection_weight
+
+        # Attribute contributions from weight_attributes
+        for attr, factor in sorted(action_def.weight_attributes.items()):
+            attr_val = getattr(handler.current_attributes, attr, 0)
+            # Special handling: speed_at_rim_modifier applies to the speed
+            # component of at_rim weight.
+            if name == "at_rim" and attr == "speed" and surface:
+                w += attr_val * factor * (1.0 + surface.speed_at_rim_modifier)
+            else:
+                w += attr_val * factor
+
+        # three_point_distance penalty (only for three_point action)
+        if name == "three_point":
+            w -= three_distance_penalty
+
+        weights[name] = w
+
+    # Apply surface weight modifiers (additive percentage of pre-surface weight)
+    if surface:
+        for name in weights:
+            if name == "at_rim":
+                weights[name] += weights[name] * surface.at_rim_weight_modifier
+            elif name == "mid_range":
+                weights[name] += weights[name] * surface.mid_range_weight_modifier
+            elif name == "three_point":
+                weights[name] += weights[name] * surface.three_point_weight_modifier
+
+    # Apply team strategy biases
+    strategy = game_state.offense_strategy
+    if strategy:
+        for name in weights:
+            if name == "at_rim":
+                weights[name] += strategy.at_rim_bias
+            elif name == "mid_range":
+                weights[name] += strategy.mid_range_bias
+            elif name == "three_point":
+                weights[name] += strategy.three_point_bias
+
+    # Apply effect-derived biases from action_biases dict
+    if effect_biases:
+        for name in weights:
+            bias = effect_biases.action_biases.get(name, 0.0)
+            if bias != 0.0:
+                weights[name] += bias
+
+    # Elam: trailing team takes more threes
+    if game_state.elam_activated and game_state.elam_target_score:
+        my_score = game_state.home_score if game_state.home_has_ball else game_state.away_score
+        gap = game_state.elam_target_score - my_score
+        if gap > 5 and "three_point" in weights:
+            weights["three_point"] += 15.0
+
+    # Sort by name for deterministic RNG draws (at_rim < mid_range < three_point)
+    types = sorted(weights.keys())
     w = [max(1.0, weights[t]) for t in types]  # floor at 1.0 to avoid negative weights
     chosen: ShotType = rng.choices(types, weights=w, k=1)[0]
     return chosen
@@ -409,12 +508,16 @@ def resolve_possession(
     rng: random.Random,
     last_possession_three: bool = False,
     context: PossessionContext | None = None,
+    action_registry: ActionRegistry | None = None,
 ) -> PossessionResult:
     """Resolve one complete possession.
 
     Args:
         context: Effect-derived modifiers for this possession. Built by
             _fire_sim_effects from accumulated HookResults.
+        action_registry: Data-driven action definitions (Phase 1c). When
+            provided, uses registry-based action selection and shot resolution.
+            When ``None`` (default), the hardcoded path is used unchanged.
     """
     ctx = context or PossessionContext()
 
@@ -642,6 +745,7 @@ def resolve_possession(
     # 4. Select action --- with effect biases + surface modifiers
     shot_type = select_action(
         handler, game_state, rules, rng, effect_biases=ctx, surface=surface_mods,
+        action_registry=action_registry,
     )
 
     # 4b. Flow control from governance effects
@@ -713,14 +817,29 @@ def resolve_possession(
     )
 
     # 7. Compute base shot probability and apply all modifiers
-    from pinwheel.core.scoring import compute_shot_probability, points_for_shot
+    from pinwheel.core.scoring import (
+        compute_shot_probability,
+        compute_shot_probability_v2,
+        points_for_action,
+        points_for_shot,
+    )
 
     move_name = ""
     score_diff = abs(game_state.home_score - game_state.away_score)
-    base_prob = compute_shot_probability(
-        handler, primary_defender, shot_type, scheme_mod, rules,
-        score_differential=score_diff,
-    )
+
+    # Look up the ActionDefinition when registry is available
+    action_def = action_registry.get(shot_type) if action_registry is not None else None
+
+    if action_def is not None:
+        base_prob = compute_shot_probability_v2(
+            handler, primary_defender, action_def, scheme_mod, rules,
+            score_differential=score_diff,
+        )
+    else:
+        base_prob = compute_shot_probability(
+            handler, primary_defender, shot_type, scheme_mod, rules,
+            score_differential=score_diff,
+        )
     # Apply effect-driven shot probability modifier + home crowd boost + surface
     prob = max(
         0.01,
@@ -749,7 +868,10 @@ def resolve_possession(
 
     # 7c. Resolve the shot
     made = rng.random() < prob
-    pts = points_for_shot(shot_type, rules) if made else 0
+    if action_def is not None:
+        pts = points_for_action(action_def, rules) if made else 0
+    else:
+        pts = points_for_shot(shot_type, rules) if made else 0
 
     # Apply effect-driven shot value modifier and pass bonus
     if made:
@@ -791,15 +913,31 @@ def resolve_possession(
 
         # Free throws on foul
         if not made:
-            ft_attempts = 2 if shot_type != "three_point" else 3
+            if action_def is not None:
+                ft_attempts = action_def.free_throw_attempts_on_foul
+            else:
+                ft_attempts = 2 if shot_type != "three_point" else 3
             # team_foul_bonus_threshold: when team fouls exceed threshold,
             # award bonus free throws (1 extra FT regardless of shot type)
             if defense_team_fouls >= rules.team_foul_bonus_threshold:
                 ft_attempts += 1
+            # Use v2 free throw resolution when registry is available
+            ft_action_def = (
+                action_registry.get("free_throw")
+                if action_registry is not None
+                else None
+            )
             for _ in range(ft_attempts):
-                ft_made, ft_pts = resolve_shot(
-                    handler, primary_defender, "free_throw", 0.0, rules, rng
-                )
+                if ft_action_def is not None:
+                    from pinwheel.core.scoring import resolve_shot_v2
+
+                    ft_made, ft_pts = resolve_shot_v2(
+                        handler, primary_defender, ft_action_def, 0.0, rules, rng
+                    )
+                else:
+                    ft_made, ft_pts = resolve_shot(
+                        handler, primary_defender, "free_throw", 0.0, rules, rng
+                    )
                 handler.free_throws_attempted += 1
                 if ft_made:
                     handler.free_throws_made += 1

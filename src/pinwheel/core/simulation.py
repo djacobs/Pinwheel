@@ -25,6 +25,7 @@ from pinwheel.core.meta import MetaStore
 from pinwheel.core.possession import resolve_possession
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
+from pinwheel.models.game_definition import ActionRegistry
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Team, TeamStrategy
 
@@ -73,13 +74,28 @@ def _fire_sim_effects(
         (r.substitute_action for r in results if r.substitute_action), None
     )
 
+    # Merge action biases: legacy per-field biases + new action_biases dicts.
+    # Legacy fields on HookResult (at_rim_bias etc.) are summed first for the
+    # three standard shot types.  Then action_biases dicts from each result are
+    # merged additively on top, supporting both standard and custom action names.
+    merged_biases: dict[str, float] = {}
+    legacy_sums: dict[str, float] = {
+        "at_rim": sum(r.at_rim_bias for r in results),
+        "mid_range": sum(r.mid_range_bias for r in results),
+        "three_point": sum(r.three_point_bias for r in results),
+    }
+    for name, val in legacy_sums.items():
+        if val != 0.0:
+            merged_biases[name] = val
+    for r in results:
+        for k, v in r.action_biases.items():
+            merged_biases[k] = merged_biases.get(k, 0.0) + v
+
     return PossessionContext(
         shot_probability_modifier=sum(r.shot_probability_modifier for r in results),
         shot_value_modifier=sum(r.shot_value_modifier for r in results),
         extra_stamina_drain=sum(r.extra_stamina_drain for r in results),
-        at_rim_bias=sum(r.at_rim_bias for r in results),
-        mid_range_bias=sum(r.mid_range_bias for r in results),
-        three_point_bias=sum(r.three_point_bias for r in results),
+        action_biases=merged_biases,
         turnover_modifier=sum(r.turnover_modifier for r in results),
         random_ejection_probability=sum(
             r.random_ejection_probability for r in results
@@ -208,6 +224,7 @@ def _run_quarter(
     possession_log: list[PossessionLog],
     new_effects: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
+    action_registry: ActionRegistry | None = None,
 ) -> None:
     """Run one quarter using the game clock."""
     game_state.game_clock_seconds = rules.quarter_minutes * 60.0
@@ -234,7 +251,10 @@ def _run_quarter(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
 
-        result = resolve_possession(game_state, rules, rng, last_three, poss_ctx)
+        result = resolve_possession(
+            game_state, rules, rng, last_three, poss_ctx,
+            action_registry=action_registry,
+        )
 
         # Decrement game clock
         game_state.game_clock_seconds -= result.time_used
@@ -275,6 +295,7 @@ def _run_elam(
     possession_log: list[PossessionLog],
     new_effects: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
+    action_registry: ActionRegistry | None = None,
 ) -> None:
     """Run the Elam Ending period."""
     leading_score = max(game_state.home_score, game_state.away_score)
@@ -294,7 +315,10 @@ def _run_elam(
         poss_ctx = _fire_sim_effects(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
-        result = resolve_possession(game_state, rules, rng, last_three, poss_ctx)
+        result = resolve_possession(
+            game_state, rules, rng, last_three, poss_ctx,
+            action_registry=action_registry,
+        )
         if result.log:
             possession_log.append(result.log)
         last_three = result.shot_made and result.shot_type == "three_point"
@@ -382,6 +406,7 @@ def simulate_game(
     away_strategy: TeamStrategy | None = None,
     effect_registry: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
+    action_registry: ActionRegistry | None = None,
 ) -> GameResult:
     """Simulate a complete 3v3 basketball game.
 
@@ -391,6 +416,10 @@ def simulate_game(
     Args:
         effect_registry: New-style effects to fire at hook points.
         meta_store: In-memory metadata store for effects to read/write.
+        action_registry: Data-driven action definitions (Phase 1c). When
+            provided, ``select_action()`` and ``resolve_possession()`` use
+            registry-based weights and resolution. When ``None`` (default),
+            the hardcoded basketball path is used unchanged.
     """
     start_time = time.monotonic()
     rng = random.Random(seed)
@@ -433,6 +462,7 @@ def simulate_game(
         _run_quarter(
             game_state, rules, rng, _effects, possession_log,
             new_effects=effect_registry, meta_store=meta_store,
+            action_registry=action_registry,
         )
 
         fire_hooks(HookPoint.QUARTER_END, game_state, _effects)
@@ -467,6 +497,7 @@ def simulate_game(
         _run_elam(
             game_state, rules, rng, _effects, possession_log,
             new_effects=effect_registry, meta_store=meta_store,
+            action_registry=action_registry,
         )
 
         quarter_scores.append(
