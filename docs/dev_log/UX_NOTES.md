@@ -857,3 +857,17 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 140. [DONE] Admin performance dashboard
 **Problem:** No visibility into system performance — request latency, round timing, SSE connections.
 **Fix:** New `/admin/perf` page with P50/P95/P99 latency percentiles, round timing breakdown, and aggregated metrics from existing instrumentation tables. Linked from admin landing page.
+
+## Completed — Session 131 (Codegen Admin Tooling)
+
+### 141. [DONE] Codegen admin commands — /review-codegen, /disable-effect, /rerun-council
+**Problem:** No way for admins to review, disable, or re-review AI-generated codegen effects that run inside the simulation sandbox.
+**Fix:** Three new admin-only Discord slash commands. `/review-codegen` lists all codegen effects with rich embeds showing trust level, execution/error counts, code preview, and enabled status. `/disable-effect` immediately disables a codegen effect with autocomplete. `/rerun-council` marks an effect for council re-review. All follow the existing admin command pattern (guild check, admin ID check, deferred ephemeral responses).
+
+### 142. [DONE] Codegen review embed — purple theme with detailed metadata
+**Problem:** No visual representation of codegen effects in Discord. Admins had no way to see code, trust level, or error state at a glance.
+**Fix:** New `build_codegen_review_embed()` with purple color scheme (0x9B59B6) to visually distinguish codegen from other embeds. Shows: ENABLED/DISABLED status in title, effect description, trust level, hook points, execution and error counts, disabled reason and last error (when applicable), code preview (truncated to 500 chars), and code hash. Footer: "Pinwheel Fates".
+
+### 143. [DONE] Effects summary includes codegen metadata
+**Problem:** The effects summary (used in narrative context and admin views) showed codegen effects with no indication of their execution state, error rate, or enabled status.
+**Fix:** `build_effects_summary()` now appends codegen metadata for codegen effects: `[codegen: enabled, runs=N, errors=N]` or `[codegen: DISABLED, runs=N, errors=N]`. Non-codegen effects unchanged.
