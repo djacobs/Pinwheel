@@ -158,10 +158,17 @@
   </div>
 </div>
 
+{% if commentary %}
+<div class="report-card mt-2">
+  <div class="report-type">Courtside Commentary</div>
+  <div class="report-content">{{ commentary.content | prose | safe }}</div>
+</div>
+{% endif %}
+
 {% if report %}
 <div class="report-card mt-2">
-  <div class="report-type">Simulation Report</div>
-  <div class="report-content">{{ report.content }}</div>
+  <div class="report-type">The Pinwheel Post &mdash; Round {{ game.round_number }}</div>
+  <div class="report-content">{{ report.content | prose | safe }}</div>
 </div>
 {% endif %}
 

@@ -1939,11 +1939,15 @@ async def game_page(
     # Use the game's own season, not the active season (game may be from archived season)
     season_id = game.season_id
     report = None
+    commentary = None
     game_phase: str | None = None
     if season_id:
         round_reports = await repo.get_reports_for_round(season_id, game.round_number, "simulation")
         if round_reports:
             report = {"content": round_reports[0].content}
+        commentary_row = await repo.get_game_commentary(season_id, game.round_number, game_id)
+        if commentary_row:
+            commentary = {"content": commentary_row.content}
         game_phase = await _get_game_phase(repo, season_id, game.round_number)
 
     # Compute historical context
@@ -2109,6 +2113,7 @@ async def game_page(
             "box_score_groups": box_score_groups,
             "play_by_play": play_by_play,
             "report": report,
+            "commentary": commentary,
             "game_phase": game_phase,
             "game_context": game_context,
             "game_significance": game_significance,

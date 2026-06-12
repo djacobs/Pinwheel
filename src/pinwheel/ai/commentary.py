@@ -111,6 +111,21 @@ def _is_numeric(val: object) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool)
 
 
+def trim_to_last_sentence(text: str) -> str:
+    """Trim text that was cut mid-sentence back to its last complete sentence.
+
+    Used when a response hits max_tokens — shipping a mid-sentence cut reads
+    worse than losing the partial sentence.
+    """
+    stripped = text.rstrip()
+    if not stripped or stripped[-1] in ".!?":
+        return stripped
+    last_end = max(stripped.rfind("."), stripped.rfind("!"), stripped.rfind("?"))
+    if last_end == -1:
+        return stripped
+    return stripped[: last_end + 1]
+
+
 _SCORING_PARAMS = {"three_point_value", "two_point_value", "free_throw_value"}
 
 
@@ -333,29 +348,96 @@ def _build_game_context(
     if ruleset.three_point_value != 3:
         lines.append(f"Three-pointers worth {ruleset.three_point_value} (rule change!)")
 
+    # Quarter-by-quarter flow — lets the AI narrate runs and comebacks
+    if game_result.quarter_scores:
+        qs_parts = []
+        for qs in game_result.quarter_scores:
+            label = f"Q{qs.quarter}"
+            if game_result.elam_activated and qs.quarter == game_result.quarter_scores[-1].quarter:
+                label = "Elam period"
+            qs_parts.append(f"{label} {qs.home_score}-{qs.away_score}")
+        lines.append(f"Quarter scores ({home_team.name}-{away_team.name}): " + " | ".join(qs_parts))
+
+    # Game flow — lead changes and largest lead, from running scores
+    lead_changes = 0
+    largest_lead = 0
+    largest_lead_team = ""
+    prev_sign = 0
+    for p in game_result.possession_log:
+        diff = p.home_score - p.away_score
+        sign = (diff > 0) - (diff < 0)
+        if sign != 0 and prev_sign != 0 and sign != prev_sign:
+            lead_changes += 1
+        if sign != 0:
+            prev_sign = sign
+        if abs(diff) > largest_lead:
+            largest_lead = abs(diff)
+            largest_lead_team = home_team.name if diff > 0 else away_team.name
+    if game_result.possession_log:
+        lines.append(
+            f"Game flow: {lead_changes} lead change{'s' if lead_changes != 1 else ''}, "
+            f"largest lead {largest_lead} ({largest_lead_team or 'never separated'})"
+        )
+
+    # Team strategies — the governors' declared direction for each side
+    if game_result.home_strategy_summary:
+        lines.append(f"{home_team.name} strategy: {game_result.home_strategy_summary}")
+    if game_result.away_strategy_summary:
+        lines.append(f"{away_team.name} strategy: {game_result.away_strategy_summary}")
+
+    # Rosters — archetypes give the AI character to work with
+    for team in (home_team, away_team):
+        roster = ", ".join(f"{h.name} ({h.archetype})" for h in team.hoopers if h.is_starter)
+        if roster:
+            lines.append(f"{team.name}: {roster}")
+
     # Box scores — top performers
     lines.append("\nBox scores:")
+    hooper_names: dict[str, str] = {}
     for bs in sorted(game_result.box_scores, key=lambda b: b.points, reverse=True):
+        hooper_names[bs.hooper_id] = bs.hooper_name
         team_name = home_team.name if bs.team_id == home_team.id else away_team.name
         lines.append(
             f"  {bs.hooper_name} ({team_name}): "
             f"{bs.points}pts {bs.rebounds}reb {bs.assists}ast {bs.steals}stl {bs.turnovers}to"
         )
 
-    # Key moments from possession log (sample up to 8 notable plays)
+    # Key moments sampled across the WHOLE game. The ending is guaranteed:
+    # the last 4 notable plays (the finish, including any Elam possessions)
+    # plus up to 4 spread across the earlier periods.
     notable = [
         p
         for p in game_result.possession_log
         if p.points_scored >= 3 or p.result == "turnover" or p.move_activated
-    ][:8]
-    if notable:
-        lines.append("\nKey plays:")
-        for p in notable:
+    ]
+    if len(notable) > 8:
+        tail = notable[-4:]
+        head_pool = notable[:-4]
+        step = max(1, len(head_pool) // 4)
+        sampled = head_pool[::step][:4] + tail
+    else:
+        sampled = notable
+    if sampled:
+        lines.append("\nKey plays (sampled start to finish):")
+        for p in sampled:
             move_tag = f" [MOVE: {p.move_activated}]" if p.move_activated else ""
+            handler = hooper_names.get(p.ball_handler_id, p.ball_handler_id)
             lines.append(
-                f"  Q{p.quarter} #{p.possession_number}: {p.action} -> {p.result}"
-                f" ({p.points_scored}pts){move_tag}"
+                f"  Q{p.quarter} #{p.possession_number}: {handler} {p.action} -> {p.result}"
+                f" ({p.points_scored}pts, score {p.home_score}-{p.away_score}){move_tag}"
             )
+
+    # The game-deciding play — the last score is the finish line
+    last_score = next(
+        (p for p in reversed(game_result.possession_log) if p.points_scored > 0), None
+    )
+    if last_score is not None:
+        handler = hooper_names.get(last_score.ball_handler_id, last_score.ball_handler_id)
+        lines.append(
+            f"\nGame-deciding play: {handler} {last_score.action} for "
+            f"{last_score.points_scored} (final: {game_result.home_score}-"
+            f"{game_result.away_score})"
+        )
 
     # Named moves used during the game — context for richer commentary
     moves_used: set[str] = set()
@@ -442,7 +524,8 @@ async def generate_game_commentary(
     """Generate AI-powered broadcaster commentary for a completed game.
 
     Uses Claude Sonnet for cost-effective high-volume generation.
-    Falls back to a bracketed error message on API failure.
+    Falls back to the mock generator on API failure — players never see
+    error text.
     """
     from pinwheel.ai.usage import (
         cacheable_system,
@@ -466,11 +549,13 @@ async def generate_game_commentary(
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=model,
-                max_tokens=400,
+                max_tokens=800,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": f"Call this game:\n\n{context}"}],
             )
         text = response.content[0].text
+        if response.stop_reason == "max_tokens":
+            text = trim_to_last_sentence(text)
 
         if db_session is not None:
             input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
@@ -489,8 +574,12 @@ async def generate_game_commentary(
 
         return text
     except anthropic.APIError as e:
-        logger.error("Commentary generation API error: %s", e)
-        return f"[Commentary generation failed: {e}]"
+        logger.error("Commentary generation API error, falling back to mock: %s", e)
+        return generate_game_commentary_mock(
+            game_result, home_team, away_team,
+            playoff_context=playoff_context,
+            narrative=narrative,
+        )
 
 
 def generate_game_commentary_mock(
@@ -535,7 +624,10 @@ def generate_game_commentary_mock(
             "carries the weight of a full season's worth of work."
         )
 
-    # Opening paragraph — the result
+    # Opening paragraph — the result. Variant pools keep repeated rounds from
+    # reading identically; selection is deterministic per game (seeded by the
+    # game's own sim seed).
+    variant = game_result.seed % 3
     if margin <= 3:
         if playoff_context:
             opener = (
@@ -544,11 +636,17 @@ def generate_game_commentary_mock(
                 f" classic that will be talked about for seasons to come."
             )
         else:
-            opener = (
-                f"What a nail-biter at the buzzer! The {winner_name} edged out the {loser_name} "
-                f"{winner_score}-{loser_score} in a game that could have gone either way. "
-                f"The crowd is still vibrating."
-            )
+            opener = [
+                f"What a nail-biter at the buzzer! The {winner_name} edged out the "
+                f"{loser_name} {winner_score}-{loser_score} in a game that could have "
+                f"gone either way. The crowd is still vibrating.",
+                f"Somebody check the floorboards for scorch marks — the {winner_name} "
+                f"escaped the {loser_name} {winner_score}-{loser_score} by the width of "
+                f"a shoelace. A game that could have gone either way, and nearly did.",
+                f"Hold your breath basketball, decided late: the {winner_name} slipped "
+                f"past the {loser_name} {winner_score}-{loser_score} in a game that "
+                f"could have gone either way.",
+            ][variant]
     elif margin >= 15:
         if playoff_context:
             opener = (
@@ -557,11 +655,17 @@ def generate_game_commentary_mock(
                 f"The {loser_name}'s season ends not with a bang, but a whimper."
             )
         else:
-            opener = (
+            opener = [
                 f"A statement game from the {winner_name}, who absolutely dismantled the "
                 f"{loser_name} {winner_score}-{loser_score}. "
-                f"That was less a basketball game and more a public demonstration."
-            )
+                f"That was less a basketball game and more a public demonstration.",
+                f"The {winner_name} dismantled the {loser_name} {winner_score}-"
+                f"{loser_score}, and 'dismantled' is the polite word for it. File this "
+                f"one under demolitions, not games.",
+                f"No drama tonight, just a statement — the {winner_name} ran the "
+                f"{loser_name} off the floor {winner_score}-{loser_score}. A wire-to-"
+                f"wire demonstration of which team showed up.",
+            ][variant]
     else:
         if playoff_context:
             opener = (
@@ -570,11 +674,17 @@ def generate_game_commentary_mock(
                 f"{game_result.total_possessions} possessions of pure playoff intensity."
             )
         else:
-            opener = (
+            opener = [
                 f"The {winner_name} take this one {winner_score}-{loser_score} over the "
                 f"{loser_name} in a hard-fought "
-                f"{game_result.total_possessions}-possession battle."
-            )
+                f"{game_result.total_possessions}-possession battle.",
+                f"A workmanlike {winner_score}-{loser_score} win for the {winner_name} "
+                f"over the {loser_name} — {game_result.total_possessions} possessions "
+                f"of honest, hard-fought basketball.",
+                f"The {winner_name} handled their business against the {loser_name}, "
+                f"{winner_score}-{loser_score}, controlling a hard-fought "
+                f"{game_result.total_possessions}-possession contest.",
+            ][variant]
     paragraphs.append(opener)
 
     # Elam paragraph
@@ -795,7 +905,20 @@ async def generate_highlight_reel(
         hs = g.get("home_score", 0)
         aws = g.get("away_score", 0)
         elam = " [ELAM]" if g.get("elam_activated") else ""
-        lines.append(f"  {home} {hs} - {aws} {away}{elam}")
+        margin = abs(int(hs) - int(aws))
+        if margin <= 3:
+            margin_tag = "thriller"
+        elif margin >= 15:
+            margin_tag = "blowout"
+        else:
+            margin_tag = f"by {margin}"
+        detail_parts = [margin_tag]
+        top_scorer = g.get("top_scorer", "")
+        if top_scorer:
+            detail_parts.append(f"top scorer: {top_scorer}")
+        lines.append(
+            f"  {home} {hs} - {aws} {away}{elam} ({', '.join(detail_parts)})"
+        )
 
     context = "\n".join(lines)
 
@@ -818,11 +941,13 @@ async def generate_highlight_reel(
         async with track_latency() as timing:
             response = await client.messages.create(
                 model=model,
-                max_tokens=300,
+                max_tokens=500,
                 system=cacheable_system(system),
                 messages=[{"role": "user", "content": f"Highlights:\n\n{context}"}],
             )
         text = response.content[0].text
+        if response.stop_reason == "max_tokens":
+            text = trim_to_last_sentence(text)
 
         if db_session is not None:
             input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
@@ -841,8 +966,12 @@ async def generate_highlight_reel(
 
         return text
     except anthropic.APIError as e:
-        logger.error("Highlight reel generation API error: %s", e)
-        return f"[Highlight reel generation failed: {e}]"
+        logger.error("Highlight reel API error, falling back to mock: %s", e)
+        return generate_highlight_reel_mock(
+            game_summaries, round_number,
+            playoff_context=playoff_context,
+            narrative=narrative,
+        )
 
 
 def generate_highlight_reel_mock(

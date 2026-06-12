@@ -2541,3 +2541,266 @@ class TestHighlightReelStatComparisonWithAverage:
         )
         # Should mention the comparison (110 total vs 80 avg)
         assert "110" in reel or "80" in reel or "scoring" in reel.lower()
+
+
+# ---------------------------------------------------------------------------
+# Truncation trimming
+# ---------------------------------------------------------------------------
+
+
+class TestTrimToLastSentence:
+    def test_complete_text_unchanged(self) -> None:
+        from pinwheel.ai.commentary import trim_to_last_sentence
+
+        assert trim_to_last_sentence("A game. A win!") == "A game. A win!"
+
+    def test_mid_sentence_cut_trimmed(self) -> None:
+        from pinwheel.ai.commentary import trim_to_last_sentence
+
+        text = "The Thorns won big. The crowd went wild! And then the"
+        assert trim_to_last_sentence(text) == "The Thorns won big. The crowd went wild!"
+
+    def test_no_sentence_boundary_returns_stripped(self) -> None:
+        from pinwheel.ai.commentary import trim_to_last_sentence
+
+        assert trim_to_last_sentence("no terminal punctuation here  ") == (
+            "no terminal punctuation here"
+        )
+
+    def test_empty_string(self) -> None:
+        from pinwheel.ai.commentary import trim_to_last_sentence
+
+        assert trim_to_last_sentence("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Game context richness — the prompt must see the whole game
+# ---------------------------------------------------------------------------
+
+
+def _make_long_game_result() -> GameResult:
+    """Game result with a long possession log spanning four quarters."""
+    from pinwheel.models.game import PossessionLog
+
+    result = _make_game_result(home_score=45, away_score=38, elam=True)
+    log = []
+    n = 0
+    home_score = 0
+    away_score = 0
+    for quarter in (1, 2, 3, 4):
+        for _ in range(15):
+            n += 1
+            is_home = n % 2 == 0
+            pts = 3 if n % 5 == 0 else 2
+            if is_home:
+                home_score += pts
+            else:
+                away_score += pts
+            log.append(
+                PossessionLog(
+                    quarter=quarter,
+                    possession_number=n,
+                    offense_team_id="team-home" if is_home else "team-away",
+                    ball_handler_id="a-1" if is_home else "a-4",
+                    action="three_point" if pts == 3 else "drive",
+                    result="made",
+                    points_scored=pts,
+                    home_score=home_score,
+                    away_score=away_score,
+                )
+            )
+    result.possession_log = log
+    return result
+
+
+class TestGameContextRichness:
+    def _context(self, result: GameResult) -> str:
+        from pinwheel.models.rules import RuleSet
+
+        return _build_game_context(
+            result, _make_home_team(), _make_away_team(), RuleSet()
+        )
+
+    def test_quarter_scores_included(self) -> None:
+        ctx = self._context(_make_game_result())
+        assert "Quarter scores" in ctx
+        assert "Q1 12-10" in ctx
+
+    def test_elam_period_labeled(self) -> None:
+        ctx = self._context(_make_game_result(elam=True))
+        assert "Elam period" in ctx
+
+    def test_game_flow_line_included(self) -> None:
+        ctx = self._context(_make_long_game_result())
+        assert "lead change" in ctx
+        assert "largest lead" in ctx
+
+    def test_key_plays_cover_the_ending(self) -> None:
+        """The final possessions must reach the prompt — not just Q1."""
+        result = _make_long_game_result()
+        ctx = self._context(result)
+        last_notable = result.possession_log[-1]
+        assert f"#{last_notable.possession_number}" in ctx
+        assert "Q4" in ctx
+
+    def test_game_deciding_play_called_out(self) -> None:
+        ctx = self._context(_make_long_game_result())
+        assert "Game-deciding play" in ctx
+
+    def test_strategies_included_when_set(self) -> None:
+        result = _make_game_result()
+        result.home_strategy_summary = "Run and gun, threes only"
+        result.away_strategy_summary = "Grind it out inside"
+        ctx = self._context(result)
+        assert "Run and gun, threes only" in ctx
+        assert "Grind it out inside" in ctx
+
+    def test_roster_archetypes_included(self) -> None:
+        ctx = self._context(_make_game_result())
+        assert "sharpshooter" in ctx
+        assert "Briar Ashwood (sharpshooter)" in ctx
+
+
+# ---------------------------------------------------------------------------
+# Mock commentary variation — repeated rounds shouldn't read identically
+# ---------------------------------------------------------------------------
+
+
+class TestMockCommentaryVariation:
+    def test_different_seeds_vary_opener(self) -> None:
+        home = _make_home_team()
+        away = _make_away_team()
+        openers = set()
+        for seed in (0, 1, 2):
+            result = _make_game_result(home_score=42, away_score=41)
+            result.seed = seed
+            commentary = generate_game_commentary_mock(result, home, away)
+            openers.add(commentary.split("\n\n")[0])
+        assert len(openers) == 3
+
+    def test_same_seed_is_stable(self) -> None:
+        home = _make_home_team()
+        away = _make_away_team()
+        result = _make_game_result(home_score=42, away_score=41)
+        a = generate_game_commentary_mock(result, home, away)
+        b = generate_game_commentary_mock(result, home, away)
+        assert a == b
+
+
+# ---------------------------------------------------------------------------
+# API error fallback — players never see error strings
+# ---------------------------------------------------------------------------
+
+
+class _FailingMessages:
+    async def create(self, **kwargs: object) -> object:
+        import anthropic
+        import httpx
+
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+
+class _FailingClient:
+    def __init__(self, api_key: str = "") -> None:
+        self.messages = _FailingMessages()
+
+
+class _CapturedMessages:
+    def __init__(self, text: str, stop_reason: str) -> None:
+        self._text = text
+        self._stop_reason = stop_reason
+        self.kwargs: dict[str, object] = {}
+
+    async def create(self, **kwargs: object) -> object:
+        from types import SimpleNamespace
+
+        self.kwargs = kwargs
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=self._text)],
+            stop_reason=self._stop_reason,
+        )
+
+
+class TestCommentaryErrorFallback:
+    async def test_commentary_falls_back_to_mock(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.commentary import generate_game_commentary
+        from pinwheel.models.rules import RuleSet
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _FailingClient)
+        result = _make_game_result()
+        text = await generate_game_commentary(
+            result, _make_home_team(), _make_away_team(), RuleSet(), api_key="k"
+        )
+        assert "[Commentary generation failed" not in text
+        assert "Rose City Thorns" in text or "Burnside Breakers" in text
+
+    async def test_highlight_reel_falls_back_to_mock(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.commentary import generate_highlight_reel
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _FailingClient)
+        summaries = [
+            {
+                "home_team": "Rose City Thorns",
+                "away_team": "Burnside Breakers",
+                "home_score": 45,
+                "away_score": 38,
+            }
+        ]
+        text = await generate_highlight_reel(summaries, round_number=1, api_key="k")
+        assert "[Highlight reel generation failed" not in text
+        assert "Rose City Thorns" in text or "Burnside Breakers" in text
+
+    async def test_commentary_trims_truncated_output(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.commentary import generate_game_commentary
+        from pinwheel.models.rules import RuleSet
+
+        captured = _CapturedMessages(
+            "A complete sentence. And then it cut", stop_reason="max_tokens"
+        )
+
+        class _Client:
+            def __init__(self, api_key: str = "") -> None:
+                self.messages = captured
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _Client)
+        result = _make_game_result()
+        text = await generate_game_commentary(
+            result, _make_home_team(), _make_away_team(), RuleSet(), api_key="k"
+        )
+        assert text == "A complete sentence."
+        assert captured.kwargs["max_tokens"] == 800
+
+
+class TestCommentaryPersistence:
+    async def test_commentary_persisted_as_reports(self, repo: Repository) -> None:
+        """Per-game commentary is stored so the web can render it."""
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        await step_round(repo, season_id, round_number=1)
+
+        rows = await repo.get_reports_for_round(season_id, 1, "commentary")
+        assert len(rows) == _EXPECTED_GAMES_PER_TICK
+        # Commentary is keyed by the DB row id — the id the game page uses
+        stored_ids = {(r.metadata_json or {}).get("game_id") for r in rows}
+        game_rows = await repo.get_games_for_round(season_id, 1)
+        assert stored_ids == {g.id for g in game_rows}
+
+    async def test_get_game_commentary_accessor(self, repo: Repository) -> None:
+        season_id, _ = await _setup_season_with_teams(repo)
+
+        result = await step_round(repo, season_id, round_number=1)
+
+        game_rows = await repo.get_games_for_round(season_id, 1)
+        row = await repo.get_game_commentary(season_id, 1, game_rows[0].id)
+        assert row is not None
+        assert row.content in {g["commentary"] for g in result.games}
+        missing = await repo.get_game_commentary(season_id, 1, "nonexistent")
+        assert missing is None

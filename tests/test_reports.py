@@ -2380,3 +2380,141 @@ class TestOffseasonReportMock:
             "s-test123",
         )
         assert report.id.startswith("r-offseason-s-test12")
+
+
+# ---------------------------------------------------------------------------
+# Report generation hardening — model choice, prompt caching, error fallback
+# ---------------------------------------------------------------------------
+
+
+class _ReportFailingMessages:
+    async def create(self, **kwargs: object) -> object:
+        import anthropic
+        import httpx
+
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+
+class _ReportFailingClient:
+    def __init__(self, api_key: str = "") -> None:
+        self.messages = _ReportFailingMessages()
+
+
+class _ReportCapturedMessages:
+    def __init__(self, text: str = "A fine report. Done.") -> None:
+        self._text = text
+        self.kwargs: dict[str, object] = {}
+
+    async def create(self, **kwargs: object) -> object:
+        from types import SimpleNamespace
+
+        self.kwargs = kwargs
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=self._text)],
+            stop_reason="end_turn",
+        )
+
+
+_SAMPLE_ROUND_DATA = {
+    "round_number": 3,
+    "games": [
+        {
+            "home_team": "Thorns",
+            "away_team": "Breakers",
+            "home_team_id": "t1",
+            "away_team_id": "t2",
+            "home_score": 60,
+            "away_score": 40,
+            "winner_team_id": "t1",
+        },
+        {
+            "home_team": "Owls",
+            "away_team": "Foxes",
+            "home_team_id": "t3",
+            "away_team_id": "t4",
+            "home_score": 44,
+            "away_score": 42,
+            "winner_team_id": "t3",
+        },
+    ],
+}
+
+
+class TestSimulationReportGeneration:
+    async def test_uses_opus_with_data_in_user_message(self, monkeypatch) -> None:
+        """The flagship round report runs on Opus, and volatile round data
+        lives in the user message so the system prompt caches across rounds."""
+        import anthropic
+
+        from pinwheel.ai.report import generate_simulation_report
+
+        captured = _ReportCapturedMessages()
+
+        class _Client:
+            def __init__(self, api_key: str = "") -> None:
+                self.messages = captured
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _Client)
+        report = await generate_simulation_report(
+            _SAMPLE_ROUND_DATA, "s1", 3, api_key="k"
+        )
+        assert report.content == "A fine report. Done."
+        assert captured.kwargs["model"] == "claude-opus-4-6"
+        user_content = captured.kwargs["messages"][0]["content"]
+        assert "Current Round Data" in user_content
+        assert "Thorns" in user_content
+        system_blocks = captured.kwargs["system"]
+        assert "Thorns" not in system_blocks[0]["text"]
+
+    async def test_api_error_falls_back_to_mock(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.report import generate_simulation_report
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _ReportFailingClient)
+        report = await generate_simulation_report(
+            _SAMPLE_ROUND_DATA, "s1", 3, api_key="k"
+        )
+        assert "[Report generation failed" not in report.content
+        assert report.report_type == "simulation"
+        assert len(report.content) > 20
+
+    async def test_governance_api_error_falls_back_to_mock(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.report import generate_governance_report
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _ReportFailingClient)
+        report = await generate_governance_report(
+            {"proposals": [], "votes": []}, "s1", 3, api_key="k"
+        )
+        assert "[Report generation failed" not in report.content
+        assert report.report_type == "governance"
+
+    async def test_private_api_error_falls_back_to_mock(self, monkeypatch) -> None:
+        import anthropic
+
+        from pinwheel.ai.report import generate_private_report
+
+        monkeypatch.setattr(anthropic, "AsyncAnthropic", _ReportFailingClient)
+        report = await generate_private_report(
+            {"proposals_submitted": 0, "votes_cast": 0}, "gov-1", "s1", 3, api_key="k"
+        )
+        assert "[Report generation failed" not in report.content
+        assert report.report_type == "private"
+        assert report.governor_id == "gov-1"
+
+
+class TestMockReportParagraphs:
+    def test_simulation_mock_uses_paragraph_breaks(self) -> None:
+        narrative = NarrativeContext(
+            round_number=3,
+            total_rounds=10,
+            pending_proposals=2,
+        )
+        report = generate_simulation_report_mock(
+            _SAMPLE_ROUND_DATA, "s1", 3, narrative=narrative
+        )
+        assert "\n\n" in report.content

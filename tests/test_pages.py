@@ -173,6 +173,20 @@ class TestPopulatedPages:
         assert "Box Score" in r.text
         assert "/hoopers/" in r.text
 
+    async def test_game_detail_shows_commentary(self, app_client):
+        """Game detail page renders the persisted per-game commentary."""
+        client, engine = app_client
+        season_id, team_ids = await _seed_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            games = await repo.get_games_for_round(season_id, 1)
+            game_id = games[0].id
+
+        r = await client.get(f"/games/{game_id}")
+        assert r.status_code == 200
+        assert "Courtside Commentary" in r.text
+
     async def test_game_404(self, app_client):
         client, _ = app_client
         r = await client.get("/games/nonexistent")
