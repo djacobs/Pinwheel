@@ -234,6 +234,10 @@ class RegisteredEffect:
     codegen_code_hash: str | None = None
     codegen_trust_level: str | None = None  # CodegenTrustLevel value string
     codegen_enabled: bool = True
+    # Pre-execution human gate: "pending" | "approved" | "rejected".
+    # Defaults to "approved" for backward compat with effects serialized
+    # before the gate existed; new codegen registrations set "pending".
+    codegen_approval_status: str = "approved"
     codegen_disabled_reason: str = ""
     codegen_execution_count: int = 0
     codegen_error_count: int = 0
@@ -254,8 +258,16 @@ class RegisteredEffect:
         """Evaluate whether this effect should fire.
 
         Checks hook point match and structured conditions from action_code.
+        Gated codegen effects (disabled, or awaiting/denied admin approval)
+        never fire.
         """
         if hook not in self._hook_points:
+            return False
+
+        if self.effect_type == "codegen" and (
+            not self.codegen_enabled
+            or self.codegen_approval_status != "approved"
+        ):
             return False
 
         # Evaluate structured conditions from action_code
@@ -426,6 +438,11 @@ class RegisteredEffect:
             return None
 
         if not self.codegen_enabled:
+            return None
+
+        # Pre-execution human gate: council approval alone is not enough —
+        # an admin must sign off before generated code runs in live games.
+        if self.codegen_approval_status != "approved":
             return None
 
         from pinwheel.core.codegen import (
@@ -854,6 +871,7 @@ class RegisteredEffect:
             d["codegen_code_hash"] = self.codegen_code_hash
             d["codegen_trust_level"] = self.codegen_trust_level
             d["codegen_enabled"] = self.codegen_enabled
+            d["codegen_approval_status"] = self.codegen_approval_status
             d["codegen_disabled_reason"] = self.codegen_disabled_reason
         return d
 
@@ -904,6 +922,9 @@ class RegisteredEffect:
                 str(data["codegen_trust_level"]) if data.get("codegen_trust_level") else None
             ),
             codegen_enabled=bool(data.get("codegen_enabled", True)),
+            codegen_approval_status=str(
+                data.get("codegen_approval_status", "approved")
+            ),
             codegen_disabled_reason=str(data.get("codegen_disabled_reason", "")),
         )
 

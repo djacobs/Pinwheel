@@ -43,6 +43,16 @@ GovernanceEventType = Literal[
     "effect.repealed",
     "effect.activated",
     "effect.implementation_requested",
+    "effect.codegen_approved",
+    "effect.codegen_rejected",
+    "effect.codegen_disabled",
+    "effect.council_rerun_requested",
+    "effect.council_rerun_completed",
+    "proposal.review_cleared",
+    "proposal.codegen_requested",
+    "proposal.codegen_ready",
+    "proposal.codegen_rejected",
+    "proposal.codegen_failed",
 ]
 
 

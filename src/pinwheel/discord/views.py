@@ -1572,3 +1572,249 @@ class AdminVetoReasonModal(discord.ui.Modal, title="Veto Proposal"):
                 "try again. If it keeps failing, check the server logs.",
                 ephemeral=True,
             )
+
+
+class CodegenApprovalView(discord.ui.View):
+    """Approve/Reject buttons for the codegen pre-execution gate.
+
+    Sent via DM to the admin when a council-approved codegen effect
+    registers in the pending state. The effect is visible but inert until
+    approved; the proposal's custom_mechanic approximation stays live in
+    the meantime. Timeout 24h — on timeout the effect simply stays pending
+    (this is a gate, not a veto window).
+    """
+
+    def __init__(
+        self,
+        *,
+        effect_id: str,
+        season_id: str,
+        description: str,
+        proposer_discord_id: int | None,
+        engine: AsyncEngine,
+    ) -> None:
+        super().__init__(timeout=86400)  # 24 hours
+        self.effect_id = effect_id
+        self.season_id = season_id
+        self.description = description
+        self.proposer_discord_id = proposer_discord_id
+        self.engine = engine
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+    async def _dm_proposer(
+        self, interaction: discord.Interaction, message: str,
+    ) -> None:
+        import contextlib
+
+        if self.proposer_discord_id is None:
+            return
+        with contextlib.suppress(
+            discord.Forbidden, discord.HTTPException, Exception,
+        ):
+            proposer = await interaction.client.fetch_user(
+                self.proposer_discord_id,
+            )
+            await proposer.send(message)
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green)
+    async def approve(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        from pinwheel.core.effects import (
+            approve_codegen_effect,
+            load_effect_registry,
+        )
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                registry = await load_effect_registry(repo, self.season_id)
+                ok = await approve_codegen_effect(
+                    repo,
+                    registry,
+                    self.effect_id,
+                    self.season_id,
+                    admin_id=str(interaction.user.id),
+                )
+                await session.commit()
+
+            if not ok:
+                await interaction.response.send_message(
+                    "Effect not found or not a codegen effect.",
+                    ephemeral=True,
+                )
+                return
+
+            self._disable_all()
+            embed = discord.Embed(
+                title="Generated Mechanic Approved",
+                description=(
+                    f"**{self.description[:200]}**\n\n"
+                    "The generated code is now live in the simulation. "
+                    "The placeholder approximation has been retired."
+                ),
+                color=0x2ECC71,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(embed=embed, view=self)
+            await self._dm_proposer(
+                interaction,
+                "Your proposal's generated mechanic has been approved by the "
+                "admin — the full version is now live in the simulation.",
+            )
+        except (SQLAlchemyError, discord.HTTPException):
+            logger.exception("codegen_approve_failed")
+            await interaction.response.send_message(
+                "The effect could not be approved right now — try again. "
+                "If it keeps failing, check the server logs.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red)
+    async def reject(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        modal = CodegenRejectReasonModal(parent_view=self)
+        await interaction.response.send_modal(modal)
+
+
+class CodegenRejectReasonModal(
+    discord.ui.Modal, title="Reject Generated Mechanic",
+):
+    """Text input for the admin to provide a rejection reason."""
+
+    reason = discord.ui.TextInput(
+        label="Rejection reason (optional)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Why is this generated mechanic being rejected?",
+        required=False,
+        max_length=500,
+    )
+
+    def __init__(self, *, parent_view: CodegenApprovalView) -> None:
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        from pinwheel.core.effects import (
+            load_effect_registry,
+            reject_codegen_effect,
+        )
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        reason = self.reason.value or ""
+        try:
+            async with get_session(self.parent_view.engine) as session:
+                repo = Repository(session)
+                registry = await load_effect_registry(
+                    repo, self.parent_view.season_id,
+                )
+                await reject_codegen_effect(
+                    repo,
+                    registry,
+                    self.parent_view.effect_id,
+                    self.parent_view.season_id,
+                    admin_id=str(interaction.user.id),
+                    reason=reason,
+                )
+                await session.commit()
+
+            self.parent_view._disable_all()
+            embed = discord.Embed(
+                title="Generated Mechanic Rejected",
+                description=(
+                    f"**{self.parent_view.description[:200]}**\n\n"
+                    f"Reason: {reason or 'No reason provided.'}\n\n"
+                    "The interpreted approximation remains live."
+                ),
+                color=0xE74C3C,
+            )
+            embed.set_footer(text="Pinwheel Fates")
+            await interaction.response.edit_message(
+                embed=embed, view=self.parent_view,
+            )
+            reason_msg = f" Reason: {reason}" if reason else ""
+            await self.parent_view._dm_proposer(
+                interaction,
+                "The admin rejected your proposal's generated mechanic."
+                f"{reason_msg} The interpreted approximation stays in effect.",
+            )
+        except (SQLAlchemyError, discord.HTTPException):
+            logger.exception("codegen_reject_failed")
+            await interaction.response.send_message(
+                "The effect could not be rejected right now — try again. "
+                "If it keeps failing, check the server logs.",
+                ephemeral=True,
+            )
+
+
+async def notify_admin_codegen_pending(
+    client: discord.Client,
+    settings: Settings,
+    *,
+    effect: object,  # RegisteredEffect — runtime import to avoid cycle
+    season_id: str,
+    proposer_discord_id: int | None = None,
+    guild: discord.Guild | None = None,
+) -> None:
+    """DM the admin an Approve/Reject gate for a pending codegen effect.
+
+    Called when a council-approved codegen effect registers in the pending
+    state. Tries settings.pinwheel_admin_discord_id first, falls back to
+    the guild owner when a guild is provided.
+    """
+    import contextlib
+
+    from pinwheel.discord.embeds import build_codegen_review_embed
+
+    admin_user: discord.User | discord.Member | None = None
+    if settings.pinwheel_admin_discord_id:
+        try:
+            admin_user = await client.fetch_user(
+                int(settings.pinwheel_admin_discord_id),
+            )
+        except (discord.HTTPException, discord.NotFound, ValueError):
+            logger.warning(
+                "codegen_pending_fetch_admin_failed id=%s",
+                settings.pinwheel_admin_discord_id,
+            )
+    if admin_user is None and guild is not None:
+        admin_user = guild.owner
+    if admin_user is None:
+        logger.warning(
+            "codegen_pending_no_admin_found effect=%s",
+            getattr(effect, "effect_id", "?"),
+        )
+        return
+
+    engine = getattr(client, "engine", None)
+    if engine is None:
+        logger.warning("codegen_pending_no_engine")
+        return
+
+    embed = build_codegen_review_embed(effect)  # type: ignore[arg-type]
+    view = CodegenApprovalView(
+        effect_id=str(getattr(effect, "effect_id", "")),
+        season_id=season_id,
+        description=str(getattr(effect, "description", "")),
+        proposer_discord_id=proposer_discord_id,
+        engine=engine,
+    )
+    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+        await admin_user.send(embed=embed, view=view)
+        logger.info(
+            "codegen_pending_dm_sent admin=%s effect=%s",
+            admin_user.id,
+            getattr(effect, "effect_id", "?"),
+        )

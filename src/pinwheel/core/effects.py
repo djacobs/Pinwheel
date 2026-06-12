@@ -135,9 +135,14 @@ class EffectRegistry:
 
             # Codegen metadata
             if effect.effect_type == "codegen":
-                status = (
-                    "enabled" if effect.codegen_enabled else "DISABLED"
-                )
+                if effect.codegen_approval_status == "pending":
+                    status = "awaiting admin approval"
+                elif effect.codegen_approval_status == "rejected":
+                    status = "rejected by admin"
+                elif not effect.codegen_enabled:
+                    status = "DISABLED"
+                else:
+                    status = "enabled"
                 line += (
                     f" [codegen: {status},"
                     f" runs={effect.codegen_execution_count},"
@@ -153,11 +158,14 @@ def effect_spec_to_registered(
     spec: EffectSpec,
     proposal_id: str,
     current_round: int,
+    codegen_auto_approve: bool = False,
 ) -> RegisteredEffect:
     """Convert an EffectSpec from AI interpretation into a RegisteredEffect.
 
     Maps the structured spec into the runtime effect object that the
-    registry manages.
+    registry manages. Codegen effects register in the ``pending`` approval
+    state (inert until an admin approves) unless ``codegen_auto_approve``
+    is set (dev/demo environments).
     """
     effect_id = str(uuid.uuid4())
 
@@ -214,10 +222,12 @@ def effect_spec_to_registered(
     codegen_code: str | None = None
     codegen_code_hash: str | None = None
     codegen_trust_level: str | None = None
+    codegen_approval_status = "approved"
     if spec.effect_type == "codegen" and spec.codegen:
         codegen_code = spec.codegen.code
         codegen_code_hash = spec.codegen.code_hash
         codegen_trust_level = spec.codegen.trust_level.value
+        codegen_approval_status = "approved" if codegen_auto_approve else "pending"
 
     return RegisteredEffect(
         effect_id=effect_id,
@@ -239,6 +249,7 @@ def effect_spec_to_registered(
         codegen_code=codegen_code,
         codegen_code_hash=codegen_code_hash,
         codegen_trust_level=codegen_trust_level,
+        codegen_approval_status=codegen_approval_status,
     )
 
 
@@ -277,11 +288,13 @@ async def register_effects_for_proposal(
     effects: list[EffectSpec],
     season_id: str,
     current_round: int,
+    codegen_auto_approve: bool = False,
 ) -> list[RegisteredEffect]:
     """Register effects for a passing proposal.
 
     Creates RegisteredEffect objects, adds them to the registry,
-    and persists them via effect.registered events.
+    and persists them via effect.registered events. Codegen effects
+    register pending admin approval unless ``codegen_auto_approve``.
     """
     registered: list[RegisteredEffect] = []
 
@@ -290,7 +303,10 @@ async def register_effects_for_proposal(
         if spec.effect_type == "parameter_change":
             continue
 
-        effect = effect_spec_to_registered(spec, proposal_id, current_round)
+        effect = effect_spec_to_registered(
+            spec, proposal_id, current_round,
+            codegen_auto_approve=codegen_auto_approve,
+        )
         registry.register(effect)
         registered.append(effect)
 
@@ -312,8 +328,9 @@ async def load_effect_registry(
 ) -> EffectRegistry:
     """Rebuild the effect registry from the event store.
 
-    Replays effect.registered events and removes any effects that
-    have been expired or repealed.
+    Replays effect.registered events, removes any effects that have been
+    expired or repealed, and replays codegen lifecycle events
+    (approved/rejected/disabled) so admin decisions survive reloads.
     """
     registry = EffectRegistry()
 
@@ -349,12 +366,121 @@ async def load_effect_registry(
         except (ValueError, TypeError, KeyError):
             logger.exception("failed_to_load_effect id=%s", effect_id)
 
+    # Replay codegen lifecycle events in chronological order so the latest
+    # admin decision wins (events come back ordered from the event store).
+    lifecycle_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=[
+            "effect.codegen_approved",
+            "effect.codegen_rejected",
+            "effect.codegen_disabled",
+        ],
+    )
+    for ev in lifecycle_events:
+        effect_id = str(ev.payload.get("effect_id", ev.aggregate_id))
+        effect = registry.get_effect(effect_id)
+        if effect is None:
+            continue
+        if ev.event_type == "effect.codegen_approved":
+            effect.codegen_approval_status = "approved"
+        elif ev.event_type == "effect.codegen_rejected":
+            effect.codegen_approval_status = "rejected"
+        elif ev.event_type == "effect.codegen_disabled":
+            effect.codegen_enabled = False
+            effect.codegen_disabled_reason = str(
+                ev.payload.get("reason", "disabled")
+            )
+
     logger.info(
         "effect_registry_loaded season=%s active_effects=%d",
         season_id,
         registry.count,
     )
     return registry
+
+
+async def approve_codegen_effect(
+    repo: Repository,
+    registry: EffectRegistry,
+    effect_id: str,
+    season_id: str,
+    admin_id: str = "",
+) -> bool:
+    """Admin pre-execution approval for a pending codegen effect.
+
+    Marks the effect approved, persists the decision, and repeals the same
+    proposal's ``custom_mechanic`` placeholder (the approximation that was
+    live while the code awaited sign-off). Returns True if the effect was
+    found and approved.
+    """
+    effect = registry.get_effect(effect_id)
+    if effect is None or effect.effect_type != "codegen":
+        return False
+
+    effect.codegen_approval_status = "approved"
+    await repo.append_event(
+        event_type="effect.codegen_approved",
+        aggregate_id=effect_id,
+        aggregate_type="effect",
+        season_id=season_id,
+        payload={"effect_id": effect_id, "admin_id": admin_id},
+    )
+
+    # The generated code supersedes the placeholder approximation
+    for sibling in registry.get_effects_for_proposal(effect.proposal_id):
+        if sibling.effect_type == "custom_mechanic":
+            registry.remove_effect(sibling.effect_id)
+            await repo.append_event(
+                event_type="effect.repealed",
+                aggregate_id=sibling.effect_id,
+                aggregate_type="effect",
+                season_id=season_id,
+                payload={
+                    "effect_id": sibling.effect_id,
+                    "reason": "superseded_by_codegen",
+                    "proposal_id": effect.proposal_id,
+                },
+            )
+
+    logger.info(
+        "codegen_effect_approved id=%s admin=%s", effect_id, admin_id,
+    )
+    return True
+
+
+async def reject_codegen_effect(
+    repo: Repository,
+    registry: EffectRegistry,
+    effect_id: str,
+    season_id: str,
+    admin_id: str = "",
+    reason: str = "",
+) -> bool:
+    """Admin rejection of a pending codegen effect.
+
+    The effect stays in the registry (visible) but inert; the proposal's
+    ``custom_mechanic`` approximation remains live. Returns True if the
+    effect was found and rejected.
+    """
+    effect = registry.get_effect(effect_id)
+    if effect is None or effect.effect_type != "codegen":
+        return False
+
+    effect.codegen_approval_status = "rejected"
+    await repo.append_event(
+        event_type="effect.codegen_rejected",
+        aggregate_id=effect_id,
+        aggregate_type="effect",
+        season_id=season_id,
+        payload={"effect_id": effect_id, "admin_id": admin_id, "reason": reason},
+    )
+    logger.info(
+        "codegen_effect_rejected id=%s admin=%s reason=%s",
+        effect_id,
+        admin_id,
+        reason,
+    )
+    return True
 
 
 async def persist_expired_effects(

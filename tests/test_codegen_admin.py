@@ -451,7 +451,8 @@ class TestCodegenEndToEndLifecycle:
             description="E2E gravity well",
         )
 
-        # 3. Convert to RegisteredEffect (effects layer)
+        # 3. Convert to RegisteredEffect (effects layer) — registers in the
+        # pending state: the pre-execution admin gate must approve it first
         registered = effect_spec_to_registered(
             effect_spec, "p-e2e", current_round=5,
         )
@@ -459,6 +460,7 @@ class TestCodegenEndToEndLifecycle:
         assert registered.codegen_code == code
         assert registered.codegen_code_hash == code_hash
         assert registered.codegen_enabled is True
+        assert registered.codegen_approval_status == "pending"
 
         # 4. Register in EffectRegistry
         registry = EffectRegistry()
@@ -468,12 +470,16 @@ class TestCodegenEndToEndLifecycle:
         effects = registry.get_effects_for_hook("sim.possession.post")
         assert len(effects) == 1
 
-        # 5. Fire via fire_effects
+        # 5. Fire via fire_effects — inert while pending
         game_state = _make_game_state()
         ctx = HookContext(
             game_state=game_state,
             rng=random.Random(42),
         )
+        assert fire_effects("sim.possession.post", ctx, effects) == []
+
+        # 5b. Admin approves — now it executes
+        registered.codegen_approval_status = "approved"
         results = fire_effects(
             "sim.possession.post", ctx, effects,
         )
@@ -515,15 +521,13 @@ class TestCodegenEndToEndLifecycle:
         effect.codegen_enabled = False
         effect.codegen_disabled_reason = "Disabled by admin"
 
-        # Fire again — should return no-op
+        # Fire again — a disabled codegen effect produces nothing at all
         results = fire_effects(
             "sim.possession.post",
             ctx,
             registry.get_effects_for_hook("sim.possession.post"),
         )
-        assert len(results) == 1
-        # Disabled codegen returns empty HookResult
-        assert results[0].score_modifier == 0
+        assert results == []
         # Execution count does NOT increment for disabled effects
         assert effect.codegen_execution_count == 1
 

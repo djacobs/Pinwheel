@@ -819,6 +819,7 @@ async def tally_governance_with_effects(
     round_number: int,
     effect_registry: EffectRegistry | None = None,
     effects_v2_by_proposal: dict[str, list[EffectSpec]] | None = None,
+    codegen_auto_approve: bool = False,
 ) -> tuple[RuleSet, list[VoteTally]]:
     """Tally proposals and register effects for passing proposals.
 
@@ -948,6 +949,7 @@ async def tally_governance_with_effects(
                         effects=non_param_effects,
                         season_id=season_id,
                         current_round=round_number,
+                        codegen_auto_approve=codegen_auto_approve,
                     )
 
             # 2b. Handle move_grant effects

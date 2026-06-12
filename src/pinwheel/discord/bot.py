@@ -4231,11 +4231,29 @@ class PinwheelBot(commands.Bot):
                 )
                 return
 
+            from pinwheel.discord.views import CodegenApprovalView
+
             for effect in codegen_effects[:10]:
                 embed = build_codegen_review_embed(effect)
-                await interaction.followup.send(
-                    embed=embed, ephemeral=True,
-                )
+                # Pending effects get the Approve/Reject gate attached so a
+                # missed DM isn't a dead end.
+                view: discord.ui.View | None = None
+                if effect.codegen_approval_status == "pending" and self.engine:
+                    view = CodegenApprovalView(
+                        effect_id=effect.effect_id,
+                        season_id=season.id,
+                        description=effect.description,
+                        proposer_discord_id=None,
+                        engine=self.engine,
+                    )
+                if view is not None:
+                    await interaction.followup.send(
+                        embed=embed, view=view, ephemeral=True,
+                    )
+                else:
+                    await interaction.followup.send(
+                        embed=embed, ephemeral=True,
+                    )
         except (SQLAlchemyError, discord.HTTPException):
             logger.exception("review_codegen_failed")
             await interaction.followup.send(

@@ -115,6 +115,12 @@ class Settings(BaseSettings):
     # Evals
     pinwheel_evals_enabled: bool = True
 
+    # Codegen frontier
+    # Router flag: escalate beyond-primitive proposals to the codegen council
+    pinwheel_codegen_enabled: bool = False
+    # Skip the pre-execution admin gate (dev/demo only — never in production)
+    pinwheel_codegen_auto_approve: bool = False
+
     # Logging
     pinwheel_log_level: str = "INFO"
 

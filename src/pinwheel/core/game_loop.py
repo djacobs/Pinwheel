@@ -997,6 +997,8 @@ async def tally_pending_governance(
                 votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
 
         if effect_registry is not None:
+            from pinwheel.config import Settings as _Settings
+
             new_ruleset, round_tallies = await tally_governance_with_effects(
                 repo=repo,
                 season_id=season_id,
@@ -1006,6 +1008,7 @@ async def tally_pending_governance(
                 round_number=round_number,
                 effect_registry=effect_registry,
                 effects_v2_by_proposal=effects_v2_by_proposal,
+                codegen_auto_approve=_Settings().pinwheel_codegen_auto_approve,
             )
         else:
             new_ruleset, round_tallies = await tally_governance(

@@ -1942,7 +1942,14 @@ def build_codegen_review_embed(
     Displays the effect description, trust level, enabled status,
     execution/error counts, and a truncated code preview.
     """
-    status_icon = "ENABLED" if effect.codegen_enabled else "DISABLED"
+    if effect.codegen_approval_status == "pending":
+        status_icon = "AWAITING APPROVAL"
+    elif effect.codegen_approval_status == "rejected":
+        status_icon = "REJECTED"
+    elif effect.codegen_enabled:
+        status_icon = "ENABLED"
+    else:
+        status_icon = "DISABLED"
     title = f"Codegen Effect -- {status_icon}"
 
     desc = effect.description or effect.effect_id
