@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2736 tests**, zero lint errors (Session 133)
+- **2737 tests**, zero lint errors (Session 134)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
 - **Day 27 (this session):** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -23,7 +23,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Write the codegen-frontier wiring plan (5 phases, pre-execution human gate)
 - [x] Implement codegen wiring Phase 1 (opponent_score_modifier + meta_writes)
 - [x] Implement codegen wiring Phases 2-5 per the plan
-- [ ] Flip PINWHEEL_CODEGEN_ENABLED in staging; run 5-10 live council proposals before prod
+- [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
+- [ ] Deploy the deferred-tick datetime fix (4558e54) — awaiting owner-run `flyctl deploy`
+- [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve)
 
 ## Session 132 — Audit + Sim Bug Fixes + Summary Overhaul
 
@@ -179,3 +181,28 @@ cross-test interference, fixed with per-call daemon threads. The interpreter
 prompt's literal `{player}` narration templates needed careful brace
 escaping for `.format()`. The structural mock patterns had to run before
 compound-clause splitting or "6 quarters and no Elam" got split in half.
+
+## Session 134 — Code Council Enabled in Production
+
+**What was asked:** Flip `PINWHEEL_CODEGEN_ENABLED=true` — straight to prod
+(no players active right now), then commit and run the post-commit checklist.
+
+**What was built:**
+- `fly.toml`: `PINWHEEL_CODEGEN_ENABLED = "true"` in `[env]` — the Code
+  Council is live. All generated code still sits behind the admin
+  Approve/Reject DM gate; nothing executes without sign-off.
+- Deployed current main to Fly.io (version 153). Verified in logs:
+  `codegen_pipeline_scheduler_registered`, health check 200.
+- Prod log watch surfaced a PRE-EXISTING bug: `expire_stale_pending`
+  compared SQLite's offset-naive `created_at` against an aware UTC cutoff —
+  `TypeError` crashing the deferred-interpreter tick every 60s whenever a
+  pending interpretation existed. Fixed by normalizing naive timestamps to
+  UTC (`4558e54`) with a naive-datetime regression test (CI never caught it
+  because the tests only used aware datetimes).
+
+**Deploy status:** the flag flip is LIVE (v153). The tick fix is committed
+and pushed but NOT yet deployed — the deploy was held for explicit owner
+approval. Run `flyctl deploy` to ship it; until then the deferred tick logs
+a handled error once per minute (no user impact).
+
+**Tests:** 2737 passing (1 new), zero lint errors
