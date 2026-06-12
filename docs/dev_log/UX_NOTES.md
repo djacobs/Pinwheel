@@ -871,3 +871,13 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 143. [DONE] Effects summary includes codegen metadata
 **Problem:** The effects summary (used in narrative context and admin views) showed codegen effects with no indication of their execution state, error rate, or enabled status.
 **Fix:** `build_effects_summary()` now appends codegen metadata for codegen effects: `[codegen: enabled, runs=N, errors=N]` or `[codegen: DISABLED, runs=N, errors=N]`. Non-codegen effects unchanged.
+
+## Completed — Session 132 (Game Summary Overhaul)
+
+### 144. [DONE] Game detail page showed the wrong report, rendered as a wall of text
+**Problem:** Per-game AI commentary was generated, sent to SSE/Discord, then discarded — never persisted, never shown on the web. The game detail page instead rendered the ROUND-level editorial (whose prompt explicitly forbids per-game recaps), so a game page could show an essay that never mentioned that game. Worse, both `game.html` and `arena.html` rendered report content without the `prose` filter, collapsing paragraphs into one undifferentiated blob.
+**Fix:** Per-game commentary is now persisted (`report_type="commentary"`, keyed by the game's DB row id in `metadata_json`) and rendered on the game page in its own "Courtside Commentary" card above the round editorial (now labeled "The Pinwheel Post — Round N" to make its scope clear). All report renders on `game.html` and `arena.html` now use `| prose | safe` so paragraphs display as paragraphs.
+
+### 145. [DONE] Commentary prompt never saw how the game unfolded
+**Problem:** `_build_game_context` sent the final score, box scores, and the FIRST 8 notable possessions — almost all Q1. The AI literally never saw the ending: no Elam possessions, no game-winner, no comeback arc. Output was inevitably generic box-score prose.
+**Fix:** The prompt context now includes quarter-by-quarter scores (with the final period labeled "Elam period" when activated), lead changes and largest lead computed from the running score, team strategy summaries, starter archetypes, key plays sampled across the WHOLE game with the last 4 notable plays guaranteed, and an explicit "Game-deciding play" callout. Highlight reel input gains margin class and top scorer per game.

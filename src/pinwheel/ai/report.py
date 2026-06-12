@@ -588,9 +588,7 @@ The series record is the current playoff matchup only.
 
 The AI observes. Humans decide.
 
-## Current Round Data
-
-{round_data}
+The current round data follows in the user message.
 """
 
 GOVERNANCE_REPORT_PROMPT = """\
@@ -660,9 +658,7 @@ cannot see from their own perspective.
 
 The AI observes. Humans decide.
 
-## Governance Activity
-
-{governance_data}
+The governance activity data follows in the user message.
 """
 
 PRIVATE_REPORT_PROMPT = """\
@@ -864,15 +860,21 @@ async def generate_report_with_prompt(
 ) -> Report:
     """Generate a report using a specific prompt template (for A/B testing)."""
     formatted = prompt_template.format(**format_kwargs)
-    content = await _call_claude(
-        system=formatted,
-        user_message=f"Generate a {report_type} report for this round.",
-        api_key=api_key,
-        call_type=f"report.{report_type}.ab",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=formatted,
+            user_message=f"Generate a {report_type} report for this round.",
+            api_key=api_key,
+            call_type=f"report.{report_type}.ab",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        # A/B eval output is admin-facing, not player-facing — keep the
+        # error marker so a failed arm is visible in eval results.
+        logger.error("A/B report generation API error: %s", e)
+        content = f"[Report generation failed: {e}]"
     return Report(
         id=f"{report_id_prefix}-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type=report_type,
@@ -905,15 +907,28 @@ async def generate_simulation_report(
     if narrative:
         narrative_block = format_narrative_for_prompt(narrative)
         data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
-    content = await _call_claude(
-        system=SIMULATION_REPORT_PROMPT.format(round_data=data_str),
-        user_message="Generate a simulation report for this round.",
-        api_key=api_key,
-        call_type="report.simulation",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        # The flagship round report runs on Opus — one call per round, and it's
+        # the product's voice. Volatile round data goes in the user message so
+        # the (cached) system prompt stays stable across rounds.
+        content = await _call_claude(
+            system=SIMULATION_REPORT_PROMPT,
+            user_message=(
+                "Generate a simulation report for this round.\n\n"
+                f"## Current Round Data\n\n{data_str}"
+            ),
+            api_key=api_key,
+            call_type="report.simulation",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+            model="claude-opus-4-6",
+        )
+    except anthropic.APIError as e:
+        logger.error("Simulation report API error, falling back to mock: %s", e)
+        return generate_simulation_report_mock(
+            round_data, season_id, round_number, narrative=narrative,
+        )
     return Report(
         id=f"r-sim-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type="simulation",
@@ -969,15 +984,24 @@ async def generate_governance_report(
     if narrative:
         narrative_block = format_narrative_for_prompt(narrative)
         data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
-    content = await _call_claude(
-        system=GOVERNANCE_REPORT_PROMPT.format(governance_data=data_str),
-        user_message="Generate a governance report for this round.",
-        api_key=api_key,
-        call_type="report.governance",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=GOVERNANCE_REPORT_PROMPT,
+            user_message=(
+                "Generate a governance report for this round.\n\n"
+                f"## Governance Activity\n\n{data_str}"
+            ),
+            api_key=api_key,
+            call_type="report.governance",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("Governance report API error, falling back to mock: %s", e)
+        return generate_governance_report_mock(
+            governance_data, season_id, round_number, narrative=narrative,
+        )
     return Report(
         id=f"r-gov-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type="governance",
@@ -1092,18 +1116,24 @@ async def generate_private_report(
     db_session: object | None = None,
 ) -> Report:
     """Generate a private report for a specific governor."""
-    content = await _call_claude(
-        system=PRIVATE_REPORT_PROMPT.format(
-            governor_id=governor_id,
-            governor_data=json.dumps(governor_data, indent=2),
-        ),
-        user_message=f"Generate a private report for governor {governor_id}.",
-        api_key=api_key,
-        call_type="report.private",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=PRIVATE_REPORT_PROMPT.format(
+                governor_id=governor_id,
+                governor_data=json.dumps(governor_data, indent=2),
+            ),
+            user_message=f"Generate a private report for governor {governor_id}.",
+            api_key=api_key,
+            call_type="report.private",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("Private report API error, falling back to mock: %s", e)
+        return generate_private_report_mock(
+            governor_data, governor_id, season_id, round_number,
+        )
     return Report(
         id=f"r-priv-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type="private",
@@ -1121,11 +1151,17 @@ async def _call_claude(
     season_id: str = "",
     round_number: int | None = None,
     db_session: object | None = None,
+    model: str = "claude-sonnet-4-6",
+    max_tokens: int = 1500,
 ) -> str:
     """Make a Claude API call for report generation.
 
     When ``db_session`` is provided, records token usage to the AI usage log.
+
+    Raises ``anthropic.APIError`` on API failure — callers fall back to their
+    mock generators so error text never reaches players.
     """
+    from pinwheel.ai.commentary import trim_to_last_sentence
     from pinwheel.ai.usage import (
         cacheable_system,
         extract_usage,
@@ -1133,38 +1169,35 @@ async def _call_claude(
         track_latency,
     )
 
-    model = "claude-sonnet-4-6"
-    try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        async with track_latency() as timing:
-            response = await client.messages.create(
-                model=model,
-                max_tokens=1500,
-                system=cacheable_system(system),
-                messages=[{"role": "user", "content": user_message}],
-            )
-        text = response.content[0].text
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    async with track_latency() as timing:
+        response = await client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=cacheable_system(system),
+            messages=[{"role": "user", "content": user_message}],
+        )
+    text = response.content[0].text
+    if response.stop_reason == "max_tokens":
+        text = trim_to_last_sentence(text)
 
-        # Record usage if a DB session is available
-        if db_session is not None:
-            input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
-            await record_ai_usage(
-                session=db_session,
-                call_type=call_type,
-                model=model,
-                input_tokens=input_tok,
-                output_tokens=output_tok,
-                cache_read_tokens=cache_tok,
-                cache_creation_tokens=cache_create_tok,
-                latency_ms=timing["latency_ms"],
-                season_id=season_id,
-                round_number=round_number,
-            )
+    # Record usage if a DB session is available
+    if db_session is not None:
+        input_tok, output_tok, cache_tok, cache_create_tok = extract_usage(response)
+        await record_ai_usage(
+            session=db_session,
+            call_type=call_type,
+            model=model,
+            input_tokens=input_tok,
+            output_tokens=output_tok,
+            cache_read_tokens=cache_tok,
+            cache_creation_tokens=cache_create_tok,
+            latency_ms=timing["latency_ms"],
+            season_id=season_id,
+            round_number=round_number,
+        )
 
-        return text
-    except anthropic.APIError as e:
-        logger.error("Report generation API error: %s", e)
-        return f"[Report generation failed: {e}]"
+    return text
 
 
 # --- Mock implementations for testing ---
@@ -1536,29 +1569,26 @@ def generate_simulation_report_mock(
             )
 
     # --- COMPOSE THE REPORT ---
-    lines = [lede]
+    # Paragraphs (separated by blank lines, matching the editorial prompt):
+    # lede + supporting games, then system-level observations, then hot
+    # players, then the closing.
+    paragraphs: list[str] = [" ".join([lede, *supporting[:2]])]
 
-    # Supporting games (max 2)
-    lines.extend(supporting[:2])
+    observations = [*what_changed_lines[:2], *rule_correlation_lines]
+    if observations:
+        paragraphs.append(" ".join(observations))
 
-    # System-level "what changed" observations (max 2)
-    lines.extend(what_changed_lines[:2])
+    if hot_player_lines:
+        paragraphs.append(" ".join(hot_player_lines))
 
-    # Rule correlation data
-    lines.extend(rule_correlation_lines)
-
-    # Hot players
-    lines.extend(hot_player_lines)
-
-    # Closing — what the round reveals
     if closing:
-        lines.append(closing)
+        paragraphs.append(closing)
 
     return Report(
         id=f"r-sim-{round_number}-mock",
         report_type="simulation",
         round_number=round_number,
-        content=" ".join(lines),
+        content="\n\n".join(paragraphs),
     )
 
 
@@ -1793,7 +1823,7 @@ def generate_governance_report_mock(
         id=f"r-gov-{round_number}-mock",
         report_type="governance",
         round_number=round_number,
-        content=" ".join(lines) if lines else "Governance was silent this round.",
+        content="\n\n".join(lines) if lines else "Governance was silent this round.",
     )
 
 
@@ -2046,14 +2076,18 @@ async def generate_series_report(
         A Report with report_type="series".
     """
     data_str = json.dumps(series_data, indent=2)
-    content = await _call_claude(
-        system=SERIES_REPORT_PROMPT.format(series_data=data_str),
-        user_message="Write a recap of this completed playoff series.",
-        api_key=api_key,
-        call_type="report.series",
-        season_id=season_id,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=SERIES_REPORT_PROMPT.format(series_data=data_str),
+            user_message="Write a recap of this completed playoff series.",
+            api_key=api_key,
+            call_type="report.series",
+            season_id=season_id,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("Series report API error, falling back to mock: %s", e)
+        return generate_series_report_mock(series_data)
     return Report(
         id=f"r-series-{series_data.get('series_type', 'playoff')}-{uuid.uuid4().hex[:8]}",
         report_type="series",
@@ -2160,20 +2194,26 @@ async def generate_state_of_the_league(
     if narrative:
         narrative_block = format_narrative_for_prompt(narrative)
         data_str += f"\n\n--- Dramatic Context ---\n{narrative_block}"
-    content = await _call_claude(
-        system=STATE_OF_THE_LEAGUE_PROMPT.format(
-            league_data=data_str
-        ),
-        user_message=(
-            "Write a State of the League address "
-            "for this point in the season."
-        ),
-        api_key=api_key,
-        call_type="report.state_of_the_league",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=STATE_OF_THE_LEAGUE_PROMPT.format(
+                league_data=data_str
+            ),
+            user_message=(
+                "Write a State of the League address "
+                "for this point in the season."
+            ),
+            api_key=api_key,
+            call_type="report.state_of_the_league",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("State of the League API error, falling back to mock: %s", e)
+        return generate_state_of_the_league_mock(
+            league_data, season_id, round_number, narrative=narrative,
+        )
     return Report(
         id=f"r-sotl-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type="state_of_the_league",
@@ -2286,17 +2326,23 @@ async def generate_tiebreaker_report(
     Triggered after tiebreaker games resolve.
     """
     data_str = json.dumps(tiebreaker_data, indent=2)
-    content = await _call_claude(
-        system=TIEBREAKER_REPORT_PROMPT.format(
-            tiebreaker_data=data_str
-        ),
-        user_message="Write a tiebreaker report for this round.",
-        api_key=api_key,
-        call_type="report.tiebreaker",
-        season_id=season_id,
-        round_number=round_number,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=TIEBREAKER_REPORT_PROMPT.format(
+                tiebreaker_data=data_str
+            ),
+            user_message="Write a tiebreaker report for this round.",
+            api_key=api_key,
+            call_type="report.tiebreaker",
+            season_id=season_id,
+            round_number=round_number,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("Tiebreaker report API error, falling back to mock: %s", e)
+        return generate_tiebreaker_report_mock(
+            tiebreaker_data, season_id, round_number,
+        )
     return Report(
         id=f"r-tb-{round_number}-{uuid.uuid4().hex[:8]}",
         report_type="tiebreaker",
@@ -2407,19 +2453,23 @@ async def generate_offseason_report(
     window closes.
     """
     data_str = json.dumps(offseason_data, indent=2)
-    content = await _call_claude(
-        system=OFFSEASON_REPORT_PROMPT.format(
-            offseason_data=data_str
-        ),
-        user_message=(
-            "Write an offseason report for this "
-            "season transition."
-        ),
-        api_key=api_key,
-        call_type="report.offseason",
-        season_id=season_id,
-        db_session=db_session,
-    )
+    try:
+        content = await _call_claude(
+            system=OFFSEASON_REPORT_PROMPT.format(
+                offseason_data=data_str
+            ),
+            user_message=(
+                "Write an offseason report for this "
+                "season transition."
+            ),
+            api_key=api_key,
+            call_type="report.offseason",
+            season_id=season_id,
+            db_session=db_session,
+        )
+    except anthropic.APIError as e:
+        logger.error("Offseason report API error, falling back to mock: %s", e)
+        return generate_offseason_report_mock(offseason_data, season_id)
     return Report(
         id=(
             f"r-offseason-{season_id[:8]}-"

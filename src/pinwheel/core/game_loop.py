@@ -1404,8 +1404,15 @@ async def _phase_simulate_and_govern(
                 "description": f"{phase_label} \u00b7 {record_text} \u00b7 {clinch_text}",
             }
 
+        top = max(result.box_scores, key=lambda b: b.points) if result.box_scores else None
+        top_scorer = ""
+        if top is not None:
+            top_team = home.name if top.team_id == home.id else away.name
+            top_scorer = f"{top.hooper_name} ({top_team}) {top.points} pts"
+
         summary = {
             "game_id": game_id,
+            "game_row_id": game_row.id,
             "home_team": home.name,
             "away_team": away.name,
             "home_team_id": home.id,
@@ -1415,6 +1422,7 @@ async def _phase_simulate_and_govern(
             "winner_team_id": result.winner_team_id,
             "elam_activated": result.elam_activated,
             "total_possessions": result.total_possessions,
+            "top_scorer": top_scorer,
             "playoff_context": playoff_context,
             "series_context": _series_ctx,
             "drama_score": compute_drama_score(
@@ -2369,11 +2377,25 @@ async def _phase_persist_and_finalize(
     reports: list[Report] = []
     deferred_report_events: list[dict] = []
 
-    # Attach commentary to game_summaries
+    # Attach commentary to game_summaries and persist it so the web's game
+    # detail page can render it (previously it only reached SSE/Discord and
+    # was discarded).
     for summary in sim.game_summaries:
         game_id = summary.get("game_id", "")
-        if game_id in ai.commentaries:
-            summary["commentary"] = ai.commentaries[game_id]
+        commentary = ai.commentaries.get(game_id, "")
+        if commentary:
+            summary["commentary"] = commentary
+            # Key by the DB row id — that's the id the game detail page uses.
+            await repo.store_report(
+                season_id=sim.season_id,
+                report_type="commentary",
+                round_number=sim.round_number,
+                content=commentary,
+                metadata_json={
+                    "game_id": summary.get("game_row_id", game_id),
+                    "sim_game_id": game_id,
+                },
+            )
 
     # Store simulation report
     await repo.store_report(

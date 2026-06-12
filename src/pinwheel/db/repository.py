@@ -847,6 +847,23 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_game_commentary(
+        self,
+        season_id: str,
+        round_number: int,
+        game_id: str,
+    ) -> ReportRow | None:
+        """Get the stored per-game commentary report for a specific game.
+
+        Commentary rows carry their game id in ``metadata_json`` (a round has
+        only a handful, so filtering in Python is fine).
+        """
+        rows = await self.get_reports_for_round(season_id, round_number, "commentary")
+        for row in rows:
+            if (row.metadata_json or {}).get("game_id") == game_id:
+                return row
+        return None
+
     async def get_private_reports(
         self,
         season_id: str,
