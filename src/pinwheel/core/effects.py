@@ -405,17 +405,41 @@ async def approve_codegen_effect(
     effect_id: str,
     season_id: str,
     admin_id: str = "",
+    run_preflight: bool = True,
 ) -> bool:
     """Admin pre-execution approval for a pending codegen effect.
 
-    Marks the effect approved, persists the decision, and repeals the same
+    Re-runs the resource-limited pre-flight (defense against event-store
+    tampering between council approval and admin sign-off), marks the
+    effect approved, persists the decision, and repeals the same
     proposal's ``custom_mechanic`` placeholder (the approximation that was
     live while the code awaited sign-off). Returns True if the effect was
-    found and approved.
+    found and approved; a pre-flight failure rejects it instead.
     """
     effect = registry.get_effect(effect_id)
     if effect is None or effect.effect_type != "codegen":
         return False
+
+    if run_preflight and effect.codegen_code:
+        import asyncio
+
+        from pinwheel.core.codegen import preflight_codegen_effect
+
+        violations = await asyncio.to_thread(
+            preflight_codegen_effect, effect.codegen_code,
+        )
+        if violations:
+            await reject_codegen_effect(
+                repo, registry, effect_id, season_id,
+                admin_id=admin_id,
+                reason=f"Pre-flight failed at approval: {violations[:3]}",
+            )
+            logger.warning(
+                "codegen_approve_preflight_failed id=%s violations=%s",
+                effect_id,
+                violations,
+            )
+            return False
 
     effect.codegen_approval_status = "approved"
     await repo.append_event(

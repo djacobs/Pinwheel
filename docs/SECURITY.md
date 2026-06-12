@@ -264,6 +264,42 @@ No AI context has direct database write access. All state changes go through the
 - **Discord bot** communicates only with Discord API and the Pinwheel FastAPI backend. No other outbound access.
 - **The simulation engine** makes no network calls at all — it's a pure function.
 
+## Codegen Sandbox (Layered Model)
+
+AI-generated game code (the Code Council pipeline) executes under a layered
+defense model. The trust boundary is the **human gate**: no generated code
+runs in live games until an admin explicitly approves it (`effect.codegen_approved`
+event), after a 3-reviewer AI council consensus. The technical layers are
+proportionate to a small-community game, not a hostile-multi-tenant sandbox:
+
+1. **Static analysis** (`CodegenASTValidator`): no imports, exec/eval, dunder
+   access, while loops, unbounded for-loops, nested functions, classes,
+   lambdas; exponentiation only with int-literal exponents ≤ 16; int literals
+   ≤ 1e9; string literals ≤ 500 chars; code ≤ 5000 chars, AST depth ≤ 20.
+2. **Approval-time pre-flight** (`preflight_codegen_effect`): the code runs
+   against ~20 synthetic game contexts (edge scores, missing opponent,
+   hostile attribute shapes) in a **separate process** with `RLIMIT_CPU` and
+   `RLIMIT_AS` resource limits — this is where memory bombs and CPU spins
+   die. Runs twice: before `proposal.codegen_ready` and again on admin
+   Approve (defense against event-store tampering in between).
+3. **In-game runtime** (`execute_codegen_effect`): restricted builtins, a
+   read-only `GameContext`, output clamped to `RESULT_BOUNDS`, trust-level
+   field gating, and a wall-clock timeout enforced via a worker thread
+   (platform-independent, works off the main thread — replaced the original
+   SIGALRM approach). Compiled code is cached by hash.
+4. **Per-game budget**: a codegen effect that accumulates >250ms of execution
+   in one game is skipped for the rest of that game (protects the
+   hundreds-of-games-per-hour throughput target from legal-but-slow code).
+5. **Kill switches**: a `SandboxViolation` disables the effect immediately;
+   3 consecutive generic errors auto-disable; `/disable-effect` and
+   `/rerun-council` give the admin reactive control. All lifecycle decisions
+   persist as events and survive registry reloads.
+
+**Explicit non-goals:** this is not an isolation boundary against a
+determined attacker with code execution — the human gate is. In-process
+execution shares the interpreter; the pre-flight subprocess, not the
+in-game thread, is the resource-isolation layer.
+
 ## What We Don't Defend Against
 
 Being honest about limitations:

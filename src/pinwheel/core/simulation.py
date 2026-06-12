@@ -614,6 +614,13 @@ def simulate_game(
     rng = random.Random(seed)
     _effects = effects or []
 
+    # Reset per-game codegen execution budgets — the registry is shared
+    # across a round's games
+    if effect_registry:
+        for _e in effect_registry:
+            if _e.effect_type == "codegen":
+                _e.codegen_game_elapsed_ns = 0
+
     # Always ensure we have a GameDefinition — build from rules if not provided
     if game_def is None:
         game_def = basketball_game_definition(rules)

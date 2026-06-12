@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Total execution time a single codegen effect may consume per game (250ms).
+CODEGEN_GAME_BUDGET_NS = 250_000_000
+
 
 # ---------------------------------------------------------------------------
 # Legacy hook system (backward compatible — do not remove)
@@ -243,6 +246,11 @@ class RegisteredEffect:
     codegen_error_count: int = 0
     codegen_consecutive_errors: int = 0
     codegen_last_error: str = ""
+    # Per-game execution budget (ns spent this game). Reset by simulate_game
+    # at game start; once exhausted the effect skips for the rest of the
+    # game so legal-but-slow code can't drag the sim below its throughput
+    # target. In-memory only — never serialized.
+    codegen_game_elapsed_ns: int = 0
 
     @property
     def hook_points(self) -> list[str]:
@@ -267,6 +275,7 @@ class RegisteredEffect:
         if self.effect_type == "codegen" and (
             not self.codegen_enabled
             or self.codegen_approval_status != "approved"
+            or self.codegen_game_elapsed_ns > CODEGEN_GAME_BUDGET_NS
         ):
             return False
 
@@ -472,12 +481,27 @@ class RegisteredEffect:
             import random as _random_mod
             rng = _random_mod.Random()
 
+        # Per-game budget: legal-but-slow code gets skipped for the rest of
+        # the game once it has burned its allowance.
+        if self.codegen_game_elapsed_ns > CODEGEN_GAME_BUDGET_NS:
+            return None
+
+        from time import perf_counter_ns
+
+        started_ns = perf_counter_ns()
         try:
             codegen_result = execute_codegen_effect(self.codegen_code, game_ctx, rng)
             # Enforce trust level
             codegen_result = enforce_trust_level(codegen_result, trust)
             codegen_result = clamp_result(codegen_result)
             self._record_codegen_success()
+            self.codegen_game_elapsed_ns += perf_counter_ns() - started_ns
+            if self.codegen_game_elapsed_ns > CODEGEN_GAME_BUDGET_NS:
+                logger.warning(
+                    "codegen_game_budget_exhausted effect=%s elapsed_ms=%d",
+                    self.effect_id,
+                    self.codegen_game_elapsed_ns // 1_000_000,
+                )
             return _codegen_result_to_hook_result(codegen_result)
 
         except SandboxViolation as e:

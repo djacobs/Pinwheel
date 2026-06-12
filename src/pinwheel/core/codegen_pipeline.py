@@ -165,6 +165,21 @@ async def run_codegen_for_proposal(
             ]
             spec = None
 
+    # Pre-flight: run the code against synthetic contexts in a
+    # resource-limited subprocess. Catches memory bombs / CPU spins the
+    # in-process sandbox can't.
+    if spec is not None:
+        import asyncio
+
+        from pinwheel.core.codegen import preflight_codegen_effect
+
+        preflight_violations = await asyncio.to_thread(
+            preflight_codegen_effect, spec.code,
+        )
+        if preflight_violations:
+            flag_reasons = [f"Pre-flight: {v}" for v in preflight_violations]
+            spec = None
+
     async with get_session(engine) as session:
         repo = Repository(session)
 
