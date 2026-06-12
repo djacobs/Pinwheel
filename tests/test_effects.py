@@ -2806,3 +2806,61 @@ class TestEffectDrivenScenarios:
 
         # Chaos should produce more turnovers
         assert chaos_to > smooth_to
+
+
+class TestApplyHookResultsOpponentAndMeta:
+    """Phase 1 codegen wiring — opponent score targets the right team and
+    explicit meta_writes are applied."""
+
+    def test_opponent_modifier_hits_defending_team(self):
+        game_state = _make_game_state()
+        game_state.home_has_ball = True
+        home_before = game_state.home_score
+        away_before = game_state.away_score
+        ctx = HookContext(game_state=game_state)
+        apply_hook_results([HookResult(opponent_score_modifier=3)], ctx)
+        assert game_state.home_score == home_before  # actor untouched
+        assert game_state.away_score == away_before + 3
+
+    def test_opponent_modifier_when_away_has_ball(self):
+        game_state = _make_game_state()
+        game_state.home_has_ball = False
+        home_before = game_state.home_score
+        away_before = game_state.away_score
+        ctx = HookContext(game_state=game_state)
+        apply_hook_results([HookResult(opponent_score_modifier=2)], ctx)
+        assert game_state.home_score == home_before + 2
+        assert game_state.away_score == away_before
+
+    def test_both_modifiers_independent(self):
+        game_state = _make_game_state()
+        game_state.home_has_ball = True
+        home_before = game_state.home_score
+        away_before = game_state.away_score
+        ctx = HookContext(game_state=game_state)
+        apply_hook_results(
+            [HookResult(score_modifier=2, opponent_score_modifier=1)], ctx
+        )
+        assert game_state.home_score == home_before + 2
+        assert game_state.away_score == away_before + 1
+
+    def test_meta_writes_applied(self):
+        from pinwheel.core.meta import MetaStore
+
+        store = MetaStore()
+        ctx = HookContext(meta_store=store)
+        apply_hook_results(
+            [HookResult(meta_writes={"team:t1": {"heat": 5}})], ctx
+        )
+        assert store.get("team", "t1", "heat") == 5
+
+    def test_malformed_meta_key_ignored(self):
+        from pinwheel.core.meta import MetaStore
+
+        store = MetaStore()
+        ctx = HookContext(meta_store=store)
+        # No colon, empty id — neither raises nor writes
+        apply_hook_results(
+            [HookResult(meta_writes={"t1": {"heat": 5}, "team:": {"x": 1}})], ctx
+        )
+        assert store.entity_count() == 0

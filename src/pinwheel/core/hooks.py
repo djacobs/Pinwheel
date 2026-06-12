@@ -136,6 +136,8 @@ class HookResult:
 
     # Simulation modifiers (applied during sim hooks)
     score_modifier: int = 0
+    # Applied to the team WITHOUT the ball (the actor's opponent)
+    opponent_score_modifier: int = 0
     stamina_modifier: float = 0.0
     shot_probability_modifier: float = 0.0
     shot_value_modifier: int = 0
@@ -735,6 +737,9 @@ class RegisteredEffect:
                         self.action_code = inner_code
                         # Merge inner result into main result
                         result.score_modifier += inner_result.score_modifier
+                        result.opponent_score_modifier += (
+                            inner_result.opponent_score_modifier
+                        )
                         result.stamina_modifier += inner_result.stamina_modifier
                         result.shot_probability_modifier += (
                             inner_result.shot_probability_modifier
@@ -934,14 +939,36 @@ def apply_hook_results(
     """Apply accumulated HookResults to the game state.
 
     Score modifiers, stamina modifiers, and shot probability modifiers
-    are summed and applied. Meta writes are applied via the MetaStore
-    (already done in effect.apply, but explicit writes in HookResult
-    are also applied here).
+    are summed and applied. ``score_modifier`` goes to the team with the
+    ball; ``opponent_score_modifier`` goes to the other team. Explicit
+    ``meta_writes`` on a HookResult (e.g. from codegen effects) are applied
+    via the MetaStore.
     """
+    # Meta writes don't need a game state — apply them first
+    if context.meta_store:
+        for r in results:
+            if not r.meta_writes:
+                continue
+            for entity_key, fields in r.meta_writes.items():
+                # Entity keys follow the "entity_type:entity_id" convention;
+                # malformed keys are ignored rather than raising mid-game.
+                if not isinstance(entity_key, str) or ":" not in entity_key:
+                    logger.warning("meta_write_malformed_key key=%r", entity_key)
+                    continue
+                entity_type, entity_id = entity_key.split(":", 1)
+                if not entity_type or not entity_id or not isinstance(fields, dict):
+                    logger.warning("meta_write_malformed_key key=%r", entity_key)
+                    continue
+                for meta_field, value in fields.items():
+                    context.meta_store.set(
+                        entity_type, entity_id, str(meta_field), value,  # type: ignore[arg-type]
+                    )
+
     if not context.game_state:
         return
 
     total_score_mod = sum(r.score_modifier for r in results)
+    total_opponent_mod = sum(r.opponent_score_modifier for r in results)
     total_stamina_mod = sum(r.stamina_modifier for r in results)
 
     if total_score_mod != 0:
@@ -949,6 +976,12 @@ def apply_hook_results(
             context.game_state.home_score += total_score_mod
         else:
             context.game_state.away_score += total_score_mod
+
+    if total_opponent_mod != 0:
+        if context.game_state.home_has_ball:
+            context.game_state.away_score += total_opponent_mod
+        else:
+            context.game_state.home_score += total_opponent_mod
 
     if total_stamina_mod != 0.0 and context.hooper:
         context.hooper.current_stamina = max(
@@ -1043,8 +1076,9 @@ def _codegen_result_to_hook_result(
     if not isinstance(codegen_result, CodegenHookResult):
         return HookResult()
 
-    result = HookResult(
+    return HookResult(
         score_modifier=codegen_result.score_modifier,
+        opponent_score_modifier=codegen_result.opponent_score_modifier,
         stamina_modifier=codegen_result.stamina_modifier,
         shot_probability_modifier=codegen_result.shot_probability_modifier,
         shot_value_modifier=codegen_result.shot_value_modifier,
@@ -1053,11 +1087,3 @@ def _codegen_result_to_hook_result(
         narrative=codegen_result.narrative_note,
         meta_writes=codegen_result.meta_writes,
     )
-
-    # opponent_score_modifier maps to score_modifier on the opposite side
-    # This is a simplification — the caller handles which side gets it
-    if codegen_result.opponent_score_modifier != 0:
-        # Store as negative to signal "for the other team"
-        result.score_modifier -= codegen_result.opponent_score_modifier
-
-    return result

@@ -430,3 +430,53 @@ class TestFireEffectsWithCodegen:
         results = fire_effects("sim.possession.post", ctx, [effect])
         assert len(results) == 1
         assert results[0].score_modifier == 3
+
+
+# ===================================================================
+# Phase 1 codegen wiring — opponent_score_modifier semantics
+# ===================================================================
+
+
+class TestOpponentScoreModifierConversion:
+    """opponent_score_modifier survives conversion and hits the right team."""
+
+    def test_conversion_preserves_both_fields(self) -> None:
+        codegen_result = CodegenHookResult(
+            score_modifier=2, opponent_score_modifier=3,
+        )
+        hook_result = _codegen_result_to_hook_result(codegen_result)
+        # Previously the opponent value was folded into score_modifier as a
+        # negative (2 - 3 == -1), corrupting both teams' totals.
+        assert hook_result.score_modifier == 2
+        assert hook_result.opponent_score_modifier == 3
+
+    def test_opponent_only_does_not_touch_actor(self) -> None:
+        codegen_result = CodegenHookResult(opponent_score_modifier=-2)
+        hook_result = _codegen_result_to_hook_result(codegen_result)
+        assert hook_result.score_modifier == 0
+        assert hook_result.opponent_score_modifier == -2
+
+    def test_end_to_end_credits_defending_team(self, game_state: GameState) -> None:
+        """A codegen effect awarding the opponent points credits the team
+        WITHOUT the ball in a fired-and-applied cycle."""
+        from pinwheel.core.hooks import apply_hook_results
+
+        code = "return HookResult(opponent_score_modifier=2)"
+        effect = RegisteredEffect(
+            effect_id="e-opp",
+            proposal_id="p-opp",
+            _hook_points=["sim.possession.post"],
+            effect_type="codegen",
+            codegen_code=code,
+            codegen_code_hash=compute_code_hash(code),
+            codegen_trust_level="flow",
+        )
+        ctx = HookContext(game_state=game_state, rng=random.Random(1))
+        home_before = game_state.home_score
+        away_before = game_state.away_score
+        results = fire_effects("sim.possession.post", ctx, [effect])
+        assert results
+        apply_hook_results(results, ctx)
+        assert game_state.home_has_ball is True
+        assert game_state.home_score == home_before
+        assert game_state.away_score == away_before + 2
