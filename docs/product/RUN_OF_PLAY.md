@@ -87,7 +87,9 @@ The AI interprets your text, asks you for review, and you confirm or cancel. Onc
 | 2 | Agent behavior (shot limits, home court) | 1 | 50% |
 | 3 | League structure (teams, playoffs, schedule) | 1 | 60% |
 | 4 | Meta-governance (vote threshold, token regen) | 1 | 60% |
-| 5+ | Uninterpretable or novel | 2 | 67% |
+| 5+ | Uninterpretable, novel, or AI-generated code (Code Council) | 2 | 67% |
+
+Proposals beyond the AI's primitive vocabulary escalate to the **Code Council**: the AI generates real game code, three independent AI reviewers must unanimously approve it, and the admin gives final sign-off before it runs in live games. While the code awaits sign-off, the AI's interpreted approximation is what's live. The admin gate is deliberate: votes decide *what* the league wants; a human verifies the generated code does that and nothing else.
 
 ## Voting
 

@@ -323,6 +323,13 @@ def _run_quarter(
             game_def=game_def,
         )
 
+        # Post-possession effects react to the resolved outcome (score/meta
+        # mutations apply immediately; returned modifiers are discarded —
+        # they would belong to a possession that's already over).
+        _fire_sim_effects(
+            "sim.possession.post", game_state, rules, rng, new_effects, meta_store,
+        )
+
         # Decrement game clock
         game_state.game_clock_seconds -= result.time_used
 
@@ -407,6 +414,9 @@ def _run_elam(
             action_registry=action_registry,
             game_def=game_def,
         )
+        _fire_sim_effects(
+            "sim.possession.post", game_state, rules, rng, new_effects, meta_store,
+        )
         for extra in result.extra_logs:
             possession_log.append(extra)
         if result.log:
@@ -477,6 +487,9 @@ def _run_sudden_death(
             game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
+        )
+        _fire_sim_effects(
+            "sim.possession.post", game_state, rules, rng, new_effects, meta_store,
         )
         for extra in result.extra_logs:
             possession_log.append(extra)

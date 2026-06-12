@@ -168,6 +168,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         logger.info("deferred_interpreter_scheduler_registered")
 
+    # Codegen pipeline — re-drives crashed council runs, consumes
+    # /rerun-council requests, and DMs the admin about pending effects.
+    if settings.pinwheel_codegen_enabled:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        from pinwheel.core.codegen_pipeline import tick_codegen_pipeline
+
+        if scheduler is None:
+            scheduler = AsyncIOScheduler()
+            scheduler.start()
+            app.state.scheduler = scheduler
+
+        scheduler.add_job(
+            tick_codegen_pipeline,
+            trigger=IntervalTrigger(seconds=60),
+            kwargs={
+                "engine": engine,
+                "settings": settings,
+                "bot": getattr(app.state, "discord_bot", None),
+            },
+            id="tick_codegen_pipeline",
+            name="Drive codegen council pipeline",
+            replace_existing=True,
+        )
+        logger.info("codegen_pipeline_scheduler_registered")
+
     yield
 
     # Shutdown scheduler

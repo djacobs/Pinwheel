@@ -176,6 +176,9 @@ class ProposalConfirmView(discord.ui.View):
 
             self._disable_all()
 
+            from pinwheel.core.codegen_pipeline import (
+                should_escalate_to_codegen,
+            )
             from pinwheel.core.governance import (
                 _needs_admin_review,
                 vote_threshold_for_tier,
@@ -184,13 +187,26 @@ class ProposalConfirmView(discord.ui.View):
             is_wild = _needs_admin_review(
                 proposal, interpretation_v2=self.interpretation_v2,
             )
+            escalate = should_escalate_to_codegen(
+                self.interpretation_v2, self.settings,
+            )
 
             # Always show green "Proposal Submitted" embed
             wild_note = " (Wild -- Admin may veto)" if is_wild else ""
+            council_note = (
+                "\n\nThis proposal needs new game code. The interpreted "
+                "mechanic above goes live if the vote passes; the Code "
+                "Council is drafting the full version, which requires "
+                "admin sign-off."
+                if escalate
+                else ""
+            )
             embed = discord.Embed(
                 title=f"Proposal Submitted{wild_note}",
                 description=(
-                    f'"{self.raw_text}"\n\nYour proposal is now on the Floor and open for voting.'
+                    f'"{self.raw_text}"\n\n'
+                    f"Your proposal is now on the Floor and open for voting."
+                    f"{council_note}"
                 ),
                 color=0x2ECC71,
             )
@@ -233,6 +249,50 @@ class ProposalConfirmView(discord.ui.View):
                     governor_name=interaction.user.display_name,
                     interpretation_v2=self.interpretation_v2,
                 )
+
+            # Escalate to the codegen council in the background. The request
+            # marker is persisted FIRST so a crash re-drives it on the next
+            # pipeline tick.
+            if escalate:
+                import asyncio
+
+                from pinwheel.core.codegen_pipeline import (
+                    run_codegen_for_proposal,
+                )
+
+                async with get_session(self.engine) as session:
+                    repo = Repository(session)
+                    await repo.append_event(
+                        event_type="proposal.codegen_requested",
+                        aggregate_id=proposal.id,
+                        aggregate_type="proposal",
+                        season_id=self.governor_info.season_id,
+                        governor_id=self.governor_info.player_id,
+                        payload={
+                            "raw_text": self.raw_text,
+                            "proposer_discord_id": interaction.user.id,
+                        },
+                    )
+                    await session.commit()
+
+                task = asyncio.create_task(
+                    run_codegen_for_proposal(
+                        self.engine,
+                        self.settings,
+                        proposal_id=proposal.id,
+                        season_id=self.governor_info.season_id,
+                        raw_text=self.raw_text,
+                        proposer_discord_id=interaction.user.id,
+                        bot=interaction.client,
+                    )
+                )
+                # Keep a reference so the task isn't garbage-collected
+                tasks = getattr(interaction.client, "_codegen_tasks", None)
+                if tasks is None:
+                    tasks = set()
+                    interaction.client._codegen_tasks = tasks  # type: ignore[attr-defined]
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
         except (SQLAlchemyError, discord.HTTPException):
             logger.exception("proposal_confirm_failed")
             await interaction.response.send_message(

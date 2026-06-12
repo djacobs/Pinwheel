@@ -15,6 +15,7 @@ This module contains pure business logic; database access goes through Repositor
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import TYPE_CHECKING
@@ -31,6 +32,8 @@ from pinwheel.models.governance import (
     VoteTally,
 )
 from pinwheel.models.rules import RuleChange, RuleSet
+
+logger = logging.getLogger(__name__)
 
 # Token cost for repeal proposals (same as Tier 5 — game effect).
 REPEAL_TOKEN_COST = 2
@@ -200,8 +203,9 @@ def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> 
             legacy = RuleInterpretation(parameter=effect.parameter)
             tiers.append(detect_tier(legacy, ruleset))
         elif effect.effect_type == "codegen":
-            # Codegen effects always need admin review — tier 4
-            tiers.append(4)
+            # Codegen effects are the wildest tier — admin reviewed, 2 tokens,
+            # 67% supermajority (RUN_OF_PLAY: "Tier 5+ = wild")
+            tiers.append(5)
         elif effect.effect_type in (
             "hook_callback", "meta_mutation", "move_grant", "custom_mechanic",
             "modify_game_definition",
@@ -860,6 +864,53 @@ async def tally_governance_with_effects(
                 v2_from_payload = get_proposal_effects_v2(se.payload)
                 if v2_from_payload:
                     _effects_v2_map[pid_str] = v2_from_payload
+
+    # Merge council output: proposal.codegen_ready events carry a serialized
+    # codegen EffectSpec produced in the background after confirmation. If
+    # the council finished before this tally, the spec registers here (still
+    # pending the admin gate). Idempotent by (proposal, code_hash) against
+    # effects already registered — covers the council-finished-after-pass
+    # ordering, where the pipeline registered it directly.
+    if effect_registry is not None:
+        ready_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.codegen_ready"],
+        )
+        if ready_events:
+            registered_events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.registered"],
+            )
+            registered_hashes = {
+                (
+                    str(ev.payload.get("proposal_id", "")),
+                    str(ev.payload.get("codegen_code_hash", "")),
+                )
+                for ev in registered_events
+            }
+            for rev in ready_events:
+                pid_str = str(rev.aggregate_id)
+                code_hash = str(rev.payload.get("code_hash", ""))
+                if (pid_str, code_hash) in registered_hashes:
+                    continue
+                spec_data = rev.payload.get("effect_spec")
+                if not isinstance(spec_data, dict):
+                    continue
+                try:
+                    codegen_spec = EffectSpec(**spec_data)
+                except ValidationError:
+                    logger.warning(
+                        "codegen_ready_spec_invalid proposal=%s", pid_str,
+                    )
+                    continue
+                existing = _effects_v2_map.setdefault(pid_str, [])
+                if not any(
+                    e.effect_type == "codegen"
+                    and e.codegen is not None
+                    and e.codegen.code_hash == code_hash
+                    for e in existing
+                ):
+                    existing.append(codegen_spec)
 
     for proposal in proposals:
         if proposal.status not in ("confirmed", "amended", "submitted"):

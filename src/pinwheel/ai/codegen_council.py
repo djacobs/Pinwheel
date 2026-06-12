@@ -372,6 +372,68 @@ async def review_adversarial(
 # ---------------------------------------------------------------------------
 
 
+async def review_existing_code(
+    code: str,
+    proposal_text: str,
+    api_key: str,
+    proposal_id: str = "",
+    model: str = "claude-opus-4-6",
+) -> CouncilReview:
+    """AST-validate and council-review EXISTING code — no generation.
+
+    Used by ``run_council_review`` after generation, and by the
+    ``/rerun-council`` consumer to re-review stored code without
+    regenerating it (a regeneration would produce different code than
+    what's actually registered).
+    """
+    code_hash = compute_code_hash(code)
+
+    # AST validation (fast-fail)
+    validator = CodegenASTValidator()
+    violations = validator.validate(code)
+    if violations:
+        logger.warning(
+            "codegen_ast_validation_failed proposal=%s violations=%s",
+            proposal_id, violations,
+        )
+        return CouncilReview(
+            proposal_id=proposal_id,
+            code_hash=code_hash,
+            consensus=False,
+            flagged_for_admin=True,
+            flag_reasons=[f"AST validation: {v}" for v in violations],
+            reviewed_at=datetime.now(UTC).isoformat(),
+        )
+
+    # Security + Gameplay reviews in parallel
+    security_task = review_security(code, api_key, model)
+    gameplay_task = review_gameplay(code, proposal_text, api_key, model)
+    security_verdict, gameplay_verdict = await asyncio.gather(
+        security_task, gameplay_task,
+    )
+
+    # Adversarial review (gets security results as context)
+    adversarial_verdict = await review_adversarial(
+        code, proposal_text, security_verdict, api_key, model,
+    )
+
+    # Aggregate — all three must approve
+    all_verdicts = [security_verdict, gameplay_verdict, adversarial_verdict]
+    consensus = all(v.verdict == "APPROVE" for v in all_verdicts)
+    rejections = [v for v in all_verdicts if v.verdict != "APPROVE"]
+    flag_reasons = [f"{v.reviewer}: {v.rationale}" for v in rejections]
+
+    return CouncilReview(
+        proposal_id=proposal_id,
+        code_hash=code_hash,
+        reviews=all_verdicts,
+        consensus=consensus,
+        flagged_for_admin=not consensus,
+        flag_reasons=flag_reasons,
+        reviewed_at=datetime.now(UTC).isoformat(),
+    )
+
+
 async def run_council_review(
     proposal_id: str,
     proposal_text: str,
@@ -414,53 +476,13 @@ async def run_council_review(
 
     code_hash = compute_code_hash(code)
 
-    # Step 2: AST validation (fast-fail)
-    validator = CodegenASTValidator()
-    violations = validator.validate(code)
-    if violations:
-        logger.warning(
-            "codegen_ast_validation_failed proposal=%s violations=%s",
-            proposal_id, violations,
-        )
-        review = CouncilReview(
-            proposal_id=proposal_id,
-            code_hash=code_hash,
-            consensus=False,
-            flagged_for_admin=True,
-            flag_reasons=[f"AST validation: {v}" for v in violations],
-            reviewed_at=datetime.now(UTC).isoformat(),
-        )
-        return None, review
-
-    # Step 3: Security + Gameplay reviews in parallel
-    security_task = review_security(code, api_key, model)
-    gameplay_task = review_gameplay(code, proposal_text, api_key, model)
-    security_verdict, gameplay_verdict = await asyncio.gather(
-        security_task, gameplay_task,
+    # Steps 2-5: validate and review the generated code
+    review = await review_existing_code(
+        code, proposal_text, api_key,
+        proposal_id=proposal_id, model=model,
     )
 
-    # Step 4: Adversarial review (gets security results as context)
-    adversarial_verdict = await review_adversarial(
-        code, proposal_text, security_verdict, api_key, model,
-    )
-
-    # Step 5: Aggregate
-    all_verdicts = [security_verdict, gameplay_verdict, adversarial_verdict]
-    consensus = all(v.verdict == "APPROVE" for v in all_verdicts)
-    rejections = [v for v in all_verdicts if v.verdict != "APPROVE"]
-    flag_reasons = [f"{v.reviewer}: {v.rationale}" for v in rejections]
-
-    review = CouncilReview(
-        proposal_id=proposal_id,
-        code_hash=code_hash,
-        reviews=all_verdicts,
-        consensus=consensus,
-        flagged_for_admin=not consensus,
-        flag_reasons=flag_reasons,
-        reviewed_at=datetime.now(UTC).isoformat(),
-    )
-
-    if not consensus:
+    if not review.consensus:
         return None, review
 
     # Build CodegenEffectSpec

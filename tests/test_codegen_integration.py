@@ -377,8 +377,8 @@ class TestCodegenResultConversion:
 class TestCodegenTierDetection:
     """Test tier detection for codegen effects."""
 
-    def test_codegen_is_tier_4(self) -> None:
-        """Codegen effects are always tier 4."""
+    def test_codegen_is_tier_5(self) -> None:
+        """Codegen effects are the wildest tier — 5 (2 tokens, 67%)."""
         interp = ProposalInterpretation(
             effects=[
                 EffectSpec(effect_type="codegen", description="AI code"),
@@ -386,10 +386,10 @@ class TestCodegenTierDetection:
             confidence=0.9,
         )
         tier = detect_tier_v2(interp, RuleSet())
-        assert tier == 4
+        assert tier == 5
 
     def test_codegen_mixed_with_parameter_uses_highest(self) -> None:
-        """Mixed proposal: codegen (4) + parameter_change (1) → tier 4."""
+        """Mixed proposal: codegen (5) + parameter_change (1) → tier 5."""
         interp = ProposalInterpretation(
             effects=[
                 EffectSpec(
@@ -402,7 +402,7 @@ class TestCodegenTierDetection:
             confidence=0.9,
         )
         tier = detect_tier_v2(interp, RuleSet())
-        assert tier == 4
+        assert tier == 5
 
 
 # ===================================================================
