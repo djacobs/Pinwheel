@@ -339,13 +339,15 @@ def _needs_admin_review(
     - If V2 has no effects or is injection-flagged → wild
     - Low confidence (< 0.5) is still flagged regardless of V2
     """
-    # custom_mechanic and codegen effects always need admin review
+    # custom_mechanic, codegen, and structural (game-definition) effects
+    # always need admin review
     if interpretation_v2 is not None:
-        has_custom_or_codegen = any(
-            e.effect_type in ("custom_mechanic", "codegen")
+        has_wild_effect = any(
+            e.effect_type
+            in ("custom_mechanic", "codegen", "modify_game_definition")
             for e in interpretation_v2.effects
         )
-        if has_custom_or_codegen:
+        if has_wild_effect:
             return True
 
     # Low confidence always triggers review, regardless of V2
@@ -1001,6 +1003,7 @@ async def tally_governance_with_effects(
                         season_id=season_id,
                         current_round=round_number,
                         codegen_auto_approve=codegen_auto_approve,
+                        current_ruleset=ruleset,
                     )
 
             # 2b. Handle move_grant effects

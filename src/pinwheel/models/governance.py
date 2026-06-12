@@ -47,6 +47,7 @@ GovernanceEventType = Literal[
     "effect.codegen_rejected",
     "effect.codegen_disabled",
     "effect.codegen_admin_notified",
+    "effect.patch_rejected",
     "effect.council_rerun_requested",
     "effect.council_rerun_completed",
     "proposal.review_cleared",

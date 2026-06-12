@@ -96,7 +96,8 @@ Also determine the TRUST LEVEL required:
 - "numeric": Only returns score/stamina/probability modifiers
 - "state": Also uses meta_writes or meta_get
 - "flow": Also uses block_action or narrative_note
-- "structure": Modifies game definition (not supported yet)
+- "structure": Do NOT use — structural changes are expressed as declarative
+  GameDefinitionPatch effects (modify_game_definition), never as code
 
 Respond with a JSON object:
 {

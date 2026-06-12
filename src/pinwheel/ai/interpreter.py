@@ -455,6 +455,37 @@ for the admin to build the complete version later. \
 Never produce a custom_mechanic as the ONLY effect — there is always an approximation. \
 Include: mechanic_description, mechanic_hook_point, \
 mechanic_observable_behavior, mechanic_implementation_spec
+8. **modify_game_definition** — change the STRUCTURE of the game itself: add or remove \
+action types (new kinds of shots/plays), change point values per action, change the \
+number/length of periods, enable/disable the Elam Ending, change players per side. \
+Set game_def_patch to a JSON object with any of:
+   - add_actions: list of new action definitions. Fields: name (snake_case id), \
+display_name, description, category ("shot"), selection_weight (float, how often chosen \
+relative to others ~0.1-2.0), base_midpoint (attribute value for 50% make rate — higher = \
+harder shot, e.g. 40 easy, 50 normal, 75 very hard), base_steepness (0.05), \
+primary_attribute ("scoring"), points_on_success (int 0-25), \
+free_throw_attempts_on_foul (int), narration_made / narration_missed (lists of short \
+templates using {{player}}, e.g. "{{player}} drains the half-court heave!")
+   - remove_actions: list of action names to remove (standard: at_rim, mid_range, \
+three_point, free_throw)
+   - modify_actions: {{"action_name": {{"field": value}}}} — e.g. \
+{{"three_point": {{"points_on_success": 4}}}}
+   - modify_structure: {{"quarters": 6, "quarter_clock_seconds": 300, \
+"elam_ending_enabled": false, "participants_per_side": 2, "elam_trigger_quarter": 6}}
+   - description: what the patch does
+Worked examples:
+   - "Add a half-court shot called The Prayer worth 4 points" → game_def_patch: \
+{{"add_actions": [{{"name": "the_prayer", "display_name": "The Prayer", \
+"description": "A desperate half-court heave", "selection_weight": 0.15, \
+"base_midpoint": 78, "points_on_success": 4, \
+"narration_made": ["{{player}} answers The Prayer from half court!"], \
+"narration_missed": ["{{player}}'s Prayer goes unanswered."]}}], \
+"description": "Adds The Prayer, a rare 4-point half-court shot"}}
+   - "Games are 6 quarters and no Elam Ending" → game_def_patch: \
+{{"modify_structure": {{"quarters": 6, "elam_ending_enabled": false}}, \
+"description": "6 quarters, no Elam"}}
+Structural changes are reviewed by the admin in parallel with the vote and validated \
+against playability invariants before they can take effect.
 
 ## Hook Points
 
@@ -864,6 +895,81 @@ def _split_compound_clauses(raw_text: str) -> list[str]:
     return [s.strip() for s in separators if s.strip()]
 
 
+def _detect_game_def_patch_mock(raw_text: str) -> EffectSpec | None:
+    """Detect structural (game-definition) proposals in the mock interpreter.
+
+    Patterns: "add a shot called X worth N points" (new action) and
+    "games are N quarters" / "no Elam Ending" (structure changes).
+    """
+    import re as _re
+
+    text = raw_text.lower().strip()
+
+    # New action: "add a shot/action/play ... called NAME ... worth N points"
+    # (either ordering of called/worth)
+    m = _re.search(
+        r"add\s+(?:a|an)?\s*(?:new\s+)?(?:shot|action|play)\b.*?"
+        r"(?:called\s+(?P<name1>[\w' -]+?)\s+worth\s+(?P<pts1>\d+)"
+        r"|worth\s+(?P<pts2>\d+)\s+points?\s+called\s+(?P<name2>[\w' -]+?))"
+        r"(?:\s+points?)?\s*[.!]?$",
+        text,
+    )
+    if m:
+        display_name = (m.group("name1") or m.group("name2") or "").strip().title()
+        points = int(m.group("pts1") or m.group("pts2") or 2)
+        snake = _re.sub(r"[^a-z0-9]+", "_", display_name.lower()).strip("_")
+        if display_name and snake:
+            return EffectSpec(
+                effect_type="modify_game_definition",
+                game_def_patch={
+                    "add_actions": [
+                        {
+                            "name": snake,
+                            "display_name": display_name,
+                            "description": f"{display_name} — a governed shot",
+                            "selection_weight": 0.15,
+                            "base_midpoint": 70.0,
+                            "points_on_success": min(points, 25),
+                            "narration_made": [
+                                f"{{player}} hits {display_name} for {points}!"
+                            ],
+                            "narration_missed": [
+                                f"{{player}}'s {display_name} attempt misses."
+                            ],
+                        }
+                    ],
+                    "description": (
+                        f"Adds {display_name}, a {points}-point shot"
+                    ),
+                },
+                description=f"Adds the {display_name} shot worth {points} points",
+            )
+
+    # Structure: "games are N quarters" and/or "no/without Elam"
+    structure: dict[str, object] = {}
+    desc_parts: list[str] = []
+    qm = _re.search(r"games?\s+(?:are|have|should\s+be|become)\s+(\d+)\s+quarters", text)
+    if qm:
+        quarters = int(qm.group(1))
+        structure["quarters"] = quarters
+        structure["elam_trigger_quarter"] = quarters
+        desc_parts.append(f"{quarters} quarters")
+    if _re.search(r"\b(?:no|without|disable[sd]?(?:\s+the)?|remove[sd]?(?:\s+the)?)\s+elam", text):
+        structure["elam_ending_enabled"] = False
+        desc_parts.append("no Elam Ending")
+    if structure:
+        return EffectSpec(
+            effect_type="modify_game_definition",
+            game_def_patch={
+                "modify_structure": structure,
+                "description": ", ".join(desc_parts),
+            },
+            description=f"Changes game structure: {', '.join(desc_parts)}",
+        )
+
+    return None
+
+
 def interpret_proposal_v2_mock(
     raw_text: str,
     ruleset: RuleSet,
@@ -875,6 +981,19 @@ def interpret_proposal_v2_mock(
     and narrative effects. Supports compound proposals with multiple
     parameter changes separated by "and" or commas.
     """
+    # Structural proposals — game definition patches. Checked FIRST:
+    # compound splitting would mangle "6 quarters and no Elam", and the
+    # legacy parameter path would mis-map "quarters"/"shot" phrasing.
+    structural = _detect_game_def_patch_mock(raw_text)
+    if structural is not None:
+        return ProposalInterpretation(
+            effects=[structural],
+            impact_analysis=structural.description
+            or "Changes the structure of the game itself.",
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
     # Try compound proposal detection: split on "and" / ","
     clauses = _split_compound_clauses(raw_text)
     if len(clauses) > 1:

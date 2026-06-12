@@ -91,6 +91,8 @@ The AI interprets your text, asks you for review, and you confirm or cancel. Onc
 
 Proposals beyond the AI's primitive vocabulary escalate to the **Code Council**: the AI generates real game code, three independent AI reviewers must unanimously approve it, and the admin gives final sign-off before it runs in live games. While the code awaits sign-off, the AI's interpreted approximation is what's live. The admin gate is deliberate: votes decide *what* the league wants; a human verifies the generated code does that and nothing else.
 
+**Structural proposals** change the game itself, not just its numbers: new shot types with their own point values and announcer calls ("add a half-court shot called The Prayer worth 4 points"), different period counts and lengths, disabling the Elam Ending, changing how many hoopers play per side. These are expressed as game-definition patches — validated against playability invariants and a test simulation before they can take effect, and admin-reviewed in parallel with the vote. This is the door out of basketball: what the league plays three seasons from now is up to the Floor.
+
 ## Voting
 
 Type `/vote YES` or `/vote NO` on an active proposal.

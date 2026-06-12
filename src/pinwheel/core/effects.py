@@ -289,12 +289,17 @@ async def register_effects_for_proposal(
     season_id: str,
     current_round: int,
     codegen_auto_approve: bool = False,
+    current_ruleset: object | None = None,
 ) -> list[RegisteredEffect]:
     """Register effects for a passing proposal.
 
     Creates RegisteredEffect objects, adds them to the registry,
     and persists them via effect.registered events. Codegen effects
     register pending admin approval unless ``codegen_auto_approve``.
+    Game-definition patches are validated against the cumulatively
+    patched definition (invariants + smoke sim) — invalid patches are
+    rejected with an ``effect.patch_rejected`` event instead of
+    registering a definition that would break the simulation.
     """
     registered: list[RegisteredEffect] = []
 
@@ -302,6 +307,40 @@ async def register_effects_for_proposal(
         # Skip parameter_change effects — those go through the existing RuleSet path
         if spec.effect_type == "parameter_change":
             continue
+
+        # Defensive validation for structural patches
+        if spec.effect_type == "modify_game_definition":
+            from pinwheel.core.game_def_validation import validate_game_def_patch
+            from pinwheel.models.rules import RuleSet
+
+            patch_dict = spec.game_def_patch or {}
+            existing = collect_game_def_patches(registry.get_all_active())
+            rules = (
+                current_ruleset
+                if isinstance(current_ruleset, RuleSet)
+                else RuleSet()
+            )
+            violations = validate_game_def_patch(
+                patch_dict, rules, existing_patches=existing,
+            )
+            if violations:
+                await repo.append_event(
+                    event_type="effect.patch_rejected",
+                    aggregate_id=proposal_id,
+                    aggregate_type="effect",
+                    season_id=season_id,
+                    payload={
+                        "proposal_id": proposal_id,
+                        "violations": violations,
+                        "description": spec.description,
+                    },
+                )
+                logger.warning(
+                    "game_def_patch_rejected proposal=%s violations=%s",
+                    proposal_id,
+                    violations,
+                )
+                continue
 
         effect = effect_spec_to_registered(
             spec, proposal_id, current_round,
