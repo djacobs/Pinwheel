@@ -298,7 +298,10 @@ def _run_quarter(
     # Fire sim.quarter.pre
     _fire_sim_effects("sim.quarter.pre", game_state, rules, rng, new_effects, meta_store)
 
-    last_three = False
+    # Heat-check flags are per-team (keyed by home_has_ball): a made three
+    # arms the flag for the team that made it, consumed the next time THAT
+    # team is on offense — not by the opponent on the very next possession.
+    last_three_by_offense = {True: False, False: False}
     poss_num = 0
     while game_state.game_clock_seconds > 0:
         if game_state.game_over:
@@ -313,8 +316,9 @@ def _run_quarter(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
 
+        offense_is_home = game_state.home_has_ball
         result = resolve_turn(
-            game_state, rules, rng, last_three, poss_ctx,
+            game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
         )
@@ -323,11 +327,13 @@ def _run_quarter(
         game_state.game_clock_seconds -= result.time_used
 
         # Format remaining time as M:SS on the possession log
+        remaining = max(0.0, game_state.game_clock_seconds)
+        clock_str = f"{int(remaining // 60)}:{int(remaining % 60):02d}"
+        for extra in result.extra_logs:
+            extra.game_clock = clock_str
+            possession_log.append(extra)
         if result.log:
-            remaining = max(0.0, game_state.game_clock_seconds)
-            minutes = int(remaining // 60)
-            seconds = int(remaining % 60)
-            result.log.game_clock = f"{minutes}:{seconds:02d}"
+            result.log.game_clock = clock_str
             possession_log.append(result.log)
 
         # Track agent minutes
@@ -335,8 +341,10 @@ def _run_quarter(
         for a in game_state.home_active + game_state.away_active:
             a.minutes += minutes_used
 
-        # Track whether last possession was a made three
-        last_three = result.shot_made and result.shot_type == "three_point"
+        # Track whether the offense's last possession was a made three
+        last_three_by_offense[offense_is_home] = (
+            result.shot_made and result.shot_type == "three_point"
+        )
 
         # Check for foul-out substitutions after each possession
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
@@ -373,10 +381,17 @@ def _run_elam(
     game_state.elam_target_score = leading_score + margin
     game_state.elam_activated = True
 
+    # The Elam period is a new period: team fouls reset like every quarter.
+    # Without this, Q3 fouls carry into the (unbounded) deciding period and
+    # both teams sit in the bonus for the entire finish.
+    game_state.home_team_fouls = 0
+    game_state.away_team_fouls = 0
+
     fire_hooks(HookPoint.ELAM_START, game_state, effects)
     _fire_sim_effects("sim.elam.start", game_state, rules, rng, new_effects, meta_store)
 
-    last_three = False
+    # Per-team heat-check flags — see _run_quarter
+    last_three_by_offense = {True: False, False: False}
     poss = 0
     while not game_state.game_over:
         poss += 1
@@ -386,14 +401,25 @@ def _run_elam(
         poss_ctx = _fire_sim_effects(
             "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
         )
+        offense_is_home = game_state.home_has_ball
         result = resolve_turn(
-            game_state, rules, rng, last_three, poss_ctx,
+            game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
         )
+        for extra in result.extra_logs:
+            possession_log.append(extra)
         if result.log:
             possession_log.append(result.log)
-        last_three = result.shot_made and result.shot_type == "three_point"
+
+        # Track agent minutes (the Elam period counts toward playing time)
+        minutes_used = result.time_used / 60.0
+        for a in game_state.home_active + game_state.away_active:
+            a.minutes += minutes_used
+
+        last_three_by_offense[offense_is_home] = (
+            result.shot_made and result.shot_type == "three_point"
+        )
 
         # Check if target reached
         if game_state.home_score >= game_state.elam_target_score:
@@ -415,6 +441,55 @@ def _run_elam(
         if game_state.total_possessions >= cap:
             game_state.game_over = True
             break
+
+
+def _run_sudden_death(
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    effects: list[GameEffect],
+    possession_log: list[PossessionLog],
+    new_effects: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
+    action_registry: ActionRegistry | None = None,
+    game_def: GameDefinition | None = None,
+    max_possessions: int = 100,
+) -> None:
+    """Sudden death: alternate possessions until the tie breaks.
+
+    Reached when the game ends level — the Elam Ending was disabled by
+    governance, or the safety cap fired with the score tied. SIMULATION.md:
+    "If reached, highest score wins. If tied, sudden death." Bounded at
+    ``max_possessions``; the caller breaks any remaining tie deterministically.
+    """
+    last_three_by_offense = {True: False, False: False}
+    for _ in range(max_possessions):
+        if game_state.home_score != game_state.away_score:
+            return
+        game_state.possession_number += 1
+        game_state.total_possessions += 1
+
+        poss_ctx = _fire_sim_effects(
+            "sim.possession.pre", game_state, rules, rng, new_effects, meta_store,
+        )
+        offense_is_home = game_state.home_has_ball
+        result = resolve_turn(
+            game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
+            action_registry=action_registry,
+            game_def=game_def,
+        )
+        for extra in result.extra_logs:
+            possession_log.append(extra)
+        if result.log:
+            possession_log.append(result.log)
+        last_three_by_offense[offense_is_home] = (
+            result.shot_made and result.shot_type == "three_point"
+        )
+
+        _check_substitution(game_state, rules, possession_log, reason="foul_out")
+
+        if game_def is None or game_def.alternating_possession:
+            game_state.home_has_ball = not game_state.home_has_ball
 
 
 def _halftime_recovery(
@@ -664,11 +739,54 @@ def simulate_game(
             )
         )
 
+    # Sudden death — ties are not allowed (SIMULATION.md). Reachable when the
+    # Elam Ending is disabled by governance or the safety cap fires level.
+    if game_state.home_score == game_state.away_score:
+        sd_home_before = game_state.home_score
+        sd_away_before = game_state.away_score
+        _run_sudden_death(
+            game_state, rules, rng, _effects, possession_log,
+            new_effects=effect_registry, meta_store=meta_store,
+            action_registry=action_registry,
+            game_def=game_def,
+        )
+        # Fold sudden-death points into the final period's row so quarter
+        # totals still sum to the final score.
+        sd_home = game_state.home_score - sd_home_before
+        sd_away = game_state.away_score - sd_away_before
+        if sd_home or sd_away:
+            if quarter_scores:
+                last = quarter_scores[-1]
+                quarter_scores[-1] = QuarterScore(
+                    quarter=last.quarter,
+                    home_score=last.home_score + sd_home,
+                    away_score=last.away_score + sd_away,
+                )
+            else:
+                quarter_scores.append(
+                    QuarterScore(
+                        quarter=max(game_state.quarter, 1),
+                        home_score=sd_home,
+                        away_score=sd_away,
+                    )
+                )
+
     fire_hooks(HookPoint.GAME_END, game_state, _effects)
     _fire_sim_effects("sim.game.end", game_state, rules, rng, effect_registry, meta_store)
 
     # Determine winner
-    winner = home.id if game_state.home_score >= game_state.away_score else away.id
+    if game_state.home_score == game_state.away_score:
+        # Absolute last resort: sudden death exhausted its bound without a
+        # bucket (e.g. both teams fully ejected). Deterministic under the
+        # game seed, so replays agree.
+        logger.warning(
+            "sudden_death_exhausted game_id=%s — seeded coin flip decides", game_id,
+        )
+        winner = home.id if rng.random() < 0.5 else away.id
+    else:
+        winner = (
+            home.id if game_state.home_score > game_state.away_score else away.id
+        )
 
     elapsed_ms = (time.monotonic() - start_time) * 1000
 

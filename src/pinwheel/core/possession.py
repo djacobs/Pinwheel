@@ -7,7 +7,7 @@ See SIMULATION.md "Possession Model".
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pinwheel.core.defense import (
     SCHEME_CONTEST_MODIFIER,
@@ -112,6 +112,10 @@ class PossessionResult:
     defensive_scheme: str = ""
     time_used: float = 0.0
     log: PossessionLog | None = None
+    # Events that happened during the possession but aren't its main outcome
+    # (e.g. an effect-driven ejection before the shot). Recorded ahead of
+    # ``log`` in the play-by-play.
+    extra_logs: list[PossessionLog] = field(default_factory=list)
 
 
 def select_ball_handler(
@@ -503,6 +507,9 @@ def resolve_possession(
     if not offense or not defense:
         return PossessionResult(time_used=time_used)
 
+    # Side events (e.g. ejections) recorded alongside the possession's main log
+    extra_logs: list[PossessionLog] = []
+
     # 0. Random ejection check (effect-driven: "ball is red hot")
     if ctx.random_ejection_probability > 0.0 and rng.random() < ctx.random_ejection_probability:
         active_all = offense + defense
@@ -530,6 +537,9 @@ def resolve_possession(
             defense = game_state.defense
             if not offense or not defense:
                 return PossessionResult(time_used=time_used, log=log)
+            # Possession continues — record the ejection as a side event so
+            # it reaches the play-by-play instead of being silently dropped.
+            extra_logs.append(log)
 
     # 1. Select scheme and matchups (strategy influences scheme selection)
     scheme = select_scheme(offense, defense, game_state, rules, rng, strategy=def_strategy)
@@ -594,6 +604,7 @@ def resolve_possession(
                     defensive_scheme=scheme,
                     time_used=time_used,
                     log=log,
+                    extra_logs=extra_logs,
                 )
 
     # 3. Check turnover (live-ball: steal) --- with effect + crowd + surface modifiers
@@ -646,6 +657,7 @@ def resolve_possession(
             defensive_scheme=scheme,
             time_used=time_used,
             log=log,
+            extra_logs=extra_logs,
         )
 
     # 3b. Check shot clock violation (defense shuts down the offense)
@@ -691,6 +703,7 @@ def resolve_possession(
             defensive_scheme=scheme,
             time_used=time_used,
             log=log,
+            extra_logs=extra_logs,
         )
 
     # 4. Select action --- with effect biases + surface modifiers
@@ -738,6 +751,7 @@ def resolve_possession(
             defensive_scheme=scheme,
             time_used=time_used,
             log=log,
+            extra_logs=extra_logs,
         )
     if ctx.substitute_action and ctx.substitute_action in (
         "at_rim",
@@ -832,9 +846,11 @@ def resolve_possession(
 
         pts = points_for_shot(shot_type, rules) if made else 0
 
-    # Apply effect-driven shot value modifier and pass bonus
+    # Apply effect-driven shot value modifier and pass bonus. Clamp at 0 so a
+    # value-reducing governance effect can't push a made shot negative — the
+    # shooter's box score and the team score must move by the same amount.
     if made:
-        pts += ctx.shot_value_modifier + ctx.bonus_pass_count
+        pts = max(0, pts + ctx.shot_value_modifier + ctx.bonus_pass_count)
 
     # 8. Update shooter stats
     handler.field_goals_attempted += 1
@@ -1005,4 +1021,5 @@ def resolve_possession(
         defensive_scheme=scheme,
         time_used=time_used,
         log=log,
+        extra_logs=extra_logs,
     )

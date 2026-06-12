@@ -26,7 +26,7 @@ from pinwheel.core.event_bus import EventBus
 from pinwheel.core.game_loop import step_round_multisession, tally_pending_governance
 from pinwheel.core.presenter import PresentationState, present_round
 from pinwheel.db.engine import get_session
-from pinwheel.db.models import BotStateRow, GameResultRow
+from pinwheel.db.models import BotStateRow, GameResultRow, ScheduleRow
 from pinwheel.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -619,6 +619,36 @@ async def tick_round(
             )
             last_round = max_round_result.scalar_one()
             next_round = last_round + 1
+
+            # Resume support: if the last round has regular-season matchups
+            # scheduled but unplayed (mid-round crash), re-run that round —
+            # step_round skips matchups that already have results. Restricted
+            # to phase="regular" because the playoff path intentionally
+            # leaves clinched-series games unplayed.
+            if last_round > 0:
+                scheduled_idx_result = await session.execute(
+                    select(ScheduleRow.matchup_index).where(
+                        ScheduleRow.season_id == season_id,
+                        ScheduleRow.round_number == last_round,
+                        ScheduleRow.phase == "regular",
+                    )
+                )
+                scheduled_idx = set(scheduled_idx_result.scalars().all())
+                played_idx_result = await session.execute(
+                    select(GameResultRow.matchup_index).where(
+                        GameResultRow.season_id == season_id,
+                        GameResultRow.round_number == last_round,
+                    )
+                )
+                played_idx = set(played_idx_result.scalars().all())
+                if scheduled_idx - played_idx:
+                    logger.warning(
+                        "resuming_incomplete_round season=%s round=%d missing=%s",
+                        season_id,
+                        last_round,
+                        sorted(scheduled_idx - played_idx),
+                    )
+                    next_round = last_round
 
         # --- Pre-flight session closed — lock released ---
 

@@ -667,3 +667,42 @@ class TestTickRoundLock:
             repo = Repository(session)
             raw = await repo.get_bot_state(TICK_LOCK_KEY)
             assert raw is None
+
+
+class TestPartialRoundResume:
+    """tick_round resumes an incomplete round instead of skipping past it."""
+
+    async def test_tick_resumes_partially_played_round(self, engine: AsyncEngine):
+        season_id = await _setup_season(engine)
+
+        # Simulate a crash that stored only the first matchup of round 1
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            schedule = await repo.get_full_schedule(season_id, phase="regular")
+            round_one = [s for s in schedule if s.round_number == 1]
+            first = round_one[0]
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=1,
+                matchup_index=first.matchup_index,
+                home_team_id=first.home_team_id,
+                away_team_id=first.away_team_id,
+                home_score=50,
+                away_score=40,
+                winner_team_id=first.home_team_id,
+                seed=1,
+                total_possessions=80,
+            )
+            await session.commit()
+
+        event_bus = EventBus()
+        await tick_round(engine, event_bus)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            r1_games = await repo.get_games_for_round(season_id, 1)
+            r2_games = await repo.get_games_for_round(season_id, 2)
+            # Round 1 was completed (no duplicates), round 2 was NOT skipped to
+            assert len(r1_games) == len(round_one)
+            assert len({g.matchup_index for g in r1_games}) == len(round_one)
+            assert len(r2_games) == 0

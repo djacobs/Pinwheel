@@ -116,7 +116,9 @@ def check_trigger(
     """Check if a move's trigger condition is met."""
     trigger = move.trigger
     if trigger == "made_three_last_possession":
-        return last_possession_three
+        # Heat Check: +15% on the NEXT 3-point attempt (SIMULATION.md) —
+        # the boost applies only when the follow-up shot is also a three.
+        return last_possession_three and action == "three_point"
     if trigger == "half_court_setup":
         return action in ("mid_range", "three_point", "pass")
     if trigger == "opponent_iso":

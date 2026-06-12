@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
+import json
 import logging
 import time
-import uuid
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -186,22 +187,43 @@ async def _check_earned_moves(
 async def _check_season_complete(repo: Repository, season_id: str) -> bool:
     """Check if all scheduled regular-season games have been played.
 
-    Compares the set of round numbers in the regular-season schedule against
-    the set of round numbers that have game results stored.  Returns True only
-    when every scheduled round has at least one played game.
+    Compares (round_number, matchup_index) pairs — not just round numbers —
+    so a partially played round (e.g. after a mid-round crash) does not count
+    as complete with games still missing.
     """
     schedule = await repo.get_full_schedule(season_id, phase="regular")
     if not schedule:
         return False
     games = await repo.get_all_games(season_id)
-    played_rounds = {g.round_number for g in games}
-    scheduled_rounds = {s.round_number for s in schedule}
-    return scheduled_rounds.issubset(played_rounds)
+    played = {(g.round_number, g.matchup_index) for g in games}
+    scheduled = {(s.round_number, s.matchup_index) for s in schedule}
+    return scheduled.issubset(played)
 
 
 def _series_wins_needed(best_of: int) -> int:
     """Number of wins needed to clinch a best-of-N series."""
     return (best_of + 1) // 2
+
+
+def derive_game_seed(
+    season_id: str,
+    round_number: int,
+    matchup_index: int,
+    ruleset: RuleSet,
+) -> int:
+    """Derive a deterministic game seed (GAME_LOOP.md).
+
+    The same matchup under the same rules in the same round always produces
+    the same game — enabling exact replays and rule-change A/B comparisons.
+    Uses sha256 (never Python's salted ``hash()``) so the seed is stable
+    across processes.
+    """
+    ruleset_hash = hashlib.sha256(
+        json.dumps(ruleset.model_dump(), sort_keys=True, default=str).encode()
+    ).hexdigest()
+    payload = f"{season_id}|{round_number}|{matchup_index}|{ruleset_hash}"
+    digest = hashlib.sha256(payload.encode()).digest()
+    return int.from_bytes(digest[:4], "big") % (2**31)
 
 
 async def _get_playoff_series_record(
@@ -1183,6 +1205,13 @@ async def _phase_simulate_and_govern(
                 )
                 _pre_round_series[pair_key] = (a_wins, b_wins)
 
+    # Resume support: if this round was partially played (e.g. a crash after
+    # storing one of its games), skip the matchups that already have results
+    # instead of simulating duplicates.
+    _already_played = {
+        g.matchup_index for g in await repo.get_games_for_round(season_id, round_number)
+    }
+
     game_summaries: list[dict] = []
     game_results: list[GameResult] = []
     game_row_ids: list[str] = []
@@ -1194,6 +1223,14 @@ async def _phase_simulate_and_govern(
                 "Missing team for matchup %s vs %s",
                 entry.home_team_id,
                 entry.away_team_id,
+            )
+            continue
+
+        if entry.matchup_index in _already_played:
+            logger.info(
+                "skipping_already_played_game round=%d matchup=%d",
+                round_number,
+                entry.matchup_index,
             )
             continue
 
@@ -1222,7 +1259,7 @@ async def _phase_simulate_and_govern(
                 )
                 continue
 
-        seed = int(uuid.uuid4().int % (2**31))
+        seed = derive_game_seed(season_id, round_number, entry.matchup_index, ruleset)
         game_id = f"g-{round_number}-{entry.matchup_index}"
 
         # Fire round.game.pre effects
@@ -1485,7 +1522,10 @@ async def _phase_simulate_and_govern(
         for team in teams_cache.values():
             governors = await repo.get_governors_for_team(team.id, season_id)
             for gov in governors:
-                await regenerate_tokens(repo, gov.id, team.id, season_id, boost_amount=0)
+                # Defaults from tokens.py: 2 PROPOSE, 2 AMEND, 2 BOOST per
+                # tally cycle (GAME_LOOP.md) — boost included, or it drains
+                # out of the economy permanently.
+                await regenerate_tokens(repo, gov.id, team.id, season_id)
                 regen_count += 1
         if regen_count > 0:
             logger.info(

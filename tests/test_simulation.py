@@ -1773,3 +1773,194 @@ class TestScoringDualPath:
             assert v1 == v2, (
                 f"{shot_type} defense={defense_val}: v1={v1}, v2={v2}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Regression tests — session 132 bug fixes
+# ---------------------------------------------------------------------------
+
+
+class TestHeatCheckTeamAttribution:
+    """A made three arms the heat-check flag for the team that made it —
+    not for the opponent on the very next possession."""
+
+    def test_trigger_requires_three_point_attempt(self):
+        hooper = HooperState(hooper=_make_hooper(attrs=_make_attrs(ego=50), moves=[HEAT_CHECK]))
+        # Spec: "+15% on next 3-point attempt" — a drive must not trigger it
+        assert not check_trigger(HEAT_CHECK, hooper, "drive", True, False)
+        assert check_trigger(HEAT_CHECK, hooper, "three_point", True, False)
+
+    def test_flag_consumed_by_scoring_team_not_opponent(self, monkeypatch):
+        """Scripted possessions: home makes a three on possession 1. The flag
+        must be False for the away team on possession 2 and True for the home
+        team on possession 3."""
+        from pinwheel.core import simulation as sim_mod
+        from pinwheel.core.possession import PossessionResult
+
+        calls: list[tuple[bool, bool]] = []  # (offense_is_home, last_three)
+
+        def _fake_resolve(game_state, rules, rng, last_three=False, ctx=None, **kwargs):
+            calls.append((game_state.home_has_ball, last_three))
+            made_three = len(calls) == 1  # only the first possession is a made three
+            return PossessionResult(
+                shot_made=made_three,
+                shot_type="three_point" if made_three else "mid_range",
+                time_used=60.0,
+            )
+
+        monkeypatch.setattr(sim_mod, "resolve_possession", _fake_resolve)
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers],
+        )
+        rules = RuleSet(quarter_minutes=4)  # 240s / 60s per possession = 4 possessions
+        sim_mod._run_quarter(gs, rules, random.Random(1), [], [])
+
+        assert len(calls) >= 3
+        assert calls[0] == (True, False)  # home, no prior three
+        assert calls[1] == (False, False)  # away must NOT inherit home's three
+        assert calls[2] == (True, True)  # home's next possession gets the flag
+
+
+class TestElamPeriodAccounting:
+    """The Elam period resets team fouls and counts toward minutes."""
+
+    def _run_scripted_elam(self, monkeypatch, time_used: float = 120.0) -> tuple:
+        from pinwheel.core import simulation as sim_mod
+        from pinwheel.core.possession import PossessionResult
+
+        fouls_at_first_call: list[tuple[int, int]] = []
+
+        def _fake_resolve(game_state, rules, rng, last_three=False, ctx=None, **kwargs):
+            if not fouls_at_first_call:
+                fouls_at_first_call.append(
+                    (game_state.home_team_fouls, game_state.away_team_fouls)
+                )
+            # Score 10 every possession so the Elam target is reached quickly
+            if game_state.home_has_ball:
+                game_state.home_score += 10
+            else:
+                game_state.away_score += 10
+            return PossessionResult(time_used=time_used)
+
+        monkeypatch.setattr(sim_mod, "resolve_possession", _fake_resolve)
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers],
+        )
+        gs.home_score = 30
+        gs.away_score = 28
+        gs.home_team_fouls = 5  # carried in from Q3 — must reset
+        gs.away_team_fouls = 4
+        sim_mod._run_elam(gs, RuleSet(), random.Random(1), [], [])
+        return gs, fouls_at_first_call[0]
+
+    def test_team_fouls_reset_entering_elam(self, monkeypatch):
+        _, fouls = self._run_scripted_elam(monkeypatch)
+        assert fouls == (0, 0)
+
+    def test_elam_minutes_tracked(self, monkeypatch):
+        gs, _ = self._run_scripted_elam(monkeypatch, time_used=120.0)
+        # At least one possession ran; every active hooper accrues 2 min each
+        for hooper_state in gs.home_active + gs.away_active:
+            assert hooper_state.minutes >= 2.0
+
+
+class TestNegativeShotValueConsistency:
+    """A value-reducing governance effect can't desync box score from team score."""
+
+    def test_box_scores_match_team_score_under_negative_modifier(self):
+        from pinwheel.core.possession import resolve_possession
+        from pinwheel.core.state import PossessionContext
+
+        rules = RuleSet(home_court_enabled=False)
+        ctx = PossessionContext(shot_value_modifier=-10)
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+        )
+        rng = random.Random(7)
+        for _ in range(300):
+            resolve_possession(gs, rules, rng, False, ctx)
+            gs.home_has_ball = not gs.home_has_ball
+
+        home_box = sum(a.points for a in gs.home_agents)
+        away_box = sum(a.points for a in gs.away_agents)
+        assert all(a.points >= 0 for a in gs.home_agents + gs.away_agents)
+        assert home_box == gs.home_score
+        assert away_box == gs.away_score
+
+
+class TestSuddenDeath:
+    """Tied games are settled by sudden death, never silently awarded."""
+
+    def test_sudden_death_breaks_tie(self):
+        from pinwheel.core.simulation import _run_sudden_death
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+        )
+        gs.home_score = 20
+        gs.away_score = 20
+        log: list = []
+        _run_sudden_death(gs, RuleSet(home_court_enabled=False), random.Random(3), [], log)
+        assert gs.home_score != gs.away_score
+        assert log  # the extra possessions reach the play-by-play
+
+    def test_no_tied_finals_with_elam_disabled(self):
+        """Governance can disable the Elam Ending; games still cannot tie."""
+        from pinwheel.models.game_definition import basketball_game_definition
+
+        rules = DEFAULT_RULESET
+        game_def = basketball_game_definition(rules).model_copy(
+            update={"elam_ending_enabled": False}
+        )
+        home = _make_team("home")
+        away = _make_team("away")
+        for seed in range(20):
+            result = simulate_game(home, away, rules, seed, game_def=game_def)
+            assert result.home_score != result.away_score
+            expected_winner = (
+                home.id if result.home_score > result.away_score else away.id
+            )
+            assert result.winner_team_id == expected_winner
+            # Quarter rows still sum to the final score (sudden-death points
+            # fold into the last period)
+            assert sum(q.home_score for q in result.quarter_scores) == result.home_score
+            assert sum(q.away_score for q in result.quarter_scores) == result.away_score
+
+
+class TestEjectionLogged:
+    """Effect-driven ejections must reach the play-by-play."""
+
+    def test_ejection_recorded_when_possession_continues(self):
+        from pinwheel.core.possession import resolve_possession
+        from pinwheel.core.state import PossessionContext
+
+        rules = RuleSet(home_court_enabled=False)
+        ctx = PossessionContext(random_ejection_probability=1.0)
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers if h.is_starter],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers if h.is_starter],
+        )
+        result = resolve_possession(gs, rules, random.Random(5), False, ctx)
+        all_logs = list(result.extra_logs) + ([result.log] if result.log else [])
+        assert any(
+            entry.action == "ejection" and entry.result.startswith("effect_ejection:")
+            for entry in all_logs
+        )

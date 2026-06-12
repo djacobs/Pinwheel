@@ -465,7 +465,8 @@ class TestGovernanceInterval:
         balance_after = await get_token_balance(repo, player.id, season_id)
         assert balance_after.propose == 2
         assert balance_after.amend == 2
-        assert balance_after.boost == 0  # BOOST does not regenerate at tally
+        # GAME_LOOP.md: 2 PROPOSE, 2 AMEND, 2 BOOST per governor per tally cycle
+        assert balance_after.boost == 2
 
     async def test_tokens_not_regenerated_on_non_tally_round(self, repo: Repository):
         """Tokens are NOT regenerated on non-governance rounds."""
@@ -2680,3 +2681,128 @@ class TestSeriesReports:
         assert "loser_id" in meta
         assert "record" in meta
         assert meta["record"] == "2-1"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests — session 132 bug fixes
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicGameSeeds:
+    """GAME_LOOP.md: same matchup under the same rules in the same round
+    always produces the same game."""
+
+    def test_derive_game_seed_is_stable(self):
+        from pinwheel.core.game_loop import derive_game_seed
+
+        rules = RuleSet()
+        a = derive_game_seed("season-1", 3, 0, rules)
+        b = derive_game_seed("season-1", 3, 0, rules)
+        assert a == b
+        assert 0 <= a < 2**31
+
+    def test_derive_game_seed_varies_by_inputs(self):
+        from pinwheel.core.game_loop import derive_game_seed
+
+        rules = RuleSet()
+        base = derive_game_seed("season-1", 3, 0, rules)
+        assert derive_game_seed("season-1", 4, 0, rules) != base
+        assert derive_game_seed("season-1", 3, 1, rules) != base
+        assert derive_game_seed("season-2", 3, 0, rules) != base
+        assert derive_game_seed("season-1", 3, 0, RuleSet(three_point_value=4)) != base
+
+    async def test_rerunning_a_round_reproduces_scores(self, repo: Repository):
+        """Two seasons with identical teams/schedule produce identical games."""
+        season_id, _ = await _setup_season_with_teams(repo)
+        result = await step_round(repo, season_id, round_number=1)
+        games = await repo.get_games_for_round(season_id, 1)
+        # Stored seeds match the derived seeds (replayability contract)
+        from pinwheel.core.game_loop import derive_game_seed
+
+        season = await repo.get_season(season_id)
+        rules = RuleSet(**(season.current_ruleset or {}))
+        for g in games:
+            assert g.seed == derive_game_seed(season_id, 1, g.matchup_index, rules)
+        assert result.games
+
+
+class TestSeasonCompletePartialRounds:
+    """A round with one stored game must not count as complete."""
+
+    async def test_partial_round_is_not_complete(self, repo: Repository):
+        season_id, team_ids = await _setup_season_with_teams(repo, num_rounds=1)
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        total_rounds = max(s.round_number for s in schedule)
+
+        # Store results for every scheduled game EXCEPT the last round's
+        # second matchup
+        for entry in schedule:
+            if entry.round_number == total_rounds and entry.matchup_index > 0:
+                continue
+            await repo.store_game_result(
+                season_id=season_id,
+                round_number=entry.round_number,
+                matchup_index=entry.matchup_index,
+                home_team_id=entry.home_team_id,
+                away_team_id=entry.away_team_id,
+                home_score=50,
+                away_score=40,
+                winner_team_id=entry.home_team_id,
+                seed=1,
+                total_possessions=80,
+            )
+
+        assert not await _check_season_complete(repo, season_id)
+
+        # Fill in the missing game — now the season is complete
+        for entry in schedule:
+            if entry.round_number == total_rounds and entry.matchup_index > 0:
+                await repo.store_game_result(
+                    season_id=season_id,
+                    round_number=entry.round_number,
+                    matchup_index=entry.matchup_index,
+                    home_team_id=entry.home_team_id,
+                    away_team_id=entry.away_team_id,
+                    home_score=44,
+                    away_score=42,
+                    winner_team_id=entry.home_team_id,
+                    seed=2,
+                    total_possessions=80,
+                )
+        assert await _check_season_complete(repo, season_id)
+
+
+class TestPartialRoundResume:
+    """Re-running a partially played round skips stored matchups."""
+
+    async def test_step_round_skips_already_played_matchups(self, repo: Repository):
+        season_id, _ = await _setup_season_with_teams(repo)
+        schedule = await repo.get_full_schedule(season_id, phase="regular")
+        round_one = [s for s in schedule if s.round_number == 1]
+        assert len(round_one) >= 2
+
+        # Simulate a crash that stored only the first matchup of round 1
+        first = round_one[0]
+        await repo.store_game_result(
+            season_id=season_id,
+            round_number=1,
+            matchup_index=first.matchup_index,
+            home_team_id=first.home_team_id,
+            away_team_id=first.away_team_id,
+            home_score=50,
+            away_score=40,
+            winner_team_id=first.home_team_id,
+            seed=1,
+            total_possessions=80,
+        )
+
+        result = await step_round(repo, season_id, round_number=1)
+
+        # Only the missing matchups were simulated
+        assert len(result.games) == len(round_one) - 1
+        games = await repo.get_games_for_round(season_id, 1)
+        assert len(games) == len(round_one)
+        matchup_counts: dict[int, int] = {}
+        for g in games:
+            matchup_counts[g.matchup_index] = matchup_counts.get(g.matchup_index, 0) + 1
+        assert all(count == 1 for count in matchup_counts.values())
