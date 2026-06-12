@@ -881,3 +881,13 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 145. [DONE] Commentary prompt never saw how the game unfolded
 **Problem:** `_build_game_context` sent the final score, box scores, and the FIRST 8 notable possessions — almost all Q1. The AI literally never saw the ending: no Elam possessions, no game-winner, no comeback arc. Output was inevitably generic box-score prose.
 **Fix:** The prompt context now includes quarter-by-quarter scores (with the final period labeled "Elam period" when activated), lead changes and largest lead computed from the running score, team strategy summaries, starter archetypes, key plays sampled across the WHOLE game with the last 4 notable plays guaranteed, and an explicit "Game-deciding play" callout. Highlight reel input gains margin class and top scorer per game.
+
+## Completed — Session 133 (Codegen Frontier Wiring)
+
+### 146. [DONE] Codegen approval gate — Approve/Reject DM for generated code
+**Problem:** Council-approved generated code had no human gate before running in live games; admins could only react after the fact with /disable-effect (which didn't even persist).
+**Fix:** New `CodegenApprovalView` (green Approve / red Reject with reason modal, 24h timeout = stays pending) DM'd to the admin whenever a codegen effect registers pending. Approve makes the code live and retires the placeholder approximation; Reject keeps the approximation. `/review-codegen` attaches the same gate to pending effects so a missed DM isn't a dead end. Embeds show AWAITING APPROVAL / REJECTED states; the effects summary fed to AI reports shows "awaiting admin approval".
+
+### 147. [DONE] Proposal confirm embed announces the Code Council
+**Problem:** Players had no signal that their beyond-primitive proposal triggers code generation, or that the interpreted approximation is what goes live first.
+**Fix:** When a proposal escalates to the council, the green "Proposal Submitted" embed adds: "This proposal needs new game code. The interpreted mechanic above goes live if the vote passes; the Code Council is drafting the full version, which requires admin sign-off."

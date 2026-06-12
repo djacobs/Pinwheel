@@ -1,5 +1,16 @@
 # Codegen Frontier Wiring — Implementation Plan (2026-06-12)
 
+> **STATUS: IMPLEMENTED (Session 133, 2026-06-12).** All five phases landed:
+> Phase 1 `399a911`, Phase 2 `bf2b8a9`, Phase 3 `764e682`, Phase 4 `460420e`,
+> Phase 5 `8736788`. The rollout flag is `PINWHEEL_CODEGEN_ENABLED` (off by
+> default — flip in staging first per the rollout section). Implementation
+> notes vs. plan: the in-game timeout uses a per-call daemon thread rather
+> than a shared worker pool (a leaked timed-out thread must not block other
+> effects); the sim also gained `sim.possession.post` firing, which the
+> council's generated code targeted but the engine never fired; council
+> usage-tracking threading was deferred. The "next expressiveness increment"
+> (win conditions, resources, action on_success hooks) remains future work.
+
 Goal: deliver the "players can change ANYTHING" promise. The Phase 6 codegen
 infrastructure (AST validator, sandbox runtime, council pipeline) exists but is
 disconnected from player proposals. This plan wires it up, adds a pre-execution

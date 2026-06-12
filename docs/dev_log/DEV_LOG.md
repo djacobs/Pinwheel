@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2657 tests**, zero lint errors (Session 132)
+- **2736 tests**, zero lint errors (Session 133)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
 - **Day 27 (this session):** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -21,8 +21,9 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Fix all nine confirmed sim/game-loop bugs with regression tests
 - [x] Overhaul the summary pipeline (persist commentary, full-game context, Opus round report)
 - [x] Write the codegen-frontier wiring plan (5 phases, pre-execution human gate)
-- [ ] Implement codegen wiring Phase 1 (opponent_score_modifier + meta_writes) — next session
-- [ ] Implement codegen wiring Phases 2-5 per the plan
+- [x] Implement codegen wiring Phase 1 (opponent_score_modifier + meta_writes)
+- [x] Implement codegen wiring Phases 2-5 per the plan
+- [ ] Flip PINWHEEL_CODEGEN_ENABLED in staging; run 5-10 live council proposals before prod
 
 ## Session 132 — Audit + Sim Bug Fixes + Summary Overhaul
 
@@ -105,3 +106,76 @@ verified audits and line-level fix plans, which made the reimplementation fast.
 The commentary persistence initially keyed on the sim's synthetic game id
 (`g-{round}-{matchup}`) instead of the DB row id the web page uses; caught by
 the page-level test, fixed by carrying `game_row_id` on the summary.
+
+## Session 133 — Codegen Frontier Wiring (all 5 phases)
+
+**What was asked:** Execute the codegen wiring plan
+(`docs/plans/2026-06-12-codegen-frontier-wiring.md`) — deliver the "players
+can change *anything*" promise by connecting the Phase 6 council
+infrastructure to player proposals, with a human gate in front of generated
+code.
+
+**What was built:**
+
+- **Phase 1 — engine correctness** (`399a911`): `opponent_score_modifier`
+  now credits the team WITHOUT the ball (was folded into the actor's score
+  as a negative — wrong team, corrupted actor totals); `HookResult.meta_writes`
+  are actually applied via the MetaStore (STATE-trust codegen can persist
+  state); composite effects accumulate the new field.
+- **Phase 2 — pre-execution admin gate** (`bf2b8a9`): codegen effects
+  register `pending` and are inert until an `effect.codegen_approved` event;
+  approve/reject helpers persist decisions and survive registry reloads
+  (also fixes `/disable-effect` not persisting); `CodegenApprovalView` DM;
+  approval retires the proposal's `custom_mechanic` placeholder.
+- **Phase 3 — the router** (`764e682`): behind `PINWHEEL_CODEGEN_ENABLED`,
+  confirmed proposals whose interpretation contains a `custom_mechanic`
+  escalate to the council as a background task (crash-resilient via
+  `proposal.codegen_requested` + a 60s pipeline tick with retry cap). Both
+  vote orderings handled idempotently by code hash. The tick also consumes
+  `/rerun-council` requests (re-reviews STORED code via the new
+  `review_existing_code`) and DMs the admin about unannounced pending
+  effects. Found and fixed: the council's primary hook `sim.possession.post`
+  was never fired by the engine — generated code would have silently never
+  run. Codegen proposals are now tier 5 (2 tokens, 67%).
+- **Phase 4 — sandbox hardening** (`460420e`): approval-time pre-flight runs
+  the code against ~20 synthetic contexts in a subprocess with
+  RLIMIT_CPU/RLIMIT_AS (memory bombs/CPU spins die there; runs before
+  codegen_ready AND on admin Approve); per-call daemon-thread timeout
+  replaces SIGALRM (off-main-thread + cross-platform); compile cache by
+  hash; AST guards on exponentiation and giant literals; 250ms per-game
+  execution budget per effect. SECURITY.md documents the layered model.
+- **Phase 5 — structural change path** (`8736788`): the v2 interpreter now
+  emits `modify_game_definition` effects with `game_def_patch` (prompt docs
+  + worked examples + mock patterns); new `validate_game_def_patch`
+  (invariants on the cumulatively patched definition + seeded smoke sim)
+  gates registration with `effect.patch_rejected` on failure. "Add a shot
+  called The Prayer worth 4 points" works end-to-end and shows up in
+  play-by-play.
+
+**Decisions made:**
+- The human gate is the trust boundary, not the in-process sandbox; the
+  pre-flight subprocess is the resource-isolation layer (SECURITY.md).
+- Per-call daemon threads over a shared worker pool for the exec timeout —
+  a leaked timed-out thread must not clog other effects (a shared pool did
+  exactly that in testing).
+- Structural changes are declarative patches, never generated code; the
+  council's STRUCTURE trust level explicitly points there.
+
+**Files modified (20):** `core/codegen_pipeline.py` (new),
+`core/game_def_validation.py` (new), `core/hooks.py`, `core/effects.py`,
+`core/governance.py`, `core/simulation.py`, `core/codegen.py`,
+`ai/codegen_council.py`, `ai/interpreter.py`, `discord/views.py`,
+`discord/embeds.py`, `discord/bot.py`, `models/governance.py`, `config.py`,
+`main.py`, plus 5 test files (4 new: `test_codegen_lifecycle.py`,
+`test_codegen_pipeline.py`, `test_codegen_hardening.py`,
+`test_patch_validation.py`)
+
+**Tests:** 2736 passing (79 new since session 132), zero lint errors
+
+**What could have gone better:** The first timeout implementation used a
+shared 2-worker thread pool; leaked timed-out threads from one test clogged
+the pool and made an unrelated trivial execution "time out" — caught by
+cross-test interference, fixed with per-call daemon threads. The interpreter
+prompt's literal `{player}` narration templates needed careful brace
+escaping for `.format()`. The structural mock patterns had to run before
+compound-clause splitting or "6 quarters and no Elam" got split in half.
