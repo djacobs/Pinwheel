@@ -213,6 +213,9 @@ async def expire_stale_pending(
 
     for ev in pending:
         ev_time = getattr(ev, "created_at", None) or getattr(ev, "timestamp", None)
+        if ev_time is not None and ev_time.tzinfo is None:
+            # SQLite returns naive datetimes; event rows are stored in UTC
+            ev_time = ev_time.replace(tzinfo=UTC)
         if ev_time is None or ev_time < cutoff:
             # Expire it
             await repo.append_event(

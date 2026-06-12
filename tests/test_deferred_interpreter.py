@@ -288,6 +288,36 @@ class TestExpireStale:
         assert len(expired) == 0
         repo.append_event.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_naive_timestamps_from_sqlite_do_not_crash(self) -> None:
+        """Regression: SQLite returns offset-naive created_at datetimes;
+        comparing them to the aware UTC cutoff raised TypeError and crashed
+        the tick every 60s in production."""
+        repo = AsyncMock()
+        naive_recent = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+        naive_old = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=9)
+
+        recent = _make_event(
+            event_type="proposal.pending_interpretation",
+            aggregate_id="naive-recent",
+            timestamp=naive_recent,
+            payload={"raw_text": "recent", "token_cost": 1},
+        )
+        old = _make_event(
+            event_type="proposal.pending_interpretation",
+            aggregate_id="naive-old",
+            timestamp=naive_old,
+            payload={"raw_text": "old", "token_cost": 1},
+        )
+        repo.get_events_by_type = AsyncMock(side_effect=[
+            [recent, old],
+            [],
+            [],
+        ])
+
+        expired = await expire_stale_pending(repo, "season-1", max_age_hours=4)
+        assert expired == ["naive-old"]
+
 
 class TestIsMockFallback:
     """Test that mock fallback is properly flagged."""
