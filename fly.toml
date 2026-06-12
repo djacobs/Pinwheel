@@ -17,6 +17,9 @@ kill_timeout = "5s"
   PINWHEEL_LOG_LEVEL = "INFO"
   PINWHEEL_PRESENTATION_PACE = "slow"
   PINWHEEL_AUTO_ADVANCE = "true"
+  # Code Council: beyond-primitive proposals generate real game code
+  # (3-reviewer AI consensus + subprocess pre-flight + admin approval gate)
+  PINWHEEL_CODEGEN_ENABLED = "true"
   DISCORD_INVITE_URL = "https://discord.gg/sm6dZNTq"
   PORT = "8080"
 
