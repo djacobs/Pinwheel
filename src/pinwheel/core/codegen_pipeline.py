@@ -284,21 +284,31 @@ async def _notify_and_mark(
     season_id: str,
     proposer_discord_id: int | None = None,
 ) -> None:
-    """DM the admin about a pending effect and persist the notified marker."""
-    import contextlib
+    """DM the admin about a pending effect; mark notified ONLY if it sent.
 
+    If the DM did not go out (no admin configured, send rejected, etc.),
+    the marker is not written so the next tick retries — a pending effect
+    must never silently sit inert because a single ping was lost.
+    """
     from pinwheel.db.engine import get_session
     from pinwheel.db.repository import Repository
     from pinwheel.discord.views import notify_admin_codegen_pending
 
-    with contextlib.suppress(Exception):
-        await notify_admin_codegen_pending(
+    try:
+        sent = await notify_admin_codegen_pending(
             bot,
             settings,
             effect=effect,
             season_id=season_id,
             proposer_discord_id=proposer_discord_id,
         )
+    except Exception:  # noqa: BLE001 — Discord/runtime errors must not kill the tick
+        logger.exception("codegen_notify_failed")
+        sent = False
+
+    if not sent:
+        return
+
     try:
         async with get_session(engine) as session:
             repo = Repository(session)
@@ -372,8 +382,32 @@ async def _consume_rerun_requests(
             season_id=season_id,
             event_types=["effect.council_rerun_completed"],
         )
-        done_ids = {ev.aggregate_id for ev in completed}
-        open_requests = [ev for ev in requested if ev.aggregate_id not in done_ids]
+        # Correlate each request to its completion by the request's unique
+        # event id (NOT effect_id) — otherwise the first completion would
+        # mark every future rerun request for that effect as done, so a
+        # second admin /rerun-council would be acknowledged and silently
+        # ignored forever.
+        done_request_ids = {
+            str(ev.payload.get("request_event_id"))
+            for ev in completed
+            if ev.payload.get("request_event_id")
+        }
+        # Backward compat: legacy completions predate request_event_id and
+        # only carry the effect's aggregate_id. Treat any request at or
+        # before such a completion (by sequence) as already handled.
+        legacy_closed_seq: dict[str, int] = {}
+        for ev in completed:
+            if ev.payload.get("request_event_id"):
+                continue
+            prev = legacy_closed_seq.get(ev.aggregate_id, -1)
+            legacy_closed_seq[ev.aggregate_id] = max(prev, ev.sequence_number)
+
+        open_requests = [
+            ev
+            for ev in requested
+            if ev.id not in done_request_ids
+            and ev.sequence_number > legacy_closed_seq.get(ev.aggregate_id, -1)
+        ]
         if not open_requests:
             return 0
         registry = await load_effect_registry(repo, season_id)
@@ -405,7 +439,12 @@ async def _consume_rerun_requests(
                     aggregate_id=ev.aggregate_id,
                     aggregate_type="effect",
                     season_id=season_id,
-                    payload={"effect_id": effect_id, "verdict": verdict},
+                    payload={
+                        "effect_id": effect_id,
+                        "verdict": verdict,
+                        # Pin to the specific request so re-requests stay open
+                        "request_event_id": ev.id,
+                    },
                 )
                 if disable:
                     await repo.append_event(

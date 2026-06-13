@@ -670,3 +670,153 @@ class TestRerunConsumer:
         settings = _settings(anthropic_api_key="k")
         assert await _consume_rerun_requests(engine, settings, season_id) == 1
         assert await _consume_rerun_requests(engine, settings, season_id) == 0
+
+    async def test_second_rerun_request_is_consumed(
+        self, engine: AsyncEngine, season_id: str, monkeypatch,
+    ) -> None:
+        """A second /rerun-council request for the same effect must be
+        honored — the consumer correlates by request id, not effect id."""
+        effect_id = await self._register_codegen(engine, season_id)
+
+        async def _approving_review(code, text, api_key, proposal_id="", model=""):
+            return CouncilReview(
+                proposal_id=proposal_id,
+                code_hash=compute_code_hash(code),
+                consensus=True,
+            )
+
+        from pinwheel.ai import codegen_council
+
+        monkeypatch.setattr(
+            codegen_council, "review_existing_code", _approving_review,
+        )
+        settings = _settings(anthropic_api_key="k")
+
+        # First request (created by the fixture) is consumed
+        assert await _consume_rerun_requests(engine, settings, season_id) == 1
+
+        # Admin requests a second rerun of the same effect
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.append_event(
+                event_type="effect.council_rerun_requested",
+                aggregate_id=effect_id,
+                aggregate_type="effect",
+                season_id=season_id,
+                payload={"effect_id": effect_id},
+            )
+            await session.commit()
+
+        # It must be picked up, not silently ignored
+        assert await _consume_rerun_requests(engine, settings, season_id) == 1
+        # And not re-consumed on the next idle tick
+        assert await _consume_rerun_requests(engine, settings, season_id) == 0
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            completed = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.council_rerun_completed"],
+            )
+        assert len(completed) == 2
+        # Each completion pins the specific request it satisfied
+        assert all(c.payload.get("request_event_id") for c in completed)
+
+
+class TestNotifyAndMark:
+    """Finding: the notified marker was written even when the DM never sent,
+    leaving a pending effect inert forever. The marker must only be written
+    on a confirmed send so the next tick retries."""
+
+    async def _pending_effect(
+        self, engine: AsyncEngine, season_id: str,
+    ):
+        code = "return HookResult(score_modifier=1)"
+        spec = EffectSpec(
+            effect_type="codegen",
+            codegen=CodegenEffectSpec(
+                code=code,
+                code_hash=compute_code_hash(code),
+                trust_level=CodegenTrustLevel.NUMERIC,
+                council_review=CouncilReview(
+                    proposal_id="p-1",
+                    code_hash=compute_code_hash(code),
+                    consensus=True,
+                ),
+                hook_points=["sim.possession.post"],
+                description="notify target",
+            ),
+            description="notify target",
+        )
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            registry = EffectRegistry()
+            registered = await register_effects_for_proposal(
+                repo, registry, "p-1", [spec], season_id, current_round=1,
+            )
+            await session.commit()
+        return registered[0]
+
+    async def _marker_count(self, engine: AsyncEngine, season_id: str) -> int:
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.codegen_admin_notified"],
+            )
+        return len(events)
+
+    async def test_marker_not_written_when_dm_fails(
+        self, engine: AsyncEngine, season_id: str, monkeypatch,
+    ) -> None:
+        from pinwheel.core import codegen_pipeline
+        from pinwheel.discord import views
+
+        effect = await self._pending_effect(engine, season_id)
+
+        async def _failed_send(*args, **kwargs):
+            return False
+
+        monkeypatch.setattr(views, "notify_admin_codegen_pending", _failed_send)
+        await codegen_pipeline._notify_and_mark(
+            engine, _settings(), bot=object(),
+            effect=effect, season_id=season_id,
+        )
+        assert await self._marker_count(engine, season_id) == 0
+
+    async def test_marker_written_when_dm_succeeds(
+        self, engine: AsyncEngine, season_id: str, monkeypatch,
+    ) -> None:
+        from pinwheel.core import codegen_pipeline
+        from pinwheel.discord import views
+
+        effect = await self._pending_effect(engine, season_id)
+
+        async def _ok_send(*args, **kwargs):
+            return True
+
+        monkeypatch.setattr(views, "notify_admin_codegen_pending", _ok_send)
+        await codegen_pipeline._notify_and_mark(
+            engine, _settings(), bot=object(),
+            effect=effect, season_id=season_id,
+        )
+        assert await self._marker_count(engine, season_id) == 1
+
+    async def test_notifier_exception_does_not_mark(
+        self, engine: AsyncEngine, season_id: str, monkeypatch,
+    ) -> None:
+        from pinwheel.core import codegen_pipeline
+        from pinwheel.discord import views
+
+        effect = await self._pending_effect(engine, season_id)
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("discord exploded")
+
+        monkeypatch.setattr(views, "notify_admin_codegen_pending", _boom)
+        # Must not raise, and must not mark
+        await codegen_pipeline._notify_and_mark(
+            engine, _settings(), bot=object(),
+            effect=effect, season_id=season_id,
+        )
+        assert await self._marker_count(engine, season_id) == 0

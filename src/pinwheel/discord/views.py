@@ -1827,15 +1827,19 @@ async def notify_admin_codegen_pending(
     season_id: str,
     proposer_discord_id: int | None = None,
     guild: discord.Guild | None = None,
-) -> None:
+) -> bool:
     """DM the admin an Approve/Reject gate for a pending codegen effect.
 
     Called when a council-approved codegen effect registers in the pending
     state. Tries settings.pinwheel_admin_discord_id first, falls back to
     the guild owner when a guild is provided.
-    """
-    import contextlib
 
+    Returns True ONLY when the DM was actually delivered. Every failure
+    path (no admin configured, no engine, fetch failure, send rejected)
+    returns False so the caller does not mark the effect as notified and
+    the pipeline tick retries on the next cycle — otherwise a pending
+    effect could sit inert forever, awaiting an admin who never got pinged.
+    """
     from pinwheel.discord.embeds import build_codegen_review_embed
 
     admin_user: discord.User | discord.Member | None = None
@@ -1856,12 +1860,12 @@ async def notify_admin_codegen_pending(
             "codegen_pending_no_admin_found effect=%s",
             getattr(effect, "effect_id", "?"),
         )
-        return
+        return False
 
     engine = getattr(client, "engine", None)
     if engine is None:
         logger.warning("codegen_pending_no_engine")
-        return
+        return False
 
     embed = build_codegen_review_embed(effect)  # type: ignore[arg-type]
     view = CodegenApprovalView(
@@ -1871,10 +1875,19 @@ async def notify_admin_codegen_pending(
         proposer_discord_id=proposer_discord_id,
         engine=engine,
     )
-    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+    try:
         await admin_user.send(embed=embed, view=view)
-        logger.info(
-            "codegen_pending_dm_sent admin=%s effect=%s",
+    except (discord.Forbidden, discord.HTTPException):
+        logger.warning(
+            "codegen_pending_dm_failed admin=%s effect=%s",
             admin_user.id,
             getattr(effect, "effect_id", "?"),
         )
+        return False
+
+    logger.info(
+        "codegen_pending_dm_sent admin=%s effect=%s",
+        admin_user.id,
+        getattr(effect, "effect_id", "?"),
+    )
+    return True

@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2743 tests**, zero lint errors (Session 135)
+- **2747 tests**, zero lint errors (Session 136)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
 - **Day 27 (this session):** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -237,3 +237,30 @@ codegen plan.
 (classifier holds `flyctl deploy` of agent-authored changes).
 
 **Tests:** 2743 passing (6 new), zero lint errors
+
+## Session 136 — Codegen Pipeline Review Fixes
+
+**What was asked:** Address two review findings on the codegen pipeline.
+
+**What was built:**
+- **Notified-marker only on confirmed send.** `_notify_and_mark` wrote
+  `effect.codegen_admin_notified` even when the admin DM never went out
+  (no admin configured, no engine, suppressed Discord failure), so the
+  tick treated the effect as notified and never retried — a pending
+  codegen effect could sit inert until someone manually ran
+  `/review-codegen`. `notify_admin_codegen_pending` now returns `bool`
+  (True only after a successful `send()`); the marker is written only when
+  it returns True, and a notifier exception no longer marks either. The
+  `_notify_unannounced_pending` tick retries any still-unmarked pending
+  effect on the next cycle.
+- **`/rerun-council` no longer one-shot per effect.** Requests and
+  completions both used `aggregate_id=effect_id`, and the consumer filtered
+  out any request whose effect had ever completed — so a second admin
+  rerun of the same effect was acknowledged but ignored forever. The
+  consumer now correlates each request to its completion by the request's
+  unique event id (the completion payload records `request_event_id`), with
+  a sequence-number backward-compat fallback for any legacy completions.
+
+**Tests:** 2747 passing (4 new), zero lint errors. New: second-rerun-is-
+consumed, marker-not-written-on-failed-DM, marker-written-on-success,
+notifier-exception-does-not-mark.
