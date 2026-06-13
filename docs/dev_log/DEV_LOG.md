@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2737 tests**, zero lint errors (Session 134)
+- **2743 tests**, zero lint errors (Session 135)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
 - **Day 27 (this session):** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -24,7 +24,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Implement codegen wiring Phase 1 (opponent_score_modifier + meta_writes)
 - [x] Implement codegen wiring Phases 2-5 per the plan
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
-- [ ] Deploy the deferred-tick datetime fix (4558e54) — awaiting owner-run `flyctl deploy`
+- [ ] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — awaiting owner-authorized `flyctl deploy`
 - [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve)
 
 ## Session 132 — Audit + Sim Bug Fixes + Summary Overhaul
@@ -206,3 +206,34 @@ approval. Run `flyctl deploy` to ship it; until then the deferred tick logs
 a handled error once per minute (no user impact).
 
 **Tests:** 2737 passing (1 new), zero lint errors
+
+## Session 135 — Remaining Audit Fixes
+
+**What was asked:** "Keep on fixing!!" — close out the intent-ambiguous
+items deferred from the session-132 audit plus the safety gap noted in the
+codegen plan.
+
+**What was built:**
+- **Offensive rebounds retain possession** (SIMULATION.md: "Winner gets
+  possession"). `is_offensive_rebound` was a cosmetic stat; the governable
+  `offensive_rebound_weight` rule changed nothing. Now the offense keeps
+  the ball after winning its own board in all three loops (quarters, Elam,
+  sudden death), and a regression test asserts the rule weight changes
+  same-seed game outcomes.
+- **Codegen auto-disables persist.** The sandbox kill switch runs inside
+  the synchronous sim with no DB access — a violation-disabled effect came
+  back ENABLED on the next registry reload, re-failing (or re-misbehaving)
+  every round. New `persist_codegen_disables` (idempotent) is called by the
+  game loop after each round.
+- **Offseason/completed-season tallies register v2 effects.** Both
+  scheduler paths called `tally_pending_governance` without an effect
+  registry, so Tier-5 effect proposals passed silently with no effects.
+  Both now load the registry first.
+- Deliberately NOT changed: and-one free throws (current behavior is an
+  acceptable simplification not contradicted by SIMULATION.md).
+
+**Deploy status:** committed and pushed (`2c20b29`); prod deploy of
+`4558e54` + `2c20b29` still awaiting explicit owner authorization
+(classifier holds `flyctl deploy` of agent-authored changes).
+
+**Tests:** 2743 passing (6 new), zero lint errors
