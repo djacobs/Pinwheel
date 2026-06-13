@@ -1964,3 +1964,46 @@ class TestEjectionLogged:
             entry.action == "ejection" and entry.result.startswith("effect_ejection:")
             for entry in all_logs
         )
+
+
+class TestOffensiveReboundPossession:
+    """SIMULATION.md: "REBOUND ... Winner gets possession" — an offensive
+    rebound keeps the ball with the offense instead of alternating."""
+
+    def test_offensive_rebound_retains_possession(self, monkeypatch):
+        from pinwheel.core import simulation as sim_mod
+        from pinwheel.core.possession import PossessionResult
+
+        offenses: list[bool] = []
+
+        def _fake_resolve(game_state, rules, rng, last_three=False, ctx=None, **kwargs):
+            offenses.append(game_state.home_has_ball)
+            # First possession: home misses but wins the offensive board
+            return PossessionResult(
+                is_offensive_rebound=len(offenses) == 1,
+                time_used=60.0,
+            )
+
+        monkeypatch.setattr(sim_mod, "resolve_possession", _fake_resolve)
+
+        home = _make_team("home")
+        away = _make_team("away")
+        gs = GameState(
+            home_agents=[HooperState(hooper=h) for h in home.hoopers],
+            away_agents=[HooperState(hooper=h) for h in away.hoopers],
+        )
+        sim_mod._run_quarter(gs, RuleSet(quarter_minutes=4), random.Random(1), [], [])
+
+        assert len(offenses) >= 3
+        assert offenses[0] is True  # home ball
+        assert offenses[1] is True  # offensive rebound — home keeps it
+        assert offenses[2] is False  # normal alternation resumes
+
+    def test_offensive_rebound_weight_rule_changes_outcomes(self):
+        """The governable offensive_rebound_weight must actually matter:
+        cranking it changes game outcomes for the same seed."""
+        home = _make_team("home")
+        away = _make_team("away")
+        low = simulate_game(home, away, RuleSet(offensive_rebound_weight=1.0), seed=11)
+        high = simulate_game(home, away, RuleSet(offensive_rebound_weight=15.0), seed=11)
+        assert (low.home_score, low.away_score) != (high.home_score, high.away_score)

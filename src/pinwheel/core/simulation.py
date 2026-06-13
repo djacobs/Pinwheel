@@ -356,8 +356,11 @@ def _run_quarter(
         # Check for foul-out substitutions after each possession
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
-        # Alternate possession
-        if game_def is None or game_def.alternating_possession:
+        # Alternate possession — unless the offense won its own rebound
+        # (SIMULATION.md: "REBOUND ... Winner gets possession")
+        if (game_def is None or game_def.alternating_possession) and (
+            not result.is_offensive_rebound
+        ):
             game_state.home_has_ball = not game_state.home_has_ball
 
         # Safety cap
@@ -442,8 +445,11 @@ def _run_elam(
         # Check for foul-out substitutions
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
-        # Alternate possession
-        if game_def is None or game_def.alternating_possession:
+        # Alternate possession — unless the offense won its own rebound
+        # (SIMULATION.md: "REBOUND ... Winner gets possession")
+        if (game_def is None or game_def.alternating_possession) and (
+            not result.is_offensive_rebound
+        ):
             game_state.home_has_ball = not game_state.home_has_ball
 
         # Safety cap
@@ -501,7 +507,9 @@ def _run_sudden_death(
 
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
 
-        if game_def is None or game_def.alternating_possession:
+        if (game_def is None or game_def.alternating_possession) and (
+            not result.is_offensive_rebound
+        ):
             game_state.home_has_ball = not game_state.home_has_ball
 
 

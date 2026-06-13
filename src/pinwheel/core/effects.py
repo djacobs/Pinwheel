@@ -546,6 +546,64 @@ async def reject_codegen_effect(
     return True
 
 
+async def persist_codegen_disables(
+    repo: Repository,
+    registry: EffectRegistry,
+    season_id: str,
+) -> int:
+    """Persist codegen auto-disable decisions made in-memory during games.
+
+    The sandbox kill switch (`_disable_codegen` — integrity failures,
+    sandbox violations, timeouts, 3 consecutive errors) runs inside the
+    synchronous simulation with no DB access, so it can only mutate the
+    in-memory effect. Without persisting an ``effect.codegen_disabled``
+    event, the next round's registry reload would re-enable the offending
+    code and it would fail (or worse, misbehave) all over again.
+
+    Called by the game loop after each round. Idempotent: effects whose
+    disable event already exists are skipped. Returns how many disables
+    were persisted.
+    """
+    disabled = [
+        e
+        for e in registry.get_all_active()
+        if e.effect_type == "codegen" and not e.codegen_enabled
+    ]
+    if not disabled:
+        return 0
+
+    existing = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["effect.codegen_disabled"],
+    )
+    already_persisted = {
+        str(ev.payload.get("effect_id", ev.aggregate_id)) for ev in existing
+    }
+
+    count = 0
+    for effect in disabled:
+        if effect.effect_id in already_persisted:
+            continue
+        await repo.append_event(
+            event_type="effect.codegen_disabled",
+            aggregate_id=effect.effect_id,
+            aggregate_type="effect",
+            season_id=season_id,
+            payload={
+                "effect_id": effect.effect_id,
+                "reason": effect.codegen_disabled_reason or "auto_disabled",
+                "last_error": effect.codegen_last_error[:200],
+            },
+        )
+        count += 1
+        logger.warning(
+            "codegen_auto_disable_persisted effect=%s reason=%s",
+            effect.effect_id,
+            effect.codegen_disabled_reason,
+        )
+    return count
+
+
 async def persist_expired_effects(
     repo: Repository,
     season_id: str,

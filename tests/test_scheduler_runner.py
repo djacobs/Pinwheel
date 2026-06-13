@@ -706,3 +706,95 @@ class TestPartialRoundResume:
             assert len(r1_games) == len(round_one)
             assert len({g.matchup_index for g in r1_games}) == len(round_one)
             assert len(r2_games) == 0
+
+
+class TestOffseasonEffectsRegistration:
+    """Regression: tally_pending_governance was called without an effect
+    registry during offseason/completed-season ticks, so passing proposals
+    with v2 effects were marked passed but their effects never registered."""
+
+    async def test_completed_season_tally_registers_v2_effects(
+        self, engine: AsyncEngine,
+    ) -> None:
+        from pinwheel.core.governance import (
+            cast_vote,
+            confirm_proposal,
+            submit_proposal,
+        )
+        from pinwheel.core.tokens import regenerate_tokens
+        from pinwheel.models.governance import (
+            EffectSpec,
+            ProposalInterpretation,
+            RuleInterpretation,
+        )
+        from pinwheel.models.rules import RuleSet
+
+        season_id = await _setup_season(engine)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_season(season_id)
+            season.status = "completed"
+
+            teams = await repo.get_teams_for_season(season_id)
+            team_id = teams[0].id
+            gov_id = "gov-offseason"
+            await regenerate_tokens(repo, gov_id, team_id, season_id)
+
+            interp_v2 = ProposalInterpretation(
+                effects=[
+                    EffectSpec(
+                        effect_type="hook_callback",
+                        hook_point="sim.possession.pre",
+                        action_code={
+                            "type": "modify_probability",
+                            "modifier": 0.05,
+                        },
+                        description="Trailing-team boost",
+                    )
+                ],
+                confidence=0.9,
+                original_text_echo="trailing team gets a boost",
+            )
+            proposal = await submit_proposal(
+                repo=repo,
+                governor_id=gov_id,
+                team_id=team_id,
+                season_id=season_id,
+                window_id="",
+                raw_text="trailing team gets a boost",
+                interpretation=RuleInterpretation(parameter=None),
+                ruleset=RuleSet(),
+                interpretation_v2=interp_v2,
+            )
+            await confirm_proposal(repo, proposal, interpretation_v2=interp_v2)
+            await cast_vote(
+                repo=repo,
+                proposal=proposal,
+                governor_id=gov_id,
+                team_id=team_id,
+                vote_choice="yes",
+                weight=1.0,
+            )
+            await session.commit()
+
+        # Tick twice: the first tick defers (minimum voting period), the
+        # second tallies and must register the effect
+        event_bus = EventBus()
+        await tick_round(engine, event_bus)
+        await tick_round(engine, event_bus)
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            passed = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["proposal.passed"],
+            )
+            registered = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.registered"],
+            )
+        assert any(ev.aggregate_id == proposal.id for ev in passed)
+        assert any(
+            ev.payload.get("proposal_id") == proposal.id for ev in registered
+        )

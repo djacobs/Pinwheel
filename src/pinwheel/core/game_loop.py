@@ -1483,6 +1483,20 @@ async def _phase_simulate_and_govern(
                     round_number,
                 )
 
+        # Persist codegen auto-disables (the sandbox kill switch runs inside
+        # the sync sim with no DB access — without this, a disabled effect
+        # comes back enabled on the next registry reload)
+        try:
+            from pinwheel.core.effects import persist_codegen_disables
+
+            await persist_codegen_disables(repo, effect_registry, season_id)
+        except SQLAlchemyError:
+            logger.exception(
+                "codegen_disable_persist_failed season=%s round=%d",
+                season_id,
+                round_number,
+            )
+
     # 4b. Milestone checks — earned moves for hoopers who hit stat thresholds
     milestone_grants: list[dict] = []
     try:

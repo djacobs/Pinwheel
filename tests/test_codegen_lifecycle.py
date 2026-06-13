@@ -299,3 +299,61 @@ class TestEffectsSummaryStates:
         )
         registry.register(effect)
         assert "enabled" in registry.build_effects_summary()
+
+
+class TestAutoDisablePersistence:
+    """The sandbox kill switch runs inside the sync sim with no DB access —
+    persist_codegen_disables must write the event so the disable survives
+    the next registry reload."""
+
+    async def test_auto_disable_persists_across_reload(
+        self, repo: Repository, season_id: str,
+    ) -> None:
+        from pinwheel.core.effects import persist_codegen_disables
+
+        registry = EffectRegistry()
+        await register_effects_for_proposal(
+            repo, registry, "p-1", [_codegen_spec()], season_id,
+            current_round=1, codegen_auto_approve=True,
+        )
+        effect = next(iter(registry.get_all_active()))
+
+        # What the sandbox kill switch does mid-game (in-memory only)
+        effect._disable_codegen("Sandbox violation: timeout")
+        assert effect.codegen_enabled is False
+
+        persisted = await persist_codegen_disables(repo, registry, season_id)
+        assert persisted == 1
+
+        reloaded = await load_effect_registry(repo, season_id)
+        reloaded_effect = reloaded.get_effect(effect.effect_id)
+        assert reloaded_effect is not None
+        assert reloaded_effect.codegen_enabled is False
+
+    async def test_persist_is_idempotent(
+        self, repo: Repository, season_id: str,
+    ) -> None:
+        from pinwheel.core.effects import persist_codegen_disables
+
+        registry = EffectRegistry()
+        await register_effects_for_proposal(
+            repo, registry, "p-1", [_codegen_spec()], season_id,
+            current_round=1, codegen_auto_approve=True,
+        )
+        effect = next(iter(registry.get_all_active()))
+        effect._disable_codegen("boom")
+
+        assert await persist_codegen_disables(repo, registry, season_id) == 1
+        assert await persist_codegen_disables(repo, registry, season_id) == 0
+
+    async def test_enabled_effects_not_persisted(
+        self, repo: Repository, season_id: str,
+    ) -> None:
+        from pinwheel.core.effects import persist_codegen_disables
+
+        registry = EffectRegistry()
+        await register_effects_for_proposal(
+            repo, registry, "p-1", [_codegen_spec()], season_id,
+            current_round=1, codegen_auto_approve=True,
+        )
+        assert await persist_codegen_disables(repo, registry, season_id) == 0

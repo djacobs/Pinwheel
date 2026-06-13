@@ -508,8 +508,15 @@ async def tick_round(
                     )
                 )
                 last_round: int = max_round_result.scalar_one()
+                # Load the effect registry so passing proposals with v2
+                # effects (hooks, meta, codegen, game-def patches) actually
+                # register — without it they pass silently with no effect.
+                from pinwheel.core.effects import load_effect_registry
+
+                offseason_registry = await load_effect_registry(repo, season.id)
                 _new_ruleset, tallies, gov_data = await tally_pending_governance(
                     repo, season.id, last_round, ruleset, event_bus,
+                    effect_registry=offseason_registry,
                 )
                 if tallies:
                     proposals_data = gov_data.get("proposals", [])
@@ -577,8 +584,13 @@ async def tick_round(
                     )
                 )
                 last_round: int = max_round_result.scalar_one()
+                # Same as the offseason path: v2 effects must register
+                from pinwheel.core.effects import load_effect_registry
+
+                completed_registry = await load_effect_registry(repo, season.id)
                 new_ruleset, tallies, gov_data = await tally_pending_governance(
                     repo, season.id, last_round, ruleset, event_bus,
+                    effect_registry=completed_registry,
                 )
                 if tallies:
                     # Build governance summary for Discord notification
