@@ -1096,6 +1096,77 @@ def get_proposal_effects_v2(
     return effects
 
 
+async def _resolve_hooper_target(
+    repo: Repository,
+    season_id: str,
+    raw: str,
+) -> str | None:
+    """Resolve an AI-provided hooper reference (ID or name) to a hooper ID.
+
+    Resolution order: exact ID → exact name (current season preferred) →
+    case-insensitive name within the season → unique substring match.
+    Returns None when the reference cannot be resolved.
+    """
+    hooper = await repo.get_hooper(raw)
+    if hooper is not None:
+        return hooper.id
+
+    name = raw.strip()
+    rows = await repo.get_hoopers_by_name(name)
+    in_season = [r for r in rows if r.season_id == season_id]
+    if in_season:
+        return in_season[0].id
+    if rows:
+        return rows[0].id
+
+    needle = name.lower()
+    exact: list[str] = []
+    partial: list[str] = []
+    teams = await repo.get_teams_for_season(season_id)
+    for team in teams:
+        for h in await repo.get_hoopers_for_team(team.id):
+            h_name = (h.name or "").strip().lower()
+            if h_name == needle:
+                exact.append(h.id)
+            elif needle and (needle in h_name or h_name in needle):
+                partial.append(h.id)
+    if exact:
+        return exact[0]
+    if len(partial) == 1:
+        return partial[0]
+    return None
+
+
+async def _resolve_team_target(
+    repo: Repository,
+    season_id: str,
+    raw: str,
+) -> str | None:
+    """Resolve an AI-provided team reference (ID or name) to a team ID.
+
+    Resolution order: exact ID → case-insensitive exact name within the
+    season → unique substring match. Returns None when unresolvable.
+    """
+    team = await repo.get_team(raw)
+    if team is not None:
+        return team.id
+
+    needle = raw.strip().lower()
+    teams = await repo.get_teams_for_season(season_id)
+    exact = [t.id for t in teams if (t.name or "").strip().lower() == needle]
+    if exact:
+        return exact[0]
+    partial = [
+        t.id
+        for t in teams
+        if needle
+        and (needle in (t.name or "").lower() or (t.name or "").lower() in needle)
+    ]
+    if len(partial) == 1:
+        return partial[0]
+    return None
+
+
 async def _enact_move_grant(
     repo: Repository,
     season_id: str,
@@ -1104,12 +1175,22 @@ async def _enact_move_grant(
     """Enact a move_grant effect — grant a governed move to targeted hoopers.
 
     Targets are resolved from the effect's target_hooper_id, target_team_id,
-    or target_selector ("all"). Returns list of hooper IDs that received the move.
+    or target_selector ("all"). AI-emitted targets may be NAMES rather than
+    IDs — both are resolved via roster lookup (exact-name first, then
+    case-insensitive, then unique substring). An unresolvable hooper target
+    falls back to the team target when present; otherwise the grant is
+    skipped with a recorded warning. Never raises for bad targets.
 
+    Structured modifier fields (move_modifier_kind/magnitude/applicable_action)
+    are carried onto the Move; when absent, the free-text move_effect is
+    parsed for common patterns ("+12% mid-range", "reduces turnovers by 10%").
+
+    Returns list of hooper IDs that received the move.
     Deduplication: if a hooper already has a move with the same name, skip.
     """
     import logging
 
+    from pinwheel.core.moves import VALID_MODIFIER_KINDS, parse_move_effect_text
     from pinwheel.models.team import Move
 
     logger = logging.getLogger(__name__)
@@ -1117,23 +1198,80 @@ async def _enact_move_grant(
     if not effect.move_name:
         return []
 
+    # Structured modifier fields — validate the AI payload, fall back to
+    # parsing the free-text effect for legacy/mock payloads.
+    modifier_kind = effect.move_modifier_kind
+    magnitude = effect.move_magnitude
+    applicable_action = effect.move_applicable_action
+    if modifier_kind not in VALID_MODIFIER_KINDS:
+        modifier_kind = None
+    if modifier_kind is None or magnitude is None:
+        parsed = parse_move_effect_text(effect.move_effect or "")
+        if parsed is not None:
+            modifier_kind = str(parsed["modifier_kind"])
+            magnitude = float(parsed["magnitude"])
+            raw_action = parsed.get("applicable_action")
+            applicable_action = str(raw_action) if raw_action is not None else None
+
     move = Move(
         name=effect.move_name,
         trigger=effect.move_trigger or "any_possession",
         effect=effect.move_effect or "",
         attribute_gate=effect.move_attribute_gate or {},
         source="governed",
+        modifier_kind=modifier_kind,  # type: ignore[arg-type]  # validated against VALID_MODIFIER_KINDS above
+        magnitude=float(magnitude) if magnitude is not None else 0.0,
+        applicable_action=applicable_action,
     )
     move_dict = move.model_dump()
 
+    async def _record_warning(reason: str, raw_target: str) -> None:
+        logger.warning(
+            "move_grant_target_unresolved move=%s target=%r season=%s reason=%s",
+            effect.move_name,
+            raw_target,
+            season_id,
+            reason,
+        )
+        await repo.append_event(
+            event_type="effect.move_grant_target_unresolved",
+            aggregate_id=effect.move_name or "move_grant",
+            aggregate_type="effect",
+            season_id=season_id,
+            payload={
+                "move_name": effect.move_name,
+                "raw_target": raw_target,
+                "reason": reason,
+            },
+        )
+
     target_hooper_ids: list[str] = []
+    resolved = False
 
     if effect.target_hooper_id:
-        target_hooper_ids = [effect.target_hooper_id]
-    elif effect.target_team_id:
-        hoopers = await repo.get_hoopers_for_team(effect.target_team_id)
-        target_hooper_ids = [h.id for h in hoopers]
-    elif effect.target_selector == "all":
+        hooper_id = await _resolve_hooper_target(repo, season_id, effect.target_hooper_id)
+        if hooper_id is not None:
+            target_hooper_ids = [hooper_id]
+            resolved = True
+        elif not effect.target_team_id:
+            await _record_warning("hooper_not_found", effect.target_hooper_id)
+            return []
+        else:
+            await _record_warning(
+                "hooper_not_found_falling_back_to_team", effect.target_hooper_id
+            )
+
+    if not resolved and effect.target_team_id:
+        team_id = await _resolve_team_target(repo, season_id, effect.target_team_id)
+        if team_id is not None:
+            hoopers = await repo.get_hoopers_for_team(team_id)
+            target_hooper_ids = [h.id for h in hoopers]
+            resolved = True
+        else:
+            await _record_warning("team_not_found", effect.target_team_id)
+            return []
+
+    if not resolved and effect.target_selector == "all":
         teams = await repo.get_teams_for_season(season_id)
         for team in teams:
             hoopers = await repo.get_hoopers_for_team(team.id)
