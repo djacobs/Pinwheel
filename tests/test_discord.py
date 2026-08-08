@@ -4548,3 +4548,271 @@ class TestBuildTeamGameResultEmbedWithContext:
         )
         assert "Eliminated" in embed.title
         assert "(L2)" in embed.title
+
+
+# ---------------------------------------------------------------------------
+# Admin notification for effect.implementation_requested
+# ---------------------------------------------------------------------------
+
+
+def _admin_settings(**overrides) -> Settings:
+    defaults = {
+        "pinwheel_env": "development",
+        "database_url": "sqlite+aiosqlite:///:memory:",
+        "pinwheel_admin_discord_id": "424242",
+    }
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
+class TestNotifyAdminImplementationRequested:
+    """The admin DM for a passed custom mechanic awaiting /activate-mechanic.
+
+    Follows the confirmed-send contract: True ONLY when the DM was
+    actually delivered.
+    """
+
+    def _client_with_admin(self) -> tuple[MagicMock, AsyncMock]:
+        admin_user = AsyncMock(spec=discord.User)
+        admin_user.id = 424242
+        client = MagicMock(spec=discord.Client)
+        client.fetch_user = AsyncMock(return_value=admin_user)
+        return client, admin_user
+
+    async def test_returns_false_without_admin_configured(self) -> None:
+        from pinwheel.discord.views import notify_admin_implementation_requested
+
+        client = MagicMock(spec=discord.Client)
+        client.fetch_user = AsyncMock()
+        sent = await notify_admin_implementation_requested(
+            client,
+            _admin_settings(pinwheel_admin_discord_id=""),
+            proposal_id="p-1",
+            proposal_text="Make the floor lava",
+            effect_id="eff-1",
+        )
+        assert sent is False
+        client.fetch_user.assert_not_called()
+
+    async def test_sends_dm_with_proposal_and_effect_id(self) -> None:
+        from pinwheel.discord.views import notify_admin_implementation_requested
+
+        client, admin_user = self._client_with_admin()
+        sent = await notify_admin_implementation_requested(
+            client,
+            _admin_settings(),
+            proposal_id="p-1",
+            proposal_text="Make the floor lava",
+            effect_id="eff-1",
+            mechanic_description="Floor becomes lava",
+            hook_point="sim.possession.pre",
+        )
+        assert sent is True
+        admin_user.send.assert_called_once()
+        embed = admin_user.send.call_args.kwargs.get("embed")
+        assert embed is not None
+        assert "activate-mechanic" in (embed.description or "")
+        field_values = " ".join(str(f.value) for f in embed.fields)
+        assert "Make the floor lava" in field_values
+        assert "eff-1" in field_values
+        assert "p-1" in field_values
+
+    async def test_returns_false_when_dm_rejected(self) -> None:
+        from pinwheel.discord.views import notify_admin_implementation_requested
+
+        client, admin_user = self._client_with_admin()
+        admin_user.send.side_effect = discord.Forbidden(
+            MagicMock(status=403), "DMs closed"
+        )
+        sent = await notify_admin_implementation_requested(
+            client,
+            _admin_settings(),
+            proposal_id="p-1",
+            proposal_text="text",
+            effect_id="eff-1",
+        )
+        assert sent is False
+
+    async def test_falls_back_to_guild_owner(self) -> None:
+        from pinwheel.discord.views import notify_admin_implementation_requested
+
+        client = MagicMock(spec=discord.Client)
+        client.fetch_user = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "no"))
+        guild = MagicMock(spec=discord.Guild)
+        owner = AsyncMock(spec=discord.Member)
+        owner.id = 777
+        guild.owner = owner
+        sent = await notify_admin_implementation_requested(
+            client,
+            _admin_settings(),
+            proposal_id="p-1",
+            proposal_text="text",
+            effect_id="eff-1",
+            guild=guild,
+        )
+        assert sent is True
+        owner.send.assert_called_once()
+
+
+class TestTickImplementationRequests:
+    """The scheduler tick that consumes effect.implementation_requested.
+
+    Previously the event had NO consumer — the admin was never told a
+    custom mechanic awaited activation. The tick DMs the admin and writes
+    the notified marker ONLY on a confirmed send, so a failed DM retries.
+    """
+
+    async def _seed(self, engine) -> str:
+        """Create a season with a passed custom mechanic awaiting activation."""
+        from pinwheel.core.effects import EffectRegistry, register_effects_for_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+        from pinwheel.models.governance import EffectSpec
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            league = await repo.create_league("Test League")
+            season = await repo.create_season(league.id, "Season 1")
+            season_id = season.id
+            await repo.append_event(
+                event_type="proposal.submitted",
+                aggregate_id="p-1",
+                aggregate_type="proposal",
+                season_id=season_id,
+                payload={"id": "p-1", "raw_text": "Make the floor lava"},
+            )
+            await register_effects_for_proposal(
+                repo,
+                EffectRegistry(),
+                "p-1",
+                [
+                    EffectSpec(
+                        effect_type="custom_mechanic",
+                        description="Floor is lava",
+                        mechanic_observable_behavior="Everyone jumps",
+                    )
+                ],
+                season_id,
+                current_round=1,
+            )
+            await repo.append_event(
+                event_type="effect.implementation_requested",
+                aggregate_id="p-1",
+                aggregate_type="effect",
+                season_id=season_id,
+                payload={
+                    "proposal_id": "p-1",
+                    "mechanic_description": "Floor is lava",
+                    "mechanic_hook_point": "sim.possession.pre",
+                    "mechanic_observable_behavior": "Everyone jumps",
+                    "description": "Floor is lava",
+                },
+            )
+            await session.commit()
+        return season_id
+
+    async def _marker_count(self, engine, season_id: str) -> int:
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            events = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.implementation_admin_notified"],
+            )
+        return len(events)
+
+    @pytest.fixture
+    async def engine(self) -> AsyncIterator:
+        from pinwheel.db.engine import create_engine
+        from pinwheel.db.models import Base
+
+        eng = create_engine("sqlite+aiosqlite:///:memory:")
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield eng
+        await eng.dispose()
+
+    async def test_no_bot_is_noop(self, engine) -> None:
+        from pinwheel.core.codegen_pipeline import tick_implementation_requests
+
+        await self._seed(engine)
+        delivered = await tick_implementation_requests(
+            engine, _admin_settings(), bot=None
+        )
+        assert delivered == 0
+
+    async def test_notifies_and_marks_once(self, engine, monkeypatch) -> None:
+        from pinwheel.core.codegen_pipeline import tick_implementation_requests
+        from pinwheel.discord import views
+
+        season_id = await self._seed(engine)
+        calls: list[dict] = []
+
+        async def _ok_send(*args, **kwargs):
+            calls.append(kwargs)
+            return True
+
+        monkeypatch.setattr(
+            views, "notify_admin_implementation_requested", _ok_send
+        )
+        settings = _admin_settings()
+        bot = MagicMock(spec=discord.Client)
+
+        assert await tick_implementation_requests(engine, settings, bot=bot) == 1
+        assert len(calls) == 1
+        assert calls[0]["proposal_id"] == "p-1"
+        assert calls[0]["proposal_text"] == "Make the floor lava"
+        assert calls[0]["effect_id"]  # registered effect resolved from registry
+        assert await self._marker_count(engine, season_id) == 1
+
+        # Second tick: already notified — no re-send
+        assert await tick_implementation_requests(engine, settings, bot=bot) == 0
+        assert len(calls) == 1
+
+    async def test_failed_dm_retries_next_tick(self, engine, monkeypatch) -> None:
+        """A failed DM must NOT write the marker — the next tick retries."""
+        from pinwheel.core.codegen_pipeline import tick_implementation_requests
+        from pinwheel.discord import views
+
+        season_id = await self._seed(engine)
+        outcomes = [False, True]
+        calls: list[dict] = []
+
+        async def _flaky_send(*args, **kwargs):
+            calls.append(kwargs)
+            return outcomes[len(calls) - 1]
+
+        monkeypatch.setattr(
+            views, "notify_admin_implementation_requested", _flaky_send
+        )
+        settings = _admin_settings()
+        bot = MagicMock(spec=discord.Client)
+
+        # First tick: DM fails — nothing marked
+        assert await tick_implementation_requests(engine, settings, bot=bot) == 0
+        assert await self._marker_count(engine, season_id) == 0
+
+        # Second tick: retried and delivered
+        assert await tick_implementation_requests(engine, settings, bot=bot) == 1
+        assert len(calls) == 2
+        assert await self._marker_count(engine, season_id) == 1
+
+    async def test_notifier_exception_does_not_mark(self, engine, monkeypatch) -> None:
+        from pinwheel.core.codegen_pipeline import tick_implementation_requests
+        from pinwheel.discord import views
+
+        season_id = await self._seed(engine)
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("discord exploded")
+
+        monkeypatch.setattr(views, "notify_admin_implementation_requested", _boom)
+        bot = MagicMock(spec=discord.Client)
+
+        # Must not raise, must not mark
+        assert await tick_implementation_requests(
+            engine, _admin_settings(), bot=bot
+        ) == 0
+        assert await self._marker_count(engine, season_id) == 0

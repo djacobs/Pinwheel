@@ -195,6 +195,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         logger.info("codegen_pipeline_scheduler_registered")
 
+    # Custom-mechanic implementation requests — DM the admin when a passed
+    # custom_mechanic proposal awaits /activate-mechanic. Runs whenever the
+    # Discord bot is up (independent of the codegen flag: these events are
+    # written at tally time regardless, and previously had no consumer).
+    if discord_bot is not None:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        from pinwheel.core.codegen_pipeline import tick_implementation_requests
+
+        if scheduler is None:
+            scheduler = AsyncIOScheduler()
+            scheduler.start()
+            app.state.scheduler = scheduler
+
+        scheduler.add_job(
+            tick_implementation_requests,
+            trigger=IntervalTrigger(seconds=60),
+            kwargs={
+                "engine": engine,
+                "settings": settings,
+                "bot": discord_bot,
+            },
+            id="tick_implementation_requests",
+            name="Notify admin of custom mechanics awaiting activation",
+            replace_existing=True,
+        )
+        logger.info("implementation_requests_scheduler_registered")
+
     yield
 
     # Shutdown scheduler

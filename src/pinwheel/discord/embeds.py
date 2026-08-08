@@ -1652,6 +1652,54 @@ def build_effects_list_embed(
     return embed
 
 
+def build_implementation_request_embed(
+    *,
+    proposal_id: str,
+    proposal_text: str,
+    effect_id: str,
+    mechanic_description: str = "",
+    hook_point: str = "",
+    observable_behavior: str = "",
+) -> discord.Embed:
+    """Build the admin DM for a passed custom mechanic awaiting activation.
+
+    Sent when a ``custom_mechanic`` proposal passes: the narrative
+    approximation is live, but the mechanic needs `/activate-mechanic`
+    to become a real hook implementation.
+    """
+    embed = discord.Embed(
+        title="Custom Mechanic Awaiting Activation",
+        description=(
+            "A passed proposal needs a real implementation. Its narrative "
+            "approximation is live; run `/activate-mechanic` to wire up "
+            "the actual hook."
+        ),
+        color=COLOR_EFFECTS,
+    )
+    if proposal_text:
+        text = proposal_text[:1000] + ("..." if len(proposal_text) > 1000 else "")
+        embed.add_field(name="Proposal", value=f'"{text}"', inline=False)
+    if mechanic_description:
+        desc = mechanic_description[:1000]
+        embed.add_field(name="Mechanic", value=desc, inline=False)
+    if observable_behavior:
+        embed.add_field(
+            name="Observable Behavior",
+            value=observable_behavior[:1000],
+            inline=False,
+        )
+    if hook_point:
+        embed.add_field(name="Suggested Hook", value=f"`{hook_point}`", inline=True)
+    embed.add_field(
+        name="Effect ID",
+        value=f"`{effect_id}`" if effect_id else "not registered",
+        inline=True,
+    )
+    embed.add_field(name="Proposal ID", value=f"`{proposal_id}`", inline=True)
+    embed.set_footer(text="Pinwheel Fates -- admin action required")
+    return embed
+
+
 def build_repeal_confirm_embed(
     effect_description: str,
     effect_type: str,

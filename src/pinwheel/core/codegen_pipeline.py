@@ -578,3 +578,171 @@ async def tick_codegen_pipeline(
             await _notify_unannounced_pending(engine, settings, bot, season_id)
     except Exception:  # Last-resort handler — scheduler ticks must never raise
         logger.exception("tick_codegen_pipeline_failed")
+
+
+async def tick_implementation_requests(
+    engine: AsyncEngine,
+    settings: Settings,
+    bot: discord.Client | None = None,
+) -> int:
+    """60s scheduler tick: DM the admin about passed custom mechanics
+    awaiting /activate-mechanic.
+
+    ``effect.implementation_requested`` is written at tally time, where no
+    bot reference exists — without this tick the event has no consumer and
+    the admin only discovers pending mechanics via the /activate-mechanic
+    autocomplete. Uses the confirmed-send marker pattern: the
+    ``effect.implementation_admin_notified`` marker (keyed by the request's
+    unique event id) is written ONLY after a delivered DM, so a failed DM
+    retries on the next tick instead of being silently marked sent.
+
+    Runs independently of ``tick_codegen_pipeline`` because custom
+    mechanics occur whether or not codegen is enabled. Returns the number
+    of notifications delivered. Never raises.
+    """
+    from pinwheel.db.engine import get_session
+    from pinwheel.db.repository import Repository
+
+    if bot is None:
+        return 0
+
+    delivered = 0
+    try:
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            season = await repo.get_active_season()
+            if season is None:
+                return 0
+            season_id = season.id
+
+            requested = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.implementation_requested"],
+            )
+            if not requested:
+                return 0
+            notified = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["effect.implementation_admin_notified"],
+            )
+            # Correlate by the request's unique event id — a proposal can
+            # carry multiple custom_mechanic effects, all sharing its
+            # aggregate_id.
+            notified_request_ids = {
+                str(ev.payload.get("request_event_id"))
+                for ev in notified
+                if ev.payload.get("request_event_id")
+            }
+            open_requests = [
+                ev for ev in requested if ev.id not in notified_request_ids
+            ]
+            if not open_requests:
+                return 0
+
+            # Source proposal text + the registered effect id for each request
+            from pinwheel.core.effects import load_effect_registry
+
+            registry = await load_effect_registry(repo, season_id)
+            submitted = await repo.get_events_by_type(
+                season_id=season_id,
+                event_types=["proposal.submitted"],
+            )
+            proposal_texts = {
+                str(ev.payload.get("id", ev.aggregate_id)): str(
+                    ev.payload.get("raw_text", "")
+                )
+                for ev in submitted
+            }
+            effect_ids_by_proposal = {
+                e.proposal_id: e.effect_id
+                for e in registry.get_all_active()
+                if e.effect_type == "custom_mechanic"
+            }
+
+        for ev in open_requests:
+            proposal_id = str(ev.payload.get("proposal_id", ev.aggregate_id))
+            sent = await _notify_implementation_and_mark(
+                engine,
+                settings,
+                bot,
+                season_id=season_id,
+                request_event_id=str(ev.id),
+                proposal_id=proposal_id,
+                proposal_text=proposal_texts.get(proposal_id, ""),
+                effect_id=effect_ids_by_proposal.get(proposal_id, ""),
+                mechanic_description=str(
+                    ev.payload.get("mechanic_description", "")
+                ),
+                hook_point=str(ev.payload.get("mechanic_hook_point", "")),
+                observable_behavior=str(
+                    ev.payload.get("mechanic_observable_behavior", "")
+                ),
+            )
+            if sent:
+                delivered += 1
+    except Exception:  # Last-resort handler — scheduler ticks must never raise
+        logger.exception("tick_implementation_requests_failed")
+
+    return delivered
+
+
+async def _notify_implementation_and_mark(
+    engine: AsyncEngine,
+    settings: Settings,
+    bot: discord.Client,
+    *,
+    season_id: str,
+    request_event_id: str,
+    proposal_id: str,
+    proposal_text: str,
+    effect_id: str,
+    mechanic_description: str,
+    hook_point: str,
+    observable_behavior: str,
+) -> bool:
+    """DM the admin about one implementation request; mark ONLY if it sent.
+
+    Mirrors ``_notify_and_mark``: a failed or suppressed DM leaves the
+    request unmarked so the next tick retries it.
+    """
+    from pinwheel.db.engine import get_session
+    from pinwheel.db.repository import Repository
+    from pinwheel.discord.views import notify_admin_implementation_requested
+
+    try:
+        sent = await notify_admin_implementation_requested(
+            bot,
+            settings,
+            proposal_id=proposal_id,
+            proposal_text=proposal_text,
+            effect_id=effect_id,
+            mechanic_description=mechanic_description,
+            hook_point=hook_point,
+            observable_behavior=observable_behavior,
+        )
+    except Exception:  # noqa: BLE001 — Discord/runtime errors must not kill the tick
+        logger.exception("implementation_notify_failed proposal=%s", proposal_id)
+        sent = False
+
+    if not sent:
+        return False
+
+    try:
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            await repo.append_event(
+                event_type="effect.implementation_admin_notified",
+                aggregate_id=proposal_id,
+                aggregate_type="effect",
+                season_id=season_id,
+                payload={
+                    "request_event_id": request_event_id,
+                    "proposal_id": proposal_id,
+                    "effect_id": effect_id,
+                },
+            )
+            await session.commit()
+    except SQLAlchemyError:
+        logger.exception("implementation_notify_marker_failed")
+
+    return True
