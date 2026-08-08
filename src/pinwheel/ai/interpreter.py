@@ -651,7 +651,7 @@ async def _opus_escalate(
         track_latency,
     )
 
-    opus_model = "claude-sonnet-4-6"
+    opus_model = "claude-opus-4-6"
 
     effects_summary = "; ".join(
         f"{e.effect_type}: {e.description}" for e in first_pass.effects
