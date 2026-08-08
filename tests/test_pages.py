@@ -2972,3 +2972,143 @@ class TestSplitStandings:
         assert "Standings" in r.text
         assert "Playoffs" not in r.text
         assert "Regular Season" not in r.text
+
+
+class TestEffectsPanel:
+    """The /rules and /governance pages render the active effect registry."""
+
+    async def _register_effect(self, engine, season_id, *, spec, proposal_text=""):
+        """Register an effect (and its source proposal event) for display."""
+        from pinwheel.core.effects import EffectRegistry, register_effects_for_proposal
+
+        proposal_id = "prop-effect-1"
+        async with get_session(engine) as session:
+            repo = Repository(session)
+            if proposal_text:
+                await repo.append_event(
+                    event_type="proposal.submitted",
+                    aggregate_id=proposal_id,
+                    aggregate_type="proposal",
+                    season_id=season_id,
+                    payload={
+                        "id": proposal_id,
+                        "raw_text": proposal_text,
+                        "governor_id": "gov-1",
+                        "team_id": "team-1",
+                    },
+                )
+            registered = await register_effects_for_proposal(
+                repo,
+                EffectRegistry(),
+                proposal_id,
+                [spec],
+                season_id,
+                current_round=1,
+            )
+            await session.commit()
+        return registered[0]
+
+    async def test_rules_page_empty_state(self, app_client):
+        """No registered effects — the panel shows the quiet-Floor message."""
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        assert "Active Effects" in r.text
+        assert "the Floor is quiet" in r.text
+
+    async def test_rules_page_renders_effect(self, app_client):
+        """A registered effect shows description, type, source, hooks, duration."""
+        from pinwheel.models.governance import EffectSpec
+
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+        await self._register_effect(
+            engine,
+            season_id,
+            spec=EffectSpec(
+                effect_type="narrative",
+                description="Rain reduces three-point accuracy",
+                duration="n_rounds",
+                duration_rounds=3,
+            ),
+            proposal_text="Add a weather system with rain",
+        )
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        assert "Rain reduces three-point accuracy" in r.text
+        assert "Narrative" in r.text
+        assert "Add a weather system with rain" in r.text
+        assert "report.simulation.pre" in r.text
+        assert "3 rounds remaining" in r.text
+        assert "the Floor is quiet" not in r.text
+
+    async def test_rules_page_codegen_pending_status(self, app_client):
+        """A pending codegen effect shows the admin-approval gate status."""
+        from pinwheel.core.codegen import compute_code_hash
+        from pinwheel.models.codegen import (
+            CodegenEffectSpec,
+            CodegenTrustLevel,
+            CouncilReview,
+        )
+        from pinwheel.models.governance import EffectSpec
+
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+        code = "return HookResult(score_modifier=1)"
+        await self._register_effect(
+            engine,
+            season_id,
+            spec=EffectSpec(
+                effect_type="codegen",
+                description="Custom scoring twist",
+                codegen=CodegenEffectSpec(
+                    code=code,
+                    code_hash=compute_code_hash(code),
+                    trust_level=CodegenTrustLevel.NUMERIC,
+                    council_review=CouncilReview(
+                        proposal_id="prop-effect-1",
+                        code_hash=compute_code_hash(code),
+                        consensus=True,
+                    ),
+                    hook_points=["sim.possession.post"],
+                    description="Custom scoring twist",
+                ),
+            ),
+        )
+
+        r = await client.get("/rules")
+        assert r.status_code == 200
+        assert "Custom scoring twist" in r.text
+        assert "Pending Admin" in r.text
+
+    async def test_governance_page_renders_effect(self, app_client):
+        """The governance page reuses the same effects panel."""
+        from pinwheel.models.governance import EffectSpec
+
+        client, engine = app_client
+        season_id, _ = await _seed_season(engine)
+        await self._register_effect(
+            engine,
+            season_id,
+            spec=EffectSpec(
+                effect_type="narrative",
+                description="The floor is lava",
+            ),
+            proposal_text="Make the floor lava",
+        )
+
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "Active Effects" in r.text
+        assert "The floor is lava" in r.text
+
+    async def test_governance_page_empty_state(self, app_client):
+        client, engine = app_client
+        await _seed_season(engine)
+
+        r = await client.get("/governance")
+        assert r.status_code == 200
+        assert "the Floor is quiet" in r.text

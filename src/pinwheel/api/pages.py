@@ -2622,9 +2622,11 @@ async def governance_page(
     proposals = []
     rules_changed = []
     season_phase = ""
+    active_effects: list[dict[str, object]] = []
 
     if season_id:
         season_phase = await _get_season_phase(repo, season_id)
+        active_effects = await _build_active_effects(repo, season_id)
 
         # Gather all governance events we need
         submitted = await repo.get_events_by_type(
@@ -2730,6 +2732,7 @@ async def governance_page(
             "proposals": proposals,
             "rules_changed": rules_changed,
             "season_phase": season_phase,
+            "active_effects": active_effects,
             **_auth_context(request, current_user),
         },
     )
@@ -2850,6 +2853,73 @@ async def _compute_rule_impact(repo: RepoDep, season_id: str, round_enacted: int
     return f"Scoring {direction}{pct_change:.0f}% since change"
 
 
+async def _build_active_effects(repo: RepoDep, season_id: str) -> list[dict[str, object]]:
+    """Active effect registry entries for web display.
+
+    Mirrors the truth Discord ``/effects`` shows: effect type, source
+    proposal, hook points, lifetime remaining, and — for codegen effects —
+    the admin approval gate (pending admin / approved / disabled).
+    """
+    from pinwheel.core.effects import load_effect_registry
+
+    registry = await load_effect_registry(repo, season_id)
+    active = registry.get_all_active()
+    if not active:
+        return []
+
+    # Look up source proposal text for each effect
+    submitted = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.submitted"],
+    )
+    proposal_texts: dict[str, str] = {}
+    for se in submitted:
+        pid = str(se.payload.get("id", se.aggregate_id))
+        proposal_texts[pid] = str(se.payload.get("raw_text", ""))
+
+    effects: list[dict[str, object]] = []
+    for effect in active:
+        # Codegen effects carry the pre-execution admin gate; everything
+        # else in the registry is live once registered.
+        if effect.effect_type == "codegen":
+            if effect.codegen_approval_status == "pending":
+                status, status_class = "Pending Admin", "pending"
+            elif (
+                effect.codegen_approval_status == "rejected"
+                or not effect.codegen_enabled
+            ):
+                status, status_class = "Disabled", "disabled"
+            else:
+                status, status_class = "Approved", "approved"
+        else:
+            status, status_class = "Active", "approved"
+
+        if effect.rounds_remaining is not None:
+            plural = "s" if effect.rounds_remaining != 1 else ""
+            duration = f"{effect.rounds_remaining} round{plural} remaining"
+        else:
+            duration = effect.lifetime.value.replace("_", " ").title()
+
+        effects.append(
+            {
+                "effect_id": effect.effect_id,
+                "short_id": effect.effect_id[-8:],
+                "effect_type": effect.effect_type.replace("_", " ").title(),
+                "description": (
+                    effect.description
+                    or effect.narrative_instruction
+                    or effect.effect_type
+                ),
+                "status": status,
+                "status_class": status_class,
+                "duration": duration,
+                "hook_points": list(effect.hook_points),
+                "proposal_text": proposal_texts.get(effect.proposal_id, ""),
+            }
+        )
+    return effects
+
+
 @router.get("/rules", response_class=HTMLResponse)
 async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser) -> HTMLResponse:
     """Current rules page."""
@@ -2859,11 +2929,14 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
     changes_from_default: dict = {}
     rule_history: list[dict[str, object]] = []
     rule_change_timeline: dict[str, list[dict[str, object]]] = {}
+    active_effects: list[dict[str, object]] = []
 
     if season_id:
         season = await repo.get_season(season_id)
         if season and season.current_ruleset:
             ruleset = RuleSet(**season.current_ruleset)
+
+        active_effects = await _build_active_effects(repo, season_id)
 
         for param in RuleSet.model_fields:
             current = getattr(ruleset, param)
@@ -2980,6 +3053,7 @@ async def rules_page(request: Request, repo: RepoDep, current_user: OptionalUser
             "community_changes": community_changes,
             "changes_from_default": changes_from_default,
             "rule_history": rule_history,
+            "active_effects": active_effects,
             "most_changed_tier": most_changed_tier_name,
             **_auth_context(request, current_user),
         },

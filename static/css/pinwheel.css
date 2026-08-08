@@ -2409,6 +2409,130 @@ h3 { font-size: 1.05rem; }
   line-height: 1.35;
 }
 
+/* ===== Active Effects Panel (rules + governance pages) ===== */
+.effects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.effect-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent-governance);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+}
+
+.effect-card-pending {
+  border-left-color: var(--accent-score);
+}
+
+.effect-card-disabled {
+  border-left-color: var(--accent-danger);
+  opacity: 0.7;
+}
+
+.effect-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.effect-card-type {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-governance);
+}
+
+.effect-status {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.effect-status-approved {
+  color: var(--accent-success);
+  background: rgba(26, 138, 80, 0.1);
+  border: 1px solid rgba(26, 138, 80, 0.3);
+}
+
+.effect-status-pending {
+  color: var(--accent-score);
+  background: rgba(154, 112, 0, 0.1);
+  border: 1px solid rgba(154, 112, 0, 0.3);
+}
+
+.effect-status-disabled {
+  color: var(--accent-danger);
+  background: rgba(212, 53, 69, 0.1);
+  border: 1px solid rgba(212, 53, 69, 0.3);
+}
+
+.effect-card-desc {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.effect-card-source {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-top: 0.3rem;
+  line-height: 1.35;
+}
+
+.effect-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.effect-card-duration {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.effect-hook-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.05rem 0.35rem;
+  color: var(--text-secondary);
+}
+
+.effect-card-id {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  margin-left: auto;
+}
+
+.effects-empty {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  color: var(--text-muted);
+  font-style: italic;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
 /* Rules CTA */
 .rules-cta {
   text-align: center;
