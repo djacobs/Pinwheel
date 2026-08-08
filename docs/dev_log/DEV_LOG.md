@@ -4,7 +4,7 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2747 tests**, zero lint errors (Session 136)
+- **2814 tests**, zero lint errors (Session 137)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
 - **Day 27 (this session):** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -24,8 +24,61 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Implement codegen wiring Phase 1 (opponent_score_modifier + meta_writes)
 - [x] Implement codegen wiring Phases 2-5 per the plan
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
-- [ ] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — awaiting owner-authorized `flyctl deploy`
-- [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve)
+- [x] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — deployed v156 (Session 137, owner approved)
+- [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve) — see docs/LAUNCH_DRILLS.md Drill 4
+
+## Session 137 — Launch Night: Approval Gate + Trust Fixes + Capability (2026-08-08)
+
+**What was asked:** Execute the full implementation & launch plan (published as
+an artifact after a two-agent audit): make propose→vote→enact trustworthy with
+an enforced human vetting step, close capability gaps, reconcile docs, and prep
+launch drills. Owner adopted all recommended decisions (gate on all proposals,
+effects carry across seasons, delete composite, real Opus escalation, web
+intake deferred).
+
+**What was built (main session + 3 parallel worktree agents):**
+
+- **Prod deploy (v156):** sessions 134-136 fixes finally shipped after backup.
+- **Amendments reach the tally** — tally reconstruction now merges the latest
+  `proposal.amended` interpretation and supersedes stale v2 effects. Previously
+  a passed amended proposal silently enacted the *original* interpretation.
+- **Enforced approval gate** (`PINWHEEL_RULES_REQUIRE_APPROVAL`, on in prod):
+  every passing proposal holds in `proposal.enactment_held`; admin gets a DM
+  with Approve & Enact / Reject buttons (`HeldEnactmentReviewView`); approve
+  enacts the tally-time snapshot via the shared `_enact_passed_proposal`
+  helper; reject refunds the PROPOSE token. Replaces the unwinnable veto race.
+- **Tally trust:** vote dedupe (one vote per governor, latest wins);
+  `playoff_teams` wired into bracket generation + tiebreaker cutoff (was
+  hardcoded 4); inert `composite` effect type removed; broad `except
+  (ValueError, Exception)` catches narrowed at enactment.
+- **Effects carry across seasons** with `carry_rules=true` (to_dict round-trip
+  preserves codegen approval/disabled state; repealed effects stay dead).
+- **Move grants are real** (agent): structured modifier fields
+  (kind/magnitude/action-class), generic `apply_move_modifier`, free-text
+  parser fallback, name→ID target resolution at enactment. `_opus_escalate`
+  now actually calls claude-opus-4-6.
+- **Web tells the truth** (agent): /rules + /governance render the live effect
+  registry incl. codegen gate status; admin DM for
+  `effect.implementation_requested` with retry-until-delivered; repeal
+  threshold now tier-derived.
+- **Docs reconciled** (agent): RUN_OF_PLAY (BOOST regen, command table, tier
+  table matches `detect_tier_v2`, absentee-admin codegen, approval gate),
+  GAME_LOOP `governance_rounds_interval` claim fixed, Feb-24 audit marked
+  SUPERSEDED, OPS.md admin runbook added.
+- **Launch drills:** `docs/LAUNCH_DRILLS.md` — four live prod drills (param,
+  effect, structural, codegen council) with verification checklists and
+  launch-week monitoring signals. **These need the owner on Discord as admin.**
+- **Granular sim engine design** (research agent): full proposal — tiered event
+  taxonomy (NBA/WNBA PBP vocabulary), role+zone state model, BBGM-style
+  event-chain possession loop behind `GameDefinition.possession_engine`,
+  5-phase migration, measured 4.2ms/game baseline (~500x headroom). Slotted
+  for post-launch implementation.
+
+**Issues resolved along the way:** two merge conflicts (interpreter prompt
+renumbering vs move_grant rewrite; both-appended views.py tail truncating a
+function close).
+
+**Tests:** 2814 passed (was 2747), ruff clean.
 
 ## Session 132 — Audit + Sim Bug Fixes + Summary Overhaul
 
