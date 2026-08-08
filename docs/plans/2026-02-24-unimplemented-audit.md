@@ -1,5 +1,9 @@
 # Pinwheel Fates: Unimplemented Audit
 
+> ## ⚠️ SUPERSEDED — Historical Document
+>
+> **This audit reflects the codebase as of 2026-02-24 and no longer describes the current state.** Its P0 and P1 findings were implemented across sessions 126-136 (venue/home-court modifiers, the missing Move effects, three-point distance, the codegen review pipeline, and related fixes), and several of the doc drifts it lists have since been reconciled. Do not use this document to assess what is or isn't implemented — consult `docs/dev_log/DEV_LOG.md` and the current source instead. Kept for historical record of the 2026-02-24 audit only.
+
 **Date:** 2026-02-24
 **Auditor:** Claude Opus 4.6 (automated codebase analysis)
 
