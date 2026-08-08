@@ -28,13 +28,13 @@ Manage a basketball team, change the game to change the world.
 
 A season has a configurable number of rounds (default 3, governable via `round_robins_per_season`, range 1-5). No team plays more than one game at once. With 4 teams and 3 rounds: 18 total games.
 
-After each set of games, votes and proposals are tallied, and winning proposals take effect immediately.
+After each set of games, votes and proposals are tallied. Winning proposals normally take effect immediately. If the admin approval gate is enabled (`PINWHEEL_RULES_REQUIRE_APPROVAL=true`), the tally still records and announces the pass, but the change holds in a pending-admin state and is enacted only when the admin approves it (see Run of Admin below).
 
 ### Playoffs
 
 When all regular-season games finish, the top 4 teams enter playoffs. Semifinals: #1 vs #4 and #2 vs #3 (best-of-3 series). Finals: series winners meet (best-of-5 series). No team plays more than one game at once. Two semifinal games can be simultaneous since no team overlaps.
 
-The winner is crowned champion. The season archives. A new season begins. Rules carry over to new seasons unless written otherwise.
+The winner is crowned champion. The season archives. A new season begins. Rules carry over to new seasons unless written otherwise. When the admin starts the new season with `carry_rules` on, registered effects (the runtime effects created by passed proposals) carry over along with the ruleset, and the league gets an announcement listing what carried forward.
 
 ### Season Lifecycle Phases
 
@@ -81,15 +81,19 @@ The AI interprets your text, asks you for review, and you confirm or cancel. Onc
 
 ### Tiers
 
-| Tier | What Changes | Token Cost | Threshold |
-|------|-------------|------|-----------|
-| 1 | Game mechanics (shot clock, scoring, fouls) | 1 | 50% |
-| 2 | Agent behavior (shot limits, home court) | 1 | 50% |
-| 3 | League structure (teams, playoffs, schedule) | 1 | 60% |
-| 4 | Meta-governance (vote threshold, token regen) | 1 | 60% |
-| 5+ | Uninterpretable, novel, or AI-generated code (Code Council) | 2 | 67% |
+The tier is decided by *what kind of change* the AI's interpretation produces, not by the topic of your text. Each interpreted effect maps to a tier; a compound proposal (several effects at once) takes the highest tier among them. (Compound proposals are simply multiple effects attached to one proposal — there is no separate "composite" effect type.)
 
-Proposals beyond the AI's primitive vocabulary escalate to the **Code Council**: the AI generates real game code, three independent AI reviewers must unanimously approve it, and the admin gives final sign-off before it runs in live games. While the code awaits sign-off, the AI's interpreted approximation is what's live. The admin gate is deliberate: votes decide *what* the league wants; a human verifies the generated code does that and nothing else.
+| Tier | How a proposal lands here | Token Cost | Threshold |
+|------|--------------------------|------------|-----------|
+| 1 | Changes a core game-mechanics parameter (shot clock, point values, quarter length, fouls, stamina, Elam settings) | 1 | 50%* |
+| 2 | Changes a behavior or venue parameter (shot-share limits, home court, crowd, travel fatigue) — or produces only narrative effects (flavor with no mechanical change) | 1 | 50%* |
+| 3 | Changes a league-structure parameter (team count, round-robins, playoff format) — or produces any structural effect: hook callbacks, meta-mutations, move grants, custom mechanics, game-definition patches | 1 | 60% |
+| 4 | Changes a meta-governance parameter (`proposals_per_window`, `vote_threshold`) | 1 | 60% |
+| 5 | Wild: AI-generated code (the Code Council), proposals the AI could not interpret (no effects), or submissions flagged as injection attempts | 2 | 67% |
+
+\* Tiers 1-2 use the league's governable `vote_threshold` (default 50%). Tiers 3-4 require 60% — or the league threshold if it has been voted above that. Tiers 5-6 require 67%. Tiers 7+ are reserved (75% threshold, 3 tokens).
+
+Proposals beyond the AI's primitive vocabulary escalate to the **Code Council**: the AI generates real game code, three independent AI reviewers must unanimously approve it, and the admin gives final sign-off before it runs in live games. While the code awaits sign-off, the AI's interpreted approximation is what's live. There is no timeout on that sign-off: if the admin never acts, the approximation stays live indefinitely and the generated code stays inert. The system re-sends the admin notification on later governance ticks until it is delivered, but it never auto-approves. This is a deliberate accepted risk — an absent admin degrades the league to the interpreted approximation, never to unreviewed generated code. The admin gate is deliberate: votes decide *what* the league wants; a human verifies the generated code does that and nothing else.
 
 **Structural proposals** change the game itself, not just its numbers: new shot types with their own point values and announcer calls ("add a half-court shot called The Prayer worth 4 points"), different period counts and lengths, disabling the Elam Ending, changing how many hoopers play per side. These are expressed as game-definition patches — validated against playability invariants and a test simulation before they can take effect, and admin-reviewed in parallel with the vote. This is the door out of basketball: what the league plays three seasons from now is up to the Floor.
 
@@ -105,9 +109,9 @@ To double your weight, add `boost: True` to your vote:
 
 > `/vote` choice: **Yes** boost: **True**
 
-This spends one BOOST token, restored between seasons.
+This spends one BOOST token. Like PROPOSE and AMEND, BOOST regenerates at 2 per tally cycle, and every governor's tokens are refreshed again when a new season starts.
 
-Ties fail. Votes are counted every round (configurable via `PINWHEEL_GOVERNANCE_INTERVAL`). Passed proposals change rules immediately. Failed proposals do nothing.
+Ties fail. Votes are counted every round (configurable via `PINWHEEL_GOVERNANCE_INTERVAL`). Passed proposals change rules immediately — or, when the admin approval gate is enabled, as soon as the admin approves them. Failed proposals do nothing.
 
 ## Tokens
 
@@ -115,7 +119,7 @@ Ties fail. Votes are counted every round (configurable via `PINWHEEL_GOVERNANCE_
 |-------|-------------|-------------|
 | PROPOSE | Submit a rule change | 2 per tally cycle |
 | AMEND | Modify someone else's proposal | 2 per tally cycle |
-| BOOST | Double your vote weight once | 2 on join (does not regenerate at tally) |
+| BOOST | Double your vote weight once | 2 per tally cycle |
 
 Tokens are tradeable between any players via `/trade`. The terms are visible to both parties. The AI may notice patterns.
 
@@ -138,6 +142,7 @@ The admin keeps the game running.
 - Can **veto** a wild proposal before tally (refunds the proposer's tokens).
 - Can **clear** a wild proposal to acknowledge review (voting continues normally).
 - If the admin does nothing, voting proceeds. The admin is a safety valve, not a gatekeeper.
+- Exception: when the league runs with the approval gate on (`PINWHEEL_RULES_REQUIRE_APPROVAL=true`), every passing proposal waits for admin approval before it is enacted. The vote still decides; the admin controls when the change goes live.
 
 ## Discord Commands
 
@@ -145,6 +150,7 @@ The admin keeps the game running.
 |---------|-------------|
 | `/join TEAM` | Enroll on a team |
 | `/propose TEXT` | Submit a rule change |
+| `/amend PROPOSAL TEXT` | Propose an amendment to an active proposal |
 | `/vote YES\|NO [boost] [proposal]` | Vote on a proposal (boost and proposal are optional) |
 | `/tokens` | Check your token balance |
 | `/trade @USER TOKENS` | Trade tokens with another governor |
@@ -155,7 +161,16 @@ The admin keeps the game running.
 | `/schedule` | View upcoming matchups |
 | `/reports` | View latest AI reports |
 | `/profile` | View your governance record |
-| `/rules` | View current ruleset |
+| `/proposals [season]` | View all proposals and their status |
+| `/roster` | View all enrolled governors |
+| `/effects` | View all active game effects |
+| `/repeal EFFECT` | Propose repealing an active effect |
+| `/ask QUESTION` | Ask the AI anything about the league — stats, standings, games, rules |
+| `/status` | Get a briefing on the current state of the league |
+| `/history [season]` | View past season memorials |
+| `/edit-series REPORT` | Collaboratively edit a playoff series report (governors on the two teams involved) |
+
+There is no `/rules` slash command — to see the current ruleset, use `/effects`, `/ask`, or the Rules page on the web. Admin-only commands (`/new-season`, `/activate-mechanic`, `/review-codegen`, `/disable-effect`, `/rerun-council`) are covered in Run of Admin below and in the Admin Runbook in `docs/OPS.md`.
 
 ## Run of Admin
 
@@ -163,11 +178,12 @@ Everything above is the player experience. This section is for the person keepin
 
 ### Starting a New Season
 
-When a season ends, type `/new-season NAME` in Discord. You must have the Discord server's Administrator permission.
+When a season ends, type `/new-season NAME` in Discord. Your Discord user ID must match `PINWHEEL_ADMIN_DISCORD_ID`.
 
 > `/new-season` name: **Summer Classic** carry_rules: **True**
 
 - **carry_rules** (default: yes) brings the current ruleset forward. Set to `False` to reset to defaults.
+- With **carry_rules** on, registered effects from passed proposals carry into the new season too, and an announcement lists what carried forward.
 - Teams, hoopers, and governor enrollments carry over automatically. All governors receive fresh tokens.
 - A public announcement is posted to the main channel. Players do not need to re-enroll.
 - There must be an existing season in the database. If there isn't one, seed the league first.
@@ -200,6 +216,21 @@ The queue shows:
 Each proposal card displays the raw text, the AI's interpretation (parameter, new value, confidence), impact analysis, and the proposing governor. Injection-flagged proposals and low-confidence interpretations are badged prominently.
 
 In production (with OAuth enabled), only the admin can access this page. In local dev without OAuth, it is open for testing.
+
+### Proposal Approval Gate
+
+By default, proposals that pass a tally enact immediately — the only human checkpoint is the wild-proposal veto above. Setting `PINWHEEL_RULES_REQUIRE_APPROVAL=true` enables a stricter mode for leagues that want a human in the loop on every change:
+
+- **Every** passing proposal, regardless of tier, holds in a pending-admin state instead of enacting.
+- The tally still records and announces the pass — the Floor's decision is on the record.
+- Enactment happens when you approve the pending proposal; until then, the ruleset is unchanged.
+- Veto remains available for proposals you decline to enact.
+
+With the gate off (the default), behavior is unchanged: passed proposals enact at tally.
+
+### Codegen Sign-Off
+
+Code Council (Tier 5 codegen) effects have their own gate that is **always on**, independent of `PINWHEEL_RULES_REQUIRE_APPROVAL`. When a council-approved codegen effect registers, it starts in a `pending` state and its generated code never runs until you approve it. You get a DM with **Approve**/**Reject** buttons; `/review-codegen` shows the same gate for anything you missed. While it's pending — or if you reject it, or if you never act at all — the AI's interpreted approximation of the proposal is what stays live. The pending notification is retried on later governance ticks until delivered, but nothing auto-approves. See the Admin Runbook in `docs/OPS.md` for the full codegen toolset (`/review-codegen`, `/rerun-council`, `/disable-effect`, `/activate-mechanic`) and what to do when an effect auto-disables.
 
 ### Admin Roster
 
@@ -280,6 +311,7 @@ Returns whether a presentation is currently active, and if so, which round and g
 | `PINWHEEL_AUTO_ADVANCE` | Whether the scheduler auto-advances rounds on the cron schedule | `true` |
 | `PINWHEEL_GAME_CRON` | Explicit cron override. If set, ignores pace. | derived from pace |
 | `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N rounds | `1` |
+| `PINWHEEL_RULES_REQUIRE_APPROVAL` | Hold every passing proposal in a pending-admin state until you approve it (see Proposal Approval Gate) | `false` |
 | `PINWHEEL_EVALS_ENABLED` | Run evals (grounding, prescriptive, GQI, flags, rule evaluator) after each round | `true` |
 | `PINWHEEL_QUARTER_REPLAY_SECONDS` | How long each quarter takes in replay mode | `300` (5 min) |
 | `PINWHEEL_GAME_INTERVAL_SECONDS` | Gap between games in a round during replay | `1800` (30 min) |
@@ -290,4 +322,4 @@ Returns whether a presentation is currently active, and if so, which round and g
 - **Presentation survives restarts.** If a replay is in progress and the server redeploys, it picks up where it left off. The presentation state is persisted in the database, and on startup the system calculates how many quarters elapsed and skips ahead.
 - **Completed seasons still tally governance.** After a season's games are done, the scheduler keeps running governance tally cycles so late votes still count.
 - **Championship window.** When a season enters championship status, the scheduler checks a `championship_ends_at` timestamp. When the window expires, the season transitions to complete automatically.
-- **The admin permission check uses Discord's server Administrator flag**, not the `PINWHEEL_ADMIN_DISCORD_ID` variable. Those are separate: the env var controls who gets DMs and web page access; the Discord permission controls who can run `/new-season`.
+- **All admin surfaces key off `PINWHEEL_ADMIN_DISCORD_ID`.** The same variable controls who gets wild-proposal and codegen DMs, who can access the admin web pages in production, and who can run the admin slash commands (`/new-season`, `/activate-mechanic`, `/review-codegen`, `/disable-effect`, `/rerun-council`). Discord's server Administrator permission is not consulted.

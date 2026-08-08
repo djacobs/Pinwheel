@@ -50,7 +50,7 @@ Proposals, amendments, votes, and trades happen asynchronously via Discord comma
 4. **Regenerates tokens.** 2 PROPOSE, 2 AMEND, 2 BOOST per governor per tally cycle.
 5. **Generates governance + private reports.** AI analyzes voting patterns, coalitions, and individual behavior.
 
-The governance interval is itself a governable parameter (`governance_rounds_interval` in Tier 4). Players can vote to make tallying more or less frequent.
+The governance interval is set by the `PINWHEEL_GOVERNANCE_INTERVAL` environment variable — it is **not** currently a governable RuleSet parameter. Making it governable (a `governance_rounds_interval` parameter in Tier 4) is a candidate future addition; today, changing the tally cadence is an admin action, not a Floor vote.
 
 ### 3. Report Clock (Event-Driven, Not Scheduled)
 
@@ -243,7 +243,7 @@ team once. 4 games per round.  assignments.                    assignments.
   configurable)
 ```
 
-**Governance frequency:** How often governance tallies is controlled by `PINWHEEL_GOVERNANCE_INTERVAL` (default 1, governable via `governance_rounds_interval`). At interval 1, governance tallies every tick — with 8 teams and 3 round-robins, that's 21 tallies per season. Players can vote to make tallying less frequent — less frequent means more strategic, deliberate governance.
+**Governance frequency:** How often governance tallies is controlled by the `PINWHEEL_GOVERNANCE_INTERVAL` env var (default 1). At interval 1, governance tallies every tick — with 8 teams and 3 round-robins, that's 21 tallies per season. The interval is not currently governable (no `governance_rounds_interval` RuleSet parameter exists — a candidate future governable); today the admin sets it. Less frequent tallying means more strategic, deliberate governance.
 
 **Rhythm:** Each round = 1 simulation block. Proposals, votes, and trades happen asynchronously between rounds. When a tally round arrives, unresolved proposals are tallied and enacted. The cycle:
 
