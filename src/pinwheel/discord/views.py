@@ -1186,6 +1186,7 @@ class RepealConfirmView(discord.ui.View):
         from pinwheel.core.governance import (
             confirm_proposal,
             submit_repeal_proposal,
+            vote_threshold_for_tier,
         )
         from pinwheel.db.engine import get_session
         from pinwheel.db.repository import Repository
@@ -1229,7 +1230,7 @@ class RepealConfirmView(discord.ui.View):
             announcement = build_proposal_announcement_embed(
                 proposal_text=f"Repeal: {self.effect_description}",
                 tier=proposal.tier,
-                threshold=0.67,  # Tier 5 threshold
+                threshold=vote_threshold_for_tier(proposal.tier),
                 wild=True,
             )
             if interaction.channel is not None:
