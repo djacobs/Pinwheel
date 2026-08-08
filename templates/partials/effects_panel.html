@@ -1,0 +1,43 @@
+{# Active effects panel — the non-parameter rules currently in play.
+   Expects `active_effects`: list of dicts with keys effect_type, description,
+   status, status_class, duration, hook_points, proposal_text, short_id.
+   Mirrors the truth Discord /effects shows. #}
+<div class="home-section">
+  <div class="section-title-bar">
+    <span class="section-title-text" style="color:var(--accent-governance);">Active Effects</span>
+  </div>
+  <p class="rules-tier-subtitle">
+    Rules that go beyond the numbers &mdash; passed by the Floor and live in the simulation.
+  </p>
+  {% if active_effects %}
+  <div class="effects-grid">
+    {% for effect in active_effects %}
+    <div class="effect-card effect-card-{{ effect.status_class }}">
+      <div class="effect-card-header">
+        <span class="effect-card-type">{{ effect.effect_type }}</span>
+        <span class="effect-status effect-status-{{ effect.status_class }}">{{ effect.status }}</span>
+      </div>
+      <div class="effect-card-desc">{{ effect.description }}</div>
+      {% if effect.proposal_text %}
+      <div class="effect-card-source">&ldquo;{{ effect.proposal_text }}&rdquo;</div>
+      {% endif %}
+      <div class="effect-card-meta">
+        <span class="effect-card-duration">{{ effect.duration }}</span>
+        {% if effect.hook_points %}
+        <span class="effect-card-hooks">
+          {% for hook in effect.hook_points %}
+          <code class="effect-hook-chip">{{ hook }}</code>
+          {% endfor %}
+        </span>
+        {% endif %}
+        <span class="effect-card-id">#{{ effect.short_id }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="effects-empty">
+    No active effects &mdash; the Floor is quiet.
+  </div>
+  {% endif %}
+</div>

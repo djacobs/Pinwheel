@@ -1186,6 +1186,7 @@ class RepealConfirmView(discord.ui.View):
         from pinwheel.core.governance import (
             confirm_proposal,
             submit_repeal_proposal,
+            vote_threshold_for_tier,
         )
         from pinwheel.db.engine import get_session
         from pinwheel.db.repository import Repository
@@ -1229,7 +1230,7 @@ class RepealConfirmView(discord.ui.View):
             announcement = build_proposal_announcement_embed(
                 proposal_text=f"Repeal: {self.effect_description}",
                 tier=proposal.tier,
-                threshold=0.67,  # Tier 5 threshold
+                threshold=vote_threshold_for_tier(proposal.tier),
                 wild=True,
             )
             if interaction.channel is not None:
@@ -2097,5 +2098,79 @@ async def notify_admin_held_enactment(
         "held_enactment_dm_sent admin=%s proposal=%s",
         admin_user.id,
         held.get("proposal_id"),
+    )
+    return True
+
+
+async def notify_admin_implementation_requested(
+    client: discord.Client,
+    settings: Settings,
+    *,
+    proposal_id: str,
+    proposal_text: str,
+    effect_id: str,
+    mechanic_description: str = "",
+    hook_point: str = "",
+    observable_behavior: str = "",
+    guild: discord.Guild | None = None,
+) -> bool:
+    """DM the admin that a passed custom mechanic awaits /activate-mechanic.
+
+    ``effect.implementation_requested`` is written at tally time when a
+    ``custom_mechanic`` proposal passes — without this DM the admin only
+    discovers it via the /activate-mechanic autocomplete. Tries
+    settings.pinwheel_admin_discord_id first, falls back to the guild
+    owner when a guild is provided.
+
+    Returns True ONLY when the DM was actually delivered — same
+    confirmed-send contract as ``notify_admin_codegen_pending``, so the
+    caller writes its notified marker only on success and a lost ping is
+    retried on the next tick.
+    """
+    from pinwheel.discord.embeds import build_implementation_request_embed
+
+    admin_user: discord.User | discord.Member | None = None
+    if settings.pinwheel_admin_discord_id:
+        try:
+            admin_user = await client.fetch_user(
+                int(settings.pinwheel_admin_discord_id),
+            )
+        except (discord.HTTPException, discord.NotFound, ValueError):
+            logger.warning(
+                "implementation_requested_fetch_admin_failed id=%s",
+                settings.pinwheel_admin_discord_id,
+            )
+    if admin_user is None and guild is not None:
+        admin_user = guild.owner
+    if admin_user is None:
+        logger.warning(
+            "implementation_requested_no_admin_found proposal=%s",
+            proposal_id,
+        )
+        return False
+
+    embed = build_implementation_request_embed(
+        proposal_id=proposal_id,
+        proposal_text=proposal_text,
+        effect_id=effect_id,
+        mechanic_description=mechanic_description,
+        hook_point=hook_point,
+        observable_behavior=observable_behavior,
+    )
+    try:
+        await admin_user.send(embed=embed)
+    except (discord.Forbidden, discord.HTTPException):
+        logger.warning(
+            "implementation_requested_dm_failed admin=%s proposal=%s",
+            admin_user.id,
+            proposal_id,
+        )
+        return False
+
+    logger.info(
+        "implementation_requested_dm_sent admin=%s proposal=%s effect=%s",
+        admin_user.id,
+        proposal_id,
+        effect_id,
     )
     return True

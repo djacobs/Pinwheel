@@ -891,3 +891,9 @@ Each rule card shows: label, current value (mono font, accent color), descriptio
 ### 147. [DONE] Proposal confirm embed announces the Code Council
 **Problem:** Players had no signal that their beyond-primitive proposal triggers code generation, or that the interpreted approximation is what goes live first.
 **Fix:** When a proposal escalates to the council, the green "Proposal Submitted" embed adds: "This proposal needs new game code. The interpreted mechanic above goes live if the vote passes; the Code Council is drafting the full version, which requires admin sign-off."
+
+## Completed — Session 137 (Effects Visibility)
+
+### 148. [DONE] Active effects panel on /rules and /governance
+**Problem:** The web /rules page showed parameter changes and rule history but no non-parameter effects — narrative effects, hook callbacks, meta mutations, codegen, and custom mechanics were invisible outside Discord `/effects`. A governor browsing the web had no way to see that "the floor is lava" was live, or that a codegen effect was still awaiting admin approval.
+**Fix:** New shared partial `templates/partials/effects_panel.html`, included on both `/rules` (between "Changed by the Community" and the starting parameters) and `/governance` (after enacted rule changes). Each effect card shows: effect type (uppercase governance-blue label), status badge (green "Active"/"Approved", amber "Pending Admin", red "Disabled" — codegen effects surface their admin gate), description, source proposal text in quotes, lifetime remaining ("3 rounds remaining" or "Permanent"), hook-point chips in mono type, and a short effect id. Cards use a 4px left accent border keyed to status (governance blue / amber / red) on the existing card grid pattern. Empty state: "No active effects — the Floor is quiet." in a dashed-border box. Data loads via `load_effect_registry` in a shared `_build_active_effects()` helper in `pages.py`, mirroring the truth Discord `/effects` shows.
