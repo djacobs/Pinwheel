@@ -85,14 +85,31 @@ class PlayerAttributes(BaseModel):
         return self
 
 
+MoveModifierKind = Literal["shot_probability", "turnover_rate", "stamina", "shot_value"]
+
+
 class Move(BaseModel):
-    """A special ability a Hooper can activate during a Possession."""
+    """A special ability a Hooper can activate during a Possession.
+
+    Archetype moves are resolved by name in ``core.moves.apply_move_modifier``.
+    Governed (and earned) moves carry structured modifier fields so any move
+    granted through governance genuinely changes simulation outcomes:
+
+    - ``modifier_kind`` — which mechanic the move alters.
+    - ``magnitude`` — the size of the effect. Fractions for probability-like
+      kinds (``0.12`` = +12%), bonus points for ``shot_value``.
+    - ``applicable_action`` — which shot class a ``shot_probability`` modifier
+      applies to (``at_rim`` | ``mid_range`` | ``three_point`` | ``any``).
+    """
 
     name: str
     trigger: str
     effect: str
     attribute_gate: dict[str, int] = Field(default_factory=dict)
     source: Literal["archetype", "earned", "governed"] = "archetype"
+    modifier_kind: MoveModifierKind | None = None
+    magnitude: float = 0.0
+    applicable_action: str | None = None
 
 
 class Venue(BaseModel):

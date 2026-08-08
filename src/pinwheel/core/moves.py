@@ -7,9 +7,21 @@ See docs/product/GLOSSARY.md: Move.
 from __future__ import annotations
 
 import random
+import re
 
 from pinwheel.core.state import HooperState
 from pinwheel.models.team import Move
+
+# Sane bounds for structured (governed) move modifiers. Applied at
+# application time so a wild AI-emitted magnitude can never dominate a game.
+MAX_SHOT_PROBABILITY_DELTA = 0.30
+MAX_TURNOVER_DELTA = 0.15
+MAX_STAMINA_RESTORE = 0.25
+MAX_SHOT_VALUE_BONUS = 3
+
+VALID_MODIFIER_KINDS = frozenset(
+    {"shot_probability", "turnover_rate", "stamina", "shot_value"}
+)
 
 # --- Move definitions ---
 
@@ -152,12 +164,27 @@ def get_triggered_moves(
     return triggered
 
 
+def _clamp(value: float, lo: float, hi: float) -> float:
+    """Clamp value to [lo, hi]."""
+    return max(lo, min(hi, value))
+
+
 def apply_move_modifier(
     move: Move,
     base_probability: float,
     rng: random.Random,
+    action: str = "",
 ) -> float:
-    """Apply a move's effect to shot probability. Returns modified probability."""
+    """Apply a move's effect to shot probability. Returns modified probability.
+
+    The 9 archetype moves keep their exact hardcoded behavior (matched by
+    name). Any other move — governed or earned — is applied generically via
+    its structured modifier fields: a ``shot_probability`` move shifts the
+    probability by ``magnitude`` (clamped to +/-0.30), optionally gated to a
+    specific shot class via ``applicable_action``. Other modifier kinds
+    (turnover_rate, stamina, shot_value) are applied elsewhere in the
+    possession flow and leave the probability unchanged here.
+    """
     name = move.name
     if name == "Heat Check":
         return min(0.99, base_probability + 0.15)
@@ -186,4 +213,125 @@ def apply_move_modifier(
         # 30% chance of a big boost (+18%), 70% chance of a small penalty (-5%).
         delta = rng.choices([0.18, -0.05], weights=[30, 70], k=1)[0]
         return max(0.01, min(0.99, base_probability + delta))
+
+    # Generic path: structured modifiers on governed/earned moves.
+    if move.modifier_kind == "shot_probability":
+        applicable = (move.applicable_action or "any").strip().lower()
+        if applicable in ("", "any", "all") or applicable == action:
+            delta = _clamp(
+                move.magnitude, -MAX_SHOT_PROBABILITY_DELTA, MAX_SHOT_PROBABILITY_DELTA
+            )
+            return max(0.01, min(0.99, base_probability + delta))
     return base_probability
+
+
+def passive_turnover_modifier(agent: HooperState) -> float:
+    """Sum turnover-rate modifiers from the agent's structured moves.
+
+    Turnover checks happen before action selection (and thus before move
+    triggering), so ``turnover_rate`` moves apply passively whenever the
+    hooper handles the ball and meets the move's attribute gate. Negative
+    magnitudes reduce turnovers. Result is clamped to +/-0.15.
+    """
+    total = 0.0
+    for move in agent.hooper.moves:
+        if move.modifier_kind != "turnover_rate":
+            continue
+        if not check_gate(move, agent):
+            continue
+        total += _clamp(move.magnitude, -MAX_TURNOVER_DELTA, MAX_TURNOVER_DELTA)
+    return _clamp(total, -MAX_TURNOVER_DELTA, MAX_TURNOVER_DELTA)
+
+
+def apply_move_secondary_effects(move: Move, agent: HooperState) -> int:
+    """Apply a triggered move's non-probability structured effects.
+
+    - ``stamina`` moves restore the agent's stamina by ``magnitude``
+      (clamped to 0..0.25 per activation).
+    - ``shot_value`` moves return bonus points (clamped to +/-3) that the
+      possession flow adds to a made shot.
+
+    Returns the shot-value bonus (0 for other kinds).
+    """
+    if move.modifier_kind == "stamina":
+        restore = _clamp(move.magnitude, 0.0, MAX_STAMINA_RESTORE)
+        agent.current_stamina = min(1.0, agent.current_stamina + restore)
+        return 0
+    if move.modifier_kind == "shot_value":
+        return int(
+            _clamp(round(move.magnitude), -MAX_SHOT_VALUE_BONUS, MAX_SHOT_VALUE_BONUS)
+        )
+    return 0
+
+
+# --- Free-text move effect parsing (legacy / mock payloads) ---
+
+_PERCENT_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%")
+_POINTS_RE = re.compile(r"([+-]?\d+)\s*(?:bonus\s+)?(?:point|pt)s?\b")
+_REDUCE_WORDS = ("reduc", "lower", "cut", "fewer", "less", "decreas", "drop")
+
+_ACTION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("mid_range", ("mid-range", "midrange", "mid range", "jumper", "elbow", "skyhook")),
+    ("at_rim", ("at-rim", "at rim", "at the rim", "rim", "paint", "layup", "dunk", "drive")),
+    ("three_point", ("three", "3-point", "3pt", "3 point", "deep ball", "from deep")),
+)
+
+
+def parse_move_effect_text(text: str) -> dict[str, float | str] | None:
+    """Map a free-text move effect into structured modifier fields.
+
+    Handles common patterns emitted by the mock interpreter and legacy AI
+    payloads, e.g. ``"+12% mid-range"``, ``"reduces turnovers by 10%"``,
+    ``"+20% all shots"``, ``"restores 10% stamina"``, ``"+2 points on made
+    shots"``. Returns a dict with ``modifier_kind``, ``magnitude``, and
+    optionally ``applicable_action`` — or None when nothing parseable.
+    """
+    if not text:
+        return None
+    lowered = text.lower()
+
+    pct_match = _PERCENT_RE.search(lowered)
+    pct = float(pct_match.group(1)) / 100.0 if pct_match else None
+    reduces = any(w in lowered for w in _REDUCE_WORDS)
+
+    if "turnover" in lowered:
+        if pct is None:
+            return None
+        magnitude = pct
+        if reduces and magnitude > 0:
+            magnitude = -magnitude
+        return {"modifier_kind": "turnover_rate", "magnitude": magnitude}
+
+    # Stamina moves need a restore-ish verb (or a drain reduction) so that
+    # incidental mentions ("+20% all shots, ignore stamina modifier") still
+    # parse as shot modifiers below.
+    mentions_stamina = "stamina" in lowered or "fatigue" in lowered
+    restore_words = ("restor", "recover", "regain", "gain", "refill", "replenish")
+    if mentions_stamina and (
+        any(w in lowered for w in restore_words) or ("drain" in lowered and reduces)
+    ):
+        if pct is None:
+            return None
+        return {"modifier_kind": "stamina", "magnitude": abs(pct)}
+
+    if pct is not None:
+        magnitude = pct
+        if reduces and magnitude > 0:
+            magnitude = -magnitude
+        result: dict[str, float | str] = {
+            "modifier_kind": "shot_probability",
+            "magnitude": magnitude,
+        }
+        for action_name, keywords in _ACTION_KEYWORDS:
+            if any(k in lowered for k in keywords):
+                result["applicable_action"] = action_name
+                break
+        else:
+            result["applicable_action"] = "any"
+        return result
+
+    points_match = _POINTS_RE.search(lowered)
+    if points_match and ("worth" in lowered or "bonus" in lowered or "extra" in lowered):
+        return {"modifier_kind": "shot_value", "magnitude": float(points_match.group(1))}
+
+    return None

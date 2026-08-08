@@ -221,8 +221,15 @@ class EffectSpec(BaseModel):
     move_trigger: str | None = None
     move_effect: str | None = None
     move_attribute_gate: dict[str, int] | None = None
-    target_hooper_id: str | None = None  # specific hooper
-    target_team_id: str | None = None  # all hoopers on a team
+    # Structured modifier fields — what the move mechanically does. Kept as
+    # plain str/float (validated at enactment) so a slightly-off AI payload
+    # degrades gracefully instead of dropping the whole effect.
+    move_modifier_kind: str | None = None  # shot_probability|turnover_rate|stamina|shot_value
+    move_magnitude: float | None = None  # fraction for rates (0.12 = +12%), points for shot_value
+    move_applicable_action: str | None = None  # at_rim|mid_range|three_point|any
+    # AI-emitted targets may be NAMES rather than IDs — resolved at enactment.
+    target_hooper_id: str | None = None  # specific hooper (ID or exact name)
+    target_team_id: str | None = None  # all hoopers on a team (ID or exact name)
 
     # custom_mechanic — describes a mechanic that needs code implementation
     mechanic_description: str | None = None

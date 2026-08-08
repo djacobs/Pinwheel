@@ -443,8 +443,17 @@ Clear conditional mechanic >= 0.8. Genuinely unclear what they want < 0.5.
 4. **narrative** — instruct the AI reporter to adopt a narrative element
 5. **move_grant** — grant a special move to hoopers. Fields: move_name, \
 move_trigger (half_court_setup|drive_action|opponent_iso|any_possession|elam_period|\
-stamina_below_40|made_three_last_possession), move_effect, move_attribute_gate (optional), \
-target_hooper_id or target_team_id
+stamina_below_40|made_three_last_possession), move_effect (short flavor text), \
+move_modifier_kind (shot_probability|turnover_rate|stamina|shot_value — REQUIRED, this \
+is what the move mechanically does), move_magnitude (REQUIRED — shot_probability: \
+fraction -0.30..0.30, e.g. +12% shooting → 0.12; turnover_rate: fraction -0.15..0.15, \
+negative = fewer turnovers; stamina: fraction 0..0.25 restored per activation; \
+shot_value: bonus points -3..3 on made shots), move_applicable_action \
+(at_rim|mid_range|three_point|any — which shot class a shot_probability modifier \
+applies to), move_attribute_gate (optional), and a target: target_hooper_id, \
+target_team_id, or target_selector="all". You do NOT know real IDs — put the EXACT \
+hooper or team NAME from the proposal in target_hooper_id/target_team_id and the \
+server resolves names to IDs. If no specific target is named, use target_selector="all".
 6. **custom_mechanic** — Use ALONGSIDE types 1-5 when the full vision needs new code. \
 EVERY proposal MUST include at least one concrete effect (types 1-5) that approximates \
 the gameplay intent and fires immediately. If the ideal implementation needs code beyond \
@@ -580,9 +589,12 @@ Respond with ONLY a JSON object (no markdown fences, no explanation):
       "move_name": "<name or null>",
       "move_trigger": "<trigger or null>",
       "move_effect": "<effect or null>",
+      "move_modifier_kind": "<shot_probability|turnover_rate|stamina|shot_value or null>",
+      "move_magnitude": <float or null>,
+      "move_applicable_action": "<at_rim|mid_range|three_point|any or null>",
       "move_attribute_gate": {{}} or null,
-      "target_hooper_id": "<id or null>",
-      "target_team_id": "<id or null>",
+      "target_hooper_id": "<hooper id or exact name, or null>",
+      "target_team_id": "<team id or exact name, or null>",
       "mechanic_description": "<description or null>",
       "mechanic_hook_point": "<hook point or null>",
       "mechanic_observable_behavior": "<behavior or null>",
@@ -639,7 +651,7 @@ async def _opus_escalate(
         track_latency,
     )
 
-    opus_model = "claude-sonnet-4-6"
+    opus_model = "claude-opus-4-6"
 
     effects_summary = "; ".join(
         f"{e.effect_type}: {e.description}" for e in first_pass.effects
