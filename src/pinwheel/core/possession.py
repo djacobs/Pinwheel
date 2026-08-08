@@ -18,7 +18,12 @@ from pinwheel.core.defense import (
     get_primary_defender,
     select_scheme,
 )
-from pinwheel.core.moves import apply_move_modifier, get_triggered_moves
+from pinwheel.core.moves import (
+    apply_move_modifier,
+    apply_move_secondary_effects,
+    get_triggered_moves,
+    passive_turnover_modifier,
+)
 from pinwheel.core.scoring import ShotType, resolve_shot
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import PossessionLog
@@ -610,7 +615,11 @@ def resolve_possession(
     # 3. Check turnover (live-ball: steal) --- with effect + crowd + surface modifiers
     if check_turnover(
         handler, scheme, rng, rules=rules,
-        effect_turnover_modifier=ctx.turnover_modifier + surface_mods.turnover_rate_modifier,
+        effect_turnover_modifier=(
+            ctx.turnover_modifier
+            + surface_mods.turnover_rate_modifier
+            + passive_turnover_modifier(handler)
+        ),
         crowd_pressure_modifier=crowd_pressure_mod,
     ):
         stealer = rng.choice(defense)
@@ -824,16 +833,19 @@ def resolve_possession(
     )
 
     # 7a. Apply offensive move modifier (first triggered move wins)
+    move_value_bonus = 0
     if triggered:
         move = triggered[0]
         move_name = move.name
         handler.moves_activated.append(move_name)
-        prob = apply_move_modifier(move, prob, rng)
+        prob = apply_move_modifier(move, prob, rng, action=shot_type)
+        # Structured non-probability effects (stamina restore, shot value bonus)
+        move_value_bonus = apply_move_secondary_effects(move, handler)
 
     # 7b. Apply defensive move modifiers --- these stack on top of offensive moves
     for def_move in def_triggered:
         primary_defender.moves_activated.append(def_move.name)
-        prob = apply_move_modifier(def_move, prob, rng)
+        prob = apply_move_modifier(def_move, prob, rng, action=shot_type)
         if not move_name:
             move_name = def_move.name
 
@@ -850,7 +862,7 @@ def resolve_possession(
     # value-reducing governance effect can't push a made shot negative — the
     # shooter's box score and the team score must move by the same amount.
     if made:
-        pts = max(0, pts + ctx.shot_value_modifier + ctx.bonus_pass_count)
+        pts = max(0, pts + ctx.shot_value_modifier + ctx.bonus_pass_count + move_value_bonus)
 
     # 8. Update shooter stats
     handler.field_goals_attempted += 1
