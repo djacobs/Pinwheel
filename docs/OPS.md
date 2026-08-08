@@ -84,6 +84,8 @@ fly secrets set PINWHEEL_GOV_WINDOW=1800
 | `PINWHEEL_PRESENTATION_MODE` | Presentation mode: `instant`, `replay` | `instant` |
 | `PINWHEEL_GAME_CRON` | Explicit cron override (optional, derived from pace) | (from pace) |
 | `PINWHEEL_GOVERNANCE_INTERVAL` | Tally governance every N ticks | `1` |
+| `PINWHEEL_RULES_REQUIRE_APPROVAL` | Hold every passing proposal for admin approval before enactment (see Admin Runbook) | `false` |
+| `PINWHEEL_ADMIN_DISCORD_ID` | Discord user ID for the league admin — gates admin DMs, admin web pages, and admin slash commands | (unset) |
 | `PINWHEEL_GOV_WINDOW` | Governance window duration (for GQI calculations) | `900` |
 | `PINWHEEL_AUTO_ADVANCE` | APScheduler auto-advance toggle | `true` |
 | `PINWHEEL_LOG_LEVEL` | Logging level | `INFO` |
@@ -211,13 +213,76 @@ The Discord bot runs inside the same FastAPI process — it's not a separate ser
 
 If the Fly machine restarts (deploy, crash, health check failure), the bot reconnects automatically. Discord's Gateway handles reconnection gracefully — missed events during downtime are replayed via the bot's event resume mechanism.
 
-Bot registration (slash commands) happens once via a setup script:
+Slash command registration happens automatically on startup: the bot's `setup_hook` (`src/pinwheel/discord/bot.py`) copies the command tree to the guild configured by `DISCORD_GUILD_ID` and syncs it with Discord's API. There is no separate registration script. The full command list lives in `CLAUDE.md` and `docs/product/RUN_OF_PLAY.md`.
+
+## Admin Runbook — Governance
+
+Day-to-day governance operations for the league admin. Every admin surface — DM notifications, admin web pages in production, and the admin slash commands below — checks your Discord user ID against `PINWHEEL_ADMIN_DISCORD_ID`. If that variable is unset, admin DMs fall back to the guild owner, but the admin slash commands refuse to run.
+
+### Approving a pending proposal (the approval gate)
+
+With `PINWHEEL_RULES_REQUIRE_APPROVAL=true`, every passing proposal — all tiers — holds in a pending-admin state instead of enacting at tally. The tally records and announces the pass; the ruleset does not change until you act.
+
+- **Approve** the pending proposal to enact it. The rule change applies from the next round.
+- **Veto** it if you decline to enact. The proposer is notified.
+- With the gate off (default), passed proposals enact at tally automatically and only wild-tier proposals come to you.
+
+### Vetoing or clearing a wild proposal
+
+Wild proposals (Tier 5, or AI confidence below 50%) DM you a **Clear** / **Veto** gate while voting proceeds in parallel:
+
+- **Clear** — acknowledges review; voting continues; the proposer is told their proposal was cleared.
+- **Veto** — kills the proposal (optional reason prompt) and refunds the proposer's PROPOSE token. Veto is a no-op if the proposal already passed and was enacted.
+- The buttons expire after 24 hours; voting proceeds regardless. `/admin/review` on the web shows the same queue if you miss a DM.
+
+### Codegen review commands
+
+Codegen (Code Council) effects register in a `pending` state — the generated code never runs until you approve it. While pending or rejected, the AI's interpreted approximation of the proposal is what's live.
+
+| Command | What it does |
+|---------|-------------|
+| `/review-codegen` | Lists pending codegen effects and re-attaches the Approve/Reject gate — the recovery path if you missed the DM. |
+| `/rerun-council EFFECT` | Flags a codegen effect for council re-review (`effect.council_rerun_requested` event); the council pipeline re-evaluates it on the next governance tick. |
+| `/disable-effect EFFECT` | Kill switch. Immediately disables a codegen effect (`codegen_enabled=False`, persisted via `effect.codegen_disabled` event). |
+| `/activate-mechanic EFFECT [hook_point action_type modifier]` | Upgrades a pending `custom_mechanic` placeholder into a real hook implementation, or confirms the approximation as sufficient. |
+
+**Approve** makes the generated code live and retires the placeholder approximation. **Reject** (with optional reason) keeps the approximation in effect. If you never act, the effect stays pending indefinitely — approximation live, code inert. Pending notifications are retried on later governance ticks until delivered; nothing auto-approves (`PINWHEEL_CODEGEN_AUTO_APPROVE` exists for dev/demo environments only).
+
+### Codegen auto-disable — what it means and how to respond
+
+The sandbox guards live games against bad generated code:
+
+- **3 consecutive execution errors** auto-disable the effect (reason: "Auto-disabled after N errors"). The decision is made in-memory during a game and persisted afterward as an `effect.codegen_disabled` event.
+- **250ms per-game compute budget** — an effect that exhausts it is skipped for the rest of that game (this alone does not disable it).
+
+When you see `codegen_disabled` or repeated `codegen_execution_error` in the logs:
+
+1. Check the stored `codegen_last_error` (visible via `/review-codegen` / logs) to see what broke.
+2. `/rerun-council EFFECT` to send it back through generation and council review if the intent is worth keeping.
+3. Leave it disabled (or let the Floor `/repeal` it) if it isn't.
+
+The league keeps running either way — a disabled codegen effect simply stops firing.
+
+### Backup before anything risky
 
 ```bash
-python -m pinwheel.bot.register_commands
+flyctl ssh console -C "cp /data/pinwheel.db /data/pinwheel.db.bak"
 ```
 
-This registers the `/propose`, `/amend`, `/vote`, `/boost`, `/trade`, `/tokens`, `/strategy`, `/rules`, `/standings`, `/team`, and `/join` commands with Discord's API. Slash commands are global (not per-guild) for simplicity during the hackathon.
+Two seconds of insurance. Do this before vetoes-at-scale, schema experiments, `/new-season`, or any manual database surgery. Production has real players; see the LIVE DATA section of `CLAUDE.md`.
+
+### Pace tradeoffs
+
+Pace is switchable at runtime (`POST /api/pace`) without a restart:
+
+| Pace | Rounds | Tradeoff |
+|------|--------|----------|
+| `fast` | every 1 min | Demos only. Governance tallies every minute at the default interval — proposals can pass before anyone reads them, and AI report costs scale with tick rate. |
+| `normal` | every 5 min | Playtests. Enough time to vote between tallies, still compresses a season into hours. |
+| `slow` | every 15 min | Production default. Humane deliberation time; a season spreads across days. |
+| `manual` | none | Full control. Advance with `POST /api/pace/advance` — useful for live events and presentations. |
+
+To slow governance without slowing games, raise `PINWHEEL_GOVERNANCE_INTERVAL` (tally every N rounds) instead of changing pace.
 
 ## Backup & Recovery
 
