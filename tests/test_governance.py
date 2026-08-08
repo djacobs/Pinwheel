@@ -289,6 +289,30 @@ class TestVoteTally:
         tally = tally_votes(votes, threshold=0.5)
         assert tally.passed is False
 
+    def test_double_vote_counts_once_last_wins(self):
+        """A governor with multiple vote.cast events counts once — latest wins."""
+        votes = [
+            Vote(proposal_id="p1", governor_id="g1", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g1", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g2", vote="no", weight=1.0),
+        ]
+        tally = tally_votes(votes, threshold=0.5)
+        # Without dedupe this would be 2.0 yes vs 1.0 no = pass; deduped it ties = fail
+        assert tally.weighted_yes == pytest.approx(1.0)
+        assert tally.passed is False
+
+    def test_revote_replaces_earlier_vote(self):
+        """A governor who changes their mind is counted by their latest vote."""
+        votes = [
+            Vote(proposal_id="p1", governor_id="g1", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g2", vote="yes", weight=1.0),
+            Vote(proposal_id="p1", governor_id="g1", vote="no", weight=1.0),
+        ]
+        tally = tally_votes(votes, threshold=0.5)
+        assert tally.weighted_yes == pytest.approx(1.0)
+        assert tally.weighted_no == pytest.approx(1.0)
+        assert tally.passed is False
+
     def test_weighted_votes(self):
         """Normalized team weights: 2 governors on team A (0.5 each), 1 on team B (1.0)."""
         votes = [

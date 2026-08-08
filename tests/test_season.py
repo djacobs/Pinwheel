@@ -605,3 +605,99 @@ class TestComputeAwardsTradeAccepted:
         assert len(coalition_awards) == 1
         # Both governors participated in 2 trades each
         assert coalition_awards[0]["stat_value"] == 2
+
+
+class TestEffectCarryOver:
+    """carry_forward_rules brings registered effects, not just parameters."""
+
+    async def _register_effect(self, repo: Repository, season_id: str) -> str:
+        from pinwheel.core.effects import EffectRegistry, register_effects_for_proposal
+        from pinwheel.models.governance import EffectSpec
+
+        registry = EffectRegistry()
+        registered = await register_effects_for_proposal(
+            repo=repo,
+            registry=registry,
+            proposal_id="prop-carry",
+            effects=[
+                EffectSpec(
+                    effect_type="hook_callback",
+                    hook_point="sim.shot.pre",
+                    action_code={"type": "modify_probability", "modifier": 0.05},
+                    description="Hot hand",
+                )
+            ],
+            season_id=season_id,
+            current_round=3,
+        )
+        return registered[0].effect_id
+
+    async def test_effects_carry_with_rules(self, repo: Repository) -> None:
+        from pinwheel.core.effects import load_effect_registry
+
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+        effect_id = await self._register_effect(repo, old_season_id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=True,
+            previous_season_id=old_season_id,
+        )
+
+        new_registry = await load_effect_registry(repo, new_season.id)
+        carried = new_registry.get_effect(effect_id)
+        assert carried is not None
+        assert carried.description == "Hot hand"
+        assert carried.registered_at_round == 0
+
+    async def test_effects_reset_without_carry(self, repo: Repository) -> None:
+        from pinwheel.core.effects import load_effect_registry
+
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+        await self._register_effect(repo, old_season_id)
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=False,
+            previous_season_id=old_season_id,
+        )
+
+        new_registry = await load_effect_registry(repo, new_season.id)
+        assert not new_registry.get_all_active()
+
+    async def test_repealed_effects_do_not_carry(self, repo: Repository) -> None:
+        from pinwheel.core.effects import (
+            EffectRegistry,
+            load_effect_registry,
+            repeal_effect,
+        )
+
+        league = await repo.create_league("Test League")
+        old_season_id = await _seed_completed_season(repo, league.id)
+        effect_id = await self._register_effect(repo, old_season_id)
+        old_registry = await load_effect_registry(repo, old_season_id)
+        assert isinstance(old_registry, EffectRegistry)
+        await repeal_effect(
+            repo=repo,
+            registry=old_registry,
+            effect_id=effect_id,
+            season_id=old_season_id,
+            proposal_id="prop-repeal",
+        )
+
+        new_season = await start_new_season(
+            repo=repo,
+            league_id=league.id,
+            season_name="Season 2",
+            carry_forward_rules=True,
+            previous_season_id=old_season_id,
+        )
+
+        new_registry = await load_effect_registry(repo, new_season.id)
+        assert new_registry.get_effect(effect_id) is None

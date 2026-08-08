@@ -64,6 +64,7 @@ from pinwheel.core.drama import (  # noqa: E501
 from pinwheel.core.effects import EffectRegistry, load_effect_registry, persist_expired_effects
 from pinwheel.core.event_bus import EventBus
 from pinwheel.core.governance import (
+    get_held_proposals,
     get_proposal_effects_v2,
     tally_governance,
     tally_governance_with_effects,
@@ -78,7 +79,13 @@ from pinwheel.core.tokens import regenerate_tokens
 from pinwheel.db.models import TeamRow
 from pinwheel.db.repository import Repository
 from pinwheel.models.game import GameResult
-from pinwheel.models.governance import EffectSpec, Proposal, Vote, VoteTally
+from pinwheel.models.governance import (
+    EffectSpec,
+    Proposal,
+    RuleInterpretation,
+    Vote,
+    VoteTally,
+)
 from pinwheel.models.report import Report
 from pinwheel.models.rules import RuleSet
 from pinwheel.models.team import Hooper, Move, PlayerAttributes, Team, Venue, suppress_budget_check
@@ -984,6 +991,31 @@ async def tally_pending_governance(
                     p_data_copy["status"] = "confirmed"
                 proposals.append(Proposal(**p_data_copy))
 
+        # An amendment replaces the original interpretation on the ballot,
+        # so a passing vote must enact the latest amendment — not the
+        # originally submitted interpretation.
+        amended_events = await repo.get_events_by_type(
+            season_id=season_id,
+            event_types=["proposal.amended"],
+        )
+        latest_amendment: dict[str, dict] = {}
+        for ae in amended_events:
+            apid = str(ae.payload.get("proposal_id", ae.aggregate_id))
+            latest_amendment[apid] = ae.payload
+        for proposal in proposals:
+            amendment_payload = latest_amendment.get(proposal.id)
+            if not amendment_payload:
+                continue
+            new_interp_data = amendment_payload.get("new_interpretation")
+            if not isinstance(new_interp_data, dict):
+                continue
+            proposal.interpretation = RuleInterpretation(**new_interp_data)
+            proposal.status = "amended"
+            # The superseded submission's v2 effects must not register; an
+            # explicit empty entry also blocks the submitted-payload
+            # backfill inside tally_governance_with_effects.
+            effects_v2_by_proposal[proposal.id] = []
+
         # Gather votes for pending proposals
         vote_events = await repo.get_events_by_type(
             season_id=season_id,
@@ -996,9 +1028,10 @@ async def tally_pending_governance(
             if pid in seen_ids:
                 votes_by_proposal.setdefault(pid, []).append(Vote(**v_data))
 
-        if effect_registry is not None:
-            from pinwheel.config import Settings as _Settings
+        from pinwheel.config import Settings as _Settings
 
+        _settings = _Settings()
+        if effect_registry is not None:
             new_ruleset, round_tallies = await tally_governance_with_effects(
                 repo=repo,
                 season_id=season_id,
@@ -1008,7 +1041,8 @@ async def tally_pending_governance(
                 round_number=round_number,
                 effect_registry=effect_registry,
                 effects_v2_by_proposal=effects_v2_by_proposal,
-                codegen_auto_approve=_Settings().pinwheel_codegen_auto_approve,
+                codegen_auto_approve=_settings.pinwheel_codegen_auto_approve,
+                require_approval=_settings.pinwheel_rules_require_approval,
             )
         else:
             new_ruleset, round_tallies = await tally_governance(
@@ -1018,8 +1052,18 @@ async def tally_pending_governance(
                 votes_by_proposal=votes_by_proposal,
                 current_ruleset=ruleset,
                 round_number=round_number,
+                require_approval=_settings.pinwheel_rules_require_approval,
             )
         tallies = round_tallies
+
+        # Approval gate: surface newly held proposals to the admin
+        if event_bus is not None and _settings.pinwheel_rules_require_approval:
+            for held in await get_held_proposals(repo, season_id):
+                if int(held.get("round_number", -1) or -1) == round_number:
+                    await event_bus.publish(
+                        "governance.enactment_held",
+                        {"season_id": season_id, "held": held},
+                    )
 
         if new_ruleset != ruleset:
             await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
@@ -2603,6 +2647,9 @@ async def _phase_persist_and_finalize(
                 result_phase = await check_and_handle_tiebreakers(
                     repo,
                     sim.season_id,
+                    num_playoff_teams=RuleSet(
+                        **(season.current_ruleset or {})
+                    ).playoff_teams,
                     event_bus=event_bus,
                 )
             except SQLAlchemyError:
@@ -2615,7 +2662,13 @@ async def _phase_persist_and_finalize(
 
             if result_phase == "playoffs":
                 try:
-                    playoff_bracket = await generate_playoff_bracket(repo, sim.season_id)
+                    playoff_bracket = await generate_playoff_bracket(
+                        repo,
+                        sim.season_id,
+                        num_playoff_teams=RuleSet(
+                            **(season.current_ruleset or {})
+                        ).playoff_teams,
+                    )
                     logger.info(
                         "playoff_bracket_generated season=%s matchups=%d",
                         sim.season_id,
@@ -2659,7 +2712,13 @@ async def _phase_persist_and_finalize(
                     event_bus=event_bus,
                 )
                 try:
-                    playoff_bracket = await generate_playoff_bracket(repo, sim.season_id)
+                    playoff_bracket = await generate_playoff_bracket(
+                        repo,
+                        sim.season_id,
+                        num_playoff_teams=RuleSet(
+                            **(season.current_ruleset or {})
+                        ).playoff_teams,
+                    )
                     logger.info(
                         "tiebreaker_resolved season=%s -> playoffs matchups=%d",
                         sim.season_id,

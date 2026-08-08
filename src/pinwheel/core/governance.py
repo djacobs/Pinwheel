@@ -213,10 +213,6 @@ def detect_tier_v2(interpretation: ProposalInterpretation, ruleset: RuleSet) -> 
             tiers.append(3)
         elif effect.effect_type == "narrative":
             tiers.append(2)
-        # composite effects: recurse into sub-effects if needed, but for now
-        # treat as Tier 3 (structural change)
-        elif effect.effect_type == "composite":
-            tiers.append(3)
 
     if not tiers:
         return 5
@@ -692,10 +688,16 @@ async def cast_vote(
 def tally_votes(votes: list[Vote], threshold: float) -> VoteTally:
     """Tally weighted votes and determine if proposal passes.
 
-    Strictly greater-than: ties fail.
+    Strictly greater-than: ties fail. One vote per governor: the event
+    store is append-only, so a governor with multiple ``vote.cast``
+    events counts once — the most recent vote wins.
     """
-    yes_votes = [v for v in votes if v.vote == "yes"]
-    no_votes = [v for v in votes if v.vote == "no"]
+    latest_by_governor: dict[str, Vote] = {}
+    for v in votes:
+        latest_by_governor[v.governor_id] = v
+    deduped = list(latest_by_governor.values())
+    yes_votes = [v for v in deduped if v.vote == "yes"]
+    no_votes = [v for v in deduped if v.vote == "no"]
     weighted_yes = sum(v.weight for v in yes_votes)
     weighted_no = sum(v.weight for v in no_votes)
     total = weighted_yes + weighted_no
@@ -763,6 +765,7 @@ async def tally_governance(
     votes_by_proposal: dict[str, list[Vote]],
     current_ruleset: RuleSet,
     round_number: int,
+    require_approval: bool = False,
 ) -> tuple[RuleSet, list[VoteTally]]:
     """Tally all pending proposals and enact passing rule changes.
 
@@ -781,7 +784,31 @@ async def tally_governance(
         tally.proposal_id = proposal.id
         tallies.append(tally)
 
-        if tally.passed and proposal.interpretation and proposal.interpretation.parameter:
+        if tally.passed and require_approval:
+            await repo.append_event(
+                event_type="proposal.enactment_held",
+                aggregate_id=proposal.id,
+                aggregate_type="proposal",
+                season_id=season_id,
+                governor_id=proposal.governor_id,
+                payload={
+                    "proposal_id": proposal.id,
+                    "tier": proposal.tier,
+                    "round_number": round_number,
+                    "governor_id": proposal.governor_id,
+                    "team_id": proposal.team_id,
+                    "raw_text": proposal.raw_text,
+                    "token_cost": proposal.token_cost,
+                    "interpretation": (
+                        proposal.interpretation.model_dump(mode="json")
+                        if proposal.interpretation
+                        else None
+                    ),
+                    "effects_v2": [],
+                    "repeal_target_effect_id": None,
+                },
+            )
+        elif tally.passed and proposal.interpretation and proposal.interpretation.parameter:
             # Enact rule
             try:
                 ruleset, change = apply_rule_change(
@@ -794,7 +821,7 @@ async def tally_governance(
                     season_id=season_id,
                     payload=change.model_dump(mode="json"),
                 )
-            except (ValueError, Exception):
+            except (ValidationError, ValueError):
                 await repo.append_event(
                     event_type="rule.rolled_back",
                     aggregate_id=proposal.id,
@@ -816,6 +843,148 @@ async def tally_governance(
     return ruleset, tallies
 
 
+async def _enact_passed_proposal(
+    repo: Repository,
+    season_id: str,
+    proposal_id: str,
+    governor_id: str,
+    interpretation: RuleInterpretation | None,
+    v2_effects: list[EffectSpec],
+    ruleset: RuleSet,
+    round_number: int,
+    effect_registry: EffectRegistry | None,
+    codegen_auto_approve: bool,
+    repeal_target_id: str | None,
+    legacy_effects_fallback: list[EffectSpec] | None = None,
+) -> RuleSet:
+    """Enact a single passed proposal: parameter changes, v2 effects,
+    move grants, custom-mechanic requests, and repeals.
+
+    Shared by the tally (immediate enactment) and the admin approval gate
+    (deferred enactment of a held proposal) so both paths stay identical.
+    Returns the (possibly) updated ruleset.
+    """
+    from pinwheel.core.effects import register_effects_for_proposal, repeal_effect
+
+    v2_param_effects = [
+        e for e in v2_effects if e.effect_type == "parameter_change" and e.parameter
+    ]
+
+    if v2_param_effects:
+        # Apply all parameter_change effects from v2 interpretation
+        for effect in v2_param_effects:
+            interp = RuleInterpretation(
+                parameter=effect.parameter,
+                new_value=effect.new_value,
+                old_value=effect.old_value,
+            )
+            try:
+                ruleset, change = apply_rule_change(
+                    ruleset, interp, proposal_id, round_number
+                )
+                await repo.append_event(
+                    event_type="rule.enacted",
+                    aggregate_id=proposal_id,
+                    aggregate_type="rule_change",
+                    season_id=season_id,
+                    payload=change.model_dump(mode="json"),
+                )
+            except (ValidationError, ValueError):
+                await repo.append_event(
+                    event_type="rule.rolled_back",
+                    aggregate_id=proposal_id,
+                    aggregate_type="rule_change",
+                    season_id=season_id,
+                    payload={
+                        "reason": "validation_error",
+                        "proposal_id": proposal_id,
+                        "parameter": effect.parameter,
+                    },
+                )
+    elif interpretation and interpretation.parameter:
+        # Fallback: handle single parameter change via existing path
+        try:
+            ruleset, change = apply_rule_change(
+                ruleset, interpretation, proposal_id, round_number
+            )
+            await repo.append_event(
+                event_type="rule.enacted",
+                aggregate_id=proposal_id,
+                aggregate_type="rule_change",
+                season_id=season_id,
+                payload=change.model_dump(mode="json"),
+            )
+        except (ValidationError, ValueError):
+            await repo.append_event(
+                event_type="rule.rolled_back",
+                aggregate_id=proposal_id,
+                aggregate_type="rule_change",
+                season_id=season_id,
+                payload={"reason": "validation_error", "proposal_id": proposal_id},
+            )
+
+    # Non-parameter v2 effects (meta, hook, narrative, game-def, codegen)
+    if effect_registry is not None:
+        non_param_effects = [
+            e
+            for e in v2_effects
+            if e.effect_type not in ("parameter_change", "move_grant")
+        ]
+        if not non_param_effects and legacy_effects_fallback:
+            non_param_effects = legacy_effects_fallback
+        if non_param_effects:
+            await register_effects_for_proposal(
+                repo=repo,
+                registry=effect_registry,
+                proposal_id=proposal_id,
+                effects=non_param_effects,
+                season_id=season_id,
+                current_round=round_number,
+                codegen_auto_approve=codegen_auto_approve,
+                current_ruleset=ruleset,
+            )
+
+    # Move grants
+    for mg in (e for e in v2_effects if e.effect_type == "move_grant"):
+        await _enact_move_grant(repo, season_id, mg)
+
+    # Custom mechanics: request admin implementation
+    for ce in (e for e in v2_effects if e.effect_type == "custom_mechanic"):
+        await repo.append_event(
+            event_type="effect.implementation_requested",
+            aggregate_id=proposal_id,
+            aggregate_type="effect",
+            season_id=season_id,
+            governor_id=governor_id,
+            payload={
+                "proposal_id": proposal_id,
+                "mechanic_description": ce.mechanic_description or "",
+                "mechanic_hook_point": ce.mechanic_hook_point or "",
+                "mechanic_observable_behavior": ce.mechanic_observable_behavior or "",
+                "mechanic_implementation_spec": ce.mechanic_implementation_spec or "",
+                "description": ce.description,
+            },
+        )
+
+    # Repeal proposals — remove the target effect
+    if repeal_target_id and effect_registry is not None:
+        target_effect = effect_registry.get_effect(repeal_target_id)
+        if target_effect and target_effect.effect_type == "parameter_change":
+            # Parameter changes cannot be repealed via this mechanism.
+            # Governors should submit a new /propose to change the parameter.
+            pass
+        else:
+            await repeal_effect(
+                repo=repo,
+                registry=effect_registry,
+                effect_id=repeal_target_id,
+                season_id=season_id,
+                proposal_id=proposal_id,
+            )
+
+    return ruleset
+
+
 async def tally_governance_with_effects(
     repo: Repository,
     season_id: str,
@@ -826,6 +995,7 @@ async def tally_governance_with_effects(
     effect_registry: EffectRegistry | None = None,
     effects_v2_by_proposal: dict[str, list[EffectSpec]] | None = None,
     codegen_auto_approve: bool = False,
+    require_approval: bool = False,
 ) -> tuple[RuleSet, list[VoteTally]]:
     """Tally proposals and register effects for passing proposals.
 
@@ -839,7 +1009,6 @@ async def tally_governance_with_effects(
 
     Returns the updated ruleset and list of vote tallies.
     """
-    from pinwheel.core.effects import register_effects_for_proposal, repeal_effect
 
     tallies: list[VoteTally] = []
     ruleset = current_ruleset
@@ -925,131 +1094,52 @@ async def tally_governance_with_effects(
         tallies.append(tally)
 
         if tally.passed:
-            # Check for v2 effects first (compound proposals)
             v2_effects = _effects_v2_map.get(proposal.id, [])
-            v2_param_effects = [
-                e for e in v2_effects if e.effect_type == "parameter_change" and e.parameter
-            ]
-
-            if v2_param_effects:
-                # Apply all parameter_change effects from v2 interpretation
-                for effect in v2_param_effects:
-                    interp = RuleInterpretation(
-                        parameter=effect.parameter,
-                        new_value=effect.new_value,
-                        old_value=effect.old_value,
-                    )
-                    try:
-                        ruleset, change = apply_rule_change(
-                            ruleset, interp, proposal.id, round_number
-                        )
-                        await repo.append_event(
-                            event_type="rule.enacted",
-                            aggregate_id=proposal.id,
-                            aggregate_type="rule_change",
-                            season_id=season_id,
-                            payload=change.model_dump(mode="json"),
-                        )
-                    except (ValueError, Exception):
-                        await repo.append_event(
-                            event_type="rule.rolled_back",
-                            aggregate_id=proposal.id,
-                            aggregate_type="rule_change",
-                            season_id=season_id,
-                            payload={
-                                "reason": "validation_error",
-                                "proposal_id": proposal.id,
-                                "parameter": effect.parameter,
-                            },
-                        )
-            elif proposal.interpretation and proposal.interpretation.parameter:
-                # 1. Fallback: handle single parameter change via existing path
-                try:
-                    ruleset, change = apply_rule_change(
-                        ruleset, proposal.interpretation, proposal.id, round_number
-                    )
-                    await repo.append_event(
-                        event_type="rule.enacted",
-                        aggregate_id=proposal.id,
-                        aggregate_type="rule_change",
-                        season_id=season_id,
-                        payload=change.model_dump(mode="json"),
-                    )
-                except (ValueError, Exception):
-                    await repo.append_event(
-                        event_type="rule.rolled_back",
-                        aggregate_id=proposal.id,
-                        aggregate_type="rule_change",
-                        season_id=season_id,
-                        payload={"reason": "validation_error", "proposal_id": proposal.id},
-                    )
-
-            # 2. Handle non-parameter v2 effects (meta, hook, narrative)
-            if effect_registry is not None:
-                non_param_effects = [
-                    e
-                    for e in v2_effects
-                    if e.effect_type not in ("parameter_change", "move_grant")
-                ]
-                # Also check the legacy extraction path
-                if not non_param_effects:
-                    non_param_effects = _extract_effects_from_proposal(proposal)
-                if non_param_effects:
-                    await register_effects_for_proposal(
-                        repo=repo,
-                        registry=effect_registry,
-                        proposal_id=proposal.id,
-                        effects=non_param_effects,
-                        season_id=season_id,
-                        current_round=round_number,
-                        codegen_auto_approve=codegen_auto_approve,
-                        current_ruleset=ruleset,
-                    )
-
-            # 2b. Handle move_grant effects
-            move_grant_effects = [
-                e for e in v2_effects if e.effect_type == "move_grant"
-            ]
-            for mg in move_grant_effects:
-                await _enact_move_grant(repo, season_id, mg)
-
-            # 2c. Notify admin when custom_mechanic effects are enacted
-            custom_effects = [
-                e for e in v2_effects if e.effect_type == "custom_mechanic"
-            ]
-            for ce in custom_effects:
+            if require_approval:
+                # Enforced human gate: record the pass but hold enactment
+                # until the admin clears it. The payload snapshots exactly
+                # what would have been enacted (amendments already merged
+                # by the caller) so approval enacts without re-derivation.
                 await repo.append_event(
-                    event_type="effect.implementation_requested",
+                    event_type="proposal.enactment_held",
                     aggregate_id=proposal.id,
-                    aggregate_type="effect",
+                    aggregate_type="proposal",
                     season_id=season_id,
                     governor_id=proposal.governor_id,
                     payload={
                         "proposal_id": proposal.id,
-                        "mechanic_description": ce.mechanic_description or "",
-                        "mechanic_hook_point": ce.mechanic_hook_point or "",
-                        "mechanic_observable_behavior": ce.mechanic_observable_behavior or "",
-                        "mechanic_implementation_spec": ce.mechanic_implementation_spec or "",
-                        "description": ce.description,
+                        "tier": proposal.tier,
+                        "round_number": round_number,
+                        "governor_id": proposal.governor_id,
+                        "team_id": proposal.team_id,
+                        "raw_text": proposal.raw_text,
+                        "token_cost": proposal.token_cost,
+                        "interpretation": (
+                            proposal.interpretation.model_dump(mode="json")
+                            if proposal.interpretation
+                            else None
+                        ),
+                        "effects_v2": [
+                            e.model_dump(mode="json") for e in v2_effects
+                        ],
+                        "repeal_target_effect_id": repeal_targets.get(proposal.id),
                     },
                 )
-
-            # 3. Handle repeal proposals — remove the target effect
-            repeal_target_id = repeal_targets.get(proposal.id)
-            if repeal_target_id and effect_registry is not None:
-                target_effect = effect_registry.get_effect(repeal_target_id)
-                if target_effect and target_effect.effect_type == "parameter_change":
-                    # Parameter changes cannot be repealed via this mechanism.
-                    # Governors should submit a new /propose to change the parameter.
-                    pass
-                else:
-                    await repeal_effect(
-                        repo=repo,
-                        registry=effect_registry,
-                        effect_id=repeal_target_id,
-                        season_id=season_id,
-                        proposal_id=proposal.id,
-                    )
+            else:
+                ruleset = await _enact_passed_proposal(
+                    repo=repo,
+                    season_id=season_id,
+                    proposal_id=proposal.id,
+                    governor_id=proposal.governor_id,
+                    interpretation=proposal.interpretation,
+                    v2_effects=v2_effects,
+                    ruleset=ruleset,
+                    round_number=round_number,
+                    effect_registry=effect_registry,
+                    codegen_auto_approve=codegen_auto_approve,
+                    repeal_target_id=repeal_targets.get(proposal.id),
+                    legacy_effects_fallback=_extract_effects_from_proposal(proposal),
+                )
 
         # Record pass/fail
         event_type = "proposal.passed" if tally.passed else "proposal.failed"
@@ -1062,6 +1152,125 @@ async def tally_governance_with_effects(
         )
 
     return ruleset, tallies
+
+
+async def get_held_proposals(repo: Repository, season_id: str) -> list[dict]:
+    """Passed proposals held for admin approval, minus already-decided ones.
+
+    Returns the held-event payloads (latest per proposal), oldest first.
+    """
+    held_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.enactment_held"],
+    )
+    decided_events = await repo.get_events_by_type(
+        season_id=season_id,
+        event_types=["proposal.enactment_approved", "proposal.enactment_rejected"],
+    )
+    decided_ids = {e.aggregate_id for e in decided_events}
+    pending: dict[str, dict] = {}
+    for e in held_events:
+        if e.aggregate_id not in decided_ids:
+            pending[e.aggregate_id] = e.payload
+    return list(pending.values())
+
+
+async def approve_held_proposal(
+    repo: Repository,
+    season_id: str,
+    held_payload: dict,
+    effect_registry: EffectRegistry | None = None,
+    codegen_auto_approve: bool = False,
+) -> RuleSet:
+    """Admin clears a held proposal: enact it against the current ruleset.
+
+    Enactment uses the snapshot taken at tally time (amendments already
+    merged), so what the admin read is exactly what goes live. Updates the
+    season's stored ruleset when parameters change, and returns it.
+    """
+    season = await repo.get_season(season_id)
+    ruleset = RuleSet(**(season.current_ruleset or {})) if season else RuleSet()
+
+    effects: list[EffectSpec] = []
+    for item in held_payload.get("effects_v2") or []:
+        if isinstance(item, dict):
+            try:
+                effects.append(EffectSpec(**item))
+            except (ValidationError, TypeError):
+                continue
+    interpretation: RuleInterpretation | None = None
+    interp_data = held_payload.get("interpretation")
+    if isinstance(interp_data, dict):
+        try:
+            interpretation = RuleInterpretation(**interp_data)
+        except (ValidationError, TypeError):
+            interpretation = None
+
+    proposal_id = str(held_payload.get("proposal_id", ""))
+    new_ruleset = await _enact_passed_proposal(
+        repo=repo,
+        season_id=season_id,
+        proposal_id=proposal_id,
+        governor_id=str(held_payload.get("governor_id", "")),
+        interpretation=interpretation,
+        v2_effects=effects,
+        ruleset=ruleset,
+        round_number=int(held_payload.get("round_number", 0) or 0),
+        effect_registry=effect_registry,
+        codegen_auto_approve=codegen_auto_approve,
+        repeal_target_id=held_payload.get("repeal_target_effect_id") or None,
+    )
+    if new_ruleset != ruleset:
+        await repo.update_season_ruleset(season_id, new_ruleset.model_dump())
+
+    await repo.append_event(
+        event_type="proposal.enactment_approved",
+        aggregate_id=proposal_id,
+        aggregate_type="proposal",
+        season_id=season_id,
+        payload={"proposal_id": proposal_id},
+    )
+    logger.info(
+        "held_proposal_approved proposal=%s season=%s", proposal_id, season_id
+    )
+    return new_ruleset
+
+
+async def reject_held_proposal(
+    repo: Repository,
+    season_id: str,
+    held_payload: dict,
+    reason: str = "",
+) -> None:
+    """Admin rejects a held proposal. Nothing enacts; PROPOSE token refunded."""
+    proposal_id = str(held_payload.get("proposal_id", ""))
+    await repo.append_event(
+        event_type="proposal.enactment_rejected",
+        aggregate_id=proposal_id,
+        aggregate_type="proposal",
+        season_id=season_id,
+        payload={"proposal_id": proposal_id, "reason": reason},
+    )
+    governor_id = str(held_payload.get("governor_id", ""))
+    if governor_id:
+        await repo.append_event(
+            event_type="token.regenerated",
+            aggregate_id=governor_id,
+            aggregate_type="token",
+            season_id=season_id,
+            governor_id=governor_id,
+            payload={
+                "token_type": "propose",
+                "amount": int(held_payload.get("token_cost", 1) or 1),
+                "reason": "enactment_rejected_refund",
+            },
+        )
+    logger.info(
+        "held_proposal_rejected proposal=%s season=%s reason=%s",
+        proposal_id,
+        season_id,
+        reason,
+    )
 
 
 def _extract_effects_from_proposal(proposal: Proposal) -> list[EffectSpec]:

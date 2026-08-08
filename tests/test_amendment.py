@@ -638,3 +638,135 @@ class TestMultipleAmendments:
         assert tallies[0].passed is True
         # The last amendment (6) should be enacted
         assert new_ruleset.three_point_value == 6
+
+
+# --- Event-store reconstruction path (tally_pending_governance) ---
+
+
+class TestAmendmentReachesTally:
+    """The tally reconstructs proposals from the event store; amendments
+    must be merged there too — passing an in-memory Proposal (as the tests
+    above do) bypasses the path production actually runs."""
+
+    async def test_tally_pending_governance_enacts_amendment(
+        self,
+        repo: Repository,
+        season_id: str,
+        team_id: str,
+        gov_a: str,
+        gov_b: str,
+        gov_c: str,
+        confirmed_proposal,
+    ):
+        """Reconstructed tally enacts the amended value, not the original."""
+        from pinwheel.core.game_loop import tally_pending_governance
+
+        new_interp = RuleInterpretation(
+            parameter="three_point_value", new_value=4, old_value=3, confidence=0.9
+        )
+        await amend_proposal(
+            repo=repo,
+            proposal=confirmed_proposal,
+            governor_id=gov_b,
+            team_id=team_id,
+            amendment_text="Change to 4 instead of 5",
+            new_interpretation=new_interp,
+        )
+        for gov in (gov_a, gov_c):
+            await cast_vote(
+                repo=repo,
+                proposal=confirmed_proposal,
+                governor_id=gov,
+                team_id=team_id,
+                vote_choice="yes",
+                weight=1.0,
+            )
+
+        new_ruleset, tallies, _gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=RuleSet(),
+            skip_deferral=True,
+        )
+
+        assert len(tallies) == 1
+        assert tallies[0].passed is True
+        # The amendment (4), not the original submission (5)
+        assert new_ruleset.three_point_value == 4
+
+    async def test_amendment_supersedes_original_v2_effects(
+        self,
+        repo: Repository,
+        season_id: str,
+        team_id: str,
+        gov_a: str,
+        gov_b: str,
+        gov_c: str,
+    ):
+        """Amending a proposal drops the superseded submission's v2 effects."""
+        from pinwheel.core.effects import EffectRegistry
+        from pinwheel.core.game_loop import tally_pending_governance
+        from pinwheel.models.governance import EffectSpec, ProposalInterpretation
+
+        interp_v2 = ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="hook_callback",
+                    hook_point="sim.shot.pre",
+                    action_code={"type": "modify_probability", "modifier": 0.05},
+                    description="Hot hand bonus",
+                )
+            ],
+            confidence=0.9,
+        )
+        interpretation = interpret_proposal_mock("Hot hand bonus on every shot", RuleSet())
+        proposal = await submit_proposal(
+            repo=repo,
+            governor_id=gov_a,
+            team_id=team_id,
+            season_id=season_id,
+            window_id="w-1",
+            raw_text="Hot hand bonus on every shot",
+            interpretation=interpretation,
+            ruleset=RuleSet(),
+            interpretation_v2=interp_v2,
+        )
+        proposal = await confirm_proposal(repo, proposal)
+
+        new_interp = RuleInterpretation(
+            parameter="three_point_value", new_value=4, old_value=3, confidence=0.9
+        )
+        await amend_proposal(
+            repo=repo,
+            proposal=proposal,
+            governor_id=gov_b,
+            team_id=team_id,
+            amendment_text="Actually just make threes worth 4",
+            new_interpretation=new_interp,
+        )
+        for gov in (gov_a, gov_c):
+            await cast_vote(
+                repo=repo,
+                proposal=proposal,
+                governor_id=gov,
+                team_id=team_id,
+                vote_choice="yes",
+                weight=1.0,
+            )
+
+        registry = EffectRegistry()
+        new_ruleset, tallies, _gov_data = await tally_pending_governance(
+            repo=repo,
+            season_id=season_id,
+            round_number=1,
+            ruleset=RuleSet(),
+            effect_registry=registry,
+            skip_deferral=True,
+        )
+
+        assert tallies and tallies[0].passed is True
+        # The amendment's parameter change is enacted...
+        assert new_ruleset.three_point_value == 4
+        # ...and the superseded hook_callback never registers.
+        assert not registry.get_all_active()

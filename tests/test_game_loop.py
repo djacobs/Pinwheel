@@ -760,6 +760,27 @@ class TestPlayoffBracket:
         assert result.playoff_bracket is not None
         assert len(result.playoff_bracket) == 3  # 2 semis + 1 finals placeholder
 
+    async def test_governed_playoff_teams_drives_bracket_size(self, repo: Repository):
+        """A governed playoff_teams value shapes the bracket step_round builds."""
+        season_id, team_ids = await _setup_season_with_teams(
+            repo, num_rounds=3, starting_ruleset={"playoff_teams": 2},
+        )
+        await repo.update_season_status(season_id, "active")
+
+        matchups = generate_round_robin(team_ids, num_rounds=3)
+        total_rounds = max(m.round_number for m in matchups)
+
+        result = None
+        for rnd in range(1, total_rounds + 1):
+            result = await step_round(repo, season_id, round_number=rnd)
+
+        assert result is not None
+        assert result.season_complete is True
+        assert result.playoff_bracket is not None
+        # playoff_teams=2 → straight to a single finals matchup, not 4-team semis
+        assert len(result.playoff_bracket) == 1
+        assert result.playoff_bracket[0]["playoff_round"] == "finals"
+
 
 class TestPlayoffProgression:
     """Tests for the full playoff progression pipeline (semis → finals → completed)."""

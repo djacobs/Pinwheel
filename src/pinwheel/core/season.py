@@ -1162,6 +1162,34 @@ async def start_new_season(
     if source_season_id is not None:
         await carry_over_teams(repo, source_season_id, new_season.id)
 
+    # 4b. Carry active effects with the rules — "the rules" are parameters
+    # AND registered effects, so carry_forward_rules brings both. The
+    # to_dict round-trip preserves codegen approval/disabled state.
+    if carry_forward_rules and source_season_id is not None:
+        from pinwheel.core.effects import load_effect_registry
+
+        prev_registry = await load_effect_registry(repo, source_season_id)
+        carried = 0
+        for effect in prev_registry.get_all_active():
+            payload = effect.to_dict()
+            payload["registered_at_round"] = 0
+            payload["carried_from_season"] = source_season_id
+            await repo.append_event(
+                event_type="effect.registered",
+                aggregate_id=effect.effect_id,
+                aggregate_type="effect",
+                season_id=new_season.id,
+                payload=payload,
+            )
+            carried += 1
+        if carried:
+            logger.info(
+                "start_new_season_carried_effects season=%s from=%s count=%d",
+                new_season.id,
+                source_season_id,
+                carried,
+            )
+
     # 5. Generate schedule for new season
     teams = await repo.get_teams_for_season(new_season.id)
     if len(teams) >= 2:

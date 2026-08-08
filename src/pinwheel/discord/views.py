@@ -1891,3 +1891,211 @@ async def notify_admin_codegen_pending(
         getattr(effect, "effect_id", "?"),
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# Approval gate: held-enactment review (PINWHEEL_RULES_REQUIRE_APPROVAL)
+# ---------------------------------------------------------------------------
+
+
+def build_held_enactment_embed(held: dict) -> discord.Embed:
+    """Embed describing a passed proposal awaiting the admin's approval."""
+    raw_text = str(held.get("raw_text", ""))[:500]
+    tier = held.get("tier", "?")
+    effects = held.get("effects_v2") or []
+    effect_lines = []
+    for e in effects[:8]:
+        if isinstance(e, dict):
+            effect_lines.append(
+                f"- `{e.get('effect_type', '?')}` {str(e.get('description', ''))[:80]}"
+            )
+    interp = held.get("interpretation") or {}
+    param_line = ""
+    if isinstance(interp, dict) and interp.get("parameter"):
+        param_line = f"\n**Parameter:** `{interp['parameter']}` → `{interp.get('new_value')}`"
+    embed = discord.Embed(
+        title="Passed Proposal Awaiting Your Approval",
+        description=(
+            f'"{raw_text}"\n\n'
+            f"**Tier {tier}** — the Floor voted YES. Nothing is live until "
+            f"you approve.{param_line}"
+        ),
+        color=0xE67E22,
+    )
+    if effect_lines:
+        embed.add_field(name="Effects", value="\n".join(effect_lines), inline=False)
+    embed.set_footer(text="Approve to enact • Reject to refund the proposer")
+    return embed
+
+
+class HeldEnactmentReviewView(discord.ui.View):
+    """Approve/Reject buttons for a passed proposal held by the approval gate.
+
+    Approve enacts the tally-time snapshot (parameter changes, effects,
+    move grants, repeals) against the season's current ruleset. Reject
+    refunds the proposer's PROPOSE token and nothing enacts.
+    No timeout: held proposals wait indefinitely for the admin.
+    """
+
+    def __init__(
+        self,
+        *,
+        held: dict,
+        season_id: str,
+        engine: AsyncEngine,
+    ) -> None:
+        super().__init__(timeout=None)
+        self.held = held
+        self.season_id = season_id
+        self.engine = engine
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+    @discord.ui.button(label="Approve & Enact", style=discord.ButtonStyle.green)
+    async def approve(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        import contextlib
+
+        from pinwheel.config import Settings as _Settings
+        from pinwheel.core.effects import load_effect_registry
+        from pinwheel.core.governance import approve_held_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                registry = await load_effect_registry(repo, self.season_id)
+                await approve_held_proposal(
+                    repo=repo,
+                    season_id=self.season_id,
+                    held_payload=self.held,
+                    effect_registry=registry,
+                    codegen_auto_approve=_Settings().pinwheel_codegen_auto_approve,
+                )
+                await session.commit()
+        except SQLAlchemyError:
+            logger.exception(
+                "held_enactment_approve_failed proposal=%s",
+                self.held.get("proposal_id"),
+            )
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.send_message(
+                    "Approval failed — database error. Try again.",
+                    ephemeral=True,
+                )
+            return
+
+        self._disable_all()
+        embed = discord.Embed(
+            title="Enacted",
+            description=(
+                f'"{str(self.held.get("raw_text", ""))[:200]}"\n\n'
+                "Approved. The rule is live starting next round."
+            ),
+            color=0x2ECC71,
+        )
+        with contextlib.suppress(discord.HTTPException):
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red)
+    async def reject(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        import contextlib
+
+        from pinwheel.core.governance import reject_held_proposal
+        from pinwheel.db.engine import get_session
+        from pinwheel.db.repository import Repository
+
+        try:
+            async with get_session(self.engine) as session:
+                repo = Repository(session)
+                await reject_held_proposal(
+                    repo=repo,
+                    season_id=self.season_id,
+                    held_payload=self.held,
+                    reason="admin_rejected",
+                )
+                await session.commit()
+        except SQLAlchemyError:
+            logger.exception(
+                "held_enactment_reject_failed proposal=%s",
+                self.held.get("proposal_id"),
+            )
+            with contextlib.suppress(discord.HTTPException):
+                await interaction.response.send_message(
+                    "Rejection failed — database error. Try again.",
+                    ephemeral=True,
+                )
+            return
+
+        self._disable_all()
+        embed = discord.Embed(
+            title="Enactment Rejected",
+            description=(
+                f'"{str(self.held.get("raw_text", ""))[:200]}"\n\n'
+                "Rejected. The proposer's PROPOSE token was refunded."
+            ),
+            color=0xE74C3C,
+        )
+        with contextlib.suppress(discord.HTTPException):
+            await interaction.response.edit_message(embed=embed, view=self)
+
+
+async def notify_admin_held_enactment(
+    client: discord.Client,
+    held: dict,
+    season_id: str,
+    settings: Settings,
+) -> bool:
+    """DM the admin an Approve/Reject card for a held proposal.
+
+    Returns True only when the DM was actually delivered, so callers can
+    retry on the next event rather than marking it notified.
+    """
+    import contextlib
+
+    admin_user: discord.User | None = None
+    if settings.pinwheel_admin_discord_id:
+        with contextlib.suppress(discord.HTTPException, discord.NotFound, ValueError):
+            admin_user = await client.fetch_user(
+                int(settings.pinwheel_admin_discord_id),
+            )
+    if admin_user is None and settings.discord_guild_id:
+        guild = client.get_guild(int(settings.discord_guild_id))
+        if guild is not None:
+            admin_user = guild.owner
+    if admin_user is None:
+        logger.warning(
+            "held_enactment_no_admin proposal=%s", held.get("proposal_id")
+        )
+        return False
+
+    embed = build_held_enactment_embed(held)
+    view = HeldEnactmentReviewView(
+        held=held,
+        season_id=season_id,
+        engine=client.engine,  # type: ignore[attr-defined]
+    )
+    try:
+        await admin_user.send(embed=embed, view=view)
+    except (discord.Forbidden, discord.HTTPException):
+        logger.warning(
+            "held_enactment_dm_failed proposal=%s", held.get("proposal_id")
+        )
+        return False
+    logger.info(
+        "held_enactment_dm_sent admin=%s proposal=%s",
+        admin_user.id,
+        held.get("proposal_id"),
+    )
+    return True

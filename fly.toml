@@ -20,6 +20,8 @@ kill_timeout = "5s"
   # Code Council: beyond-primitive proposals generate real game code
   # (3-reviewer AI consensus + subprocess pre-flight + admin approval gate)
   PINWHEEL_CODEGEN_ENABLED = "true"
+  # Approval gate: every passing proposal holds until the admin approves it
+  PINWHEEL_RULES_REQUIRE_APPROVAL = "true"
   DISCORD_INVITE_URL = "https://discord.gg/sm6dZNTq"
   PORT = "8080"
 

@@ -1637,6 +1637,16 @@ class PinwheelBot(commands.Bot):
                     ):
                         await ch.send(embed=te)
 
+        elif event_type == "governance.enactment_held":
+            from pinwheel.discord.views import notify_admin_held_enactment
+
+            held = data.get("held")
+            season_id = str(data.get("season_id", ""))
+            if isinstance(held, dict) and season_id:
+                await notify_admin_held_enactment(
+                    self, held, season_id, self.settings
+                )
+
         elif event_type == "season.championship_started":
             champion_name = str(data.get("champion_team_name", "???"))
             awards = data.get("awards", [])

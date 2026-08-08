@@ -441,21 +441,21 @@ Clear conditional mechanic >= 0.8. Genuinely unclear what they want < 0.5.
 2. **meta_mutation** — write/update metadata on teams, hoopers, or season
 3. **hook_callback** — register callback at a hook point with conditions and actions
 4. **narrative** — instruct the AI reporter to adopt a narrative element
-5. **composite** — combine multiple effects
-6. **move_grant** — grant a special move to hoopers. Fields: move_name, \
+5. **move_grant** — grant a special move to hoopers. Fields: move_name, \
 move_trigger (half_court_setup|drive_action|opponent_iso|any_possession|elam_period|\
 stamina_below_40|made_three_last_possession), move_effect, move_attribute_gate (optional), \
 target_hooper_id or target_team_id
-7. **custom_mechanic** — Use ALONGSIDE types 1-6 when the full vision needs new code. \
-EVERY proposal MUST include at least one concrete effect (types 1-6) that approximates \
+6. **custom_mechanic** — Use ALONGSIDE types 1-5 when the full vision needs new code. \
+EVERY proposal MUST include at least one concrete effect (types 1-5) that approximates \
 the gameplay intent and fires immediately. If the ideal implementation needs code beyond \
-what types 1-6 can express, ALSO include a custom_mechanic describing the full vision. \
+what types 1-5 can express, ALSO include a custom_mechanic describing the full vision. \
+For compound proposals, emit MULTIPLE effects in the effects list — one per change. \
 The concrete effect gives players an immediate impact; the custom_mechanic is a request \
 for the admin to build the complete version later. \
 Never produce a custom_mechanic as the ONLY effect — there is always an approximation. \
 Include: mechanic_description, mechanic_hook_point, \
 mechanic_observable_behavior, mechanic_implementation_spec
-8. **modify_game_definition** — change the STRUCTURE of the game itself: add or remove \
+7. **modify_game_definition** — change the STRUCTURE of the game itself: add or remove \
 action types (new kinds of shots/plays), change point values per action, change the \
 number/length of periods, enable/disable the Elam Ending, change players per side. \
 Set game_def_patch to a JSON object with any of:

@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     pinwheel_codegen_enabled: bool = False
     # Skip the pre-execution admin gate (dev/demo only — never in production)
     pinwheel_codegen_auto_approve: bool = False
+    # Enforced human gate: hold ALL passing proposals in pending_admin until
+    # the admin approves them (proposal.enactment_held → approve/reject)
+    pinwheel_rules_require_approval: bool = False
 
     # Logging
     pinwheel_log_level: str = "INFO"
