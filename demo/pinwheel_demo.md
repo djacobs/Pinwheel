@@ -1,7 +1,7 @@
 # Pinwheel Fates -- Full Cycle Demo
 
-*2026-06-12T21:23:00Z by Showboat 0.6.1*
-<!-- showboat-id: 1d69ff26-d754-4876-875b-cfe2f3ae759e -->
+*2026-08-09T03:48:45Z by Showboat 0.6.1*
+<!-- showboat-id: 13c90b65-8f85-4cb7-9500-7894fe5a2937 -->
 
 **Pinwheel Fates** is a simulated 3v3 basketball league with human-driven, AI-interpreted governance and rules. Starts out as basketball, finishes as ???. The AI serves as a reporter -- surfacing patterns in gameplay and governance that players cannot see from inside the system.
 
@@ -17,11 +17,11 @@ uv run python scripts/demo_seed.py seed
 
 ```output
 League seeded: 4 teams, 18 scheduled games
-Season ID: b156e004-d711-4534-bd12-e8b66fe89df3
-  Rose City Thorns: b2a710fd-df1a-40ec-9c3b-9c5287880bec
-  Burnside Breakers: c85db237-ef23-481e-a4e4-cca98be906b3
-  St. Johns Herons: 4a3046ce-ebb0-4210-b0fc-16e16db74850
-  Hawthorne Hammers: fc5d405e-f1b7-403e-8142-4f93100def0e
+Season ID: 1ab8dc97-4fc6-4675-aa6e-65dcbd0d743b
+  Rose City Thorns: d663ec97-c07a-49a6-81ea-c8a01b7cbab0
+  Burnside Breakers: 9c7968fe-a961-43e5-aeb7-94c9b8e76cab
+  St. Johns Herons: 91cfd1fd-2879-4ca7-967f-36f1bfe32146
+  Hawthorne Hammers: 29e29139-ca6f-4224-b907-1445b73a7535
 ```
 
 ## Step 2: Start the Web Dashboard
@@ -47,7 +47,7 @@ The home page with navigation cards. Dark theme, retro sports broadcast aestheti
 demo/01_home.png
 ```
 
-![89159966-2026-06-12](89159966-2026-06-12.png)
+![6d3d9bc4-2026-08-09](6d3d9bc4-2026-08-09.png)
 
 ## Step 4: Simulate Round 1
 
@@ -59,9 +59,9 @@ uv run python scripts/demo_seed.py step 1
 
 ```output
 Round 1: 2 games, 2 reports
-  Rose City Thorns 56 - 25 Burnside Breakers (HOME) [ELAM]
-  St. Johns Herons 70 - 38 Hawthorne Hammers (HOME) [ELAM]
-  Report (simulation): St. Johns Herons demolished Hawthorne Hammers 70-38. The 32-point margin speaks ...
+  Rose City Thorns 74 - 38 Burnside Breakers (HOME) [ELAM]
+  St. Johns Herons 74 - 22 Hawthorne Hammers (HOME) [ELAM]
+  Report (simulation): St. Johns Herons demolished Hawthorne Hammers 74-22. The 52-point margin speaks ...
   Report (governance): Round 1 was quiet on the governance front -- no proposals filed....
 ```
 
@@ -73,7 +73,7 @@ Game results appear in the Arena across multiple rounds with vivid Elam banner n
 demo/02_arena.png
 ```
 
-![6579d183-2026-06-12](6579d183-2026-06-12.png)
+![f2e1c832-2026-08-09](f2e1c832-2026-08-09.png)
 
 ## Step 6: Standings
 
@@ -83,7 +83,7 @@ The league table updates after each round. Win/Loss, Points For/Against, Differe
 demo/03_standings.png
 ```
 
-![0ba88151-2026-06-12](0ba88151-2026-06-12.png)
+![d6ffc4cf-2026-08-09](d6ffc4cf-2026-08-09.png)
 
 ## Step 7: Game Detail
 
@@ -93,7 +93,7 @@ Click into a game for box scores and rich narrated play-by-play with player name
 demo/04_game_detail.png
 ```
 
-![1937469d-2026-06-12](1937469d-2026-06-12.png)
+![1e165136-2026-08-09](1e165136-2026-08-09.png)
 
 ## Step 8: Advance the Season
 
@@ -105,14 +105,14 @@ uv run python scripts/demo_seed.py step 2
 
 ```output
 Round 2: 2 games, 2 reports
-  Rose City Thorns 57 - 25 Hawthorne Hammers (HOME) [ELAM]
-  Burnside Breakers 64 - 15 St. Johns Herons (HOME) [ELAM]
-  Report (simulation): Burnside Breakers demolished St. Johns Herons 64-15. The 49-point margin speaks ...
+  Rose City Thorns 90 - 39 Hawthorne Hammers (HOME) [ELAM]
+  Burnside Breakers 79 - 28 St. Johns Herons (HOME) [ELAM]
+  Report (simulation): Rose City Thorns demolished Hawthorne Hammers 90-39. The 51-point margin speaks ...
   Report (governance): Round 2 was quiet on the governance front -- no proposals filed....
 Round 3: 2 games, 2 reports
-  Rose City Thorns 71 - 21 St. Johns Herons (HOME) [ELAM]
-  Hawthorne Hammers 70 - 15 Burnside Breakers (HOME) [ELAM]
-  Report (simulation): Hawthorne Hammers demolished Burnside Breakers 70-15. The 55-point margin speaks...
+  Rose City Thorns 76 - 20 St. Johns Herons (HOME) [ELAM]
+  Hawthorne Hammers 66 - 45 Burnside Breakers (HOME) [ELAM]
+  Report (simulation): Hawthorne Hammers shocked Burnside Breakers 66-45. The standings didn't predict ...
   Report (governance): Round 3 was quiet on the governance front -- no proposals filed....
 ```
 
@@ -126,17 +126,17 @@ uv run python scripts/demo_seed.py status
 Season: Season 1 | Rounds played: 3
 Team                        W   L    PCT    PF    PA  DIFF
 -------------------------------------------------------
-Rose City Thorns            3   0  1.000   184    71 + 113
-Hawthorne Hammers           1   2  0.333   133   142   -9
-Burnside Breakers           1   2  0.333   104   141  -37
-St. Johns Herons            1   2  0.333   106   173  -67
+Rose City Thorns            3   0  1.000   240    97 + 143
+Burnside Breakers           1   2  0.333   162   168   -6
+St. Johns Herons            1   2  0.333   122   177  -55
+Hawthorne Hammers           1   2  0.333   127   209  -82
 ```
 
 ```bash {image}
 demo/05_standings_r3.png
 ```
 
-![5569f336-2026-06-12](5569f336-2026-06-12.png)
+![81f12c33-2026-08-09](81f12c33-2026-08-09.png)
 
 ## Step 10: AI Reports
 
@@ -146,7 +146,7 @@ Narrative reports that reference specific teams and game details. The reporting 
 demo/06_reports.png
 ```
 
-![5b8b393c-2026-06-12](5b8b393c-2026-06-12.png)
+![94d19783-2026-08-09](94d19783-2026-08-09.png)
 
 ## Step 11: Governance -- Submit a Proposal
 
@@ -157,7 +157,7 @@ uv run python scripts/demo_seed.py propose Make three-pointers worth 5 points
 ```
 
 ```output
-Proposal submitted: p-b0cd5330
+Proposal submitted: p-78043058
   Text: Make three-pointers worth 5 points
 ```
 
@@ -165,7 +165,7 @@ Proposal submitted: p-b0cd5330
 demo/07_governance.png
 ```
 
-![93d56485-2026-06-12](93d56485-2026-06-12.png)
+![a0ffec49-2026-08-09](a0ffec49-2026-08-09.png)
 
 ## Step 12: Current Ruleset
 
@@ -175,7 +175,7 @@ The rules page shows all current parameters and highlights changes from defaults
 demo/08_rules.png
 ```
 
-![aaa6fe31-2026-06-12](aaa6fe31-2026-06-12.png)
+![6b269d4d-2026-08-09](6b269d4d-2026-08-09.png)
 
 ## Step 13: Team Profile
 
@@ -185,7 +185,7 @@ Each team has a profile with roster, agent attributes (visualized as bars), and 
 demo/09_team.png
 ```
 
-![be249440-2026-06-12](be249440-2026-06-12.png)
+![ba6a9bb0-2026-08-09](ba6a9bb0-2026-08-09.png)
 
 ## Step 14: Evals Dashboard
 
@@ -195,7 +195,7 @@ The admin-facing evals dashboard shows aggregate report quality metrics, scenari
 demo/10_evals.png
 ```
 
-![4dda8dff-2026-06-12](4dda8dff-2026-06-12.png)
+![36a5f2cd-2026-08-09](36a5f2cd-2026-08-09.png)
 
 ## Verification
 
@@ -208,5 +208,5 @@ uv run pytest --tb=short -q 2>&1 | tail -3
 ```output
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-2657 passed, 190 warnings in 84.90s (0:01:24)
+2977 passed, 190 warnings in 204.17s (0:03:24)
 ```
