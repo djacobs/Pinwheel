@@ -166,12 +166,16 @@ Moves plug in per-event: triggers "drive_action", "opponent_iso",
   (fixed seeds, 200 games: PPG/FG% by type/TO rate/ORB rate/foul rate within
   tolerance of macro), seed-snapshot test pinning one full game's event
   stream per engine version.
-- **Phase 4 — Flip default to "micro" + Tier-2 events.** Passes/drives/
-  screens/cuts/defense/box-outs live; moves rewired to real triggers;
-  narration per category with graceful fallback; presenter renders summary
-  line + expandable chain; commentary consumes summary rows + drama-selected
-  chains ONLY (never raw event stream); interpreter vocabulary updated; one
-  "engine v2 seeds" commit updates seed-dependent tests.
+- **Phase 4 — Flip default to "micro" + Tier-2 events.** ✅ Shipped Session
+  140 — passes (entry/skip/kickout/extra), crossover, screens with
+  roll/pop/slip + real screen-assist credit, cuts, defense.contest on every
+  shot, switch/help rotations, steal gambles + loose-ball scrambles, and
+  transition possessions live; default engine flipped (macro reachable via
+  patch; event_detail=False still pins the legacy macro stream); moves
+  rewired to real triggers; narration/presenter/game-page expandable chain;
+  commentary consumes summary rows + ≤3 drama-selected chains; interpreter
+  vocabulary + 3 Tier-2 golden cases; calibration within ±20% on all bands
+  (10.9 ms/game); one "test: engine v2 seeds" commit.
 - **Phase 5 — Tier-3 structural governance.** Violations, admin events,
   transition play-type, FIBA-3x3 structure options (check_ball, clear_arc,
   target-score), GameDefinitionPatch.modify_transitions, and

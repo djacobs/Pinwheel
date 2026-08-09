@@ -4,12 +4,14 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2903 tests**, zero lint errors (Session 139)
+- **2932 tests**, zero lint errors (Session 140)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
-- **Day 28 (Sessions 138-139):** Granular sim engine Phases 1-3 — GameEvent
+- **Day 28 (Sessions 138-140):** Granular sim engine Phases 1-4 — GameEvent
   substrate, Tier-1 subtypes, attribution & hustle stats, category hooks +
-  hook index, and the micro event-chain possession engine behind
-  `GameDefinition.possession_engine` (default "macro", zero behavior change)
+  hook index, the micro event-chain possession engine, and (Session 140)
+  Tier-2 events with the DEFAULT ENGINE FLIPPED TO "micro" — passes,
+  screens, cuts, defensive rotations, steal gambles, transition
+  possessions, all governable as data
   (`docs/plans/2026-08-08-granular-sim-engine.md`)
 - **Day 27:** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -31,6 +33,102 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
 - [x] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — deployed v156 (Session 137, owner approved)
 - [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve) — see docs/LAUNCH_DRILLS.md Drill 4
+
+## Session 140 — Granular Sim Engine Phase 4: Tier-2 Events + Default Flip (2026-08-08)
+
+**What was asked:** Implement Phase 4 of the granular sim engine plan
+(`docs/plans/2026-08-08-granular-sim-engine.md`): Tier-2 events (passes,
+crossovers, screens with real screen-assist credit, cuts, defensive
+switch/help/steal-gamble, loose balls, per-shot contests), moves rewired
+to real chain triggers, GameState governance scalars, narration +
+presenter + game-page + commentary surfaces, interpreter vocabulary +
+golden evals — and FLIP the default possession engine to "micro". One
+seed-migration commit; macro stays fully functional.
+
+**What was built:**
+
+- **Tier-2 nodes as pure data** in `basketball_micro_chain_nodes()`:
+  `pass_entry/skip/kickout/extra` (entry feeds the paint, kickouts exit
+  it — zone transitions respected; skip/extra grant a small next-shot
+  bonus), `crossover` (speed contested_check → open look, lost-ball risk
+  on failure), `screen_on_ball` with roll/pop/slip branches (screener =
+  best-strength teammate; slip is a live pass to the rim) and
+  `screen_off_ball` → `cut_curl`/`cut_backdoor`/`spot_up`/`relocate`
+  (cutter speed/iq gated; backdoor success = open at-rim look),
+  `defense_switch` + `help_rotation` (both change the effective defender
+  for shot resolution; help leaves the helper's man open → kickout
+  synergy), `steal_attempt` (gamble: steal / deflection + loose-ball
+  scramble / blow-by). The chain vocabulary now ships inside
+  `basketball_game_definition().actions`, so governance can remove/
+  reweight every node ("picks are illegal" = `remove_actions` on the two
+  screen nodes — pinned end-to-end in tests).
+- **Contest/closeout on every shot:** each shot resolves against an
+  open/contested roll (chain-created open looks are never closed out);
+  contested shots take a small malus and credit the effective defender's
+  `contested_shots` (replacing the scheme-threshold heuristic in micro);
+  open shots keep the open bonus plus any chain-earned bonus. Every shot
+  event carries an `open`/`contested` tag.
+- **Real screen-assist credit** replaces the Phase-2 stub: a made basket
+  after a screen this possession credits the screener (stat == events,
+  pinned). New `loose_balls` hustle stat flows HooperState →
+  HooperBoxScore → additive `loose_balls` DB column.
+- **Moves rewired to real triggers:** `get_triggered_moves` fires
+  per-event — "drive_action" on dribble.drive/crossover, "opponent_iso"
+  on dribble.iso (defender's Lockdown Stance), "half_court_setup" on
+  initiate/pass events (No-Look Pass, Chess Move). Chain-triggered moves
+  apply at the shot through the SAME `apply_move_modifier` path,
+  deduped with shot-time triggers.
+- **GameState governance scalars** (auto-exposed to the condition
+  evaluator by reflection): `pass_count_last_possession` (updates live
+  per pass — "every fourth pass is worth a bonus" is a sim.shot.pre
+  condition) and `transition_possession` (live-ball turnover or DRB opens
+  a transition: faster initiation, small at-rim bias, "transition" shot
+  tag). New category hooks `sim.pass.post` / `sim.screen.post` fire
+  through the hook index (macro-inert).
+- **Default flip:** `GameDefinition.possession_engine` defaults to
+  `"micro"`. The macro engine is untouched and reachable via
+  `modify_structure: {"possession_engine": "macro"}` or explicit
+  construction; `event_detail=False` still pins the legacy pre-enrichment
+  macro stream bit-exactly (dispatch enforces it), so Phase 1's pinned
+  legacy seed tests pass UNCHANGED.
+- **Surfaces:** `narrate_event()` — one short line per chain event for
+  every Tier-2 family with graceful fallback for unknown/governed types;
+  presenter payloads carry the narrated chain (`events`, capped at 32)
+  while the default rendering stays one line per possession; the game
+  page renders an expandable `<details>` chain per possession (UX note
+  150); commentary consumes summary rows + at most 3 drama-selected
+  highlight chains (≤14 events each) — never the raw event stream.
+- **Interpreter vocabulary:** v2 prompt now lists the in-possession hooks
+  (sim.shot.pre/post, sim.pass.post, sim.screen.post, rebound/foul/
+  turnover), the removable chain-node names with worked examples, and the
+  new condition scalars. Mock interpreter handles the three Tier-2
+  patterns; 3 interpreter golden cases (`TIER2_INTERPRETER_CASES` +
+  `run_interpreter_golden_case` in `evals/golden.py`) pin the grounding.
+
+**Calibration (200 fixed-seed games/engine, micro vs macro, ±20% bands):**
+PPG +16.4% (123.9 vs 106.4), TO/game +18.1% (13.46 vs 11.40), fouls/game
++14.2% (13.25 vs 11.61), ORB rate -2.5% (.486 vs .499), FG% at_rim +12.4%
+/ mid +5.5% / three +5.8%, attempt shares within ±6.3% — all inside the
+bands (transition/steal-gamble weights recalibrated after Tier-2 pushed
+turnovers to +24.9%). The calibration harness now pins the macro baseline
+explicitly (the old code inherited the default and silently became
+micro-vs-micro after the flip).
+
+**Performance:** micro 10.9 ms/game sim-only under the flipped default
+(macro 6.5 on the same box; budget 40).
+
+**Seed migration ("test: engine v2 seeds", one commit):** re-pinned the
+Phase-3 micro snapshot (seed 42: 80-44, 99 possessions, 687 events, new
+sha256); migrated 12 seed/behavior-dependent tests across
+test_possession_micro (macro-explicit hook test, fallback construction,
+contest-aware drive-open scan), test_event_engine (made-putback assist
+invariant, deflection accounting includes steal gambles, turnover-subtype
+mix now emerges from failed events, block targets the nearest prior shot,
+assist skew threshold), test_simulation + test_expanded_ruleset (ORB
+assertions moved to rebound events — micro folds ORBs into the chain),
+and test_action_registry (definition carries chain nodes).
+
+**Tests: 2932 passed** (was 2903; +27 Tier-2/surface, +2 golden), ruff clean.
 
 ## Session 139 — Granular Sim Engine Phase 3: Micro Possession Engine (2026-08-08)
 
