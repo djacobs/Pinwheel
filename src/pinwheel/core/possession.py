@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from pinwheel.core.defense import (
     SCHEME_CONTEST_MODIFIER,
@@ -31,7 +32,7 @@ from pinwheel.core.moves import (
     get_triggered_moves,
     passive_turnover_modifier,
 )
-from pinwheel.core.scoring import ShotType, resolve_shot
+from pinwheel.core.scoring import ShotType, resolve_shot, resolve_shot_v2
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameEvent, PossessionLog
 from pinwheel.models.game_definition import ActionRegistry, basketball_actions
@@ -112,6 +113,8 @@ def get_surface_modifiers(surface: str) -> SurfaceModifiers:
 # Category hooks fired from the macro path's existing decision points.
 # simulate_game builds a per-game index of hooks with registered effects;
 # games with no effects on these hooks pay ~zero cost.
+# sim.event.pre/post are fired ONLY by the micro engine (Phase 3) — the
+# macro path never reaches them, so including them here is macro-inert.
 CATEGORY_HOOKS = frozenset(
     {
         "sim.shot.pre",
@@ -120,8 +123,28 @@ CATEGORY_HOOKS = frozenset(
         "sim.rebound.post",
         "sim.foul.post",
         "sim.turnover.post",
+        "sim.event.pre",
+        "sim.event.post",
     }
 )
+
+
+class EmitFn(Protocol):
+    """Callable that records a GameEvent on the current possession."""
+
+    def __call__(
+        self,
+        event_type: str,
+        actor_id: str = "",
+        target_id: str = "",
+        outcome: str = "",
+        detail: str = "",
+        points: int = 0,
+        zone: str = "",
+        tags: list[str] | None = None,
+    ) -> None:
+        """Append an event to the possession's event chain."""
+        ...
 
 _ZONE_FOR_ACTION = {
     "at_rim": "paint",
@@ -376,19 +399,21 @@ def _select_action_registry(
     return chosen
 
 
-def check_turnover(
+def turnover_probability(
     handler: HooperState,
     scheme: DefensiveScheme,
-    rng: random.Random,
     rules: RuleSet | None = None,
     effect_turnover_modifier: float = 0.0,
     crowd_pressure_modifier: float = 0.0,
-) -> bool:
-    """Check if the offense turns the ball over.
+) -> float:
+    """Per-possession turnover probability, clamped to [0.01, 0.25].
 
     The base turnover rate is scaled by rules.turnover_rate_modifier (default 1.0).
     effect_turnover_modifier is additive from PossessionContext.
     crowd_pressure_modifier is additive from home court advantage (applied to away offense).
+
+    Shared by the macro path (``check_turnover``) and the micro engine
+    (which scales its turnover-branch transition weights by this value).
     """
     base_to_rate = 0.08
     modifier = rules.turnover_rate_modifier if rules else 1.0
@@ -403,7 +428,23 @@ def check_turnover(
         + effect_turnover_modifier
         + crowd_pressure_modifier
     )
-    return rng.random() < max(0.01, min(0.25, to_prob))
+    return max(0.01, min(0.25, to_prob))
+
+
+def check_turnover(
+    handler: HooperState,
+    scheme: DefensiveScheme,
+    rng: random.Random,
+    rules: RuleSet | None = None,
+    effect_turnover_modifier: float = 0.0,
+    crowd_pressure_modifier: float = 0.0,
+) -> bool:
+    """Check if the offense turns the ball over (one RNG draw)."""
+    return rng.random() < turnover_probability(
+        handler, scheme, rules=rules,
+        effect_turnover_modifier=effect_turnover_modifier,
+        crowd_pressure_modifier=crowd_pressure_modifier,
+    )
 
 
 def check_foul(
@@ -475,6 +516,160 @@ def attempt_rebound(
     idx = rng.choices(range(len(all_players)), weights=weights, k=1)[0]
     rebounder, is_offensive = all_players[idx]
     return rebounder, is_offensive
+
+
+def resolve_free_throws(
+    handler: HooperState,
+    defender: HooperState,
+    action_registry: ActionRegistry,
+    rules: RuleSet,
+    rng: random.Random,
+    attempts: int,
+    emit: EmitFn | None,
+    detail: str = "",
+) -> int:
+    """Resolve free throw attempts and update shooter stats.
+
+    Uses the registry's ``free_throw`` ActionDefinition when present,
+    falling back to the default free throw curve otherwise. Emits a
+    ``shot.free_throw`` event per attempt when ``emit`` is provided.
+
+    Shared by the macro and micro possession engines — one RNG draw per
+    attempt, identical stream to the pre-refactor inline loops.
+
+    Returns:
+        Total points scored across the attempts.
+    """
+    ft_action_def = action_registry.get("free_throw")
+    total = 0
+    for _ in range(attempts):
+        if ft_action_def is not None:
+            ft_made, ft_pts = resolve_shot_v2(
+                handler, defender, ft_action_def, 0.0, rules, rng,
+            )
+        else:
+            ft_made, ft_pts = resolve_shot(
+                handler, defender, "free_throw", 0.0, rules, rng,
+            )
+        handler.free_throws_attempted += 1
+        if ft_made:
+            handler.free_throws_made += 1
+            handler.points += ft_pts
+            total += ft_pts
+        if emit is not None:
+            emit(
+                "shot.free_throw",
+                actor_id=handler.hooper.id,
+                outcome="made" if ft_made else "missed",
+                detail=detail,
+                points=ft_pts,
+                zone="paint",
+            )
+    return total
+
+
+def box_out_pre_roll(
+    defense: list[HooperState],
+    rng: random.Random,
+    emit: EmitFn,
+) -> float:
+    """Box-out pre-roll before a rebound (Phase 2 mechanic).
+
+    The defense's best rebounder tries to seal — success shifts rebound
+    weights toward the defense (+4.0 defensive bonus) and counts as a
+    hustle stat. One RNG draw when the defense is non-empty.
+
+    Returns:
+        The defensive rebound bonus (4.0 on success, 0.0 otherwise).
+    """
+    if not defense:
+        return 0.0
+    boxer = max(defense, key=lambda d: d.current_attributes.defense)
+    p_box = 0.25 + boxer.current_attributes.defense / 400.0
+    if rng.random() < p_box:
+        boxer.box_outs += 1
+        emit(
+            "rebound.box_out",
+            actor_id=boxer.hooper.id,
+            outcome="success",
+            zone="paint",
+        )
+        return 4.0
+    return 0.0
+
+
+def maybe_block(
+    primary_defender: HooperState,
+    handler: HooperState,
+    shot_type: str,
+    shot_event: GameEvent | None,
+    rng: random.Random,
+    emit: EmitFn,
+) -> bool:
+    """Roll for a block on a missed at_rim/mid_range shot (Phase 1 mechanic).
+
+    Callers guard the preconditions (missed, unfouled, blockable shot
+    class); this helper performs the defense+speed roll, credits the
+    block, flips the shot event's outcome, and emits the block event.
+
+    Returns:
+        True when the miss converts to a block.
+    """
+    d_attrs = primary_defender.current_attributes
+    p_block = (d_attrs.defense + d_attrs.speed) / 1000.0
+    if rng.random() < p_block:
+        primary_defender.blocks += 1
+        if shot_event is not None:
+            shot_event.outcome = "blocked"
+        emit(
+            "block",
+            actor_id=primary_defender.hooper.id,
+            target_id=handler.hooper.id,
+            outcome="success",
+            zone=zone_for_action(shot_type),
+        )
+        return True
+    return False
+
+
+def maybe_loose_ball_foul(
+    defense: list[HooperState],
+    rebounder: HooperState,
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    emit: EmitFn,
+    effects: list[RegisteredEffect],
+    meta_store: MetaStore | None,
+    active_hooks: frozenset[str],
+) -> None:
+    """Roll for a loose-ball foul on a contested rebound scramble.
+
+    Callers guard the contested precondition. Counts as a personal + team
+    foul; the possession outcome is unchanged. One RNG draw.
+    """
+    p_loose = 0.015 * rules.foul_rate_modifier
+    if rng.random() < p_loose:
+        # Low-IQ defenders reach in on the scramble (deterministic pick)
+        lb_fouler = min(defense, key=lambda d: d.current_attributes.iq)
+        lb_fouler.fouls += 1
+        if game_state.home_has_ball:
+            game_state.away_team_fouls += 1
+        else:
+            game_state.home_team_fouls += 1
+        if lb_fouler.fouls >= rules.personal_foul_limit:
+            lb_fouler.ejected = True
+        emit(
+            "foul.loose_ball",
+            actor_id=lb_fouler.hooper.id,
+            target_id=rebounder.hooper.id,
+            zone="paint",
+        )
+        if "sim.foul.post" in active_hooks:
+            _fire_category_hook(
+                "sim.foul.post", game_state, rules, rng,
+                effects, meta_store, hooper=lb_fouler,
+            )
 
 
 def check_shot_clock_violation(
@@ -1283,79 +1478,19 @@ def resolve_possession(
             # award bonus free throws (1 extra FT regardless of shot type)
             if defense_team_fouls >= rules.team_foul_bonus_threshold:
                 ft_attempts += 1
-            # Resolve each free throw using the registry's free throw def
-            ft_action_def = action_registry.get("free_throw")
-            if ft_action_def is not None:
-                from pinwheel.core.scoring import resolve_shot_v2
-
-                for _ in range(ft_attempts):
-                    ft_made, ft_pts = resolve_shot_v2(
-                        handler, primary_defender, ft_action_def,
-                        0.0, rules, rng,
-                    )
-                    handler.free_throws_attempted += 1
-                    if ft_made:
-                        handler.free_throws_made += 1
-                        handler.points += ft_pts
-                        pts += ft_pts
-                    if event_detail:
-                        emit(
-                            "shot.free_throw",
-                            actor_id=handler.hooper.id,
-                            outcome="made" if ft_made else "missed",
-                            points=ft_pts,
-                            zone="paint",
-                        )
-            else:
-                # Fallback: no free throw action in registry
-                for _ in range(ft_attempts):
-                    ft_made, ft_pts = resolve_shot(
-                        handler, primary_defender, "free_throw",
-                        0.0, rules, rng,
-                    )
-                    handler.free_throws_attempted += 1
-                    if ft_made:
-                        handler.free_throws_made += 1
-                        handler.points += ft_pts
-                        pts += ft_pts
-                    if event_detail:
-                        emit(
-                            "shot.free_throw",
-                            actor_id=handler.hooper.id,
-                            outcome="made" if ft_made else "missed",
-                            points=ft_pts,
-                            zone="paint",
-                        )
+            pts += resolve_free_throws(
+                handler, primary_defender, action_registry, rules, rng,
+                attempts=ft_attempts,
+                emit=emit if event_detail else None,
+            )
         elif event_detail:
             # And-one flow (Phase 1, gated): a foul on a MADE shot awards
             # one bonus free throw. Pre-enrichment, made+foul awarded nothing.
             if shot_event is not None and "and_one" not in shot_event.tags:
                 shot_event.tags.append("and_one")
-            ft_action_def = action_registry.get("free_throw")
-            if ft_action_def is not None:
-                from pinwheel.core.scoring import resolve_shot_v2
-
-                ft_made, ft_pts = resolve_shot_v2(
-                    handler, primary_defender, ft_action_def,
-                    0.0, rules, rng,
-                )
-            else:
-                ft_made, ft_pts = resolve_shot(
-                    handler, primary_defender, "free_throw",
-                    0.0, rules, rng,
-                )
-            handler.free_throws_attempted += 1
-            if ft_made:
-                handler.free_throws_made += 1
-                handler.points += ft_pts
-                pts += ft_pts
-            emit(
-                "shot.free_throw",
-                actor_id=handler.hooper.id,
-                outcome="made" if ft_made else "missed",
-                detail="and_one",
-                points=ft_pts,
-                zone="paint",
+            pts += resolve_free_throws(
+                handler, primary_defender, action_registry, rules, rng,
+                attempts=1, emit=emit, detail="and_one",
             )
 
     # 9b. Block conversion (Phase 1, gated): a missed at_rim/mid_range shot
@@ -1368,19 +1503,7 @@ def resolve_possession(
         and not foul_on_defender
         and shot_type in ("at_rim", "mid_range")
     ):
-        d_attrs = primary_defender.current_attributes
-        p_block = (d_attrs.defense + d_attrs.speed) / 1000.0
-        if rng.random() < p_block:
-            primary_defender.blocks += 1
-            if shot_event is not None:
-                shot_event.outcome = "blocked"
-            emit(
-                "block",
-                actor_id=primary_defender.hooper.id,
-                target_id=handler.hooper.id,
-                outcome="success",
-                zone=zone_for_action(shot_type),
-            )
+        maybe_block(primary_defender, handler, shot_type, shot_event, rng, emit)
 
     # 10. Rebound on miss
     rebound_id = ""
@@ -1397,18 +1520,8 @@ def resolve_possession(
         # tries to seal --- success shifts rebound weights toward the defense
         # and counts as a hustle stat.
         box_out_bonus = 0.0
-        if event_detail and defense:
-            boxer = max(defense, key=lambda d: d.current_attributes.defense)
-            p_box = 0.25 + boxer.current_attributes.defense / 400.0
-            if rng.random() < p_box:
-                boxer.box_outs += 1
-                box_out_bonus = 4.0
-                emit(
-                    "rebound.box_out",
-                    actor_id=boxer.hooper.id,
-                    outcome="success",
-                    zone="paint",
-                )
+        if event_detail:
+            box_out_bonus = box_out_pre_roll(defense, rng, emit)
 
         rebounder, is_offensive_rebound = attempt_rebound(
             offense, defense, rng, rules=rules, defensive_bonus=box_out_bonus,
@@ -1437,28 +1550,11 @@ def resolve_possession(
 
             # Loose-ball foul on the scramble (gated, rare). Counts as a
             # personal + team foul; possession outcome is unchanged.
-            p_loose = 0.015 * rules.foul_rate_modifier
-            if reb_contested and rng.random() < p_loose:
-                # Low-IQ defenders reach in on the scramble (deterministic pick)
-                lb_fouler = min(defense, key=lambda d: d.current_attributes.iq)
-                lb_fouler.fouls += 1
-                if game_state.home_has_ball:
-                    game_state.away_team_fouls += 1
-                else:
-                    game_state.home_team_fouls += 1
-                if lb_fouler.fouls >= rules.personal_foul_limit:
-                    lb_fouler.ejected = True
-                emit(
-                    "foul.loose_ball",
-                    actor_id=lb_fouler.hooper.id,
-                    target_id=rebounder.hooper.id,
-                    zone="paint",
+            if reb_contested:
+                maybe_loose_ball_foul(
+                    defense, rebounder, game_state, rules, rng, emit,
+                    _effects, meta_store, active_hooks,
                 )
-                if "sim.foul.post" in active_hooks:
-                    _fire_category_hook(
-                        "sim.foul.post", game_state, rules, rng,
-                        _effects, meta_store, hooper=lb_fouler,
-                    )
 
         if "sim.rebound.post" in active_hooks:
             _fire_category_hook(

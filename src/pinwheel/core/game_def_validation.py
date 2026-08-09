@@ -42,8 +42,11 @@ def _check_invariants(game_def: GameDefinition) -> list[str]:
     """Invariants a patched definition must satisfy to be playable."""
     violations: list[str] = []
 
+    # Mirror ActionRegistry.shot_actions(): only category == "shot" actions
+    # participate in shot selection — chain nodes (pass/dribble/...) don't
+    # keep a definition scorable.
     shot_actions = [
-        a for a in game_def.actions if not a.is_free_throw
+        a for a in game_def.actions if a.category == "shot" and not a.is_free_throw
     ]
     if not shot_actions:
         violations.append("No non-free-throw actions survive the patch")

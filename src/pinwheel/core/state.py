@@ -7,8 +7,12 @@ These are internal to the simulation; GameResult is the immutable output.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from pinwheel.models.team import Hooper, PlayerAttributes, TeamStrategy
+
+if TYPE_CHECKING:
+    from pinwheel.models.game import GameEvent
 
 
 @dataclass
@@ -27,6 +31,11 @@ class PossessionContext:
     shot_value_modifier: int = 0
     extra_stamina_drain: float = 0.0
     action_biases: dict[str, float] = field(default_factory=dict)
+    transition_biases: dict[str, float] = field(default_factory=dict)
+    """Additive weights on micro-engine chain transitions, keyed by node
+    name (e.g. ``"pass_swing"``, ``"drive"``) or the ``"shot"`` pseudo-
+    target. Separate from ``action_biases`` so governance biasing
+    ``"three_point"`` keeps meaning shot-class selection."""
     turnover_modifier: float = 0.0
     random_ejection_probability: float = 0.0
     bonus_pass_count: int = 0
@@ -65,6 +74,32 @@ class PossessionContext:
     @three_point_bias.setter
     def three_point_bias(self, value: float) -> None:
         self.action_biases["three_point"] = value
+
+
+@dataclass
+class PossessionState:
+    """Ephemeral per-possession state for the micro event-chain engine.
+
+    Created at the start of each micro possession and discarded at the
+    end. Role+zone hybrid — no coordinates. The macro engine never
+    constructs one.
+    """
+
+    ball_handler: HooperState
+    zone: str = "perimeter"  # paint | mid | perimeter | backcourt
+    pass_count: int = 0
+    dribble_count: int = 0
+    shot_clock_remaining: float = 15.0
+    potential_assister: HooperState | None = None
+    screens_set: int = 0
+    last_event: str = ""
+    open_shot: bool = False
+    second_chance: bool = False
+    roles: dict[str, str] = field(default_factory=dict)
+    """hooper_id -> handler | screener | spacer"""
+    def_roles: dict[str, str] = field(default_factory=dict)
+    """hooper_id -> on_ball | helper | weak_side"""
+    events: list[GameEvent] = field(default_factory=list)
 
 
 @dataclass

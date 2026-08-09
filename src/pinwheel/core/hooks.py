@@ -149,6 +149,10 @@ class HookResult:
     mid_range_bias: float = 0.0
     three_point_bias: float = 0.0
     action_biases: dict[str, float] = field(default_factory=dict)
+    # Micro-engine chain-transition biases, keyed by node name or the
+    # "shot" pseudo-target. Separate from action_biases so shot-class
+    # biasing keeps its existing meaning (Phase 3).
+    transition_biases: dict[str, float] = field(default_factory=dict)
     turnover_modifier: float = 0.0
     random_ejection_probability: float = 0.0
     bonus_pass_count: int = 0

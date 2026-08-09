@@ -15,6 +15,8 @@ Phase 4a: GameDefinitionPatch — governance can mutate the game definition
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from pinwheel.models.rules import RuleSet
@@ -38,7 +40,16 @@ class ActionDefinition(BaseModel):
     """Flavor text or mechanical description."""
 
     category: str = "shot"
-    """Grouping category, e.g. 'shot', 'special'."""
+    """Grouping category.
+
+    Vocabulary (Phase 3): ``shot`` | ``pass`` | ``dribble`` | ``screen`` |
+    ``cut`` | ``defense`` | ``rebound`` | ``turnover`` | ``violation`` |
+    ``admin`` | ``special``.
+
+    Only ``category == "shot"`` actions participate in shot selection
+    (see :meth:`ActionRegistry.shot_actions`) — chain nodes from other
+    categories can NEVER leak into shot selection.
+    """
 
     selection_weight: float = 1.0
     """Base weight for action selection (before attribute contributions)."""
@@ -128,6 +139,43 @@ class ActionDefinition(BaseModel):
     When empty, defaults to 'shot'.
     """
 
+    # ---- Micro event-chain fields (Phase 3) ----
+    #
+    # All optional/defaulted: every stored GameDefinitionPatch keeps
+    # validating, and macro-engine games ignore these entirely.
+
+    transitions: dict[str, float] = Field(default_factory=dict)
+    """Markov next-event weights for the micro possession engine.
+
+    Keys are action names (chain nodes) plus the pseudo-target ``"shot"``,
+    which delegates to shot-class selection among ``category == "shot"``
+    actions via the standard selection path (same ``action_biases`` keys).
+    Empty for actions that are terminal or macro-only.
+    """
+
+    success_transitions: dict[str, float] = Field(default_factory=dict)
+    """Optional override of ``transitions`` used when this action succeeds."""
+
+    failure_transitions: dict[str, float] = Field(default_factory=dict)
+    """Optional override of ``transitions`` used when this action fails."""
+
+    time_cost_seconds: float = 0.0
+    """Shot-clock time consumed by this event in the micro engine.
+
+    A small jitter is applied at runtime. 0.0 means the engine's default
+    per-event cost is used.
+    """
+
+    zone_requirement: str = ""
+    """Court zone required for this action to be a candidate.
+
+    One of ``paint`` | ``mid`` | ``perimeter`` | ``backcourt``; empty means
+    the action is available from any zone.
+    """
+
+    emits_tags: list[str] = Field(default_factory=list)
+    """Tags appended to the GameEvent emitted when this action resolves."""
+
 
 class ActionRegistry:
     """Container for ActionDefinitions with lookup by name.
@@ -166,10 +214,13 @@ class ActionRegistry:
     def shot_actions(self) -> list[ActionDefinition]:
         """Return non-free-throw shot actions.
 
-        Excludes actions where category == 'special' or is_free_throw is True.
+        Only ``category == "shot"`` actions (excluding free throws) are
+        eligible for shot selection. This filter is the load-bearing wall
+        of the micro event engine: chain nodes (pass/dribble/turnover/
+        violation/admin/...) must NEVER leak into shot selection.
         """
         return [
-            a for a in self._actions.values() if a.category != "special" and not a.is_free_throw
+            a for a in self._actions.values() if a.category == "shot" and not a.is_free_throw
         ]
 
     def action_names(self) -> list[str]:
@@ -285,6 +336,16 @@ class GameDefinition(BaseModel):
     these consume additional RNG draws. When False, the engine reproduces the
     exact pre-enrichment RNG stream: tests asserting exact seeded lines can
     set this to pin legacy outcomes.
+    """
+
+    possession_engine: Literal["macro", "micro"] = "macro"
+    """Which possession engine resolves turns.
+
+    ``"macro"`` (default) is the existing single-shot possession model —
+    behavior is bit-identical for every existing caller. ``"micro"`` runs
+    the event-chain engine in ``core/possession_micro.py``: possessions
+    become chains of pass/dribble/shot/turnover events driven by
+    ActionDefinition transitions.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -639,6 +700,159 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
             narration_display="FT",
         ),
     ]
+
+
+def basketball_micro_chain_nodes() -> list[ActionDefinition]:
+    """Build the micro-engine chain nodes (Phase 3).
+
+    These are the non-shot nodes of the possession event chain: an
+    initiate node, pass/dribble nodes, terminal turnover nodes, and a
+    dead-ball violation node. Shot classes are NOT duplicated here — the
+    ``"shot"`` pseudo-target in ``transitions`` delegates to the standard
+    shot-selection path over ``category == "shot"`` actions, so governance
+    ``action_biases`` and custom shot actions keep working unchanged.
+
+    Weights are calibrated so aggregate micro distributions (PPG, FG% by
+    shot class, turnover rate, ORB rate, foul rate) match the macro engine
+    (see tests/test_possession_micro.py). Phase 4 adds screens, cuts, and
+    defense nodes purely as data.
+    """
+    return [
+        ActionDefinition(
+            name="initiate",
+            display_name="Initiate Offense",
+            description="Bring the ball up and start the half-court set.",
+            category="admin",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=3.4,
+            transitions={
+                "pass_swing": 40.0,
+                "drive": 16.0,
+                "iso": 6.0,
+                "shot": 22.0,
+                "violation_deadball": 1.2,
+            },
+        ),
+        ActionDefinition(
+            name="pass_swing",
+            display_name="Swing Pass",
+            description="Move the ball to a teammate.",
+            category="pass",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="passing",
+            base_midpoint=0.0,
+            base_steepness=0.05,
+            time_cost_seconds=3.0,
+            success_transitions={
+                "pass_swing": 30.0,
+                "drive": 12.0,
+                "iso": 4.0,
+                "shot": 40.0,
+            },
+            failure_transitions={
+                "turnover_bad_pass": 30.0,
+                "pass_swing": 25.0,
+                "drive": 15.0,
+                "shot": 30.0,
+            },
+        ),
+        ActionDefinition(
+            name="drive",
+            display_name="Drive",
+            description="Attack the paint off the dribble.",
+            category="dribble",
+            selection_weight=0.0,
+            weight_attributes={"speed": 0.4},
+            resolution_type="contested_check",
+            primary_attribute="speed",
+            base_midpoint=45.0,
+            base_steepness=0.04,
+            time_cost_seconds=3.4,
+            zone_requirement="perimeter",
+            emits_tags=["drive"],
+            success_transitions={"shot": 75.0, "pass_swing": 25.0},
+            failure_transitions={
+                "shot": 42.0,
+                "pass_swing": 36.0,
+                "turnover_lost_ball": 22.0,
+            },
+        ),
+        ActionDefinition(
+            name="iso",
+            display_name="Isolation",
+            description="Clear out and go one-on-one.",
+            category="dribble",
+            selection_weight=0.0,
+            weight_attributes={"ego": 0.6},
+            resolution_type="contested_check",
+            primary_attribute="scoring",
+            base_midpoint=55.0,
+            base_steepness=0.04,
+            time_cost_seconds=3.8,
+            emits_tags=["iso"],
+            success_transitions={"shot": 85.0, "pass_swing": 15.0},
+            failure_transitions={
+                "shot": 55.0,
+                "pass_swing": 25.0,
+                "turnover_lost_ball": 20.0,
+            },
+        ),
+        ActionDefinition(
+            name="second_chance",
+            display_name="Second Chance",
+            description="Reset after an offensive rebound.",
+            category="rebound",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.2,
+            transitions={"shot": 70.0, "pass_swing": 18.0, "drive": 12.0},
+        ),
+        ActionDefinition(
+            name="turnover_bad_pass",
+            display_name="Bad Pass",
+            description="Pass picked off or thrown away — live-ball turnover.",
+            category="turnover",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.5,
+        ),
+        ActionDefinition(
+            name="turnover_lost_ball",
+            display_name="Lost Ball",
+            description="Stripped on the dribble — live-ball turnover.",
+            category="turnover",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.5,
+        ),
+        ActionDefinition(
+            name="violation_deadball",
+            display_name="Violation",
+            description="Travel or double dribble — dead-ball turnover.",
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.4,
+        ),
+    ]
+
+
+def basketball_micro_actions(rules: RuleSet) -> list[ActionDefinition]:
+    """Build the full micro-engine action list: shots + chain nodes.
+
+    The shot actions are exactly ``basketball_actions(rules)`` — the micro
+    engine resolves shots with the same probability curves and point
+    values as the macro engine. Chain nodes are appended alongside.
+
+    Args:
+        rules: The current RuleSet, used to derive shot point values.
+
+    Returns:
+        Shot actions + free throw + micro chain nodes.
+    """
+    return basketball_actions(rules) + basketball_micro_chain_nodes()
 
 
 def basketball_game_definition(rules: RuleSet) -> GameDefinition:
