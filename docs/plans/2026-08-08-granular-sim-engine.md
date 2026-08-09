@@ -147,20 +147,21 @@ Moves plug in per-event: triggers "drive_action", "opponent_iso",
 
 ## Phases
 
-- **Phase 1 — Event substrate + Tier-1 subtypes.** GameEvent +
+- **Phase 1 — Event substrate + Tier-1 subtypes.** ✅ Shipped Session 138. GameEvent +
   PossessionLog.events; emit events for what already happens; subtype
   splits; block conversion; assist-before-shot; behind
   `GameDefinition.event_detail: bool = True` with legacy override for
   exact-score seed tests. Files: models/game.py, core/possession.py,
   core/state.py, core/narrate.py (subtype templates), models/
   game_definition.py, db/models.py, tests.
-- **Phase 2 — Attribution & hustle.** Steal attribution by subtype, and-one
+- **Phase 2 — Attribution & hustle.** ✅ Shipped Session 138. Steal attribution by subtype, and-one
   flow, contested rebounds, box-out pre-roll, screen-assist bookkeeping
   stub, phantom blocks fixed end-to-end; new category hooks fired from the
   macro path at existing decision points; effect-registry hook index.
   Files: possession.py, simulation.py, hooks.py, effects.py, models/game.py.
 - **Phase 3 — Micro-engine behind flag (default "macro" — zero behavior
-  change).** possession_micro.py, resolve_turn dispatch, ActionDefinition
+  change).** ✅ Shipped Session 139 — calibration within ±20% of macro on
+  all bands; 10.97 ms/game sim-only. possession_micro.py, resolve_turn dispatch, ActionDefinition
   extensions, basketball_micro_actions(), distribution-calibration test
   (fixed seeds, 200 games: PPG/FG% by type/TO rate/ORB rate/foul rate within
   tolerance of macro), seed-snapshot test pinning one full game's event

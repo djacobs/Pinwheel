@@ -4,10 +4,12 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2860 tests**, zero lint errors (Session 138)
+- **2903 tests**, zero lint errors (Session 139)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
-- **Day 28 (Session 138):** Granular sim engine Phases 1+2 — GameEvent substrate,
-  Tier-1 subtypes, attribution & hustle stats, category hooks + hook index
+- **Day 28 (Sessions 138-139):** Granular sim engine Phases 1-3 — GameEvent
+  substrate, Tier-1 subtypes, attribution & hustle stats, category hooks +
+  hook index, and the micro event-chain possession engine behind
+  `GameDefinition.possession_engine` (default "macro", zero behavior change)
   (`docs/plans/2026-08-08-granular-sim-engine.md`)
 - **Day 27:** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -29,6 +31,72 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
 - [x] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — deployed v156 (Session 137, owner approved)
 - [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve) — see docs/LAUNCH_DRILLS.md Drill 4
+
+## Session 139 — Granular Sim Engine Phase 3: Micro Possession Engine (2026-08-08)
+
+**What was asked:** Implement Phase 3 of the granular sim engine plan
+(`docs/plans/2026-08-08-granular-sim-engine.md`): the micro event-chain
+possession engine behind a flag, with the default UNCHANGED ("macro") so
+behavior is identical for every existing caller. Calibration + snapshot
+tests, performance under 40 ms/game, no default flip, no narration/
+presenter changes (Phase 4).
+
+**What was built:**
+
+- **ActionDefinition chain fields** (all optional/defaulted — every stored
+  GameDefinitionPatch keeps validating): `transitions` (Markov next-event
+  weights, with a `"shot"` pseudo-target), `success_transitions` /
+  `failure_transitions` overrides, `time_cost_seconds`, `zone_requirement`,
+  `emits_tags`; `category` vocabulary widened (shot|pass|dribble|screen|
+  cut|defense|rebound|turnover|violation|admin|special).
+- **The load-bearing wall hardened:** `ActionRegistry.shot_actions()` now
+  filters `category == "shot"` strictly (was `!= "special"`) so chain
+  nodes can never leak into shot selection; the game-def patch validator
+  mirrors the same filter. A macro game with chain nodes in its registry
+  is bit-identical to one without — pinned in tests.
+- **`GameDefinition.possession_engine: Literal["macro","micro"] = "macro"`**
+  with `resolve_turn` dispatching on it. Default path untouched — the
+  full pre-existing suite passed with zero modifications.
+- **`core/possession_micro.py`** — the event-chain loop: setup reuses
+  defense.py scheme/matchups and select_ball_handler; then per chain step
+  (hard cap 16, shot clock authoritative) pick the next node from
+  transition weights × weight_attributes affinity × runtime scales
+  (turnover ingredients via the shared `turnover_probability`, violation
+  strictness × IQ) + `PossessionContext.transition_biases`; resolve by
+  resolution_type (automatic / contested_check logistic vs defender /
+  shots through the SAME `select_action` + `compute_shot_probability_v2`
+  path, so `action_biases`, strategies, surfaces, Elam bias, and moves
+  all keep working); emit a GameEvent per step; `sim.event.pre/post` +
+  all Phase-2 category hooks fire through the hook index. ORB → second
+  chance continues the chain (14s-style reset, putback/tip subtypes,
+  macro-equivalent scramble time charged). Chain-length fatigue keeps
+  stamina curves aligned. Returns the same PossessionResult shape: one
+  summary PossessionLog row + the event chain.
+- **Shared helper refactor** (macro RNG stream bit-identical, verified by
+  the pinned legacy seed tests): `resolve_free_throws`, `box_out_pre_roll`,
+  `maybe_block`, `maybe_loose_ball_foul`, `turnover_probability` extracted
+  from possession.py and reused by both engines.
+- **`basketball_micro_actions()` / `basketball_micro_chain_nodes()`** —
+  the Phase-3 node vocabulary as data: initiate, pass_swing, drive
+  (zone-gated to perimeter), iso (ego-weighted), second_chance,
+  turnover_bad_pass, turnover_lost_ball, violation_deadball. Phase 4 adds
+  screens/cuts/defense purely as data. A fallback node set engages when
+  governance flips the engine flag without adding chain nodes.
+- **HookResult/PossessionContext `transition_biases`** — separate
+  namespace from `action_biases`, merged in `_fire_sim_effects`, so
+  governance biasing "three_point" keeps meaning shot selection.
+
+**Calibration (200 fixed-seed games/engine, micro vs macro):** PPG +11.6%
+(118.8 vs 106.4), TO/game +13.6% (12.95 vs 11.39), fouls/game +14.1%
+(13.24 vs 11.61), ORB rate -2.1% (.489 vs .499), FG% at_rim +4.3% / mid
+-0.8% / three +0.7%, attempt shares within +12.2% — all inside the ±20%
+regression bands.
+
+**Performance:** micro 10.97 ms/game sim-only (macro 6.82 on the same
+box; budget 40, plan estimate 15-40). Seed-42 event stream pinned by
+sha256 + first 30 events.
+
+**Tests: 2903 passed** (was 2860; +43 micro engine), ruff clean.
 
 ## Session 138 — Granular Sim Engine Phases 1+2: Event Substrate + Attribution (2026-08-08)
 
