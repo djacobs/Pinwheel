@@ -150,6 +150,17 @@ class BoxScoreRow(Base):
     steals: Mapped[int] = mapped_column(Integer, default=0)
     turnovers: Mapped[int] = mapped_column(Integer, default=0)
     minutes: Mapped[float] = mapped_column(Float, default=0.0)
+    # --- Additive columns (auto-migrated): Phase 1-2 granular sim stats ---
+    rebounds: Mapped[int] = mapped_column(Integer, default=0)
+    blocks: Mapped[int] = mapped_column(Integer, default=0)
+    fouls: Mapped[int] = mapped_column(Integer, default=0)
+    potential_assists: Mapped[int] = mapped_column(Integer, default=0)
+    passes_made: Mapped[int] = mapped_column(Integer, default=0)
+    box_outs: Mapped[int] = mapped_column(Integer, default=0)
+    screen_assists: Mapped[int] = mapped_column(Integer, default=0)
+    deflections: Mapped[int] = mapped_column(Integer, default=0)
+    contested_shots: Mapped[int] = mapped_column(Integer, default=0)
+    drives: Mapped[int] = mapped_column(Integer, default=0)
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 

@@ -145,6 +145,7 @@ def detect_tier(interpretation: RuleInterpretation, ruleset: RuleSet) -> int:
         "offensive_rebound_weight",
         "stamina_drain_rate",
         "dead_ball_time_seconds",
+        "violation_strictness",
     }
     tier2 = {
         "max_shot_share",

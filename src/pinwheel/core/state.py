@@ -91,6 +91,15 @@ class HooperState:
     minutes: float = 0.0
     moves_activated: list[str] = field(default_factory=list)
 
+    # --- Attribution & hustle counting stats (Phase 2, additive) ---
+    potential_assists: int = 0
+    passes_made: int = 0
+    box_outs: int = 0
+    screen_assists: int = 0
+    deflections: int = 0
+    contested_shots: int = 0
+    drives: int = 0
+
     # Cache for current_attributes — invalidated when current_stamina or any
     # stamina-scaled base attribute changes.  In normal gameplay base attributes
     # are fixed at construction, so this comparison is essentially free.
@@ -177,6 +186,13 @@ class GameState:
     last_result: str = ""
     consecutive_makes: int = 0
     consecutive_misses: int = 0
+
+    # Second-chance tracking (Phase 1 event enrichment): set when a possession
+    # ends in an offensive rebound so the NEXT possession (same team) can
+    # classify putbacks/tips. Scalars here are auto-exposed to the effect
+    # condition evaluator via reflection.
+    second_chance: bool = False
+    last_rebound_hooper_id: str = ""
 
     @property
     def home_active(self) -> list[HooperState]:

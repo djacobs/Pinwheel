@@ -10,6 +10,30 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class GameEvent(BaseModel):
+    """A granular event within a possession.
+
+    Every event type is governable surface. Events are stored as JSON on
+    the possession row (``PossessionLog.events``) — NOT one DB row per event.
+
+    ``event_type`` is namespaced: ``"shot.at_rim"``, ``"turnover.bad_pass"``,
+    ``"rebound.defensive"``, ``"foul.shooting"``, ``"block"``, ``"assist"``, ...
+    ``detail`` carries the subtype: ``"dunk"``, ``"stepback"``, ``"tip"``, ...
+    """
+
+    seq: int
+    event_type: str
+    actor_id: str = ""
+    target_id: str = ""
+    team_id: str = ""
+    outcome: str = ""  # "made" | "missed" | "stolen" | "success" | ...
+    detail: str = ""  # subtype: "dunk", "stepback", ...
+    points: int = 0
+    clock: str = ""
+    zone: str = ""  # "paint" | "mid" | "perimeter" | "backcourt"
+    tags: list[str] = Field(default_factory=list)
+
+
 class PossessionLog(BaseModel):
     """Record of a single possession."""
 
@@ -29,6 +53,11 @@ class PossessionLog(BaseModel):
     home_score: int = 0
     away_score: int = 0
     game_clock: str = ""
+    events: list[GameEvent] = Field(default_factory=list)
+    """Granular event chain for this possession (Phase 1 event substrate).
+
+    Additive: old serialized rows without this field deserialize to [].
+    """
 
 
 class HooperBoxScore(BaseModel):
@@ -52,6 +81,14 @@ class HooperBoxScore(BaseModel):
     turnovers: int = 0
     fouls: int = 0
     plus_minus: int = 0
+    # --- Attribution & hustle stats (Phase 2, all additive) ---
+    potential_assists: int = 0
+    passes_made: int = 0
+    box_outs: int = 0
+    screen_assists: int = 0
+    deflections: int = 0
+    contested_shots: int = 0
+    drives: int = 0
 
     @property
     def fg_pct(self) -> float:

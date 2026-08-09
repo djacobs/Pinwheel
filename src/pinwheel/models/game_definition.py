@@ -276,6 +276,17 @@ class GameDefinition(BaseModel):
     Derived from ``rules.safety_cap_possessions``.
     """
 
+    event_detail: bool = True
+    """Whether the possession engine runs Tier-1 event enrichment.
+
+    When True (default), possessions emit granular ``GameEvent`` chains and
+    the enrichment mechanics (shot subtypes, turnover attribution, violations,
+    block conversion, assist-before-shot, and-ones, box-outs) are active —
+    these consume additional RNG draws. When False, the engine reproduces the
+    exact pre-enrichment RNG stream: tests asserting exact seeded lines can
+    set this to pin legacy outcomes.
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def build_registry(self) -> ActionRegistry:

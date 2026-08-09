@@ -39,6 +39,10 @@ class RuleSet(BaseModel):
     offensive_rebound_weight: float = Field(default=5.0, ge=1.0, le=15.0)
     stamina_drain_rate: float = Field(default=0.007, ge=0.001, le=0.03)
     dead_ball_time_seconds: float = Field(default=9.0, ge=2.0, le=20.0)
+    violation_strictness: float = Field(default=1.0, ge=0.0, le=5.0)
+    """How strictly referees call ball-handling violations (travel,
+    double dribble). 0.0 = never called; 1.0 = ~1% of possessions;
+    5.0 = whistle-happy refs."""
 
     # Tier 2: Hooper Behavior
     max_shot_share: float = Field(default=1.0, ge=0.2, le=1.0)
