@@ -16,7 +16,7 @@ from pinwheel.api.charts import (
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
 from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
-from pinwheel.core.narrate import narrate_play, narrate_winner
+from pinwheel.core.narrate import extract_event_context, narrate_play, narrate_winner
 from pinwheel.core.narrative_standings import (
     compute_magic_numbers,
     compute_most_improved,
@@ -1921,6 +1921,7 @@ async def game_page(
         enriched = {**play}
         enriched["handler_id"] = handler_id
         enriched["handler_name"] = hooper_names.get(handler_id, handler_id)
+        ev_ctx = extract_event_context(play.get("events"))
         enriched["narration"] = narrate_play(
             player=hooper_names.get(handler_id, handler_id),
             defender=hooper_names.get(def_id, def_id),
@@ -1932,6 +1933,9 @@ async def game_page(
             is_offensive_rebound=play.get("is_offensive_rebound", False),
             seed=play.get("possession_number", 0),
             assist_id=play.get("assist_id", ""),
+            subtype=str(ev_ctx["subtype"]),
+            and_one=bool(ev_ctx["and_one"]),
+            blocked=bool(ev_ctx["blocked"]),
         )
         play_by_play.append(enriched)
 

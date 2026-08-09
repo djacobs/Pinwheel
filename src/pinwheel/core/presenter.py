@@ -30,7 +30,7 @@ from pinwheel.core.drama import (
     normalize_delays,
 )
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.narrate import narrate_play
+from pinwheel.core.narrate import extract_event_context, narrate_play
 from pinwheel.models.game import GameResult
 
 logger = logging.getLogger(__name__)
@@ -457,6 +457,7 @@ async def _present_game(
                 else ""
             )
 
+            ev_ctx = extract_event_context(possession.events)
             narration = narrate_play(
                 player=player_name,
                 defender=defender_name,
@@ -468,6 +469,9 @@ async def _present_game(
                 is_offensive_rebound=possession.is_offensive_rebound,
                 seed=possession.possession_number,
                 assist_id=possession.assist_id,
+                subtype=str(ev_ctx["subtype"]),
+                and_one=bool(ev_ctx["and_one"]),
+                blocked=bool(ev_ctx["blocked"]),
             )
 
             # During Elam ending, show target score instead of empty clock

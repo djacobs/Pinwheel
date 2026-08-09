@@ -211,6 +211,151 @@ _DEFENSIVE_REBOUND = [
     "{rebounder} corrals the defensive rebound",
 ]
 
+# --- Subtype-aware templates (Phase 1 event enrichment) ---
+# Unknown subtypes gracefully fall back to the per-action templates above.
+
+_SUBTYPE_MADE: dict[str, list[str]] = {
+    "dunk": [
+        "{player} rises and THROWS IT DOWN on {defender}",
+        "{player} hammers it home — poster material",
+        "{player} elevates — flush! {defender} wanted no part of that",
+    ],
+    "floater": [
+        "{player} floats it over {defender} — soft touch, good",
+        "{player} with the teardrop in the lane — drops in",
+    ],
+    "putback": [
+        "{player} rises for the putback — good",
+        "{player} cleans up their own miss — second-chance points",
+    ],
+    "tip": [
+        "{player} tips it home — quick hands at the rim",
+        "{player} with the tip-in off the scramble",
+    ],
+    "stepback": [
+        "{player} creates space with the stepback — buries it over {defender}",
+        "{player} steps back, fires — count it",
+    ],
+    "fadeaway": [
+        "{player} fades away over {defender} — pure",
+        "{player} with the turnaround fadeaway — money",
+    ],
+    "catch_and_shoot": [
+        "{player} catches and fires in rhythm — good",
+        "{player} takes the feed, lets it fly — bucket",
+    ],
+    "corner": [
+        "{player} knocks down the corner three, {defender} late",
+        "{player} spots up in the corner — splash",
+    ],
+    "spot_up": [
+        "{player} spots up from deep — drills it",
+        "{player} set feet, clean release — three",
+    ],
+    "heave": [
+        "{player} heaves it from way downtown — BANG!",
+        "{player} launches a prayer — ANSWERED!",
+    ],
+}
+
+_SUBTYPE_MISSED: dict[str, list[str]] = {
+    "dunk": [
+        "{player} goes up for the slam — {defender} meets them at the rim",
+        "{player} tries to throw it down — off the back iron",
+    ],
+    "floater": [
+        "{player} lofts the floater — rims out",
+    ],
+    "putback": [
+        "{player} can't convert the putback",
+        "{player} muscles up the second-chance look — no good",
+    ],
+    "tip": [
+        "{player} tips it — won't fall",
+    ],
+    "stepback": [
+        "{player} steps back and fires — off the mark, {defender} contesting",
+    ],
+    "fadeaway": [
+        "{player} fades over {defender} — front rim",
+    ],
+    "catch_and_shoot": [
+        "{player} catches and shoots — can't connect",
+    ],
+    "corner": [
+        "{player} from the corner — rattles out",
+    ],
+    "spot_up": [
+        "{player} spots up — no good",
+    ],
+    "heave": [
+        "{player} heaves from deep — not close",
+    ],
+}
+
+_BLOCKED = [
+    "{player} goes up — REJECTED by {defender}!",
+    "{defender} swats it away — {player} denied",
+    "{defender} with the block — nothing easy today",
+]
+
+_VIOLATIONS: dict[str, list[str]] = {
+    "travel": [
+        "{player} shuffles the feet — travel, turnover",
+        "Whistle — {player} caught traveling",
+        "{player} takes one step too many — walking violation",
+    ],
+    "double_dribble": [
+        "{player} picks it up and dribbles again — double dribble",
+        "Whistle — double dribble on {player}",
+    ],
+}
+
+_TURNOVER_BAD_PASS = [
+    "{player} throws it away — {defender} picks it off",
+    "{player} forces the pass and {defender} jumps the lane",
+    "Errant pass from {player} — {defender} with the interception",
+]
+
+_TURNOVER_LOST_BALL = [
+    "{defender} strips {player} — stolen",
+    "{player} loses the handle — {defender} pounces",
+    "{defender} pokes it loose from {player} — turnover",
+]
+
+
+def extract_event_context(
+    events: list[object] | None,
+) -> dict[str, str | bool]:
+    """Pull narration-relevant context from a possession's event chain.
+
+    Accepts ``GameEvent`` models or plain dicts (as stored in DB JSON).
+    Returns a dict with ``subtype`` (shot or turnover subtype), ``and_one``
+    and ``blocked`` flags. Unknown or empty event lists yield defaults,
+    so pre-enrichment possessions narrate exactly as before.
+    """
+    out: dict[str, str | bool] = {"subtype": "", "and_one": False, "blocked": False}
+    for ev in events or []:
+        if isinstance(ev, dict):
+            etype = str(ev.get("event_type", ""))
+            detail = str(ev.get("detail", ""))
+            tags = ev.get("tags") or []
+            outcome = str(ev.get("outcome", ""))
+        else:
+            etype = getattr(ev, "event_type", "")
+            detail = getattr(ev, "detail", "")
+            tags = getattr(ev, "tags", []) or []
+            outcome = getattr(ev, "outcome", "")
+        if etype.startswith("shot.") and etype != "shot.free_throw":
+            out["subtype"] = detail
+            if "and_one" in tags:
+                out["and_one"] = True
+            if outcome == "blocked":
+                out["blocked"] = True
+        elif etype.startswith("turnover."):
+            out["subtype"] = etype.split(".", 1)[1]
+    return out
+
 
 def _resolve_foul_desc(
     action: str,
@@ -299,6 +444,9 @@ def narrate_play(
     seed: int = 0,
     assist_id: str = "",
     registry: ActionRegistry | None = None,
+    subtype: str = "",
+    and_one: bool = False,
+    blocked: bool = False,
 ) -> str:
     """Generate a one-line play-by-play description from structured data.
 
@@ -324,6 +472,11 @@ def narrate_play(
         seed: RNG seed for deterministic template selection.
         assist_id: ID of the assisting player (controls No-Look Pass display).
         registry: Optional ActionRegistry for data-driven narration.
+        subtype: Shot or turnover subtype from the event chain (e.g. 'dunk',
+            'stepback', 'bad_pass'). Unknown subtypes fall back gracefully
+            to the per-action templates.
+        and_one: Whether the made shot drew an and-one foul.
+        blocked: Whether the missed shot was blocked by the defender.
 
     Returns:
         A vivid one-line play-by-play description.
@@ -337,8 +490,14 @@ def narrate_play(
 
     if action == "shot_clock_violation":
         text = rng.choice(_SHOT_CLOCK_VIOLATION).format(player=player, defender=defender)
+    elif action in _VIOLATIONS and result == "turnover":
+        text = rng.choice(_VIOLATIONS[action]).format(player=player)
     elif result == "turnover":
-        if defender:
+        if subtype == "bad_pass" and defender:
+            text = rng.choice(_TURNOVER_BAD_PASS).format(player=player, defender=defender)
+        elif subtype == "lost_ball" and defender:
+            text = rng.choice(_TURNOVER_LOST_BALL).format(player=player, defender=defender)
+        elif defender:
             text = rng.choice(_TURNOVER).format(player=player, defender=defender)
         else:
             text = rng.choice(_TURNOVER_NO_DEFENDER).format(player=player)
@@ -350,9 +509,22 @@ def narrate_play(
         else:
             text += " — misses from the stripe"
     elif result == "made":
-        text = _narrate_made(player, defender, action, rng, action_def)
+        templates = _SUBTYPE_MADE.get(subtype)
+        if templates:
+            text = rng.choice(templates).format(player=player, defender=defender)
+        else:
+            text = _narrate_made(player, defender, action, rng, action_def)
+        if and_one:
+            text += " — and one!"
     else:  # missed
-        text = _narrate_missed(player, defender, action, rng, action_def)
+        if blocked and defender:
+            text = rng.choice(_BLOCKED).format(player=player, defender=defender)
+        else:
+            templates = _SUBTYPE_MISSED.get(subtype)
+            if templates:
+                text = rng.choice(templates).format(player=player, defender=defender)
+            else:
+                text = _narrate_missed(player, defender, action, rng, action_def)
 
     # Append rebound narration on missed shots
     if rebounder and result == "missed":
