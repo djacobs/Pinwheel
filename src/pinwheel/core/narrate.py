@@ -309,6 +309,23 @@ _VIOLATIONS: dict[str, list[str]] = {
         "{player} picks it up and dribbles again — double dribble",
         "Whistle — double dribble on {player}",
     ],
+    # Tier-3 violations (Phase 5) — keyed by the possession-log action.
+    "backcourt": [
+        "Whistle — {player} brings it back over half court, backcourt violation",
+        "{player} retreats too far — over-and-back, turnover",
+    ],
+    "three_second": [
+        "Three in the key — {player} camped in the lane too long",
+        "Whistle — three-second violation on {player}",
+    ],
+    "lane": [
+        "Lane violation on {player} — turnover",
+        "Whistle — {player} jumps the lane early",
+    ],
+    "clear_arc": [
+        "{player} never clears the arc — violation, turnover",
+        "Whistle — {player} attacks without clearing beyond the arc",
+    ],
 }
 
 _TURNOVER_BAD_PASS = [
@@ -419,6 +436,43 @@ _CHAIN_TEMPLATES: dict[str, list[str]] = {
     "assist": [
         "{actor} with the dime",
     ],
+    # ---- Tier-3 events (Phase 5) ----
+    "violation.backcourt": [
+        "Whistle — {actor} takes it back over half court",
+    ],
+    "violation.three_second": [
+        "Three in the key — {actor} camped in the lane",
+    ],
+    "violation.lane": [
+        "Lane violation on {actor}",
+    ],
+    "violation.kicked_ball": [
+        "{actor} kicks it — offense keeps the ball, clock reset",
+    ],
+    "violation.clear_arc": [
+        "{actor} never clears the arc — violation",
+    ],
+    "violation.goaltending": [
+        "GOALTEND — {actor} swats it on the way down, basket counts for {target}",
+    ],
+    "foul.take": [
+        "{actor} takes the foul — the break dies right there",
+    ],
+    "foul.clear_path": [
+        "Clear-path foul on {actor} — free throw and the ball",
+    ],
+    "foul.away_from_play": [
+        "Away-from-play foul on {actor} — free throw and the ball",
+    ],
+    "admin.check_ball": [
+        "Ball checked at the top — play on",
+    ],
+    "admin.clear_arc": [
+        "{actor} clears it beyond the arc",
+    ],
+    "injury": [
+        "{actor} comes up hobbling — gutting it out on one good leg",
+    ],
 }
 
 _STEAL_ATTEMPT_OUTCOMES: dict[str, str] = {
@@ -498,7 +552,7 @@ def narrate_event(
         if sub == "bad_pass":
             return rng.choice(_TURNOVER_BAD_PASS).format(player=actor, defender=target)
         return rng.choice(_TURNOVER_LOST_BALL).format(player=actor, defender=target)
-    if etype.startswith("foul."):
+    if etype.startswith("foul.") and etype not in _CHAIN_TEMPLATES:
         return f"Whistle — {actor} called for the foul"
     if etype == "defense.steal_attempt":
         template = _STEAL_ATTEMPT_OUTCOMES.get(outcome)
@@ -647,6 +701,7 @@ def narrate_play(
     subtype: str = "",
     and_one: bool = False,
     blocked: bool = False,
+    transition: bool = False,
 ) -> str:
     """Generate a one-line play-by-play description from structured data.
 
@@ -677,6 +732,8 @@ def narrate_play(
             to the per-action templates.
         and_one: Whether the made shot drew an and-one foul.
         blocked: Whether the missed shot was blocked by the defender.
+        transition: Whether the possession opened in transition (Tier-3
+            possession tag) — shot narration gets an "on the break" lead-in.
 
     Returns:
         A vivid one-line play-by-play description.
@@ -725,6 +782,10 @@ def narrate_play(
                 text = rng.choice(templates).format(player=player, defender=defender)
             else:
                 text = _narrate_missed(player, defender, action, rng, action_def)
+
+    # Transition possessions (Tier-3 tag): shots get an on-the-break lead-in.
+    if transition and result in ("made", "missed", "foul"):
+        text = f"On the break — {text}"
 
     # Append rebound narration on missed shots
     if rebounder and result == "missed":

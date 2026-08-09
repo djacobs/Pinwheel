@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pinwheel.models.rules import RuleSet
 
@@ -42,9 +42,9 @@ class ActionDefinition(BaseModel):
     category: str = "shot"
     """Grouping category.
 
-    Vocabulary (Phase 3): ``shot`` | ``pass`` | ``dribble`` | ``screen`` |
-    ``cut`` | ``defense`` | ``rebound`` | ``turnover`` | ``violation`` |
-    ``admin`` | ``special``.
+    Vocabulary (Phase 3 + Tier-3): ``shot`` | ``pass`` | ``dribble`` |
+    ``screen`` | ``cut`` | ``defense`` | ``rebound`` | ``turnover`` |
+    ``violation`` | ``foul`` | ``admin`` | ``special``.
 
     Only ``category == "shot"`` actions participate in shot selection
     (see :meth:`ActionRegistry.shot_actions`) — chain nodes from other
@@ -340,6 +340,38 @@ class GameDefinition(BaseModel):
     even when ``possession_engine`` is ``"micro"``.
     """
 
+    # ---- Tier-3 structure options (Phase 5) — all defaulted OFF ----
+    #
+    # None of these draw RNG or change behavior at their defaults; they are
+    # governable surface activated by a GameDefinitionPatch.
+
+    check_ball_restarts: bool = False
+    """FIBA-3x3-style check-ball restarts (Tier-3, default off).
+
+    When True, every dead-ball possession opens with an ``admin.check_ball``
+    event (the ball is checked at the top before play begins), costing a
+    little clock. Transition possessions skip the check — the break is live.
+    """
+
+    clear_arc_required: bool = False
+    """FIBA-3x3-style clear-arc rule (Tier-3, default off).
+
+    When True, a possession opened by a live-ball turnover or defensive
+    rebound must first clear the ball to the perimeter (an
+    ``admin.clear_arc`` zone-transition event). Failing the clearance is a
+    ``violation.clear_arc`` — a dead-ball turnover.
+    """
+
+    target_score: int = 0
+    """First-to-N target score (Tier-3, default 0 = disabled).
+
+    A generalization of the Elam Ending: when > 0, the game ends the moment
+    either team reaches this score, in any period ("first to 21 wins").
+    Mutually exclusive with ``elam_ending_enabled`` — the patch validator
+    rejects definitions with both active. If neither team reaches the
+    target, the game ends normally after the final quarter.
+    """
+
     possession_engine: Literal["macro", "micro"] = "micro"
     """Which possession engine resolves turns.
 
@@ -408,6 +440,40 @@ class GameDefinitionPatch(BaseModel):
     way — use ``add_actions``, ``remove_actions``, or ``modify_actions``.
     """
 
+    modify_transitions: dict[str, dict[str, float]] = Field(default_factory=dict)
+    """Reweight the Markov edges of the possession chain (Tier-3).
+
+    ``{"node_name": {"target": weight}}`` merges into the node's outgoing
+    edge tables: ``transitions`` always, plus ``success_transitions`` /
+    ``failure_transitions`` when the node defines them — so the reweight
+    takes effect regardless of which table the engine consults. A weight
+    of ``0.0`` removes the edge (zero-weight edges are never selected).
+    Weights must be non-negative; unknown node names are silently ignored.
+
+    Example — activate backcourt violations off the initiate node:
+    ``{"initiate": {"violation_backcourt": 0.8}}``.
+    """
+
+    @field_validator("modify_transitions")
+    @classmethod
+    def _transitions_non_negative(
+        cls, v: dict[str, dict[str, float]]
+    ) -> dict[str, dict[str, float]]:
+        """Transition weights must be non-negative finite floats."""
+        for node_name, edges in v.items():
+            for target, weight in edges.items():
+                if not isinstance(weight, (int, float)) or weight != weight:
+                    raise ValueError(
+                        f"modify_transitions[{node_name!r}][{target!r}] "
+                        f"is not a number: {weight!r}"
+                    )
+                if weight < 0:
+                    raise ValueError(
+                        f"modify_transitions[{node_name!r}][{target!r}] "
+                        f"is negative: {weight}"
+                    )
+        return v
+
     description: str = ""
     """Human-readable description of what this patch does."""
 
@@ -418,7 +484,8 @@ class GameDefinitionPatch(BaseModel):
         1. Remove actions (by name)
         2. Modify existing actions (partial field updates)
         3. Add new actions (overwrites if name already exists)
-        4. Modify structure fields
+        4. Reweight chain transitions (modify_transitions merge)
+        5. Modify structure fields
 
         The original GameDefinition is not mutated.
 
@@ -454,7 +521,27 @@ class GameDefinitionPatch(BaseModel):
         for action in self.add_actions:
             actions_by_name[action.name] = action.model_copy(deep=True)
 
-        # 4. Build new structure from base, applying modifications
+        # 4. Reweight chain transitions. The merge lands on every edge
+        # table the node defines so the reweight is authoritative no
+        # matter which table the engine consults at runtime.
+        for name, edges in self.modify_transitions.items():
+            existing = actions_by_name.get(name)
+            if existing is None:
+                continue
+            updates: dict[str, dict[str, float]] = {
+                "transitions": {**existing.transitions, **edges},
+            }
+            if existing.success_transitions:
+                updates["success_transitions"] = {
+                    **existing.success_transitions, **edges,
+                }
+            if existing.failure_transitions:
+                updates["failure_transitions"] = {
+                    **existing.failure_transitions, **edges,
+                }
+            actions_by_name[name] = existing.model_copy(update=updates)
+
+        # 5. Build new structure from base, applying modifications
         structure_data = game_def.model_dump()
         structure_data["actions"] = list(actions_by_name.values())
         valid_structure_fields = set(GameDefinition.model_fields.keys()) - {"actions"}
@@ -748,6 +835,17 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
                 "steal_attempt": 1.2,
                 "shot": 21.0,
                 "violation_deadball": 1.2,
+                # Tier-3 governable surface — zero weight by default, so
+                # these edges are never selected (and draw no RNG) until a
+                # GameDefinitionPatch.modify_transitions or a
+                # transition_biases effect activates them.
+                "violation_backcourt": 0.0,
+                "violation_three_second": 0.0,
+                "violation_lane": 0.0,
+                "violation_kicked_ball": 0.0,
+                "foul_take": 0.0,
+                "foul_clear_path": 0.0,
+                "foul_away_from_play": 0.0,
             },
         ),
         ActionDefinition(
@@ -1130,6 +1228,125 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
             selection_weight=0.0,
             resolution_type="automatic",
             time_cost_seconds=0.4,
+        ),
+        # ---- Tier-3 violation + foul nodes (Phase 5) ----
+        #
+        # All governable surface, INERT by default: no default transition
+        # edge carries positive weight into them, so they draw no RNG and
+        # never fire until governance activates them (modify_transitions,
+        # transition_biases, or — for goaltending — selection_weight).
+        # Once active, violation-category weights scale with the
+        # ``violation_strictness`` knob x handler IQ, same as travel.
+        ActionDefinition(
+            name="violation_backcourt",
+            display_name="Backcourt Violation",
+            description="Ball taken back over half court — dead-ball turnover.",
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.4,
+        ),
+        ActionDefinition(
+            name="violation_three_second",
+            display_name="Three-Second Violation",
+            description=(
+                "Offense camps in the paint — dead-ball turnover. Weight "
+                "scales with the possession's consecutive paint-zone events "
+                "(the paint-dwell counter), so it only threatens teams that "
+                "actually park in the lane."
+            ),
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.4,
+            emits_tags=["paint_dwell"],
+        ),
+        ActionDefinition(
+            name="violation_lane",
+            display_name="Lane Violation",
+            description="Offensive lane violation — dead-ball turnover.",
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.4,
+        ),
+        ActionDefinition(
+            name="violation_kicked_ball",
+            display_name="Kicked Ball",
+            description=(
+                "Defensive kicked-ball violation — the offense keeps the "
+                "ball with a shot-clock reset."
+            ),
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.8,
+            transitions={
+                "shot": 40.0,
+                "pass_swing": 35.0,
+                "drive": 25.0,
+            },
+        ),
+        ActionDefinition(
+            name="violation_goaltending",
+            display_name="Goaltending",
+            description=(
+                "Defensive goaltend on a missed rim/mid shot awards the "
+                "basket. ``selection_weight`` is the per-missed-shot "
+                "probability (default 0.0 = never checked, no RNG drawn). "
+                "Governance activates it via modify_actions "
+                '({"violation_goaltending": {"selection_weight": 0.03}}); '
+                'the FIBA-style "legal after rim contact" rule is '
+                "remove_actions: [\"violation_goaltending\"] or weight 0."
+            ),
+            category="violation",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=0.0,
+        ),
+        ActionDefinition(
+            name="foul_take",
+            display_name="Take Foul",
+            description=(
+                "A defender takes the foul to kill the break — personal + "
+                "team foul, side-out, offense resets in the half court. "
+                "Only reachable on transition possessions."
+            ),
+            category="foul",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.2,
+            emits_tags=["transition_only"],
+            transitions={"initiate": 100.0},
+        ),
+        ActionDefinition(
+            name="foul_clear_path",
+            display_name="Clear-Path Foul",
+            description=(
+                "Clear-path foul on the break — one free throw plus the "
+                "ball. Only reachable on transition possessions."
+            ),
+            category="foul",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.2,
+            emits_tags=["transition_only"],
+            transitions={"initiate": 100.0},
+        ),
+        ActionDefinition(
+            name="foul_away_from_play",
+            display_name="Away-From-Play Foul",
+            description=(
+                "Off-ball foul during a transition advance — one free "
+                "throw plus the ball. Only reachable on transition "
+                "possessions."
+            ),
+            category="foul",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.2,
+            emits_tags=["transition_only"],
+            transitions={"initiate": 100.0},
         ),
     ]
 

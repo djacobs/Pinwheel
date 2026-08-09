@@ -58,6 +58,10 @@ class PossessionLog(BaseModel):
 
     Additive: old serialized rows without this field deserialize to [].
     """
+    tags: list[str] = Field(default_factory=list)
+    """Possession-level tags (Tier-3), e.g. ``"transition"`` for a
+    possession opened on the break. Additive: old rows deserialize to [].
+    """
 
 
 class HooperBoxScore(BaseModel):

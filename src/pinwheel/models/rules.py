@@ -43,6 +43,12 @@ class RuleSet(BaseModel):
     """How strictly referees call ball-handling violations (travel,
     double dribble). 0.0 = never called; 1.0 = ~1% of possessions;
     5.0 = whistle-happy refs."""
+    injury_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    """Per-possession chance of a rare injury event (pace-scaled).
+
+    0.0 (default) = injuries OFF — the engine draws no RNG for them.
+    When an injury fires, the hooper's stamina floors for the rest of
+    the game. No cross-game persistence (future work)."""
 
     # Tier 2: Hooper Behavior
     max_shot_share: float = Field(default=1.0, ge=0.2, le=1.0)

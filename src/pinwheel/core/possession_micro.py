@@ -78,6 +78,7 @@ from pinwheel.models.game import GameEvent, PossessionLog
 from pinwheel.models.game_definition import (
     ActionDefinition,
     ActionRegistry,
+    GameDefinition,
     basketball_micro_actions,
     basketball_micro_chain_nodes,
 )
@@ -136,6 +137,33 @@ TRANSITION_AT_RIM_BIAS = 6.0
 # Shot-clock reset after an offensive rebound (14s-style, capped by rules).
 SECOND_CHANCE_CLOCK_SECONDS = 14.0
 
+# ---- Tier-3 structural surface (Phase 5) ----
+# None of these draw RNG on the default path: check-ball/clear-arc are
+# gated by GameDefinition flags (default off), injury by rules.injury_rate
+# (default 0.0), goaltending by the violation_goaltending node's
+# selection_weight (default 0.0), and the violation/foul nodes by their
+# transition weights (default 0.0).
+
+# Clock cost of a FIBA-3x3-style check-ball restart.
+CHECK_BALL_TIME_COST_SECONDS = 1.2
+
+# Clock cost of clearing the ball beyond the arc after a live-ball change.
+CLEAR_ARC_TIME_COST_SECONDS = 1.4
+
+# Clear-arc failure chance: base minus an IQ discount (floor 2%).
+CLEAR_ARC_FAIL_BASE = 0.10
+CLEAR_ARC_FAIL_FLOOR = 0.02
+
+# Stamina floor an injured hooper drops to for the rest of the game.
+INJURY_STAMINA_FLOOR = 0.15
+
+# Terminal dead-ball violation nodes: name -> (event_type, log action).
+_TERMINAL_VIOLATIONS: dict[str, tuple[str, str]] = {
+    "violation_backcourt": ("violation.backcourt", "backcourt"),
+    "violation_three_second": ("violation.three_second", "three_second"),
+    "violation_lane": ("violation.lane", "lane"),
+}
+
 # Fallback chain nodes, used when the registry has no "initiate" node —
 # e.g. governance flipped possession_engine via modify_structure without
 # adding chain nodes. Keeps possessions from bricking.
@@ -193,6 +221,7 @@ def resolve_possession_micro(
     effect_registry: list[RegisteredEffect] | None = None,
     meta_store: MetaStore | None = None,
     active_hooks: frozenset[str] = frozenset(),
+    game_def: GameDefinition | None = None,
 ) -> PossessionResult:
     """Resolve one possession as a micro event chain.
 
@@ -353,10 +382,12 @@ def resolve_possession_micro(
             defender_id=defender_id,
             action=action,
             result="turnover",
+            points_scored=early_points,
             defensive_scheme=scheme,
             home_score=game_state.home_score,
             away_score=game_state.away_score,
             events=events,
+            tags=["transition"] if opened_in_transition else [],
         )
         return PossessionResult(
             turnover=True,
@@ -369,6 +400,20 @@ def resolve_possession_micro(
 
     play_time = 0.0
     chain_steps = 0
+
+    # Points banked mid-chain (Tier-3 clear-path / away-from-play free
+    # throws). Committed to the game score the moment they're earned, so
+    # they survive any possession ending — including a later turnover.
+    early_points = 0
+
+    # Transition context: opened by the PREVIOUS possession's live-ball
+    # turnover or defensive rebound. The flag stays visible on GameState
+    # for the whole possession (governance conditions gate on it); every
+    # exit path re-sets it for the next possession. A Tier-3 take/clear-
+    # path foul kills the advantage mid-possession; the summary log's
+    # "transition" tag reflects how the possession OPENED.
+    is_transition = game_state.transition_possession
+    opened_in_transition = is_transition
 
     # Flow control from governance effects — a blocked possession is dead.
     if ctx.block_action:
@@ -413,12 +458,6 @@ def resolve_possession_micro(
     on_ball_defender = _assign_roles()
 
     # ---- Tier-2 chain state (Phase 4) ----
-    # Transition context: opened by the PREVIOUS possession's live-ball
-    # turnover or defensive rebound. The flag stays visible on GameState
-    # for the whole possession (governance conditions gate on it); every
-    # exit path re-sets it for the next possession.
-    is_transition = game_state.transition_possession
-
     # Effective-defender override from defense.switch / defense.help_rotation.
     # Cleared whenever the ball changes hands (matchups re-form).
     defender_override: HooperState | None = None
@@ -503,6 +542,10 @@ def resolve_possession_micro(
                     continue
                 if cand.zone_requirement and cand.zone_requirement != state.zone:
                     continue
+                # Tier-3: take/clear-path/away-from-play fouls only emerge
+                # from transition possessions.
+                if "transition_only" in cand.emits_tags and not is_transition:
+                    continue
                 if cand.weight_attributes:
                     attrs = state.ball_handler.current_attributes
                     affinity = 1.0 + sum(
@@ -514,6 +557,14 @@ def resolve_possession_micro(
                     w *= _turnover_scale()
                 elif cand.category == "violation":
                     w *= _violation_scale()
+                    # Paint-dwell violations scale with time camped in the
+                    # paint (counting the current paint stay) — an offense
+                    # that never parks in the lane keeps the weight at zero.
+                    if "paint_dwell" in cand.emits_tags:
+                        dwell = state.paint_event_streak + (
+                            1 if state.zone == "paint" else 0
+                        )
+                        w *= float(dwell)
             if w <= 0.0:
                 continue
             names.append(name)
@@ -578,8 +629,71 @@ def resolve_possession_micro(
         defender_override = None
         on_ball_defender = _assign_roles()
 
+    # ---- Tier-3 pre-chain events (Phase 5) — all inert by default ----
+
+    # Injury: pace-scaled rare event, OFF unless rules.injury_rate > 0.
+    # The victim's stamina floors for the rest of the game (recovery
+    # skips injured hoopers). No cross-game persistence (future work).
+    if rules.injury_rate > 0.0:
+        injury_p = min(1.0, rules.injury_rate / max(0.5, pace))
+        if rng.random() < injury_p:
+            healthy = [a for a in offense + defense if not a.injured]
+            if healthy:
+                victim = rng.choice(healthy)
+                victim.injured = True
+                victim.current_stamina = INJURY_STAMINA_FLOOR
+                emit(
+                    "injury",
+                    actor_id=victim.hooper.id,
+                    outcome="hobbled",
+                    zone=state.zone,
+                )
+
+    # FIBA-3x3 check-ball restart: dead-ball possessions open with the
+    # ball checked at the top. Transition possessions skip it — live ball.
+    if game_def is not None and game_def.check_ball_restarts and not is_transition:
+        _consume_clock(CHECK_BALL_TIME_COST_SECONDS)
+        emit(
+            "admin.check_ball",
+            actor_id=state.ball_handler.hooper.id,
+            outcome="success",
+            zone="perimeter",
+        )
+
+    # FIBA-3x3 clear-arc rule: after a live-ball change the offense must
+    # clear the ball beyond the arc; failing is a dead-ball violation.
+    if game_def is not None and game_def.clear_arc_required and is_transition:
+        _consume_clock(CLEAR_ARC_TIME_COST_SECONDS)
+        clear_fail_p = max(
+            CLEAR_ARC_FAIL_FLOOR,
+            CLEAR_ARC_FAIL_BASE
+            - state.ball_handler.current_attributes.iq / 1000.0,
+        )
+        if rng.random() < clear_fail_p:
+            state.ball_handler.turnovers += 1
+            emit(
+                "violation.clear_arc",
+                actor_id=state.ball_handler.hooper.id,
+                outcome="dead_ball",
+                zone="perimeter",
+            )
+            return _finish_turnover("clear_arc")
+        emit(
+            "admin.clear_arc",
+            actor_id=state.ball_handler.hooper.id,
+            outcome="success",
+            zone="perimeter",
+        )
+
     for _ in range(MAX_CHAIN_STEPS):
         chain_steps += 1
+        # Paint-dwell counter (Tier-3): consecutive chain steps with the
+        # ball in the paint. Scales the violation_three_second edge weight,
+        # so the violation only threatens offenses camped in the lane.
+        if state.zone == "paint":
+            state.paint_event_streak += 1
+        else:
+            state.paint_event_streak = 0
         if state.shot_clock_remaining <= 0.0:
             # Shot clock expiry — dead-ball turnover.
             state.ball_handler.turnovers += 1
@@ -739,6 +853,24 @@ def resolve_possession_micro(
 
             shot_roll = rng.random()
             made = shot_roll < prob
+
+            # Tier-3 goaltending: a rare defensive goaltend on a missed
+            # rim/mid shot awards the basket. The violation_goaltending
+            # node's selection_weight IS the per-missed-shot probability —
+            # 0.0 by default, so no RNG is drawn until governance
+            # activates it (or removes the node, FIBA-style "legal after
+            # rim contact").
+            goaltended = False
+            if not made and shot_type in ("at_rim", "mid_range"):
+                gt_node = action_registry.get("violation_goaltending")
+                if (
+                    gt_node is not None
+                    and gt_node.selection_weight > 0.0
+                    and rng.random() < min(1.0, gt_node.selection_weight)
+                ):
+                    made = True
+                    goaltended = True
+
             pts_this = points_for_action(action_def, rules) if made else 0
 
             if made:
@@ -765,6 +897,15 @@ def resolve_possession_micro(
                 tags=shot_tags,
             )
             shot_event = events[-1]
+            if goaltended:
+                shot_event.tags.append("goaltended")
+                emit(
+                    "violation.goaltending",
+                    actor_id=primary_defender.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="basket_awarded",
+                    zone=zone_for_action(shot_type) or state.zone,
+                )
 
             if made:
                 pts_this = max(
@@ -1003,8 +1144,46 @@ def resolve_possession_micro(
             )
 
         if node.category == "violation":
-            # Dead-ball violation terminal (travel / double dribble).
             handler = state.ball_handler
+            if node.name == "violation_kicked_ball":
+                # Defensive violation — offense keeps the ball with a
+                # 14s-style shot-clock reset (Tier-3, non-terminal).
+                kicker = on_ball_defender
+                state.shot_clock_remaining = max(
+                    state.shot_clock_remaining,
+                    min(
+                        SECOND_CHANCE_CLOCK_SECONDS,
+                        float(rules.shot_clock_seconds),
+                    ),
+                )
+                emit(
+                    "violation.kicked_ball",
+                    actor_id=kicker.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="offense_retains",
+                    zone=state.zone,
+                )
+                state.last_event = node.name
+                if "sim.event.post" in active_hooks:
+                    _fire_category_hook(
+                        "sim.event.post", game_state, rules, rng,
+                        _effects, meta_store, hooper=state.ball_handler,
+                    )
+                next_name = _pick_next(node, True)
+                continue
+            if node.name in _TERMINAL_VIOLATIONS:
+                # Tier-3 dead-ball violation terminal (backcourt /
+                # three-second paint dwell / lane).
+                event_type, action = _TERMINAL_VIOLATIONS[node.name]
+                handler.turnovers += 1
+                emit(
+                    event_type,
+                    actor_id=handler.hooper.id,
+                    outcome="dead_ball",
+                    zone=state.zone,
+                )
+                return _finish_turnover(action)
+            # Dead-ball violation terminal (travel / double dribble).
             handler.turnovers += 1
             v_roll = rng.random()
             violation = "travel" if v_roll < 0.6 else "double_dribble"
@@ -1014,6 +1193,66 @@ def resolve_possession_micro(
                 outcome="dead_ball",
             )
             return _finish_turnover(violation)
+
+        if node.category == "foul":
+            # Tier-3 transition-foul nodes: take / clear_path /
+            # away_from_play. All kill the break (side-out, half-court
+            # reset); clear-path and away-from-play also award one free
+            # throw before the offense retains the ball.
+            handler = state.ball_handler
+            fouler = on_ball_defender
+            fouler.fouls += 1
+            if game_state.home_has_ball:
+                game_state.away_team_fouls += 1
+            else:
+                game_state.home_team_fouls += 1
+            if fouler.fouls >= rules.personal_foul_limit:
+                fouler.ejected = True
+            suffix = (
+                node.name[len("foul_"):]
+                if node.name.startswith("foul_")
+                else node.name
+            )
+            emit(
+                f"foul.{suffix}",
+                actor_id=fouler.hooper.id,
+                target_id=handler.hooper.id,
+                outcome="transition_killed",
+                zone=state.zone,
+                tags=[t for t in node.emits_tags if t != "transition_only"],
+            )
+            if "sim.foul.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.foul.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=fouler,
+                )
+            if node.name in ("foul_clear_path", "foul_away_from_play"):
+                ft_pts = resolve_free_throws(
+                    handler, fouler, action_registry, rules, rng,
+                    attempts=1, emit=emit, detail=suffix,
+                )
+                if ft_pts:
+                    # Bank the points immediately — they must survive any
+                    # later possession ending, including a turnover.
+                    if game_state.home_has_ball:
+                        game_state.home_score += ft_pts
+                    else:
+                        game_state.away_score += ft_pts
+                    early_points += ft_pts
+            # The foul kills the break: half-court reset, advantage gone.
+            is_transition = False
+            game_state.transition_possession = False
+            shot_ctx = ctx
+            state.open_shot = False
+            state.zone = "perimeter"
+            state.last_event = node.name
+            if "sim.event.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.event.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=state.ball_handler,
+                )
+            next_name = _pick_next(node, True)
+            continue
 
         if node.category == "defense" and node.name == "steal_attempt":
             # Steal gamble: steal / deflection + loose-ball scramble / blow-by.
@@ -1438,7 +1677,7 @@ def resolve_possession_micro(
         ball_handler_id=shooter_id,
         action=shot_type,
         result="made" if made else ("foul" if foul_on_defender else "missed"),
-        points_scored=pts,
+        points_scored=pts + early_points,
         defender_id=shot_defender_id,
         assist_id=assist_id,
         rebound_id=rebound_id,
@@ -1448,10 +1687,11 @@ def resolve_possession_micro(
         home_score=game_state.home_score,
         away_score=game_state.away_score,
         events=events,
+        tags=["transition"] if opened_in_transition else [],
     )
 
     return PossessionResult(
-        points_scored=pts,
+        points_scored=pts + early_points,
         scoring_team_home=game_state.home_has_ball,
         turnover=False,
         foul_on_defender=foul_on_defender,

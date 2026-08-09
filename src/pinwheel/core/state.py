@@ -104,6 +104,10 @@ class PossessionState:
     kickout_open: bool = False
     """Set by a defensive help rotation — the helper's man is open, so the
     next successful kickout pass produces an open look."""
+    paint_event_streak: int = 0
+    """Consecutive chain events resolved with the ball in the paint —
+    the paint-dwell counter behind the ``violation_three_second`` node
+    (Tier-3). Reset whenever the ball leaves the paint."""
     roles: dict[str, str] = field(default_factory=dict)
     """hooper_id -> handler | screener | spacer"""
     def_roles: dict[str, str] = field(default_factory=dict)
@@ -120,6 +124,10 @@ class HooperState:
     current_stamina: float = 1.0
     fouls: int = 0
     ejected: bool = False
+    injured: bool = False
+    """Set by a Tier-3 injury event: stamina floors for the rest of the
+    game and quarter-break/halftime recovery skips this hooper. Not
+    persisted across games (future work)."""
     points: int = 0
     field_goals_made: int = 0
     field_goals_attempted: int = 0

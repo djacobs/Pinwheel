@@ -36,6 +36,10 @@ MIN_SAFETY_CAP = 50
 MAX_SAFETY_CAP = 1000
 MAX_PARTICIPANTS_PER_SIDE = 5
 SMOKE_SIM_MAX_TOTAL_SCORE = 500
+# Tier-3 target score ("first to N wins"): 0 = disabled; when set it must
+# be reachable in a real game.
+MIN_TARGET_SCORE = 5
+MAX_TARGET_SCORE = 200
 
 
 def _check_invariants(game_def: GameDefinition) -> list[str]:
@@ -96,6 +100,99 @@ def _check_invariants(game_def: GameDefinition) -> list[str]:
             f"participants_per_side {game_def.participants_per_side} outside "
             f"[1, {MAX_PARTICIPANTS_PER_SIDE}]"
         )
+
+    # Tier-3 target score: bounded, and mutually exclusive with Elam.
+    if game_def.target_score != 0 and not (
+        MIN_TARGET_SCORE <= game_def.target_score <= MAX_TARGET_SCORE
+    ):
+        violations.append(
+            f"target_score {game_def.target_score} outside "
+            f"[{MIN_TARGET_SCORE}, {MAX_TARGET_SCORE}] (0 disables)"
+        )
+    if game_def.target_score > 0 and game_def.elam_ending_enabled:
+        violations.append(
+            "target_score and the Elam Ending are mutually exclusive — "
+            "disable elam_ending_enabled when setting a target score"
+        )
+
+    return violations
+
+
+def _check_chain_reachability(game_def: GameDefinition) -> list[str]:
+    """Every chain start node must reach a shot or terminal event.
+
+    Governance can reshape the possession chain's Markov edges
+    (``modify_transitions``, ``remove_actions``); a patch that leaves a
+    start node in a positive-weight cycle with no exit would turn every
+    possession into a shot-clock violation — a bricked game. This walks
+    the edge graph the same way the micro engine does:
+
+    - Only positive-weight edges are traversable.
+    - Edges to removed/unknown nodes are dangling — the engine skips
+      them, and a node with NO live candidates falls through to the
+      ``"shot"`` pseudo-target (so it terminates).
+    - Reaching ``"shot"`` or a turnover/violation-category node counts
+      as terminating.
+
+    If the definition has no ``initiate`` node the engine's fallback
+    chain vocabulary engages, which is known-good — no check needed.
+    """
+    from collections import deque
+
+    from pinwheel.core.possession_micro import MAX_CHAIN_STEPS
+
+    chain_nodes = {
+        a.name: a
+        for a in game_def.actions
+        if a.category not in ("shot", "special")
+    }
+    if "initiate" not in chain_nodes:
+        return []
+
+    terminal_categories = {"turnover", "violation"}
+    violations: list[str] = []
+
+    for start in ("initiate", "second_chance"):
+        if start not in chain_nodes:
+            continue
+        reached_terminal = False
+        seen = {start}
+        queue: deque[tuple[str, int]] = deque([(start, 0)])
+        while queue and not reached_terminal:
+            name, depth = queue.popleft()
+            node = chain_nodes[name]
+            if node.category in terminal_categories:
+                reached_terminal = True
+                break
+            targets: set[str] = set()
+            for table in (
+                node.transitions,
+                node.success_transitions,
+                node.failure_transitions,
+            ):
+                for target, weight in table.items():
+                    if weight > 0:
+                        targets.add(target)
+            live = [t for t in targets if t == "shot" or t in chain_nodes]
+            if not live:
+                # No live candidates — the engine forces "shot".
+                reached_terminal = True
+                break
+            if "shot" in live:
+                reached_terminal = True
+                break
+            if depth + 1 >= MAX_CHAIN_STEPS:
+                continue  # deeper nodes can't terminate within the cap
+            for t in live:
+                if t not in seen:
+                    seen.add(t)
+                    queue.append((t, depth + 1))
+        if not reached_terminal:
+            violations.append(
+                f"Patch bricks possessions: chain node '{start}' cannot "
+                f"reach a shot or terminal event within {MAX_CHAIN_STEPS} "
+                "steps — every possession would die on the shot clock"
+            )
 
     return violations
 
@@ -174,6 +271,11 @@ def validate_game_def_patch(
         return [f"Patch failed to apply: {e}"]
 
     violations = _check_invariants(patched)
+    if violations:
+        return violations
+
+    # Reachability: the possession chain must be able to terminate.
+    violations = _check_chain_reachability(patched)
     if violations:
         return violations
 

@@ -301,6 +301,7 @@ def resolve_turn(
             effect_registry=effect_registry,
             meta_store=meta_store,
             active_hooks=active_hooks,
+            game_def=game_def,
         )
     return resolve_possession(
         game_state, rules, rng, last_three, poss_ctx,
@@ -399,6 +400,19 @@ def _run_quarter(
         last_three_by_offense[offense_is_home] = (
             result.shot_made and result.shot_type == "three_point"
         )
+
+        # Tier-3 target score ("first to N wins") — a generalization of
+        # the Elam Ending. Default 0 = disabled, zero behavior change.
+        if (
+            game_def is not None
+            and game_def.target_score > 0
+            and (
+                game_state.home_score >= game_def.target_score
+                or game_state.away_score >= game_def.target_score
+            )
+        ):
+            game_state.game_over = True
+            break
 
         # Check for foul-out substitutions after each possession
         _check_substitution(game_state, rules, possession_log, reason="foul_out")
@@ -585,6 +599,8 @@ def _halftime_recovery(
         else rules.halftime_stamina_recovery
     )
     for agent in game_state.home_agents + game_state.away_agents:
+        if agent.injured:
+            continue  # Tier-3 injury: stamina floors for the game
         agent.current_stamina = min(1.0, agent.current_stamina + recovery)
 
 
@@ -605,6 +621,8 @@ def _quarter_break_recovery(
         else rules.quarter_break_stamina_recovery
     )
     for agent in game_state.home_agents + game_state.away_agents:
+        if agent.injured:
+            continue  # Tier-3 injury: stamina floors for the game
         agent.current_stamina = min(1.0, agent.current_stamina + recovery)
 
 
@@ -763,6 +781,10 @@ def simulate_game(
 
     # Regular quarters (everything before the Elam quarter)
     for q in range(1, elam_quarter):
+        # Tier-3 target score: once "first to N" is hit the game is over —
+        # skip remaining periods entirely (no empty quarter rows).
+        if game_def.target_score > 0 and game_state.game_over:
+            break
         game_state.quarter = q
         home_before = game_state.home_score
         away_before = game_state.away_score
@@ -802,8 +824,15 @@ def simulate_game(
         # Fatigue-based substitution at quarter breaks
         _check_substitution(game_state, rules, possession_log, reason="fatigue")
 
-    # Elam Ending (or final quarter if Elam is disabled)
-    if not game_state.game_over and game_def.elam_ending_enabled:
+    # Elam Ending (or final quarter if Elam is disabled). A Tier-3
+    # target_score replaces the Elam Ending outright (mutually exclusive —
+    # enforced by the patch validator): the final period is a clock
+    # quarter that can end early on the target.
+    if (
+        not game_state.game_over
+        and game_def.elam_ending_enabled
+        and game_def.target_score <= 0
+    ):
         game_state.quarter = total_quarters
         home_before = game_state.home_score
         away_before = game_state.away_score
@@ -823,8 +852,9 @@ def simulate_game(
                 away_score=game_state.away_score - away_before,
             )
         )
-    elif not game_state.game_over and not game_def.elam_ending_enabled:
-        # No Elam: run the final quarter as a regular clock-based quarter
+    elif not game_state.game_over:
+        # No Elam (disabled, or replaced by a target score): run the final
+        # quarter as a regular clock-based quarter
         game_state.quarter = total_quarters
         home_before = game_state.home_score
         away_before = game_state.away_score

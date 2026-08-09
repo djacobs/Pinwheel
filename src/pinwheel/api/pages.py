@@ -1941,6 +1941,7 @@ async def game_page(
             subtype=str(ev_ctx["subtype"]),
             and_one=bool(ev_ctx["and_one"]),
             blocked=bool(ev_ctx["blocked"]),
+            transition="transition" in (play.get("tags") or []),
         )
         # Expandable event chain (Phase 4): one narrated line per micro
         # event, rendered behind a <details> expander on the game page.

@@ -472,6 +472,7 @@ async def _present_game(
                 subtype=str(ev_ctx["subtype"]),
                 and_one=bool(ev_ctx["and_one"]),
                 blocked=bool(ev_ctx["blocked"]),
+                transition="transition" in (possession.tags or []),
             )
 
             # Expose the possession's event chain (Phase 4): the default
