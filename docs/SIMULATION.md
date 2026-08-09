@@ -196,78 +196,157 @@ Agents acquire moves through three channels:
 
 The model must support all three from the start. A move is a move regardless of how it was acquired. The `Move` model tracks its `source: Literal["archetype", "earned", "governed"]` for the AI report to reference.
 
-## Possession Model
+## Possession Model — Two Engines
 
-The atomic unit of basketball simulation is the **possession**. Each possession follows this decision tree:
+The atomic unit of simulation is the **possession**. Since the granular
+sim engine landed (Sessions 138–141), two possession engines share one
+contract — both return the same `PossessionResult` / summary
+`PossessionLog` shape, so every consumer (game loop, presenter,
+commentary, reports) is engine-agnostic:
 
-```
-POSSESSION START (team has ball)
-│
-├─ DEFENSIVE SETUP (see Defensive Model)
-│   ├─ Scheme selection: man-tight, man-switch, zone, or press
-│   │   (based on opponent lineup, own resources, game context, stamina)
-│   ├─ Matchup assignment (for man schemes): optimize defender-attacker pairs
-│   │   (minimize matchup cost function across all 3 pairings)
-│   ├─ Apply strategy overrides (if team has active strategy instructions)
-│   └─ Scheme modifies contest, turnover, and driving probabilities for this possession
-│
-├─ TRANSITION CHECK
-│   └─ Fast break opportunity? (based on Speed differential + turnover type)
-│       ├─ Yes → FAST BREAK (higher scoring probability, simpler resolution)
-│       │   └─ Press scheme increases both fast break chance and turnover chance
-│       └─ No → HALF COURT
-│
-├─ HALF COURT SETUP
-│   ├─ Ball handler selected (highest IQ, or rule-modified)
-│   ├─ Shot clock begins
-│   │
-│   ├─ ACTION SELECTION (repeated until possession ends or shot clock expires)
-│   │   ├─ SHOOT
-│   │   │   ├─ Shot type: 2-pointer, 3-pointer, drive to basket
-│   │   │   │   (selected based on Scoring, range, IQ, defensive matchup + scheme)
-│   │   │   ├─ Contest: defender's Defense vs. shooter's Scoring
-│   │   │   │   (modified by scheme: man-tight = full, zone = reduced, switch = slight reduction)
-│   │   │   ├─ Outcome: make/miss (probability from attributes + contest + shot type)
-│   │   │   └─ If missed → REBOUND
-│   │   │
-│   │   ├─ PASS
-│   │   │   ├─ Target selection (Passing + IQ)
-│   │   │   │   (zone: high-IQ handlers find gaps, low-IQ get confused)
-│   │   │   ├─ Turnover check (Passing vs. defender's Defense)
-│   │   │   │   (man-tight: tighter lanes. press: much higher turnover chance)
-│   │   │   │   ├─ Turnover → opponent possession
-│   │   │   │   └─ Success → recipient becomes ball handler, ACTION SELECTION continues
-│   │   │   └─ Assist tracking (if pass leads to made shot within N actions)
-│   │   │
-│   │   └─ DRIVE
-│   │       ├─ Speed vs. defender's Speed + Defense
-│   │       │   (zone: face help defense from multiple defenders)
-│   │       ├─ Foul check (drives generate fouls at higher rate)
-│   │       ├─ Outcome: layup attempt (high %) / blocked / foul
-│   │       └─ If fouled → FREE THROWS
-│   │
-│   └─ SHOT CLOCK EXPIRATION → forced bad shot (low % regardless of attributes)
-│
-├─ REBOUND
-│   ├─ Offensive vs. defensive rebound (Speed + Defense derived)
-│   └─ Winner gets possession
-│
-├─ FREE THROWS
-│   ├─ Scoring attribute determines make probability
-│   └─ 2 free throws default, rule-changeable
-│
-├─ FOUL TRACKING
-│   ├─ Personal fouls per agent
-│   ├─ Team fouls per half
-│   ├─ Foul limit → agent ejection (rule-changeable!)
-│   └─ Bonus free throws when team foul limit reached
-│
-└─ STAMINA DRAIN
-    ├─ Offensive actions cost stamina (drives > shots > passes)
-    ├─ Defensive effort costs stamina (see Defensive Model: stamina economics)
-    │   (guarding fast/chaotic/high-IQ players costs more)
-    └─ Scheme affects drain rate (press > man-tight > man-switch > zone)
-```
+- **Micro (default)** — `core/possession_micro.py`. Each possession is a
+  *chain of events* (initiate → pass/dribble/screen/cut → shot/turnover)
+  driven by data: `ActionDefinition.transitions` Markov edges. The whole
+  event graph is governable through `GameDefinitionPatch`.
+- **Macro (legacy)** — `core/possession.py`. The original one-shot
+  possession model: ball handler → shot class → resolution → rebound.
+  Still fully functional; reachable via
+  `modify_structure: {"possession_engine": "macro"}`. Setting
+  `event_detail=False` always pins the legacy macro RNG stream
+  bit-exactly (used by pinned seed tests).
+
+`resolve_turn()` in `core/simulation.py` is the single dispatch point.
+Both engines share the same mechanics helpers (free throws, box-outs,
+blocks, loose-ball fouls, rebounds, subtype derivation, stamina drain) —
+extracted into shared functions so behavior can't drift.
+
+### The micro chain loop
+
+Per possession: defensive setup (scheme + matchups, see Defensive Model)
+→ ball-handler selection → then up to 16 chain steps (`MAX_CHAIN_STEPS`;
+the shot clock is authoritative — expiry is a dead-ball turnover):
+
+1. **Pick the next node** from the current node's transition table
+   (`success_transitions` / `failure_transitions` override on resolved
+   outcomes): weight × `weight_attributes` affinity × runtime scales
+   (turnover ingredients via the shared `turnover_probability`; violation
+   weights × `violation_strictness` × handler IQ; paint-dwell counter for
+   three-second calls) + governance `transition_biases`. Zone-gated nodes
+   (`zone_requirement`) and transition-only nodes are filtered by state.
+2. **Resolve** by `resolution_type`: `automatic`, `contested_check`
+   (logistic on actor attribute vs defender defense), or — for the
+   `"shot"` pseudo-target — the standard shot-class selection
+   (`select_action` over `category == "shot"` actions, honoring
+   governance `action_biases`, strategies, surfaces) and
+   `compute_shot_probability_v2`. Every shot draws a contest/closeout
+   roll (chain-created open looks are never closed out); contested shots
+   take a malus, open ones a bonus plus any chain-earned bonus (skip
+   passes, screens, spot-ups).
+3. **Emit a `GameEvent`** per step (namespaced: `pass.swing`,
+   `dribble.drive`, `shot.at_rim`, `violation.backcourt`, ...) and
+   decrement the shot clock by the node's `time_cost_seconds` ± jitter.
+
+Misses branch into box-out → rebound; an offensive rebound *continues
+the chain* (second chance, 14s-style clock reset, putback/tip subtypes)
+so `is_offensive_rebound` is always False at exit and callers alternate
+possession normally. One summary `PossessionLog` row per possession
+carries the full chain in `log.events` (JSON on the possession row) and
+possession-level `tags` (e.g. `"transition"` for possessions opened on
+the break).
+
+### Chain vocabulary (all data, all governable)
+
+Defined in `basketball_micro_chain_nodes()` (`models/game_definition.py`)
+and shipped inside `basketball_game_definition().actions`, so governance
+can remove, reweight, or extend every node:
+
+| Category | Nodes |
+|----------|-------|
+| admin | `initiate` |
+| pass | `pass_swing`, `pass_entry`, `pass_skip`, `pass_kickout`, `pass_extra` |
+| dribble | `drive`, `crossover`, `iso` |
+| screen | `screen_on_ball` (roll/pop/slip), `screen_off_ball` |
+| cut | `cut_curl`, `cut_backdoor`, `spot_up`, `relocate` |
+| defense | `defense_switch`, `help_rotation`, `steal_attempt` |
+| rebound | `second_chance` |
+| turnover | `turnover_bad_pass`, `turnover_lost_ball` |
+| violation | `violation_deadball` (travel/double dribble), `violation_backcourt`, `violation_three_second`, `violation_lane`, `violation_kicked_ball`, `violation_goaltending` |
+| foul | `foul_take`, `foul_clear_path`, `foul_away_from_play` |
+
+The load-bearing wall: `ActionRegistry.shot_actions()` filters
+`category == "shot"` strictly — chain nodes can never leak into shot
+selection.
+
+### Tier-3 structural surface (Phase 5)
+
+Everything below ships **inert** — zero weight or off by default, drawing
+no RNG until governance activates it:
+
+- **Violations as data.** The Tier-3 violation nodes carry zero-weight
+  edges off `initiate`; a `GameDefinitionPatch.modify_transitions` (or a
+  `transition_biases` effect) activates them. Active violation weights
+  scale with the `violation_strictness` RuleSet knob × handler IQ.
+  `violation_three_second` additionally scales with the possession's
+  paint-dwell counter (`PossessionState.paint_event_streak`), so it only
+  threatens offenses camped in the lane. `violation_kicked_ball` is
+  defensive: the offense keeps the ball with a clock reset.
+  `violation_goaltending` is checked at shot resolution — its
+  `selection_weight` is the per-missed-shot probability of a defensive
+  goaltend that awards the basket; remove the node (or zero the weight)
+  for the FIBA-style "legal after rim contact" rule.
+- **Transition fouls.** `foul_take` / `foul_clear_path` /
+  `foul_away_from_play` are gated to transition possessions
+  (`emits_tags: ["transition_only"]`). A take foul kills the break:
+  personal + team foul, side-out, half-court reset. Clear-path and
+  away-from-play fouls award one free throw plus the ball — the points
+  are banked mid-chain so they survive any possession ending.
+- **FIBA-3x3 structure options** on `GameDefinition` (all default off):
+  `check_ball_restarts` (dead-ball possessions open with an
+  `admin.check_ball` event), `clear_arc_required` (transition offense
+  must clear the ball beyond the arc; failing is a `violation.clear_arc`
+  turnover), and `target_score` (first-to-N wins — a generalization of
+  the Elam Ending, mutually exclusive with it; the patch validator
+  enforces the exclusivity). The 12-second FIBA shot clock is just the
+  `shot_clock_seconds` parameter.
+- **Injuries.** The `injury_rate` RuleSet knob (default 0.0 = off)
+  enables a pace-scaled rare injury event: the victim's stamina floors
+  for the rest of the game and quarter-break/halftime recovery skips
+  them. No cross-game persistence yet (future work).
+- **`modify_transitions`.** `GameDefinitionPatch` can reweight the
+  chain's Markov edges directly: `{"node": {"target": weight}}` merges
+  into the node's edge tables (weight 0 removes an edge; negative
+  weights are rejected at construction).
+- **Reachability validation.** `core/game_def_validation.py` walks the
+  patched chain graph the way the engine does: every start node
+  (`initiate`, `second_chance`) must reach a shot or turnover/violation
+  terminal through positive-weight edges within the chain cap. Patches
+  that would brick possessions ("remove all pass AND shot exits") are
+  rejected with an explicit violation; benign removals ("picks are
+  illegal") pass and still simulate.
+
+### In-possession hooks
+
+Governance effects subscribe to string hook points; a per-game hook
+index means games with no subscribed effects pay ~zero cost. Fired by
+the micro engine: `sim.event.pre/post` (every chain step),
+`sim.shot.pre/post`, `sim.pass.post`, `sim.screen.post`,
+`sim.rebound.pre/post`, `sim.foul.post`, `sim.turnover.post`. The macro
+engine fires the same category hooks at its equivalent decision points
+(never `sim.event.*`). Condition scalars exposed on `GameState` include
+`pass_count_last_possession` (updates live mid-possession) and
+`transition_possession`.
+
+### Calibration & determinism
+
+- Same seed + same engine version ⇒ identical games. A pinned
+  seed-snapshot test (score, possession count, event count, sha256 of
+  the full event stream) fails loudly on any unplanned RNG change;
+  planned changes land as explicit seed-migration commits.
+- A distribution-regression suite runs 200 fixed-seed games per engine
+  and holds micro aggregates (PPG, TO/foul/ORB rates, FG% and attempt
+  share by shot class) within ±20% of the macro baseline.
+- Performance: ~10.3 ms/game sim-only under the default micro engine
+  (budget: 40 ms/game).
 
 ## Defensive Model
 

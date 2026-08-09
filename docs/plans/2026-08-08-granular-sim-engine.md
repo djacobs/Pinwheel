@@ -176,12 +176,24 @@ Moves plug in per-event: triggers "drive_action", "opponent_iso",
   commentary consumes summary rows + ≤3 drama-selected chains; interpreter
   vocabulary + 3 Tier-2 golden cases; calibration within ±20% on all bands
   (10.9 ms/game); one "test: engine v2 seeds" commit.
-- **Phase 5 — Tier-3 structural governance.** Violations, admin events,
-  transition play-type, FIBA-3x3 structure options (check_ball, clear_arc,
-  target-score), GameDefinitionPatch.modify_transitions, and
-  game_def_validation reachability check (every start node must reach a
-  terminal node — governance can otherwise brick possessions). Update
-  docs/SIMULATION.md + interpreter grounding + golden evals.
+- **Phase 5 — Tier-3 structural governance.** ✅ Shipped Session 141.
+  Violation nodes as inert data (backcourt / three_second paint-dwell /
+  lane / kicked_ball / goaltending via selection_weight), transition
+  foul subtypes (take / clear_path / away_from_play, transition_only
+  gated, mid-chain FT point banking), FIBA-3x3 structure options
+  (check_ball_restarts, clear_arc_required, target_score mutually
+  exclusive with Elam), injury_rate RuleSet knob (stamina floors for
+  the game), possession-level "transition" tag + on-the-break
+  narration, GameDefinitionPatch.modify_transitions (non-negative
+  merge-reweight of chain edges), and the game_def_validation
+  reachability check (bricking patches rejected; "picks are illegal"
+  passes). Interpreter vocabulary + 3 Tier-3 golden cases;
+  docs/SIMULATION.md engine section rewritten. Default path draws ZERO
+  new RNG — seed snapshot unchanged, calibration bands hold,
+  10.3 ms/game.
+  - Future work: cross-game injury persistence (injuries currently
+    heal at the final buzzer — carrying them across games needs a
+    hooper-status store and league-loop integration).
 
 ## Risks & mitigations
 

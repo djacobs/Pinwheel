@@ -4,14 +4,15 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2932 tests**, zero lint errors (Session 140)
+- **2977 tests**, zero lint errors (Session 141)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
-- **Day 28 (Sessions 138-140):** Granular sim engine Phases 1-4 — GameEvent
-  substrate, Tier-1 subtypes, attribution & hustle stats, category hooks +
-  hook index, the micro event-chain possession engine, and (Session 140)
-  Tier-2 events with the DEFAULT ENGINE FLIPPED TO "micro" — passes,
-  screens, cuts, defensive rotations, steal gambles, transition
-  possessions, all governable as data
+- **Day 28 (Sessions 138-141):** Granular sim engine Phases 1-5 COMPLETE —
+  GameEvent substrate, Tier-1 subtypes, attribution & hustle stats,
+  category hooks + hook index, the micro event-chain possession engine,
+  Tier-2 events with the DEFAULT ENGINE FLIPPED TO "micro", and
+  (Session 141) the Tier-3 structural governance surface: violations,
+  transition fouls, FIBA-3x3 options, injuries, modify_transitions,
+  reachability validation — all governable as data
   (`docs/plans/2026-08-08-granular-sim-engine.md`)
 - **Day 27:** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
@@ -33,6 +34,98 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
 - [x] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — deployed v156 (Session 137, owner approved)
 - [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve) — see docs/LAUNCH_DRILLS.md Drill 4
+
+## Session 141 — Granular Sim Engine Phase 5: Tier-3 Structural Governance (2026-08-08)
+
+**What was asked:** Implement Phase 5 — the FINAL phase — of the granular
+sim engine plan (`docs/plans/2026-08-08-granular-sim-engine.md`): Tier-3
+violations as data nodes, FIBA-3x3 structure options, transition foul
+subtypes, injury events, `GameDefinitionPatch.modify_transitions`,
+chain-reachability validation, interpreter grounding + golden cases, and
+a SIMULATION.md engine-section rewrite — with the hard invariant that the
+default path draws ZERO new RNG (seed snapshot unchanged).
+
+**What was built:**
+
+- **Violations as data nodes** in `basketball_micro_chain_nodes()`:
+  `violation_backcourt` / `violation_three_second` / `violation_lane`
+  (dead-ball terminals emitting `violation.*` events),
+  `violation_kicked_ball` (defensive — offense retains with a 14s-style
+  clock reset, chain continues), `violation_goaltending` (checked at
+  shot resolution; its `selection_weight` IS the per-missed-shot
+  probability of awarding the basket — remove it or zero the weight for
+  the FIBA "legal after rim contact" rule). All ship with zero-weight
+  edges off `initiate` — pure governable surface. Active weights reuse
+  the Phase-1 `violation_strictness` x IQ scaling; `three_second` also
+  scales with a new paint-dwell counter
+  (`PossessionState.paint_event_streak`), so it only threatens offenses
+  camped in the lane (pinned: never fires from the perimeter).
+- **Transition foul subtypes** (`category="foul"`, `transition_only`
+  gated so they only emerge from break possessions): `foul_take` kills
+  the transition — personal + team foul, side-out, half-court reset
+  (`shot_ctx`/`is_transition` advantage cleared); `foul_clear_path` and
+  `foul_away_from_play` award 1 FT + ball, with the FT points banked to
+  the game score mid-chain (`early_points`) so box scores reconcile even
+  when the possession later ends in a turnover (pinned).
+- **FIBA-3x3 structure options** on GameDefinition, all default off:
+  `check_ball_restarts` (dead-ball possessions open with
+  `admin.check_ball`), `clear_arc_required` (transition offense must
+  clear the arc; IQ-scaled failure → `violation.clear_arc` turnover),
+  `target_score` (first-to-N — generalizes Elam, mutually exclusive
+  with it, enforced by the validator; games stop mid-quarter on the
+  target with no empty quarter rows). `resolve_turn` now hands the
+  GameDefinition to the micro engine. A FIBA-style patch is pinned
+  end-to-end: check-ball events, clear-arc violations, sub-60-possession
+  first-to-21 games.
+- **Injury events:** new tier-1 `injury_rate` RuleSet knob (ge=0 le=1,
+  default 0.0 = OFF, no RNG drawn). Pace-scaled per-possession roll; the
+  victim's stamina floors at 0.15 for the rest of the game
+  (`HooperState.injured`; quarter-break/halftime recovery skips them),
+  `injury` GameEvent + narration. No cross-game persistence — noted as
+  future work in the plan doc.
+- **`GameDefinitionPatch.modify_transitions`:**
+  `{"node": {"target": weight}}` merge-reweights the chain's Markov
+  edges — landing on `transitions` plus any non-empty
+  success/failure tables so the reweight is authoritative; weight 0
+  removes an edge; negative weights rejected by a field validator. Old
+  stored patches keep validating.
+- **Reachability validation** in `core/game_def_validation.py`: after
+  cumulative patch application, every chain start node (`initiate`,
+  `second_chance`) must reach a shot or turnover/violation terminal
+  through positive-weight edges within the 16-step chain cap, walking
+  dangling edges exactly like the engine (no candidates ⇒ forced
+  "shot" ⇒ terminates). A bricking patch ("remove all pass AND shot
+  exits") is rejected with an explicit "bricks possessions" violation;
+  "picks are illegal" passes and still simulates. Also new invariants:
+  `target_score` bounds [5, 200] and target/Elam mutual exclusivity.
+- **Transition possession tag:** summary `PossessionLog` rows gain
+  additive `tags` (`["transition"]` reflects how the possession OPENED,
+  surviving a take-foul kill); presenter + game page thread it into
+  `narrate_play(transition=...)` — "On the break — ..." lead-ins.
+  Tier-3 narration templates for every new event type with graceful
+  fallback preserved.
+- **Interpreter + goldens:** v2 prompt gains the Tier-3 node list,
+  modify_transitions with activation examples, the structure options,
+  the reachability note, and three worked examples ("adopt FIBA 3x3
+  rules" → structure patch + 12s clock, "traveling and backcourt
+  strictly enforced" → strictness + backcourt activation, "first to 21
+  wins" → target_score). Mock detects all three patterns;
+  `TIER3_INTERPRETER_CASES` (3 cases) pin the grounding.
+- **Docs:** SIMULATION.md's possession-model section rewritten as the
+  two-engine architecture (dispatch, micro chain loop, chain-vocabulary
+  table, Tier-3 surface, hooks, calibration/determinism) — claims
+  verified against code. Plan doc marks Phase 5 ✅ with the injury-
+  persistence future-work note.
+
+**Zero-RNG invariant held:** the Phase-4 seed snapshot (seed 42: 80-44,
+99 possessions, 687 events, same sha256) passes UNCHANGED — every new
+mechanic is behind a zero weight, an off-by-default flag, or a
+default-0.0 knob, and zero-weight transition edges are skipped before
+any RNG draw. Calibration bands untouched. **Performance: 10.26 ms/game**
+(200 fixed-seed games, default micro path; budget 40).
+
+**Tests: 2977 passed** (was 2932; +44 Tier-3 structural, +1 golden),
+ruff clean.
 
 ## Session 140 — Granular Sim Engine Phase 4: Tier-2 Events + Default Flip (2026-08-08)
 
