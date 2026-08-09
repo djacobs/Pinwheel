@@ -35,6 +35,7 @@ from pinwheel.core.possession import (
     PossessionResult,
     resolve_possession,
 )
+from pinwheel.core.possession_micro import resolve_possession_micro
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
 from pinwheel.models.game_definition import (
@@ -109,11 +110,18 @@ def _fire_sim_effects(
         for k, v in r.action_biases.items():
             merged_biases[k] = merged_biases.get(k, 0.0) + v
 
+    # Micro-engine chain-transition biases (additive, separate namespace)
+    merged_transitions: dict[str, float] = {}
+    for r in results:
+        for k, v in r.transition_biases.items():
+            merged_transitions[k] = merged_transitions.get(k, 0.0) + v
+
     return PossessionContext(
         shot_probability_modifier=sum(r.shot_probability_modifier for r in results),
         shot_value_modifier=sum(r.shot_value_modifier for r in results),
         extra_stamina_drain=sum(r.extra_stamina_drain for r in results),
         action_biases=merged_biases,
+        transition_biases=merged_transitions,
         turnover_modifier=sum(r.turnover_modifier for r in results),
         random_ejection_probability=sum(
             r.random_ejection_probability for r in results
@@ -250,8 +258,10 @@ def resolve_turn(
 
     This is the single dispatch point between the turn-structure loop
     (``_run_quarter`` / ``_run_elam``) and the possession-level engine.
-    For basketball (the only game right now), it delegates directly to
-    ``resolve_possession()``.
+    Dispatches on ``game_def.possession_engine``: ``"macro"`` (default)
+    delegates to ``resolve_possession()`` — zero change to existing RNG
+    streams — while ``"micro"`` runs the event-chain engine in
+    ``core/possession_micro.py``.
 
     Future game types can be dispatched here based on
     ``game_def.name`` or a ``turn_type`` field, routing to different
@@ -276,6 +286,14 @@ def resolve_turn(
     Returns:
         A PossessionResult with the outcome of the turn.
     """
+    if game_def is not None and game_def.possession_engine == "micro":
+        return resolve_possession_micro(
+            game_state, rules, rng, last_three, poss_ctx,
+            action_registry=action_registry,
+            effect_registry=effect_registry,
+            meta_store=meta_store,
+            active_hooks=active_hooks,
+        )
     return resolve_possession(
         game_state, rules, rng, last_three, poss_ctx,
         action_registry=action_registry,
