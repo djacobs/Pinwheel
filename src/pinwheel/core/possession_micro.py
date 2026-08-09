@@ -28,6 +28,7 @@ The macro engine (default) is untouched — no existing RNG stream changes.
 
 from __future__ import annotations
 
+import dataclasses
 import random
 
 from pinwheel.core.defense import (
@@ -81,6 +82,7 @@ from pinwheel.models.game_definition import (
     basketball_micro_chain_nodes,
 )
 from pinwheel.models.rules import RuleSet
+from pinwheel.models.team import Move
 
 # Hard cap on chain steps per possession — the shot clock almost always
 # terminates the chain first; this is the safety net against degenerate
@@ -106,8 +108,30 @@ TURNOVER_PROBABILITY_BASELINE = 0.055
 CLOCK_PRESSURE_SECONDS = 4.0
 CLOCK_PRESSURE_SHOT_MULTIPLIER = 4.0
 
-# Shot-probability bonus when the chain created an open look (drive win).
+# Shot-probability bonus when the chain created an open look (drive win,
+# backdoor cut, kickout off a help rotation) or the closeout never arrives.
 OPEN_SHOT_BONUS = 0.04
+
+# Shot-probability malus when the closeout arrives (contested shot).
+CONTESTED_SHOT_MALUS = 0.02
+
+# Chain bonuses (Tier-2): ball movement and screens tilt the NEXT shot.
+SKIP_PASS_SHOT_BONUS = 0.03
+EXTRA_PASS_SHOT_BONUS = 0.02
+KICKOUT_SHOT_BONUS = 0.02
+SCREEN_ROLL_SHOT_BONUS = 0.03
+SCREEN_POP_SHOT_BONUS = 0.02
+SPOT_UP_SHOT_BONUS = 0.02
+CURL_SHOT_BONUS = 0.02
+
+# Steal-gamble outcome split: the deflection share is flat; the steal share
+# scales with the defender-vs-handler edge; the rest is a blow-by.
+STEAL_DEFLECTION_CHANCE = 0.25
+
+# Transition possessions (opened by a live-ball turnover or defensive
+# rebound): quicker initiation and a small at-rim bias.
+TRANSITION_TIME_SCALE = 0.6
+TRANSITION_AT_RIM_BIAS = 6.0
 
 # Shot-clock reset after an offensive rebound (14s-style, capped by rules).
 SECOND_CHANCE_CLOCK_SECONDS = 14.0
@@ -289,8 +313,16 @@ def resolve_possession_micro(
     total_team_fga = sum(a.field_goals_attempted for a in offense)
     handler = select_ball_handler(offense, rng, rules=rules, total_team_fga=total_team_fga)
 
-    def _finish_turnover(action: str, defender_id: str = "") -> PossessionResult:
-        """Common exit for every turnover terminal."""
+    def _finish_turnover(
+        action: str, defender_id: str = "", live_ball: bool = False
+    ) -> PossessionResult:
+        """Common exit for every turnover terminal.
+
+        ``live_ball`` turnovers (steals, strips, picked-off passes) open a
+        transition opportunity for the other team next possession.
+        """
+        game_state.pass_count_last_possession = state.pass_count
+        game_state.transition_possession = live_ball
         _chain_fatigue()
         drain_stamina(
             offense, scheme, is_defense=False, rules=rules,
@@ -380,6 +412,52 @@ def resolve_possession_micro(
 
     on_ball_defender = _assign_roles()
 
+    # ---- Tier-2 chain state (Phase 4) ----
+    # Transition context: opened by the PREVIOUS possession's live-ball
+    # turnover or defensive rebound. The flag stays visible on GameState
+    # for the whole possession (governance conditions gate on it); every
+    # exit path re-sets it for the next possession.
+    is_transition = game_state.transition_possession
+
+    # Effective-defender override from defense.switch / defense.help_rotation.
+    # Cleared whenever the ball changes hands (matchups re-form).
+    defender_override: HooperState | None = None
+
+    # Cutter designated by the last screen.off_ball, consumed by cut nodes.
+    pending_cutter: HooperState | None = None
+
+    # Moves triggered by chain events (drive/iso/pass/initiate) before the
+    # shot exists — applied at shot resolution through the same
+    # apply_move_modifier code path as shot-time triggers.
+    pending_off_moves: list[tuple[HooperState, Move]] = []
+    pending_def_moves: list[tuple[HooperState, Move]] = []
+    pending_seen: set[tuple[str, str]] = set()
+
+    def _queue_moves(
+        actor: HooperState,
+        action_name: str,
+        defender: HooperState | None = None,
+    ) -> None:
+        """Collect moves triggered by a chain event for the eventual shot."""
+        if actor.hooper.moves:
+            for mv in get_triggered_moves(
+                actor, action_name, last_possession_three,
+                game_state.elam_activated, rng,
+            ):
+                key = (actor.hooper.id, mv.name)
+                if key not in pending_seen:
+                    pending_seen.add(key)
+                    pending_off_moves.append((actor, mv))
+        if defender is not None and defender.hooper.moves:
+            for mv in get_triggered_moves(
+                defender, action_name, last_possession_three,
+                game_state.elam_activated, rng,
+            ):
+                key = (defender.hooper.id, mv.name)
+                if key not in pending_seen:
+                    pending_seen.add(key)
+                    pending_def_moves.append((defender, mv))
+
     def _turnover_scale() -> float:
         """Scale for turnover-branch weights from macro turnover ingredients."""
         p = turnover_probability(
@@ -465,6 +543,40 @@ def resolve_possession_micro(
     rebound_id = ""
     shot_defender_id = ""
     terminal = ""  # "shot" | "turnover" handled inline
+    ended_with_drb = False  # final miss rebounded by the defense → transition
+
+    # Transition possessions bias shot selection slightly toward the rim.
+    if is_transition:
+        shot_ctx = dataclasses.replace(
+            ctx,
+            action_biases={
+                **ctx.action_biases,
+                "at_rim": ctx.action_biases.get("at_rim", 0.0)
+                + TRANSITION_AT_RIM_BIAS,
+            },
+        )
+    else:
+        shot_ctx = ctx
+
+    def _move_ball(
+        receiver: HooperState,
+        new_zone: str,
+        passer: HooperState | None = None,
+        open_shot: bool = False,
+    ) -> None:
+        """Move the ball to ``receiver`` (optionally crediting a pass)."""
+        nonlocal on_ball_defender, defender_override, putback_eligible
+        if passer is not None:
+            passer.passes_made += 1
+            state.pass_count += 1
+            game_state.pass_count_last_possession = state.pass_count
+            state.potential_assister = passer
+        state.ball_handler = receiver
+        state.zone = new_zone
+        state.open_shot = open_shot
+        putback_eligible = False
+        defender_override = None
+        on_ball_defender = _assign_roles()
 
     for _ in range(MAX_CHAIN_STEPS):
         chain_steps += 1
@@ -491,7 +603,7 @@ def resolve_possession_micro(
 
             chosen = select_action(
                 handler, game_state, rules, rng,
-                effect_biases=ctx, surface=surface_mods,
+                effect_biases=shot_ctx, surface=surface_mods,
                 action_registry=action_registry,
             )
             if ctx.substitute_action and ctx.substitute_action in (
@@ -506,6 +618,14 @@ def resolve_possession_micro(
                 game_state.elam_activated, rng,
             )
             primary_defender = _assign_roles()
+            # defense.switch / defense.help_rotation changed who is on the
+            # ball — the override is the effective defender for resolution.
+            if (
+                defender_override is not None
+                and not defender_override.ejected
+                and defender_override.on_court
+            ):
+                primary_defender = defender_override
             shot_defender_id = primary_defender.hooper.id
             def_triggered = get_triggered_moves(
                 primary_defender, shot_type, last_possession_three,
@@ -533,7 +653,38 @@ def resolve_possession_micro(
 
             has_assister = state.potential_assister is not None and not is_putback
             assister_bonus = 0.03 if has_assister else 0.0
-            open_bonus = OPEN_SHOT_BONUS if state.open_shot else 0.0
+
+            # Contest / closeout (Tier-2): every shot is either open or
+            # contested. A chain-created open look (drive win, backdoor,
+            # kickout synergy) is never closed out; otherwise the effective
+            # defender's closeout ability decides. Contested shots take a
+            # small malus and credit the defender's contested_shots stat.
+            if state.open_shot:
+                contested = False
+            else:
+                d_attrs = primary_defender.current_attributes
+                closeout = d_attrs.defense * 0.6 + d_attrs.speed * 0.4
+                p_contested = max(
+                    0.05, min(0.92, 0.40 + closeout / 250.0 + scheme_mod),
+                )
+                contested = rng.random() < p_contested
+            emit(
+                "defense.contest",
+                actor_id=primary_defender.hooper.id,
+                target_id=handler.hooper.id,
+                outcome="contested" if contested else "open",
+                detail="closeout",
+                zone=zone_for_action(shot_type) or state.zone,
+            )
+            if contested:
+                primary_defender.contested_shots += 1
+            open_bonus = 0.0 if contested else OPEN_SHOT_BONUS
+            contest_malus = CONTESTED_SHOT_MALUS if contested else 0.0
+            # Chain-earned bonus (skip/extra passes, screens, spot-ups) is
+            # consumed by this shot.
+            chain_bonus = state.next_shot_bonus
+            state.next_shot_bonus = 0.0
+
             prob = max(
                 0.01,
                 min(
@@ -544,23 +695,47 @@ def resolve_possession_micro(
                     + surface_mods.shot_probability_modifier
                     + hook_shot_prob_mod
                     + assister_bonus
-                    + open_bonus,
+                    + open_bonus
+                    + chain_bonus
+                    - contest_malus,
                 ),
             )
 
             move_value_bonus = 0
+            applied_move_names: set[str] = set()
             if triggered:
                 move = triggered[0]
+                applied_move_names.add(move.name)
                 if not move_name:
                     move_name = move.name
                 handler.moves_activated.append(move.name)
                 prob = apply_move_modifier(move, prob, rng, action=shot_type)
                 move_value_bonus = apply_move_secondary_effects(move, handler)
             for def_move in def_triggered:
+                applied_move_names.add(def_move.name)
                 primary_defender.moves_activated.append(def_move.name)
                 prob = apply_move_modifier(def_move, prob, rng, action=shot_type)
                 if not move_name:
                     move_name = def_move.name
+            # Moves triggered earlier in the chain (drive/iso/pass/initiate
+            # events) apply here through the same code path.
+            for owner, mv in pending_off_moves:
+                if mv.name in applied_move_names:
+                    continue
+                applied_move_names.add(mv.name)
+                owner.moves_activated.append(mv.name)
+                if not move_name:
+                    move_name = mv.name
+                prob = apply_move_modifier(mv, prob, rng, action=shot_type)
+                move_value_bonus += apply_move_secondary_effects(mv, owner)
+            for owner, mv in pending_def_moves:
+                if mv.name in applied_move_names:
+                    continue
+                applied_move_names.add(mv.name)
+                owner.moves_activated.append(mv.name)
+                if not move_name:
+                    move_name = mv.name
+                prob = apply_move_modifier(mv, prob, rng, action=shot_type)
 
             shot_roll = rng.random()
             made = shot_roll < prob
@@ -575,14 +750,11 @@ def resolve_possession_micro(
                 is_putback=is_putback,
                 has_assister=has_assister,
             )
-            if scheme_mod >= 0.06:
-                primary_defender.contested_shots += 1
-
-            shot_tags: list[str] = []
-            if state.open_shot:
-                shot_tags.append("open")
+            shot_tags: list[str] = ["contested" if contested else "open"]
             if state.second_chance:
                 shot_tags.append("second_chance")
+            if is_transition:
+                shot_tags.append("transition")
             emit(
                 f"shot.{shot_type}",
                 actor_id=handler.hooper.id,
@@ -691,6 +863,7 @@ def resolve_possession_micro(
                 else:
                     reb_contested = reb_roll < 0.4
                     reb_detail = ""
+                    ended_with_drb = True
                 emit(
                     "rebound.offensive" if is_orb else "rebound.defensive",
                     actor_id=rebounder.hooper.id,
@@ -727,7 +900,7 @@ def resolve_possession_micro(
                     play_time += rules.dead_ball_time_seconds
                     on_ball_defender = _assign_roles()
 
-            # Assist credit on a make (putbacks unassisted) + screen stub.
+            # Assist credit on a make (putbacks unassisted).
             if made and has_assister and state.potential_assister is not None:
                 assister = state.potential_assister
                 assister.assists += 1
@@ -738,19 +911,21 @@ def resolve_possession_micro(
                     target_id=handler.hooper.id,
                     outcome="success",
                 )
-                others = [
-                    a for a in offense
-                    if a.hooper.id not in (handler.hooper.id, assist_id)
-                ]
-                if others and rng.random() < 0.15:
-                    screener = others[0]
-                    screener.screen_assists += 1
-                    emit(
-                        "screen.assist",
-                        actor_id=screener.hooper.id,
-                        target_id=handler.hooper.id,
-                        outcome="success",
-                    )
+            # Real screen-assist credit (replaces the Phase-2 stub): a made
+            # basket after a screen this possession credits the screener.
+            if (
+                made
+                and state.screener is not None
+                and state.screener.hooper.id != handler.hooper.id
+            ):
+                scr = state.screener
+                scr.screen_assists += 1
+                emit(
+                    "screen.assist",
+                    actor_id=scr.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="success",
+                )
 
             if "sim.shot.post" in active_hooks:
                 _fire_category_hook(
@@ -768,6 +943,17 @@ def resolve_possession_micro(
                 made = False
                 foul_on_defender = False
                 rebound_id = ""
+                ended_with_drb = False
+                # Reset chain state — the scramble breaks screens, cuts,
+                # switches, and any earned shot bonus.
+                state.screener = None
+                state.next_shot_bonus = 0.0
+                state.kickout_open = False
+                defender_override = None
+                pending_cutter = None
+                pending_off_moves.clear()
+                pending_def_moves.clear()
+                pending_seen.clear()
                 second_chance_node = node_of("second_chance")
                 next_name = "second_chance" if second_chance_node else "initiate"
                 continue
@@ -780,10 +966,14 @@ def resolve_possession_micro(
             next_name = "shot"
             continue
 
-        _consume_clock(
+        node_cost = (
             node.time_cost_seconds if node.time_cost_seconds > 0.0
             else DEFAULT_TIME_COST_SECONDS
         )
+        if is_transition and chain_steps == 1:
+            # Transition offense initiates faster.
+            node_cost *= TRANSITION_TIME_SCALE
+        _consume_clock(node_cost)
 
         if node.category == "turnover":
             # Live-ball turnover terminal — attribution by subtype.
@@ -808,7 +998,9 @@ def resolve_possession_micro(
                     target_id=stealer.hooper.id,
                     outcome="stolen",
                 )
-            return _finish_turnover("turnover", defender_id=stealer.hooper.id)
+            return _finish_turnover(
+                "turnover", defender_id=stealer.hooper.id, live_ball=True,
+            )
 
         if node.category == "violation":
             # Dead-ball violation terminal (travel / double dribble).
@@ -822,6 +1014,276 @@ def resolve_possession_micro(
                 outcome="dead_ball",
             )
             return _finish_turnover(violation)
+
+        if node.category == "defense" and node.name == "steal_attempt":
+            # Steal gamble: steal / deflection + loose-ball scramble / blow-by.
+            handler = state.ball_handler
+            gambler = on_ball_defender
+            g_attrs = gambler.current_attributes
+            h_attrs = handler.current_attributes
+            edge = (
+                (g_attrs.defense + g_attrs.speed) / 2.0
+                - (h_attrs.iq + h_attrs.speed) / 2.0
+            )
+            p_steal = max(0.10, min(0.55, 0.30 + edge / 500.0))
+            gamble_roll = rng.random()
+            if gamble_roll < p_steal:
+                gambler.steals += 1
+                handler.turnovers += 1
+                emit(
+                    "defense.steal_attempt",
+                    actor_id=gambler.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="steal",
+                    zone=state.zone,
+                )
+                emit(
+                    "turnover.lost_ball",
+                    actor_id=handler.hooper.id,
+                    target_id=gambler.hooper.id,
+                    outcome="stolen",
+                )
+                return _finish_turnover(
+                    "turnover", defender_id=gambler.hooper.id, live_ball=True,
+                )
+            if gamble_roll < p_steal + STEAL_DEFLECTION_CHANCE:
+                # Deflection — loose-ball scramble (hustle stat for the winner).
+                gambler.deflections += 1
+                emit(
+                    "defense.steal_attempt",
+                    actor_id=gambler.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="deflection",
+                    zone=state.zone,
+                )
+                scramblers = list(offense) + list(defense)
+                scramble_weights = [
+                    max(
+                        1.0,
+                        s.current_attributes.speed
+                        + s.current_attributes.stamina * 50,
+                    )
+                    for s in scramblers
+                ]
+                winner = rng.choices(scramblers, weights=scramble_weights, k=1)[0]
+                winner.loose_balls += 1
+                won_by_defense = winner in defense
+                emit(
+                    "hustle.loose_ball",
+                    actor_id=winner.hooper.id,
+                    outcome="defense" if won_by_defense else "offense",
+                    zone=state.zone,
+                )
+                if won_by_defense:
+                    handler.turnovers += 1
+                    winner.steals += 1
+                    return _finish_turnover(
+                        "turnover", defender_id=winner.hooper.id, live_ball=True,
+                    )
+                _move_ball(winner, "perimeter")
+            else:
+                # Blow-by — the gamble fails and the offense has an advantage.
+                emit(
+                    "defense.steal_attempt",
+                    actor_id=gambler.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="blow_by",
+                    zone=state.zone,
+                )
+                state.open_shot = True
+            state.last_event = node.name
+            if "sim.event.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.event.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=state.ball_handler,
+                )
+            next_name = _pick_next(node, True)
+            continue
+
+        if node.category == "defense":
+            # defense.switch / defense.help_rotation — change the effective
+            # defender used for shot resolution.
+            handler = state.ball_handler
+            if node.name == "defense_switch":
+                candidates = [d for d in defense if d is not on_ball_defender]
+                new_def: HooperState | None = None
+                if state.screener is not None:
+                    new_def = get_primary_defender(
+                        state.screener, matchups, defense,
+                    )
+                if (new_def is None or new_def is on_ball_defender) and candidates:
+                    new_def = rng.choice(candidates)
+                if new_def is not None:
+                    defender_override = new_def
+                    emit(
+                        "defense.switch",
+                        actor_id=new_def.hooper.id,
+                        target_id=handler.hooper.id,
+                        outcome="success",
+                        zone=state.zone,
+                    )
+            elif node.name == "help_rotation":
+                helpers = [d for d in defense if d is not on_ball_defender]
+                if helpers:
+                    helper = max(
+                        helpers, key=lambda d: d.current_attributes.defense,
+                    )
+                    defender_override = helper
+                    # The helper's man is now open — kickout synergy.
+                    state.kickout_open = True
+                    emit(
+                        "defense.help_rotation",
+                        actor_id=helper.hooper.id,
+                        target_id=handler.hooper.id,
+                        outcome="success",
+                        zone=state.zone,
+                    )
+            state.last_event = node.name
+            if "sim.event.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.event.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=state.ball_handler,
+                )
+            next_name = _pick_next(node, True)
+            continue
+
+        if node.category == "screen":
+            # Screens: screener = best-strength teammate (defense attribute
+            # as the strength proxy). A later made basket credits their
+            # screen_assists stat.
+            handler = state.ball_handler
+            teammates = [a for a in offense if a is not handler]
+            if teammates:
+                screener = max(
+                    teammates, key=lambda t: t.current_attributes.defense,
+                )
+                state.screener = screener
+                state.screens_set += 1
+                if node.name == "screen_on_ball":
+                    s_attrs = screener.current_attributes
+                    branch = rng.choices(
+                        ["roll", "pop", "slip"],
+                        weights=[
+                            max(1, s_attrs.defense),
+                            max(1, s_attrs.scoring),
+                            max(1, s_attrs.speed // 2),
+                        ],
+                        k=1,
+                    )[0]
+                    emit(
+                        "screen.on_ball",
+                        actor_id=screener.hooper.id,
+                        target_id=handler.hooper.id,
+                        outcome="success",
+                        detail=branch,
+                        zone=state.zone,
+                        tags=list(node.emits_tags),
+                    )
+                    if branch == "roll":
+                        state.next_shot_bonus += SCREEN_ROLL_SHOT_BONUS
+                    elif branch == "pop":
+                        state.next_shot_bonus += SCREEN_POP_SHOT_BONUS
+                    else:
+                        # Slip: the screener cuts early — handler hits them
+                        # rolling to the rim for an open look.
+                        _move_ball(
+                            screener, "paint", passer=handler, open_shot=True,
+                        )
+                else:  # screen_off_ball
+                    others = [t for t in teammates if t is not screener]
+                    pending_cutter = others[0] if others else screener
+                    emit(
+                        "screen.off_ball",
+                        actor_id=screener.hooper.id,
+                        target_id=pending_cutter.hooper.id,
+                        outcome="success",
+                        zone=state.zone,
+                        tags=list(node.emits_tags),
+                    )
+                if "sim.screen.post" in active_hooks:
+                    _fire_category_hook(
+                        "sim.screen.post", game_state, rules, rng,
+                        _effects, meta_store, hooper=screener,
+                    )
+            state.last_event = node.name
+            if "sim.event.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.event.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=state.ball_handler,
+                )
+            next_name = _pick_next(node, True)
+            continue
+
+        if node.category == "cut":
+            # Cuts: the designated cutter (from the last off-ball screen,
+            # else the quickest teammate) tries to get open. Successful
+            # curls/backdoors are a pass to the cutter.
+            handler = state.ball_handler
+            teammates = [a for a in offense if a is not handler]
+            cutter: HooperState | None = None
+            if (
+                pending_cutter is not None
+                and pending_cutter is not handler
+                and not pending_cutter.ejected
+            ):
+                cutter = pending_cutter
+            elif teammates:
+                cutter = max(
+                    teammates,
+                    key=lambda t: t.current_attributes.speed
+                    + t.current_attributes.iq,
+                )
+            pending_cutter = None
+            cut_success = True
+            if node.name in ("cut_curl", "cut_backdoor") and cutter is not None:
+                cut_def = get_primary_defender(cutter, matchups, defense)
+                c_attrs = cutter.current_attributes
+                quickness = c_attrs.speed * 0.6 + c_attrs.iq * 0.4
+                p_cut = logistic(
+                    (quickness - cut_def.current_attributes.defense) + 50.0,
+                    node.base_midpoint,
+                    node.base_steepness,
+                )
+                cut_success = rng.random() < p_cut
+                emit(
+                    _event_type_for(node),
+                    actor_id=cutter.hooper.id,
+                    target_id=cut_def.hooper.id,
+                    outcome="success" if cut_success else "failure",
+                    zone=state.zone,
+                    tags=list(node.emits_tags),
+                )
+                if cut_success:
+                    if node.name == "cut_backdoor":
+                        # High-quality look at the rim.
+                        _move_ball(cutter, "paint", passer=handler, open_shot=True)
+                    else:
+                        _move_ball(cutter, "mid", passer=handler)
+                        state.next_shot_bonus += CURL_SHOT_BONUS
+                    if "sim.pass.post" in active_hooks:
+                        _fire_category_hook(
+                            "sim.pass.post", game_state, rules, rng,
+                            _effects, meta_store, hooper=state.ball_handler,
+                        )
+            else:
+                actor = cutter or handler
+                emit(
+                    _event_type_for(node),
+                    actor_id=actor.hooper.id,
+                    outcome="success",
+                    zone=state.zone,
+                    tags=list(node.emits_tags),
+                )
+                if node.name == "spot_up":
+                    state.next_shot_bonus += SPOT_UP_SHOT_BONUS
+            state.last_event = node.name
+            if "sim.event.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.event.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=state.ball_handler,
+                )
+            next_name = _pick_next(node, cut_success)
+            continue
 
         success = _resolve_node(node, state.ball_handler, on_ball_defender, rng)
         emit(
@@ -839,31 +1301,65 @@ def resolve_possession_micro(
         state.last_event = node.name
 
         # Category-specific state updates.
-        if node.category == "pass" and success:
-            passer = state.ball_handler
-            teammates = [a for a in offense if a is not passer]
-            if teammates:
-                weights = [
-                    max(1, t.current_attributes.scoring + t.current_attributes.iq)
-                    for t in teammates
-                ]
-                receiver = rng.choices(teammates, weights=weights, k=1)[0]
-                passer.passes_made += 1
-                state.pass_count += 1
-                state.potential_assister = passer
-                state.ball_handler = receiver
-                state.zone = "perimeter"
-                state.open_shot = False
-                putback_eligible = False
-                on_ball_defender = _assign_roles()
+        if node.category == "admin":
+            # Half-court set-up — real trigger for setup moves (Phase 4).
+            _queue_moves(state.ball_handler, "initiate")
+        elif node.category == "pass":
+            _queue_moves(state.ball_handler, "pass")
+            if success:
+                passer = state.ball_handler
+                teammates = [a for a in offense if a is not passer]
+                if teammates:
+                    if node.name == "pass_entry":
+                        # Entry passes feed the post — weight by scoring.
+                        weights = [
+                            max(1, t.current_attributes.scoring)
+                            for t in teammates
+                        ]
+                    else:
+                        weights = [
+                            max(
+                                1,
+                                t.current_attributes.scoring
+                                + t.current_attributes.iq,
+                            )
+                            for t in teammates
+                        ]
+                    receiver = rng.choices(teammates, weights=weights, k=1)[0]
+                    # Zone transitions: entry perimeter→paint, kickout
+                    # paint→perimeter, everything else stays outside.
+                    new_zone = "paint" if node.name == "pass_entry" else "perimeter"
+                    open_shot = False
+                    if node.name == "pass_kickout" and state.kickout_open:
+                        # Help rotated — the kickout finds the open man.
+                        open_shot = True
+                        state.kickout_open = False
+                    _move_ball(receiver, new_zone, passer=passer, open_shot=open_shot)
+                    if node.name == "pass_skip":
+                        state.next_shot_bonus += SKIP_PASS_SHOT_BONUS
+                    elif node.name == "pass_extra":
+                        state.next_shot_bonus += EXTRA_PASS_SHOT_BONUS
+                    elif node.name == "pass_kickout" and not open_shot:
+                        state.next_shot_bonus += KICKOUT_SHOT_BONUS
+                if "sim.pass.post" in active_hooks:
+                    _fire_category_hook(
+                        "sim.pass.post", game_state, rules, rng,
+                        _effects, meta_store, hooper=state.ball_handler,
+                    )
         elif node.category == "dribble":
             state.dribble_count += 1
             putback_eligible = False
+            if node.name == "iso":
+                _queue_moves(state.ball_handler, "iso", defender=on_ball_defender)
+            else:
+                _queue_moves(state.ball_handler, "drive")
             if "drive" in node.emits_tags or node.name == "drive":
                 state.ball_handler.drives += 1
                 if success:
                     state.zone = "paint"
                     state.open_shot = True
+            elif node.name == "crossover" and success:
+                state.open_shot = True
 
         if "sim.event.post" in active_hooks:
             _fire_category_hook(
@@ -918,6 +1414,12 @@ def resolve_possession_micro(
         state.ball_handler.current_stamina = max(
             0.15, state.ball_handler.current_stamina - ctx.extra_stamina_drain
         )
+
+    # Tier-2 governance scalars: final pass count, and whether this
+    # possession's ending (defensive rebound) opens a transition for the
+    # other team.
+    game_state.pass_count_last_possession = state.pass_count
+    game_state.transition_possession = ended_with_drb
 
     game_state.last_action = shot_type
     if made:

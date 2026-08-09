@@ -89,6 +89,8 @@ class HooperBoxScore(BaseModel):
     deflections: int = 0
     contested_shots: int = 0
     drives: int = 0
+    # --- Tier-2 hustle stats (Phase 4, additive) ---
+    loose_balls: int = 0
 
     @property
     def fg_pct(self) -> float:

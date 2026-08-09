@@ -1393,6 +1393,7 @@ async def _phase_simulate_and_govern(
                 deflections=bs.deflections,
                 contested_shots=bs.contested_shots,
                 drives=bs.drives,
+                loose_balls=bs.loose_balls,
             )
 
         game_results.append(result)

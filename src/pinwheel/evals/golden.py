@@ -275,6 +275,104 @@ GOLDEN_CASES: list[GoldenCase] = [
 ]
 
 
+# --- Tier-2 interpreter golden cases (Phase 4) -----------------------------
+#
+# Same pattern as the report cases above: fixed inputs, expected structural
+# patterns, a runner returning GoldenResult. These pin the interpreter's
+# grounding in the micro event-chain vocabulary (screen nodes, pass-count
+# and transition conditions) — run against the mock interpreter in tests
+# and reusable against live interpretations.
+
+
+@dataclass
+class InterpreterGoldenCase:
+    """A golden case for proposal interpretation (not report generation)."""
+
+    id: str
+    proposal_text: str
+    expected_effect_type: str
+    expected_patterns: list[str] = field(default_factory=list)
+    """Regex patterns that must appear in the JSON-serialized effects."""
+    min_confidence: float = 0.5
+
+
+TIER2_INTERPRETER_CASES: list[InterpreterGoldenCase] = [
+    InterpreterGoldenCase(
+        id="tier2-screens-illegal",
+        proposal_text="Picks are illegal. No more screens in this league.",
+        expected_effect_type="modify_game_definition",
+        expected_patterns=["screen_on_ball", "screen_off_ball", "remove_actions"],
+    ),
+    InterpreterGoldenCase(
+        id="tier2-fourth-pass-bonus",
+        proposal_text="Every fourth pass in a possession is worth a bonus point.",
+        expected_effect_type="hook_callback",
+        expected_patterns=[
+            "sim.shot.pre",
+            "pass_count_last_possession_gte",
+            "modify_shot_value",
+        ],
+    ),
+    InterpreterGoldenCase(
+        id="tier2-transition-bonus",
+        proposal_text="Fast-break baskets are worth an extra point.",
+        expected_effect_type="hook_callback",
+        expected_patterns=[
+            "sim.shot.pre",
+            "transition_possession",
+            "modify_shot_value",
+        ],
+    ),
+]
+
+
+def run_interpreter_golden_case(
+    case: InterpreterGoldenCase,
+    interpretation: object,
+) -> GoldenResult:
+    """Run one interpreter golden case against a ProposalInterpretation.
+
+    ``interpretation`` is any object with ``effects`` (each having an
+    ``effect_type`` and dumpable via ``model_dump``) and ``confidence`` —
+    the ProposalInterpretation model satisfies this.
+    """
+    import json
+
+    failures: list[str] = []
+
+    effects = getattr(interpretation, "effects", []) or []
+    if not any(
+        getattr(e, "effect_type", "") == case.expected_effect_type for e in effects
+    ):
+        failures.append(
+            f"No effect of type '{case.expected_effect_type}' "
+            f"(got: {[getattr(e, 'effect_type', '?') for e in effects]})"
+        )
+
+    serialized = json.dumps(
+        [
+            e.model_dump() if hasattr(e, "model_dump") else str(e)
+            for e in effects
+        ],
+        default=str,
+    )
+    for pattern in case.expected_patterns:
+        if not re.search(re.escape(pattern), serialized):
+            failures.append(f"Missing expected pattern: '{pattern}'")
+
+    confidence = getattr(interpretation, "confidence", 0.0)
+    if confidence < case.min_confidence:
+        failures.append(
+            f"Confidence too low: {confidence} < {case.min_confidence}"
+        )
+
+    return GoldenResult(
+        case_id=case.id,
+        passed=len(failures) == 0,
+        failures=failures,
+    )
+
+
 def run_golden_case(case: GoldenCase, report_content: str) -> GoldenResult:
     """Run a single golden case against generated report content."""
     failures = []

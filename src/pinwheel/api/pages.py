@@ -16,7 +16,12 @@ from pinwheel.api.charts import (
 from pinwheel.api.deps import RepoDep
 from pinwheel.auth.deps import OptionalUser, SessionUser
 from pinwheel.config import APP_VERSION, PROJECT_ROOT, Settings
-from pinwheel.core.narrate import extract_event_context, narrate_play, narrate_winner
+from pinwheel.core.narrate import (
+    extract_event_context,
+    narrate_event,
+    narrate_play,
+    narrate_winner,
+)
 from pinwheel.core.narrative_standings import (
     compute_magic_numbers,
     compute_most_improved,
@@ -1937,6 +1942,14 @@ async def game_page(
             and_one=bool(ev_ctx["and_one"]),
             blocked=bool(ev_ctx["blocked"]),
         )
+        # Expandable event chain (Phase 4): one narrated line per micro
+        # event, rendered behind a <details> expander on the game page.
+        raw_events = play.get("events") or []
+        poss_seed = play.get("possession_number", 0)
+        enriched["chain"] = [
+            narrate_event(ev, hooper_names, seed=poss_seed * 100 + i)
+            for i, ev in enumerate(raw_events[:32])
+        ]
         play_by_play.append(enriched)
 
     # Report for this round + game phase

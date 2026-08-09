@@ -140,11 +140,29 @@
       {% if play_by_play %}
       <ul class="pbp-list">
         {% for play in play_by_play %}
-        <li class="pbp-item" {% if play.handler_id %}data-handler="{{ play.handler_id }}"{% endif %}>
+        <li class="pbp-item">
+          {% if play.chain and play.chain|length > 1 %}
+          <details class="pbp-chain">
+            <summary>
+              <span class="pbp-quarter">Q{{ play.quarter }}{% if play.game_clock %} {{ play.game_clock }}{% endif %}</span>
+              <span class="pbp-action">{{ play.narration }}</span>
+              {% if play.points_scored > 0 %}
+              <span class="pbp-points">+{{ play.points_scored }}</span>
+              {% endif %}
+              <span class="pbp-chain-hint text-xs text-muted">{{ play.chain|length }} events</span>
+            </summary>
+            <ul class="pbp-chain-list">
+              {% for line in play.chain %}
+              <li class="pbp-chain-event text-xs">{{ line }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% else %}
           <span class="pbp-quarter">Q{{ play.quarter }}{% if play.game_clock %} {{ play.game_clock }}{% endif %}</span>
-          <span class="pbp-action">{{ play.narration }}</span>
+          <span class="pbp-action"{% if play.handler_id %} data-handler="{{ play.handler_id }}"{% endif %}>{{ play.narration }}</span>
           {% if play.points_scored > 0 %}
           <span class="pbp-points">+{{ play.points_scored }}</span>
+          {% endif %}
           {% endif %}
         </li>
         {% endfor %}
@@ -176,8 +194,16 @@
   <a href="/arena" class="nav-link">&larr; Back to Arena</a>
 </div>
 
+<style>
+.pbp-chain summary { cursor: pointer; list-style: none; }
+.pbp-chain summary::-webkit-details-marker { display: none; }
+.pbp-chain-hint { margin-left: 0.4rem; opacity: 0.7; }
+.pbp-chain[open] .pbp-chain-hint { opacity: 1; }
+.pbp-chain-list { margin: 0.35rem 0 0.25rem 1.25rem; padding: 0; list-style: none; border-left: 2px solid var(--bg-secondary, #333); }
+.pbp-chain-event { padding: 0.15rem 0 0.15rem 0.6rem; color: var(--text-secondary, inherit); }
+</style>
 <script>
-document.querySelectorAll('.pbp-item[data-handler]').forEach(function(el) {
+document.querySelectorAll('.pbp-action[data-handler]').forEach(function(el) {
   el.style.cursor = 'pointer';
   el.addEventListener('click', function() {
     window.location.href = '/hoopers/' + el.dataset.handler;

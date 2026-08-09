@@ -14,6 +14,7 @@ import logging
 
 import anthropic
 
+from pinwheel.core.drama import annotate_drama
 from pinwheel.core.narrative import NarrativeContext, format_narrative_for_prompt
 from pinwheel.models.game import GameResult
 from pinwheel.models.rules import RuleSet
@@ -317,6 +318,57 @@ def _stat_comparison_with_average(
     return ""
 
 
+# Maximum drama-selected possession chains shown to the commentary model,
+# and maximum events rendered per chain — the token-cost guard rails.
+_MAX_HIGHLIGHT_CHAINS = 3
+_MAX_CHAIN_EVENTS = 14
+
+
+def _drama_selected_chains(
+    game_result: GameResult,
+    hooper_names: dict[str, str],
+) -> list[str]:
+    """Render up to ``_MAX_HIGHLIGHT_CHAINS`` possession event chains.
+
+    Selection reuses the drama annotator (peak first, then high). Each
+    chain renders as one compact line of ``event(actor)`` steps — enough
+    for the model to narrate the anatomy of a big possession without ever
+    seeing the full event stream.
+    """
+    annotations = annotate_drama(game_result)
+    ranked = [
+        a for a in annotations if a.level in ("peak", "high")
+    ]
+    ranked.sort(
+        key=lambda a: (a.level != "peak", -a.delay_multiplier),
+    )
+    lines: list[str] = []
+    for ann in ranked[:_MAX_HIGHLIGHT_CHAINS]:
+        if ann.possession_index >= len(game_result.possession_log):
+            continue
+        poss = game_result.possession_log[ann.possession_index]
+        if not poss.events:
+            continue
+        steps: list[str] = []
+        for e in poss.events[:_MAX_CHAIN_EVENTS]:
+            actor = hooper_names.get(e.actor_id, "")
+            step = e.event_type
+            if actor:
+                step += f"({actor}"
+                if e.outcome in ("made", "missed", "blocked", "steal"):
+                    step += f" {e.outcome}"
+                step += ")"
+            steps.append(step)
+        if len(poss.events) > _MAX_CHAIN_EVENTS:
+            steps.append("...")
+        tag_str = f" [{', '.join(ann.tags)}]" if ann.tags else ""
+        lines.append(
+            f"  Q{poss.quarter} #{poss.possession_number}{tag_str}: "
+            + " -> ".join(steps)
+        )
+    return lines
+
+
 def _build_game_context(
     game_result: GameResult,
     home_team: Team,
@@ -426,6 +478,15 @@ def _build_game_context(
                 f"  Q{p.quarter} #{p.possession_number}: {handler} {p.action} -> {p.result}"
                 f" ({p.points_scored}pts, score {p.home_score}-{p.away_score}){move_tag}"
             )
+
+    # Highlight chains (Phase 4): the micro engine records every possession
+    # as an event chain. Commentary sees ONLY the summary rows above plus a
+    # handful of drama-selected chains — never the raw full event stream —
+    # so token cost stays bounded no matter how granular the sim gets.
+    highlight_lines = _drama_selected_chains(game_result, hooper_names)
+    if highlight_lines:
+        lines.append("\nHighlight possessions (event chains, drama-selected):")
+        lines.extend(highlight_lines)
 
     # The game-deciding play — the last score is the finish line
     last_score = next(

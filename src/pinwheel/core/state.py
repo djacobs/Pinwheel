@@ -95,6 +95,15 @@ class PossessionState:
     last_event: str = ""
     open_shot: bool = False
     second_chance: bool = False
+    next_shot_bonus: float = 0.0
+    """Additive shot-probability bonus earned by chain events (skip passes,
+    extra passes, screens) — consumed by the next shot attempt (Phase 4)."""
+    screener: HooperState | None = None
+    """Pending screen-assist credit: the last hooper to set a screen this
+    possession. A made basket credits their ``screen_assists`` stat."""
+    kickout_open: bool = False
+    """Set by a defensive help rotation — the helper's man is open, so the
+    next successful kickout pass produces an open look."""
     roles: dict[str, str] = field(default_factory=dict)
     """hooper_id -> handler | screener | spacer"""
     def_roles: dict[str, str] = field(default_factory=dict)
@@ -134,6 +143,8 @@ class HooperState:
     deflections: int = 0
     contested_shots: int = 0
     drives: int = 0
+    # --- Tier-2 hustle stats (Phase 4, additive) ---
+    loose_balls: int = 0
 
     # Cache for current_attributes — invalidated when current_stamina or any
     # stamina-scaled base attribute changes.  In normal gameplay base attributes
@@ -228,6 +239,19 @@ class GameState:
     # condition evaluator via reflection.
     second_chance: bool = False
     last_rebound_hooper_id: str = ""
+
+    # Tier-2 governance scalars (Phase 4) — auto-exposed to the effect
+    # condition evaluator via reflection, like every scalar field here.
+    pass_count_last_possession: int = 0
+    """Pass count of the most recent possession. The micro engine updates
+    this live as passes happen, so conditions evaluated mid-possession
+    (sim.pass.post, sim.shot.pre) see the in-progress count; after the
+    possession ends it holds that possession's final count."""
+    transition_possession: bool = False
+    """True while the current possession is a transition opportunity —
+    opened by a live-ball turnover or defensive rebound on the previous
+    possession. Set by the micro engine; grants a slight time-cost
+    reduction and a small at-rim bias."""
 
     @property
     def home_active(self) -> list[HooperState]:

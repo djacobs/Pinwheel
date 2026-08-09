@@ -30,7 +30,7 @@ from pinwheel.core.drama import (
     normalize_delays,
 )
 from pinwheel.core.event_bus import EventBus
-from pinwheel.core.narrate import extract_event_context, narrate_play
+from pinwheel.core.narrate import extract_event_context, narrate_event, narrate_play
 from pinwheel.models.game import GameResult
 
 logger = logging.getLogger(__name__)
@@ -474,6 +474,22 @@ async def _present_game(
                 blocked=bool(ev_ctx["blocked"]),
             )
 
+            # Expose the possession's event chain (Phase 4): the default
+            # rendering stays one line per possession — the chain is the
+            # richer story available behind it.
+            chain = [
+                {
+                    "type": ev.event_type,
+                    "outcome": ev.outcome,
+                    "text": narrate_event(
+                        ev,
+                        names,
+                        seed=possession.possession_number * 100 + ev.seq,
+                    ),
+                }
+                for ev in (possession.events or [])[:32]
+            ]
+
             # During Elam ending, show target score instead of empty clock
             elam_target = game_result.elam_target_score
             game_clock = possession.game_clock
@@ -496,6 +512,7 @@ async def _present_game(
                 "game_clock": game_clock,
                 "elam_target": elam_target,
                 "narration": narration,
+                "events": chain,
                 "drama_level": ann.level,
                 "drama_tags": ann.tags,
             }

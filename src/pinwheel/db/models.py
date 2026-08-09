@@ -161,6 +161,8 @@ class BoxScoreRow(Base):
     deflections: Mapped[int] = mapped_column(Integer, default=0)
     contested_shots: Mapped[int] = mapped_column(Integer, default=0)
     drives: Mapped[int] = mapped_column(Integer, default=0)
+    # --- Additive column (auto-migrated): Phase 4 Tier-2 hustle stat ---
+    loose_balls: Mapped[int] = mapped_column(Integer, default=0)
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 

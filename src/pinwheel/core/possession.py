@@ -125,6 +125,10 @@ CATEGORY_HOOKS = frozenset(
         "sim.turnover.post",
         "sim.event.pre",
         "sim.event.post",
+        # Tier-2 category hooks (Phase 4) — fired ONLY by the micro engine
+        # after pass and screen events resolve; macro-inert.
+        "sim.pass.post",
+        "sim.screen.post",
     }
 )
 

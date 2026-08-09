@@ -132,9 +132,13 @@ def check_trigger(
         # the boost applies only when the follow-up shot is also a three.
         return last_possession_three and action == "three_point"
     if trigger == "half_court_setup":
-        return action in ("mid_range", "three_point", "pass")
+        # "initiate" is the micro engine's half-court set-up event (Phase 4);
+        # the macro path never passes it, so macro behavior is unchanged.
+        return action in ("mid_range", "three_point", "pass", "initiate")
     if trigger == "opponent_iso":
-        return action in ("drive", "at_rim", "mid_range")
+        # "iso" is the micro engine's isolation event (Phase 4) — the real
+        # trigger for defensive moves like Lockdown Stance.
+        return action in ("iso", "drive", "at_rim", "mid_range")
     if trigger == "drive_action":
         return action in ("drive", "at_rim")
     if trigger == "stamina_below_40":

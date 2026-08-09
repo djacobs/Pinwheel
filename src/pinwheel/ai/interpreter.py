@@ -475,8 +475,17 @@ harder shot, e.g. 40 easy, 50 normal, 75 very hard), base_steepness (0.05), \
 primary_attribute ("scoring"), points_on_success (int 0-25), \
 free_throw_attempts_on_foul (int), narration_made / narration_missed (lists of short \
 templates using {{player}}, e.g. "{{player}} drains the half-court heave!")
-   - remove_actions: list of action names to remove (standard: at_rim, mid_range, \
-three_point, free_throw)
+   - remove_actions: list of action names to remove. Standard shots: at_rim, \
+mid_range, three_point, free_throw. The possession CHAIN is also made of \
+removable/modifiable named actions (the micro event engine): initiate, \
+pass_swing, pass_entry, pass_skip, pass_kickout, pass_extra, drive, crossover, \
+iso, screen_on_ball, screen_off_ball, cut_curl, cut_backdoor, spot_up, relocate, \
+defense_switch, help_rotation, steal_attempt, second_chance, turnover_bad_pass, \
+turnover_lost_ball, violation_deadball. Examples: "picks/screens are illegal" → \
+remove_actions: ["screen_on_ball", "screen_off_ball"]; "no isolation ball" → \
+remove_actions: ["iso"]. Chain nodes also carry a "transitions" dict \
+(next-event weights) modifiable via modify_actions — e.g. more ball movement: \
+{{"initiate": {{"transitions": {{"pass_swing": 60, "shot": 10}}}}}}
    - modify_actions: {{"action_name": {{"field": value}}}} — e.g. \
 {{"three_point": {{"points_on_success": 4}}}}
    - modify_structure: {{"quarters": 6, "quarter_clock_seconds": 300, \
@@ -500,6 +509,10 @@ against playability invariants before they can take effect.
 
 Simulation: sim.game.pre, sim.quarter.pre, sim.possession.pre, sim.quarter.end, \
 sim.halftime, sim.elam.start, sim.game.end
+In-possession (micro event engine — fire as the chain unfolds): sim.shot.pre \
+(shape the imminent shot: modify_probability / modify_shot_value), sim.shot.post, \
+sim.pass.post (after every completed pass), sim.screen.post (after every screen), \
+sim.rebound.pre, sim.rebound.post, sim.foul.post, sim.turnover.post
 Round: round.pre, round.game.pre, round.game.post, round.post, round.complete
 Governance: gov.pre, gov.post, gov.proposal.submitted, gov.vote.cast, gov.tally.pre, \
 gov.tally.post, gov.rule.enacted
@@ -543,6 +556,15 @@ Computed aliases (always available):
   {{"leading": true}}           offense score > defense score
   {{"score_diff_gte": -5}}      offense minus defense score >= threshold
   {{"score_diff_lte": 5}}
+
+Micro-engine chain scalars (Phase 4 — live during the possession):
+  {{"pass_count_last_possession_gte": 4}}   passes thrown this possession \
+(updates live — at sim.shot.pre it is the current possession's pass count, \
+so "every fourth pass earns a bonus" → hook sim.shot.pre, condition \
+{{"pass_count_last_possession_gte": 4}}, action modify_shot_value)
+  {{"transition_possession": true}}         possession opened in transition \
+(after a live-ball turnover or defensive rebound — "fast-break baskets are \
+worth an extra point" → hook sim.shot.pre with this condition + modify_shot_value)
 
 Ball handler attributes (prefix hooper_):
   {{"hooper_scoring_gte": 70}}
@@ -982,6 +1004,111 @@ def _detect_game_def_patch_mock(raw_text: str) -> EffectSpec | None:
     return None
 
 
+_ORDINAL_WORDS = {
+    "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+    "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+    "6th": 6, "7th": 7, "8th": 8, "9th": 9, "10th": 10,
+}
+
+
+def _detect_tier2_mock(raw_text: str) -> ProposalInterpretation | None:
+    """Detect Tier-2 (micro event-chain) proposals in the mock interpreter.
+
+    Patterns: outlawing screens/picks (chain-node removal), pass-count
+    bonuses (pass_count_last_possession condition), and transition scoring
+    (transition_possession condition).
+    """
+    import re as _re
+
+    text = raw_text.lower().strip()
+
+    # "Picks/screens are illegal" → remove the screen chain nodes.
+    if _re.search(r"\b(?:picks?|screens?|screening)\b", text) and _re.search(
+        r"\b(?:illegal|banned?|ban|outlaw(?:ed)?|not allowed|no more|prohibit)",
+        text,
+    ):
+        return ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="modify_game_definition",
+                    game_def_patch={
+                        "remove_actions": ["screen_on_ball", "screen_off_ball"],
+                        "description": "Screens removed from the possession chain",
+                    },
+                    description="Makes picks illegal — removes both screen actions",
+                )
+            ],
+            impact_analysis=(
+                "Removes on-ball and off-ball screens from the possession "
+                "chain — no screen assists, no pick-and-roll offense."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    # "Every fourth pass is worth a bonus" → pass-count condition at the shot.
+    m = _re.search(
+        r"(?:every|each)\s+(\d+(?:st|nd|rd|th)?|\w+)\s+pass", text,
+    )
+    if m and _re.search(r"\b(?:bonus|worth|extra|point)", text):
+        token = m.group(1)
+        digits = _re.match(r"(\d+)", token)
+        n = int(digits.group(1)) if digits else _ORDINAL_WORDS.get(token, 4)
+        return ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="hook_callback",
+                    hook_point="sim.shot.pre",
+                    condition=f"offense has thrown at least {n} passes this possession",
+                    action_code={
+                        "type": "modify_shot_value",
+                        "modifier": 1,
+                        "condition_check": {
+                            "pass_count_last_possession_gte": n,
+                        },
+                    },
+                    description=f"Shots after {n}+ passes are worth a bonus point",
+                )
+            ],
+            impact_analysis=(
+                f"Rewards ball movement: any made shot after {n} or more "
+                "passes in the possession scores an extra point."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    # "Fast-break / transition baskets are worth extra" → transition condition.
+    if _re.search(r"\b(?:fast[ -]?break|transition)\b", text) and _re.search(
+        r"\b(?:bonus|worth|extra|point|double)", text,
+    ):
+        return ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="hook_callback",
+                    hook_point="sim.shot.pre",
+                    condition="possession opened in transition",
+                    action_code={
+                        "type": "modify_shot_value",
+                        "modifier": 1,
+                        "condition_check": {"transition_possession": True},
+                    },
+                    description="Transition baskets are worth an extra point",
+                )
+            ],
+            impact_analysis=(
+                "Rewards pace: baskets scored on transition possessions "
+                "(after live-ball turnovers or defensive rebounds) are "
+                "worth an extra point."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    return None
+
+
 def interpret_proposal_v2_mock(
     raw_text: str,
     ruleset: RuleSet,
@@ -993,6 +1120,13 @@ def interpret_proposal_v2_mock(
     and narrative effects. Supports compound proposals with multiple
     parameter changes separated by "and" or commas.
     """
+    # Tier-2 micro-engine proposals (screens, pass counts, transition) —
+    # checked first: their phrasing collides with the generic conditional
+    # and structural patterns below.
+    tier2 = _detect_tier2_mock(raw_text)
+    if tier2 is not None:
+        return tier2
+
     # Structural proposals — game definition patches. Checked FIRST:
     # compound splitting would mangle "6 quarters and no Elam", and the
     # legacy parameter path would mis-map "quarters"/"shot" phrasing.

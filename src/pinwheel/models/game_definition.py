@@ -335,17 +335,23 @@ class GameDefinition(BaseModel):
     block conversion, assist-before-shot, and-ones, box-outs) are active —
     these consume additional RNG draws. When False, the engine reproduces the
     exact pre-enrichment RNG stream: tests asserting exact seeded lines can
-    set this to pin legacy outcomes.
+    set this to pin legacy outcomes. Because that promise is only satisfiable
+    by the macro path, ``event_detail=False`` forces the legacy macro engine
+    even when ``possession_engine`` is ``"micro"``.
     """
 
-    possession_engine: Literal["macro", "micro"] = "macro"
+    possession_engine: Literal["macro", "micro"] = "micro"
     """Which possession engine resolves turns.
 
-    ``"macro"`` (default) is the existing single-shot possession model —
-    behavior is bit-identical for every existing caller. ``"micro"`` runs
-    the event-chain engine in ``core/possession_micro.py``: possessions
-    become chains of pass/dribble/shot/turnover events driven by
-    ActionDefinition transitions.
+    ``"micro"`` (default since Phase 4) runs the event-chain engine in
+    ``core/possession_micro.py``: possessions become chains of pass/
+    dribble/screen/cut/defense/shot/turnover events driven by
+    ActionDefinition transitions — the whole event graph is governable.
+    ``"macro"`` is the original single-shot possession model, still fully
+    functional and reachable via a game-definition patch
+    (``modify_structure: {"possession_engine": "macro"}``) or explicit
+    construction. Note: ``event_detail=False`` always pins the legacy
+    macro stream regardless of this flag (see ``event_detail``).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -703,19 +709,24 @@ def basketball_actions(rules: RuleSet) -> list[ActionDefinition]:
 
 
 def basketball_micro_chain_nodes() -> list[ActionDefinition]:
-    """Build the micro-engine chain nodes (Phase 3).
+    """Build the micro-engine chain nodes (Phase 3 + Tier-2 in Phase 4).
 
     These are the non-shot nodes of the possession event chain: an
-    initiate node, pass/dribble nodes, terminal turnover nodes, and a
-    dead-ball violation node. Shot classes are NOT duplicated here — the
-    ``"shot"`` pseudo-target in ``transitions`` delegates to the standard
-    shot-selection path over ``category == "shot"`` actions, so governance
-    ``action_biases`` and custom shot actions keep working unchanged.
+    initiate node, pass/dribble/screen/cut/defense nodes, terminal
+    turnover nodes, and a dead-ball violation node. Shot classes are NOT
+    duplicated here — the ``"shot"`` pseudo-target in ``transitions``
+    delegates to the standard shot-selection path over
+    ``category == "shot"`` actions, so governance ``action_biases`` and
+    custom shot actions keep working unchanged.
+
+    Everything here is governable data: "picks are illegal" is
+    ``remove_actions: ["screen_on_ball", "screen_off_ball"]``; reshaping
+    ball movement is a ``modify_actions`` patch on ``transitions``.
 
     Weights are calibrated so aggregate micro distributions (PPG, FG% by
-    shot class, turnover rate, ORB rate, foul rate) match the macro engine
-    (see tests/test_possession_micro.py). Phase 4 adds screens, cuts, and
-    defense nodes purely as data.
+    shot class, turnover rate, ORB rate, foul rate) stay within the
+    regression bands against the macro engine
+    (see tests/test_possession_micro.py).
     """
     return [
         ActionDefinition(
@@ -727,17 +738,22 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
             resolution_type="automatic",
             time_cost_seconds=3.4,
             transitions={
-                "pass_swing": 40.0,
-                "drive": 16.0,
-                "iso": 6.0,
-                "shot": 22.0,
+                "pass_swing": 28.0,
+                "pass_entry": 5.0,
+                "drive": 14.0,
+                "iso": 5.0,
+                "crossover": 5.0,
+                "screen_on_ball": 8.0,
+                "screen_off_ball": 5.0,
+                "steal_attempt": 1.2,
+                "shot": 21.0,
                 "violation_deadball": 1.2,
             },
         ),
         ActionDefinition(
             name="pass_swing",
             display_name="Swing Pass",
-            description="Move the ball to a teammate.",
+            description="Move the ball to a teammate on the perimeter.",
             category="pass",
             selection_weight=0.0,
             resolution_type="contested_check",
@@ -746,15 +762,113 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
             base_steepness=0.05,
             time_cost_seconds=3.0,
             success_transitions={
-                "pass_swing": 30.0,
-                "drive": 12.0,
-                "iso": 4.0,
-                "shot": 40.0,
+                "pass_swing": 17.0,
+                "pass_skip": 5.0,
+                "pass_extra": 5.0,
+                "drive": 10.0,
+                "iso": 3.0,
+                "crossover": 4.0,
+                "screen_on_ball": 6.0,
+                "screen_off_ball": 4.0,
+                "steal_attempt": 0.9,
+                "shot": 39.0,
             },
             failure_transitions={
                 "turnover_bad_pass": 30.0,
                 "pass_swing": 25.0,
                 "drive": 15.0,
+                "shot": 30.0,
+            },
+        ),
+        ActionDefinition(
+            name="pass_entry",
+            display_name="Entry Pass",
+            description="Feed the ball into the post.",
+            category="pass",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="passing",
+            base_midpoint=5.0,
+            base_steepness=0.05,
+            time_cost_seconds=2.8,
+            zone_requirement="perimeter",
+            success_transitions={
+                "shot": 58.0,
+                "pass_kickout": 28.0,
+                "pass_swing": 14.0,
+            },
+            failure_transitions={
+                "turnover_bad_pass": 24.0,
+                "pass_swing": 46.0,
+                "shot": 30.0,
+            },
+        ),
+        ActionDefinition(
+            name="pass_skip",
+            display_name="Skip Pass",
+            description="Cross-court pass over the defense — shifts the whole scheme.",
+            category="pass",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="passing",
+            base_midpoint=10.0,
+            base_steepness=0.05,
+            time_cost_seconds=2.6,
+            success_transitions={
+                "shot": 52.0,
+                "pass_swing": 20.0,
+                "drive": 16.0,
+                "pass_extra": 12.0,
+            },
+            failure_transitions={
+                "turnover_bad_pass": 28.0,
+                "pass_swing": 42.0,
+                "shot": 30.0,
+            },
+        ),
+        ActionDefinition(
+            name="pass_kickout",
+            display_name="Kickout Pass",
+            description="Kick the ball out of the paint to a shooter.",
+            category="pass",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="passing",
+            base_midpoint=-5.0,
+            base_steepness=0.05,
+            time_cost_seconds=2.4,
+            zone_requirement="paint",
+            success_transitions={
+                "shot": 54.0,
+                "pass_extra": 14.0,
+                "pass_swing": 22.0,
+                "screen_on_ball": 10.0,
+            },
+            failure_transitions={
+                "turnover_bad_pass": 24.0,
+                "pass_swing": 46.0,
+                "shot": 30.0,
+            },
+        ),
+        ActionDefinition(
+            name="pass_extra",
+            display_name="Extra Pass",
+            description="One more pass for a better look.",
+            category="pass",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="passing",
+            base_midpoint=-5.0,
+            base_steepness=0.05,
+            time_cost_seconds=2.2,
+            success_transitions={
+                "shot": 68.0,
+                "pass_swing": 22.0,
+                "drive": 10.0,
+            },
+            failure_transitions={
+                "turnover_bad_pass": 24.0,
+                "pass_swing": 46.0,
                 "shot": 30.0,
             },
         ),
@@ -772,11 +886,42 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
             time_cost_seconds=3.4,
             zone_requirement="perimeter",
             emits_tags=["drive"],
-            success_transitions={"shot": 75.0, "pass_swing": 25.0},
+            success_transitions={
+                "shot": 56.0,
+                "pass_kickout": 20.0,
+                "help_rotation": 14.0,
+                "pass_swing": 10.0,
+            },
             failure_transitions={
                 "shot": 42.0,
                 "pass_swing": 36.0,
                 "turnover_lost_ball": 22.0,
+            },
+        ),
+        ActionDefinition(
+            name="crossover",
+            display_name="Crossover",
+            description="Shake the defender off the dribble.",
+            category="dribble",
+            selection_weight=0.0,
+            weight_attributes={"speed": 0.4},
+            resolution_type="contested_check",
+            primary_attribute="speed",
+            base_midpoint=50.0,
+            base_steepness=0.04,
+            time_cost_seconds=2.6,
+            zone_requirement="perimeter",
+            emits_tags=["crossover"],
+            success_transitions={
+                "shot": 54.0,
+                "drive": 30.0,
+                "pass_swing": 16.0,
+            },
+            failure_transitions={
+                "pass_swing": 40.0,
+                "shot": 30.0,
+                "turnover_lost_ball": 18.0,
+                "iso": 12.0,
             },
         ),
         ActionDefinition(
@@ -797,6 +942,156 @@ def basketball_micro_chain_nodes() -> list[ActionDefinition]:
                 "shot": 55.0,
                 "pass_swing": 25.0,
                 "turnover_lost_ball": 20.0,
+            },
+        ),
+        ActionDefinition(
+            name="screen_on_ball",
+            display_name="On-Ball Screen",
+            description="A teammate sets a pick for the ball handler — roll, pop, or slip.",
+            category="screen",
+            selection_weight=0.0,
+            weight_attributes={"iq": 0.2},
+            resolution_type="automatic",
+            time_cost_seconds=2.8,
+            zone_requirement="perimeter",
+            transitions={
+                "drive": 26.0,
+                "shot": 30.0,
+                "pass_swing": 12.0,
+                "defense_switch": 18.0,
+                "pass_skip": 6.0,
+                "iso": 6.0,
+                "steal_attempt": 2.0,
+            },
+        ),
+        ActionDefinition(
+            name="screen_off_ball",
+            display_name="Off-Ball Screen",
+            description="A screen away from the ball frees a cutter.",
+            category="screen",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=2.6,
+            zone_requirement="perimeter",
+            transitions={
+                "cut_curl": 28.0,
+                "cut_backdoor": 18.0,
+                "spot_up": 32.0,
+                "relocate": 22.0,
+            },
+        ),
+        ActionDefinition(
+            name="cut_curl",
+            display_name="Curl Cut",
+            description="The cutter curls off the screen for a catch in rhythm.",
+            category="cut",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="speed",
+            base_midpoint=45.0,
+            base_steepness=0.04,
+            time_cost_seconds=2.4,
+            success_transitions={
+                "shot": 74.0,
+                "pass_swing": 16.0,
+                "drive": 10.0,
+            },
+            failure_transitions={
+                "pass_swing": 58.0,
+                "shot": 30.0,
+                "turnover_bad_pass": 12.0,
+            },
+        ),
+        ActionDefinition(
+            name="cut_backdoor",
+            display_name="Backdoor Cut",
+            description="The cutter slips behind the defense toward the rim.",
+            category="cut",
+            selection_weight=0.0,
+            resolution_type="contested_check",
+            primary_attribute="speed",
+            base_midpoint=52.0,
+            base_steepness=0.04,
+            time_cost_seconds=2.4,
+            success_transitions={
+                "shot": 90.0,
+                "pass_kickout": 10.0,
+            },
+            failure_transitions={
+                "pass_swing": 55.0,
+                "shot": 25.0,
+                "turnover_bad_pass": 20.0,
+            },
+        ),
+        ActionDefinition(
+            name="spot_up",
+            display_name="Spot Up",
+            description="The shooter sets their feet and waits for the kick.",
+            category="cut",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=2.0,
+            transitions={
+                "shot": 64.0,
+                "pass_swing": 26.0,
+                "drive": 10.0,
+            },
+        ),
+        ActionDefinition(
+            name="relocate",
+            display_name="Relocate",
+            description="Off-ball movement to a new spot on the floor.",
+            category="cut",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=2.0,
+            transitions={
+                "pass_swing": 44.0,
+                "shot": 36.0,
+                "drive": 20.0,
+            },
+        ),
+        ActionDefinition(
+            name="defense_switch",
+            display_name="Defensive Switch",
+            description="The defense switches the screen — new matchup on the ball.",
+            category="defense",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.6,
+            transitions={
+                "shot": 44.0,
+                "drive": 30.0,
+                "iso": 16.0,
+                "pass_swing": 10.0,
+            },
+        ),
+        ActionDefinition(
+            name="help_rotation",
+            display_name="Help Rotation",
+            description="A helper rotates over to stop the drive — someone is open.",
+            category="defense",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.4,
+            zone_requirement="paint",
+            transitions={
+                "pass_kickout": 55.0,
+                "shot": 45.0,
+            },
+        ),
+        ActionDefinition(
+            name="steal_attempt",
+            display_name="Steal Gamble",
+            description="A defender jumps the passing lane — steal, scramble, or blow-by.",
+            category="defense",
+            selection_weight=0.0,
+            resolution_type="automatic",
+            time_cost_seconds=1.8,
+            transitions={
+                "shot": 55.0,
+                "pass_swing": 25.0,
+                "drive": 20.0,
             },
         ),
         ActionDefinition(
@@ -886,7 +1181,12 @@ def basketball_game_definition(rules: RuleSet) -> GameDefinition:
     return GameDefinition(
         name="Basketball",
         description="3v3 basketball with Elam Ending",
-        actions=basketball_actions(rules),
+        # Shot actions + the micro chain-node vocabulary. The chain nodes
+        # live in the definition (not just the engine fallback) so
+        # governance can patch them — remove screens, reweight transitions,
+        # add new nodes. The macro engine provably ignores them
+        # (test_macro_ignores_chain_nodes_bit_exactly).
+        actions=basketball_micro_actions(rules),
         participants_per_side=3,
         bench_size=1,
         # Turn structure

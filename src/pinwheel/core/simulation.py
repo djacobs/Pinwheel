@@ -286,7 +286,15 @@ def resolve_turn(
     Returns:
         A PossessionResult with the outcome of the turn.
     """
-    if game_def is not None and game_def.possession_engine == "micro":
+    # The micro engine requires event enrichment: ``event_detail=False``
+    # means "reproduce the pre-enrichment legacy stream bit-exactly", which
+    # only the macro path can honor — so it pins the legacy macro engine
+    # even now that the default is "micro".
+    if (
+        game_def is not None
+        and game_def.possession_engine == "micro"
+        and game_def.event_detail
+    ):
         return resolve_possession_micro(
             game_state, rules, rng, last_three, poss_ctx,
             action_registry=action_registry,
@@ -637,6 +645,7 @@ def _build_box_scores(game_state: GameState) -> list[HooperBoxScore]:
                 deflections=hs.deflections,
                 contested_shots=hs.contested_shots,
                 drives=hs.drives,
+                loose_balls=hs.loose_balls,
             )
         )
     return box_scores

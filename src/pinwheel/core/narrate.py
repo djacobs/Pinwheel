@@ -324,6 +324,206 @@ _TURNOVER_LOST_BALL = [
 ]
 
 
+# --- Chain-event narration (Phase 4) ---------------------------------------
+# One short line per micro-engine chain event, used by the expandable
+# play-by-play chain and the presenter payload. Unknown event types fall
+# back gracefully to a generic line.
+
+_CHAIN_TEMPLATES: dict[str, list[str]] = {
+    "admin.initiate": [
+        "{actor} brings it up and sets the offense",
+        "{actor} walks it up — half-court set",
+    ],
+    "pass.swing": [
+        "{actor} swings it around the perimeter",
+        "{actor} moves it along — ball on a string",
+    ],
+    "pass.entry": [
+        "{actor} feeds the post — entry pass inside",
+        "{actor} drops it into the paint",
+    ],
+    "pass.skip": [
+        "{actor} whips the skip pass cross-court",
+        "{actor} goes over the top — skip pass",
+    ],
+    "pass.kickout": [
+        "{actor} kicks it out to the perimeter",
+        "{actor} sprays it out of the paint",
+    ],
+    "pass.extra": [
+        "{actor} makes the extra pass — better look",
+        "{actor} keeps it moving — one more",
+    ],
+    "dribble.drive": [
+        "{actor} puts it on the floor and attacks",
+        "{actor} drives hard at {target}",
+    ],
+    "dribble.iso": [
+        "{actor} waves everyone off — isolation",
+        "{actor} goes one-on-one with {target}",
+    ],
+    "dribble.crossover": [
+        "{actor} snaps the crossover on {target}",
+        "{actor} shakes {target} with the handle",
+    ],
+    "screen.on_ball": [
+        "{actor} sets the pick up top",
+        "{actor} comes over with the on-ball screen",
+    ],
+    "screen.off_ball": [
+        "{actor} screens away to free {target}",
+        "{actor} sets the off-ball pick",
+    ],
+    "screen.assist": [
+        "{actor}'s screen springs the bucket",
+    ],
+    "cut.curl": [
+        "{actor} curls off the screen",
+    ],
+    "cut.backdoor": [
+        "{actor} slips backdoor",
+    ],
+    "cut.spot_up": [
+        "{actor} spots up and sets the feet",
+    ],
+    "cut.relocate": [
+        "{actor} relocates along the arc",
+    ],
+    "defense.contest": [],  # rendered via outcome-specific lines below
+    "defense.switch": [
+        "Defense switches — {actor} picks up {target}",
+    ],
+    "defense.help_rotation": [
+        "{actor} rotates over to help",
+    ],
+    "defense.steal_attempt": [],  # outcome-specific below
+    "hustle.loose_ball": [
+        "Loose ball! {actor} comes up with it",
+        "Scramble on the floor — {actor} wins it",
+    ],
+    "rebound.box_out": [
+        "{actor} seals the box-out",
+    ],
+    "rebound.offensive": [
+        "{actor} grabs the offensive board",
+    ],
+    "rebound.defensive": [
+        "{actor} pulls down the defensive rebound",
+    ],
+    "rebound.second_chance": [
+        "{actor} resets for a second chance",
+    ],
+    "block": [
+        "{actor} swats it away — rejected",
+    ],
+    "assist": [
+        "{actor} with the dime",
+    ],
+}
+
+_STEAL_ATTEMPT_OUTCOMES: dict[str, str] = {
+    "steal": "{actor} jumps the lane — picked clean off {target}",
+    "deflection": "{actor} gets a hand in — ball knocked loose",
+    "blow_by": "{actor} gambles and misses — {target} has a lane",
+}
+
+_CONTEST_OUTCOMES: dict[str, str] = {
+    "contested": "{actor} closes out hard — contested",
+    "open": "No closeout — {target} is wide open",
+}
+
+_SCREEN_BRANCH_SUFFIX: dict[str, str] = {
+    "roll": " and rolls to the rim",
+    "pop": " and pops out",
+    "slip": " — slips it early",
+}
+
+
+def narrate_event(
+    event: object,
+    names: dict[str, str] | None = None,
+    seed: int = 0,
+) -> str:
+    """One short line for a single chain event (GameEvent or dict).
+
+    Used by the expandable per-possession chain on the game page and the
+    presenter's event payload. Unknown event types and missing names fall
+    back gracefully — never raises for malformed rows.
+    """
+    if isinstance(event, dict):
+        etype = str(event.get("event_type", ""))
+        actor_id = str(event.get("actor_id", ""))
+        target_id = str(event.get("target_id", ""))
+        outcome = str(event.get("outcome", ""))
+        detail = str(event.get("detail", ""))
+        points = int(event.get("points", 0) or 0)
+    else:
+        etype = getattr(event, "event_type", "")
+        actor_id = getattr(event, "actor_id", "")
+        target_id = getattr(event, "target_id", "")
+        outcome = getattr(event, "outcome", "")
+        detail = getattr(event, "detail", "")
+        points = int(getattr(event, "points", 0) or 0)
+
+    lookup = names or {}
+    actor = lookup.get(actor_id, actor_id) or "the offense"
+    target = lookup.get(target_id, target_id) or "the defense"
+    rng = random.Random(seed)
+
+    # Shots and turnovers reuse the possession-level narration vocabulary.
+    if etype.startswith("shot.") and etype != "shot.free_throw":
+        action = etype.split(".", 1)[1]
+        result = "made" if outcome == "made" else "missed"
+        line = narrate_play(
+            player=actor,
+            defender=target,
+            action=action,
+            result=result,
+            points=points,
+            seed=seed,
+            subtype=detail,
+            blocked=outcome == "blocked",
+        )
+        return line
+    if etype == "shot.free_throw":
+        return f"{actor} at the stripe — {'good' if outcome == 'made' else 'no good'}"
+    if etype.startswith("turnover."):
+        sub = etype.split(".", 1)[1]
+        if sub in _VIOLATIONS:
+            return rng.choice(_VIOLATIONS[sub]).format(player=actor)
+        if sub == "shot_clock":
+            return rng.choice(_SHOT_CLOCK_VIOLATION).format(
+                player=actor, defender=target,
+            )
+        if sub == "bad_pass":
+            return rng.choice(_TURNOVER_BAD_PASS).format(player=actor, defender=target)
+        return rng.choice(_TURNOVER_LOST_BALL).format(player=actor, defender=target)
+    if etype.startswith("foul."):
+        return f"Whistle — {actor} called for the foul"
+    if etype == "defense.steal_attempt":
+        template = _STEAL_ATTEMPT_OUTCOMES.get(outcome)
+        if template:
+            return template.format(actor=actor, target=target)
+    if etype == "defense.contest":
+        template = _CONTEST_OUTCOMES.get(outcome)
+        if template:
+            return template.format(actor=actor, target=target)
+
+    templates = _CHAIN_TEMPLATES.get(etype)
+    if templates:
+        line = rng.choice(templates).format(actor=actor, target=target)
+        if etype == "screen.on_ball" and detail in _SCREEN_BRANCH_SUFFIX:
+            line += _SCREEN_BRANCH_SUFFIX[detail]
+        elif outcome == "failure":
+            line += " — nothing there"
+        return line
+
+    # Graceful fallback for unknown / governance-added event types.
+    label = etype.split(".", 1)[-1].replace("_", " ") if etype else "play"
+    suffix = f" ({outcome})" if outcome else ""
+    return f"{actor} — {label}{suffix}"
+
+
 def extract_event_context(
     events: list[object] | None,
 ) -> dict[str, str | bool]:
