@@ -4,9 +4,12 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 
 ## Where We Are
 
-- **2814 tests**, zero lint errors (Session 137)
+- **2860 tests**, zero lint errors (Session 138)
 - **Days 1-26 complete** plus the codegen frontier (Phase 6) infrastructure
-- **Day 27 (this session):** Full-codebase audit against the original brief, nine
+- **Day 28 (Session 138):** Granular sim engine Phases 1+2 — GameEvent substrate,
+  Tier-1 subtypes, attribution & hustle stats, category hooks + hook index
+  (`docs/plans/2026-08-08-granular-sim-engine.md`)
+- **Day 27:** Full-codebase audit against the original brief, nine
   sim/game-loop bug fixes, game summary pipeline overhaul, and the codegen
   frontier wiring plan (`docs/plans/2026-06-12-codegen-frontier-wiring.md`)
 - **Live at:** https://pinwheel.fly.dev
@@ -26,6 +29,70 @@ Previous logs: [DEV_LOG_2026-02-10.md](DEV_LOG_2026-02-10.md) (Sessions 1-5), [D
 - [x] Flip PINWHEEL_CODEGEN_ENABLED — live in prod (v153, owner's call: no active players)
 - [x] Deploy 4558e54 (tick fix) + 2c20b29 (audit fixes) — deployed v156 (Session 137, owner approved)
 - [ ] Run a live council proposal end-to-end (propose → council → admin DM → approve) — see docs/LAUNCH_DRILLS.md Drill 4
+
+## Session 138 — Granular Sim Engine Phases 1+2: Event Substrate + Attribution (2026-08-08)
+
+**What was asked:** Implement Phases 1 and 2 of the approved granular sim
+engine plan (`docs/plans/2026-08-08-granular-sim-engine.md`): the GameEvent
+substrate + Tier-1 subtype enrichment on the macro path, and attribution &
+hustle stats + category hooks + effect-registry hook index. No micro engine,
+no resolve_turn dispatch changes (that's Phase 3).
+
+**What was built:**
+
+- **Event substrate:** `GameEvent` model (namespaced `event_type`, actor/
+  target/team, outcome, subtype detail, zone, tags) + `PossessionLog.events`
+  stored as JSON on the possession row. Old rows deserialize to `[]`.
+- **Tier-1 subtypes on the macro path:** shot subtypes derived from the
+  EXISTING shot roll rescaled to a make-independent uniform (zero new draws —
+  dunk share scales with scoring+speed, putback/tip from second-chance
+  context, catch_and_shoot/corner/spot_up when a potential assister exists);
+  `turnover.bad_pass` vs `turnover.lost_ball` split by passing-vs-speed with
+  correct steal attribution (interceptor vs on-ball strip) and deflection
+  credit; travel/double_dribble dead-ball violations governed by the new
+  `violation_strictness` RuleSet knob (ge=0 le=5 default 1.0, Tier-1 in
+  detect_tier, ~1% of possessions at 1.0, IQ reduces); `turnover.shot_clock`
+  relabel; foul.shooting/foul.loose_ball events.
+- **Block conversion:** missed at_rim/mid_range can convert to a block by the
+  primary defender (defense+speed roll) — fixes the phantom `blocks` stat
+  end-to-end: HooperState → `_build_box_scores` → new `blocks` DB column.
+- **Assist-before-shot (BBGM):** passing-weighted potential assister picked
+  BEFORE the shot, +0.03 make-prob when present, credit on make, putbacks
+  unassisted. Replaces the old uniform-random-teammate assist.
+- **And-one flow:** foul on a made shot now awards 1 FT (previously nothing).
+- **Phase 2 attribution/hustle:** box-out pre-roll (defense's best rebounder,
+  success shifts rebound weights +4.0 to the defensive side, hustle stat),
+  contested/uncontested rebounds + rebound.tip, screen-assist stub, and new
+  counting stats through HooperState → HooperBoxScore → additive BoxScoreRow
+  columns: rebounds, blocks, fouls, potential_assists, passes_made, box_outs,
+  screen_assists, deflections, contested_shots, drives.
+- **Category hooks:** `sim.shot.pre/post`, `sim.rebound.pre/post`,
+  `sim.foul.post`, `sim.turnover.post` fired from the macro path's existing
+  decision points, with a per-game effect-registry hook index — games with no
+  effects on these hooks pay ~zero cost. `sim.shot.pre` results can shape the
+  imminent shot's probability and value.
+- **RNG discipline:** all enrichment draws gated behind
+  `GameDefinition.event_detail` (default True). `event_detail=False`
+  reproduces the pre-change stream bit-exactly — verified 200 seeded games
+  against the HEAD engine, and pinned in-tests against 3 recorded game lines.
+- **Seed migration:** exactly ONE test changed
+  (`test_higher_point_value_changes_scores` — single-seed paired comparison
+  migrated to an 8-seed average; commit `bde17c2`).
+- **Narration:** subtype-aware templates (dunks, floaters, putbacks, tips,
+  stepbacks, fadeaways, catch-and-shoot, corner threes, heaves, blocks,
+  violations, bad-pass/lost-ball turnovers, and-one suffix) with graceful
+  fallback for unknown subtypes and pre-enrichment rows; presenter + game
+  page pass event context via `extract_event_context`. Still one line per
+  possession.
+
+**Performance:** 5.03 ms/game enriched vs 4.21 ms/game legacy path
+(200-game loop; plan baseline 4.19, budget 15).
+
+**Issues resolved:** phantom blocks stat (existed on HooperState/HooperBoxScore
+but never incremented, and BoxScoreRow had no blocks/rebounds/fouls columns);
+made-shot fouls awarding nothing (now and-one).
+
+**Tests: 2860 passed** (was 2814; +37 event-engine, +9 narration), ruff clean.
 
 ## Session 137 — Launch Night: Approval Gate + Trust Fixes + Capability (2026-08-08)
 
