@@ -931,3 +931,95 @@ class TestNarrationEndToEnd:
                     registry=registry,
                 )
                 assert text != "Player misses", f"Got generic text for heave missed: {text}"
+
+
+class TestSubtypeNarration:
+    """Subtype-aware narration (Phase 1 event enrichment)."""
+
+    def test_dunk_subtype_uses_dunk_template(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="made", points=2, seed=1, subtype="dunk",
+        )
+        assert "Flash" in text
+        low = text.lower()
+        assert any(w in low for w in ("throws it down", "hammers", "flush"))
+
+    def test_unknown_subtype_falls_back_to_action_templates(self) -> None:
+        base = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="made", points=2, seed=7,
+        )
+        with_unknown = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="made", points=2, seed=7, subtype="cartwheel_slam",
+        )
+        assert with_unknown == base
+
+    def test_and_one_suffix(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="made", points=3, seed=1, subtype="layup", and_one=True,
+        )
+        assert text.endswith("and one!")
+
+    def test_blocked_shot_narration(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="missed", points=0, seed=1, blocked=True,
+        )
+        assert "Thunder" in text
+        low = text.lower()
+        assert any(w in low for w in ("rejected", "swats", "block", "denied"))
+
+    def test_travel_narration(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="", action="travel",
+            result="turnover", points=0, seed=1,
+        )
+        assert "Flash" in text
+        assert "travel" in text.lower() or "walking" in text.lower() or "step" in text.lower()
+
+    def test_double_dribble_narration(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="", action="double_dribble",
+            result="turnover", points=0, seed=1,
+        )
+        assert "dribble" in text.lower()
+
+    def test_turnover_subtype_bad_pass(self) -> None:
+        text = narrate_play(
+            player="Flash", defender="Thunder", action="at_rim",
+            result="turnover", points=0, seed=1, subtype="bad_pass",
+        )
+        low = text.lower()
+        assert any(w in low for w in ("pass", "throws it away", "intercept"))
+
+    def test_extract_event_context_from_dicts_and_models(self) -> None:
+        from pinwheel.core.narrate import extract_event_context
+        from pinwheel.models.game import GameEvent
+
+        dicts = [
+            {"seq": 0, "event_type": "shot.at_rim", "detail": "dunk",
+             "outcome": "made", "tags": ["and_one"]},
+        ]
+        ctx = extract_event_context(dicts)
+        assert ctx == {"subtype": "dunk", "and_one": True, "blocked": False}
+
+        models = [
+            GameEvent(seq=0, event_type="shot.mid_range", detail="stepback",
+                      outcome="blocked"),
+            GameEvent(seq=1, event_type="rebound.defensive", outcome="contested"),
+        ]
+        ctx = extract_event_context(models)
+        assert ctx == {"subtype": "stepback", "and_one": False, "blocked": True}
+
+    def test_extract_event_context_empty_is_default(self) -> None:
+        from pinwheel.core.narrate import extract_event_context
+
+        assert extract_event_context(None) == {
+            "subtype": "", "and_one": False, "blocked": False,
+        }
+        assert extract_event_context([]) == {
+            "subtype": "", "and_one": False, "blocked": False,
+        }
