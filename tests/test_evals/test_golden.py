@@ -121,6 +121,26 @@ def test_tier2_interpreter_cases_pass_against_mock():
         assert result.passed, f"{case.id}: {result.failures}"
 
 
+def test_tier3_interpreter_cases_pass_against_mock():
+    """The Tier-3 golden cases pin the interpreter's grounding in the
+    structural governance surface (FIBA-3x3 structure options, violation
+    activation, target scores) — run against the mock interpreter."""
+    from pinwheel.ai.interpreter import interpret_proposal_v2_mock
+    from pinwheel.evals.golden import (
+        TIER3_INTERPRETER_CASES,
+        run_interpreter_golden_case,
+    )
+    from pinwheel.models.rules import DEFAULT_RULESET
+
+    assert len(TIER3_INTERPRETER_CASES) == 3
+    for case in TIER3_INTERPRETER_CASES:
+        interpretation = interpret_proposal_v2_mock(
+            case.proposal_text, DEFAULT_RULESET,
+        )
+        result = run_interpreter_golden_case(case, interpretation)
+        assert result.passed, f"{case.id}: {result.failures}"
+
+
 def test_tier2_interpreter_case_fails_on_wrong_interpretation():
     from pinwheel.ai.interpreter import interpret_proposal_v2_mock
     from pinwheel.evals.golden import (

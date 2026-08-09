@@ -296,6 +296,35 @@ class InterpreterGoldenCase:
     min_confidence: float = 0.5
 
 
+TIER3_INTERPRETER_CASES: list[InterpreterGoldenCase] = [
+    InterpreterGoldenCase(
+        id="tier3-fiba-3x3",
+        proposal_text="Adopt FIBA 3x3 rules for the playoffs.",
+        expected_effect_type="modify_game_definition",
+        expected_patterns=[
+            "check_ball_restarts",
+            "clear_arc_required",
+            "target_score",
+        ],
+    ),
+    InterpreterGoldenCase(
+        id="tier3-strict-violations",
+        proposal_text=(
+            "Traveling and backcourt violations are strictly enforced "
+            "from now on."
+        ),
+        expected_effect_type="parameter_change",
+        expected_patterns=["violation_strictness", "violation_backcourt"],
+    ),
+    InterpreterGoldenCase(
+        id="tier3-first-to-21",
+        proposal_text="First to 21 wins.",
+        expected_effect_type="modify_game_definition",
+        expected_patterns=["target_score", "21", "elam_ending_enabled"],
+    ),
+]
+
+
 TIER2_INTERPRETER_CASES: list[InterpreterGoldenCase] = [
     InterpreterGoldenCase(
         id="tier2-screens-illegal",

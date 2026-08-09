@@ -481,16 +481,41 @@ removable/modifiable named actions (the micro event engine): initiate, \
 pass_swing, pass_entry, pass_skip, pass_kickout, pass_extra, drive, crossover, \
 iso, screen_on_ball, screen_off_ball, cut_curl, cut_backdoor, spot_up, relocate, \
 defense_switch, help_rotation, steal_attempt, second_chance, turnover_bad_pass, \
-turnover_lost_ball, violation_deadball. Examples: "picks/screens are illegal" → \
+turnover_lost_ball, violation_deadball. Tier-3 violation/foul nodes (INERT at \
+zero weight until governance activates them): violation_backcourt, \
+violation_three_second (paint-dwell — weight scales with time camped in the \
+lane), violation_lane, violation_kicked_ball (defensive — offense keeps the \
+ball with a clock reset), violation_goaltending (its selection_weight is the \
+per-missed-shot goaltend probability; remove it or set weight 0 for the \
+FIBA-style "legal after rim contact" rule), foul_take, foul_clear_path, \
+foul_away_from_play (transition-only: take fouls kill the break; clear-path/\
+away-from-play award 1 FT + ball). Active violation weights also scale with \
+the violation_strictness parameter. Examples: "picks/screens are illegal" → \
 remove_actions: ["screen_on_ball", "screen_off_ball"]; "no isolation ball" → \
 remove_actions: ["iso"]. Chain nodes also carry a "transitions" dict \
 (next-event weights) modifiable via modify_actions — e.g. more ball movement: \
 {{"initiate": {{"transitions": {{"pass_swing": 60, "shot": 10}}}}}}
    - modify_actions: {{"action_name": {{"field": value}}}} — e.g. \
 {{"three_point": {{"points_on_success": 4}}}}
+   - modify_transitions: {{"node_name": {{"target": weight}}}} — reweight the \
+possession chain's Markov edges without restating whole transition tables. \
+Merges into the node's existing edges; weight 0 removes an edge; weights must \
+be non-negative. This is how the inert Tier-3 nodes are activated — e.g. \
+"call backcourt violations" → {{"initiate": {{"violation_backcourt": 0.8}}}}; \
+"defenders take fouls to stop the break" → {{"initiate": {{"foul_take": 2.0}}}}
    - modify_structure: {{"quarters": 6, "quarter_clock_seconds": 300, \
-"elam_ending_enabled": false, "participants_per_side": 2, "elam_trigger_quarter": 6}}
+"elam_ending_enabled": false, "participants_per_side": 2, \
+"elam_trigger_quarter": 6}}. Tier-3 structure options (all default off): \
+check_ball_restarts (FIBA-3x3 check-ball on every dead-ball possession), \
+clear_arc_required (transition offense must clear the ball beyond the arc; \
+failing is a turnover), target_score (int — "first to N wins", a \
+generalization of the Elam Ending; MUST be paired with \
+"elam_ending_enabled": false — they are mutually exclusive). The shot clock \
+is NOT structure — change the shot_clock_seconds parameter instead.
    - description: what the patch does
+Every patch is validated for playability, including chain REACHABILITY: a \
+patch that leaves the possession chain unable to reach a shot or turnover \
+(e.g. removing all pass AND shot exits) is rejected before it can take effect.
 Worked examples:
    - "Add a half-court shot called The Prayer worth 4 points" → game_def_patch: \
 {{"add_actions": [{{"name": "the_prayer", "display_name": "The Prayer", \
@@ -502,6 +527,18 @@ Worked examples:
    - "Games are 6 quarters and no Elam Ending" → game_def_patch: \
 {{"modify_structure": {{"quarters": 6, "elam_ending_enabled": false}}, \
 "description": "6 quarters, no Elam"}}
+   - "Adopt FIBA 3x3 rules" → game_def_patch: {{"modify_structure": \
+{{"check_ball_restarts": true, "clear_arc_required": true, "target_score": 21, \
+"elam_ending_enabled": false}}, "description": "FIBA 3x3: check-ball, \
+clear-arc, first to 21"}} PLUS a parameter_change effect setting \
+shot_clock_seconds to 12
+   - "Traveling and backcourt strictly enforced" → a parameter_change effect \
+raising violation_strictness (e.g. 3.0) PLUS game_def_patch: \
+{{"modify_transitions": {{"initiate": {{"violation_backcourt": 0.8}}}}, \
+"description": "Backcourt violations are live"}}
+   - "First to 21 wins" → game_def_patch: {{"modify_structure": \
+{{"target_score": 21, "elam_ending_enabled": false}}, \
+"description": "First to 21 wins"}}
 Structural changes are reviewed by the admin in parallel with the vote and validated \
 against playability invariants before they can take effect.
 
@@ -1012,6 +1049,135 @@ _ORDINAL_WORDS = {
 }
 
 
+def _detect_tier3_mock(
+    raw_text: str,
+    ruleset: RuleSet,
+) -> ProposalInterpretation | None:
+    """Detect Tier-3 structural proposals in the mock interpreter.
+
+    Patterns: FIBA-3x3 adoption (structure patch + 12s shot clock),
+    strict violation enforcement (violation_strictness + activating the
+    backcourt node), and first-to-N target scores.
+    """
+    import re as _re
+
+    text = raw_text.lower().strip()
+
+    # "Adopt FIBA 3x3 rules" → full structure patch + 12-second shot clock.
+    if _re.search(r"\bfiba\b|\b3x3\b", text):
+        return ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="modify_game_definition",
+                    game_def_patch={
+                        "modify_structure": {
+                            "check_ball_restarts": True,
+                            "clear_arc_required": True,
+                            "target_score": 21,
+                            "elam_ending_enabled": False,
+                        },
+                        "description": (
+                            "FIBA 3x3 structure: check-ball restarts, "
+                            "clear-arc rule, first to 21"
+                        ),
+                    },
+                    description="Adopts FIBA-3x3 game structure",
+                ),
+                EffectSpec(
+                    effect_type="parameter_change",
+                    parameter="shot_clock_seconds",
+                    new_value=12,
+                    old_value=ruleset.shot_clock_seconds,
+                    description="FIBA-3x3 12-second shot clock",
+                ),
+            ],
+            impact_analysis=(
+                "Restructures games FIBA-3x3 style: check-ball restarts on "
+                "dead balls, transition offense must clear the arc, a "
+                "12-second shot clock, and the first team to 21 wins "
+                "(replacing the Elam Ending)."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    # "Traveling and backcourt strictly enforced" → strictness knob up,
+    # plus activating the backcourt violation edge when named.
+    if _re.search(
+        r"\b(?:travel(?:ing|s)?|backcourt|violations?)\b.*"
+        r"\b(?:strict(?:ly)?|enforce[dment]*|crack(?:ing)? down)\b"
+        r"|\b(?:strict(?:ly)?|enforce[dment]*|crack(?:ing)? down)\b.*"
+        r"\b(?:travel(?:ing|s)?|backcourt|violations?)\b",
+        text,
+    ):
+        effects = [
+            EffectSpec(
+                effect_type="parameter_change",
+                parameter="violation_strictness",
+                new_value=3.0,
+                old_value=ruleset.violation_strictness,
+                description="Referees call ball-handling violations strictly",
+            )
+        ]
+        if "backcourt" in text:
+            effects.append(
+                EffectSpec(
+                    effect_type="modify_game_definition",
+                    game_def_patch={
+                        "modify_transitions": {
+                            "initiate": {"violation_backcourt": 0.8},
+                        },
+                        "description": "Backcourt violations are live",
+                    },
+                    description="Activates the backcourt-violation chain node",
+                )
+            )
+        return ProposalInterpretation(
+            effects=effects,
+            impact_analysis=(
+                "Raises violation strictness — travels and double dribbles "
+                "get called far more often"
+                + (", and backcourt violations become live calls"
+                   if "backcourt" in text else "")
+                + "."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    # "First to 21 wins" → target score replacing the Elam Ending.
+    m = _re.search(
+        r"first\s+(?:team\s+)?to\s+(\d+)(?:\s+points?)?\s+wins?", text,
+    )
+    if m:
+        target = int(m.group(1))
+        return ProposalInterpretation(
+            effects=[
+                EffectSpec(
+                    effect_type="modify_game_definition",
+                    game_def_patch={
+                        "modify_structure": {
+                            "target_score": target,
+                            "elam_ending_enabled": False,
+                        },
+                        "description": f"First to {target} wins",
+                    },
+                    description=(
+                        f"Games end the moment a team reaches {target} points"
+                    ),
+                )
+            ],
+            impact_analysis=(
+                f"Replaces the Elam Ending with a fixed target: the first "
+                f"team to {target} points wins immediately, in any period."
+            ),
+            confidence=0.85,
+            original_text_echo=raw_text,
+        )
+
+    return None
+
+
 def _detect_tier2_mock(raw_text: str) -> ProposalInterpretation | None:
     """Detect Tier-2 (micro event-chain) proposals in the mock interpreter.
 
@@ -1120,9 +1286,16 @@ def interpret_proposal_v2_mock(
     and narrative effects. Supports compound proposals with multiple
     parameter changes separated by "and" or commas.
     """
+    # Tier-3 structural proposals (FIBA 3x3, strict violations, target
+    # score) — checked first: their phrasing collides with the compound
+    # splitter and generic conditional patterns below.
+    tier3 = _detect_tier3_mock(raw_text, ruleset)
+    if tier3 is not None:
+        return tier3
+
     # Tier-2 micro-engine proposals (screens, pass counts, transition) —
-    # checked first: their phrasing collides with the generic conditional
-    # and structural patterns below.
+    # checked before the generic conditional and structural patterns,
+    # whose phrasing they collide with.
     tier2 = _detect_tier2_mock(raw_text)
     if tier2 is not None:
         return tier2
