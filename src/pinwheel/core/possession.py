@@ -18,6 +18,13 @@ from pinwheel.core.defense import (
     get_primary_defender,
     select_scheme,
 )
+from pinwheel.core.hooks import (
+    HookContext,
+    RegisteredEffect,
+    apply_hook_results,
+    fire_effects,
+)
+from pinwheel.core.meta import MetaStore
 from pinwheel.core.moves import (
     apply_move_modifier,
     apply_move_secondary_effects,
@@ -26,7 +33,7 @@ from pinwheel.core.moves import (
 )
 from pinwheel.core.scoring import ShotType, resolve_shot
 from pinwheel.core.state import GameState, HooperState, PossessionContext
-from pinwheel.models.game import PossessionLog
+from pinwheel.models.game import GameEvent, PossessionLog
 from pinwheel.models.game_definition import ActionRegistry, basketball_actions
 from pinwheel.models.rules import RuleSet
 
@@ -96,6 +103,111 @@ def get_surface_modifiers(surface: str) -> SurfaceModifiers:
     Unknown surfaces are treated as hardwood (no modifiers).
     """
     return SURFACE_EFFECTS.get(surface, SurfaceModifiers())
+
+
+# ---------------------------------------------------------------------------
+# Event enrichment (Phase 1) — subtype derivation + category hooks (Phase 2)
+# ---------------------------------------------------------------------------
+
+# Category hooks fired from the macro path's existing decision points.
+# simulate_game builds a per-game index of hooks with registered effects;
+# games with no effects on these hooks pay ~zero cost.
+CATEGORY_HOOKS = frozenset(
+    {
+        "sim.shot.pre",
+        "sim.shot.post",
+        "sim.rebound.pre",
+        "sim.rebound.post",
+        "sim.foul.post",
+        "sim.turnover.post",
+    }
+)
+
+_ZONE_FOR_ACTION = {
+    "at_rim": "paint",
+    "mid_range": "mid",
+    "three_point": "perimeter",
+    "free_throw": "paint",
+}
+
+
+def zone_for_action(action: str) -> str:
+    """Map an action name to its court zone (empty for unknown actions)."""
+    return _ZONE_FOR_ACTION.get(action, "")
+
+
+def derive_shot_subtype(
+    shot_type: str,
+    handler: HooperState,
+    u: float,
+    is_putback: bool,
+    has_assister: bool,
+) -> str:
+    """Derive a shot subtype from attributes + context (NO new RNG draw).
+
+    ``u`` is uniform in [0,1) recovered from the existing shot-resolution
+    roll (rescaled to be independent of make/miss), so subtype assignment
+    adds zero draws to the RNG stream. Attribute-weighted shares mean e.g.
+    dunks correlate with high scoring+speed hoopers.
+    """
+    attrs = handler.current_attributes
+    if shot_type == "at_rim":
+        if is_putback:
+            return "tip" if u < 0.25 else "putback"
+        # Dunk share grows with scoring + speed: 60/60 -> 0.10, 90/90 -> 0.40
+        dunk_share = min(0.5, max(0.0, (attrs.scoring + attrs.speed - 100) / 200.0))
+        floater_share = 0.12
+        if u < dunk_share:
+            return "dunk"
+        if u < dunk_share + floater_share:
+            return "floater"
+        return "layup"
+    if shot_type == "mid_range":
+        if has_assister:
+            return "catch_and_shoot"
+        stepback_share = attrs.speed / 300.0
+        fadeaway_share = attrs.ego / 300.0
+        if u < stepback_share:
+            return "stepback"
+        if u < stepback_share + fadeaway_share:
+            return "fadeaway"
+        return "pullup"
+    if shot_type == "three_point":
+        if has_assister:
+            return "corner" if u < 0.3 else "spot_up"
+        return "heave" if u < 0.04 else "pullup"
+    return ""
+
+
+def _fire_category_hook(
+    hook: str,
+    game_state: GameState,
+    rules: RuleSet,
+    rng: random.Random,
+    effects: list[RegisteredEffect],
+    meta_store: MetaStore | None,
+    hooper: HooperState | None = None,
+) -> tuple[float, int]:
+    """Fire effects registered on a category hook from inside the possession.
+
+    Score/stamina/meta mutations apply immediately via apply_hook_results.
+    Returns (shot_probability_modifier, shot_value_modifier) sums so
+    ``sim.shot.pre`` effects can shape the imminent shot.
+    """
+    ctx = HookContext(
+        game_state=game_state,
+        hooper=hooper,
+        rules=rules,
+        rng=rng,
+        meta_store=meta_store,
+    )
+    results = fire_effects(hook, ctx, effects)
+    if not results:
+        return 0.0, 0
+    apply_hook_results(results, ctx)
+    prob_mod = sum(r.shot_probability_modifier for r in results)
+    value_mod = sum(r.shot_value_modifier for r in results)
+    return prob_mod, value_mod
 
 
 @dataclass
@@ -326,11 +438,13 @@ def attempt_rebound(
     defense: list[HooperState],
     rng: random.Random,
     rules: RuleSet | None = None,
+    defensive_bonus: float = 0.0,
 ) -> tuple[HooperState, bool]:
     """Resolve a rebound after a missed shot. Returns (rebounder, is_offensive).
 
     The offensive rebound base weight is governed by rules.offensive_rebound_weight
-    (default 5.0) while defensive is fixed at 10.0.
+    (default 5.0) while defensive is fixed at 10.0. ``defensive_bonus`` adds
+    weight to every defender — set by a successful box-out pre-roll (Phase 2).
 
     **Fate --- lucky bounces:** High-Fate offensive players get a bonus to
     offensive rebound weight, representing fortunate ball bounces.
@@ -347,7 +461,7 @@ def attempt_rebound(
     weights = []
     for agent, is_off in all_players:
         # Defense gets natural rebound advantage
-        base = off_reb_weight if is_off else 10.0
+        base = off_reb_weight if is_off else 10.0 + defensive_bonus
         # Physical attributes matter
         base += agent.current_attributes.defense * 0.2
         base += agent.current_attributes.speed * 0.1
@@ -464,6 +578,10 @@ def resolve_possession(
     last_possession_three: bool = False,
     context: PossessionContext | None = None,
     action_registry: ActionRegistry | None = None,
+    event_detail: bool = True,
+    effect_registry: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
+    active_hooks: frozenset[str] = frozenset(),
 ) -> PossessionResult:
     """Resolve one complete possession.
 
@@ -476,10 +594,56 @@ def resolve_possession(
             _fire_sim_effects from accumulated HookResults.
         action_registry: Data-driven action definitions. When ``None``
             (default), a basketball registry is built from the rules.
+        event_detail: When True (default), Tier-1 event enrichment is active:
+            granular GameEvents, shot subtypes, turnover attribution,
+            violations, block conversion, assist-before-shot, and-ones, and
+            box-outs. These consume additional RNG draws. When False, the
+            possession reproduces the exact pre-enrichment RNG stream.
+        effect_registry: New-style effects for category hooks (sim.shot.*,
+            sim.rebound.*, sim.foul.post, sim.turnover.post).
+        meta_store: Meta store handed to category-hook effects.
+        active_hooks: Per-game index of category hooks that have registered
+            effects. Hooks not in this set are skipped at ~zero cost.
     """
     if action_registry is None:
         action_registry = ActionRegistry(basketball_actions(rules))
     ctx = context or PossessionContext()
+    _effects = effect_registry or []
+
+    # Event substrate (Phase 1): granular events emitted along the way.
+    events: list[GameEvent] = []
+
+    def emit(
+        event_type: str,
+        actor_id: str = "",
+        target_id: str = "",
+        outcome: str = "",
+        detail: str = "",
+        points: int = 0,
+        zone: str = "",
+        tags: list[str] | None = None,
+    ) -> None:
+        events.append(
+            GameEvent(
+                seq=len(events),
+                event_type=event_type,
+                actor_id=actor_id,
+                target_id=target_id,
+                team_id=offense_team_id,
+                outcome=outcome,
+                detail=detail,
+                points=points,
+                zone=zone,
+                tags=tags or [],
+            )
+        )
+
+    # Second-chance context: consumed by putback/tip classification, then
+    # cleared. Re-armed at the end when this possession ends in an ORB.
+    second_chance_in = game_state.second_chance
+    last_rebounder_in = game_state.last_rebound_hooper_id
+    game_state.second_chance = False
+    game_state.last_rebound_hooper_id = ""
 
     # Extract strategy parameters once for use throughout the possession
     off_strategy = game_state.offense_strategy
@@ -511,6 +675,12 @@ def resolve_possession(
 
     if not offense or not defense:
         return PossessionResult(time_used=time_used)
+
+    offense_team_id = (
+        game_state.home_agents[0].hooper.team_id
+        if game_state.home_has_ball
+        else game_state.away_agents[0].hooper.team_id
+    )
 
     # Side events (e.g. ejections) recorded alongside the possession's main log
     extra_logs: list[PossessionLog] = []
@@ -586,15 +756,26 @@ def resolve_possession(
                 game_state.last_result = "turnover"
                 game_state.consecutive_makes = 0
                 game_state.consecutive_misses += 1
-                team_id = (
-                    game_state.home_agents[0].hooper.team_id
-                    if game_state.home_has_ball
-                    else game_state.away_agents[0].hooper.team_id
-                )
+                if event_detail:
+                    # A forced-pass turnover IS a bad pass — the interceptor
+                    # gets steal + deflection credit. No new RNG draws.
+                    stealer.deflections += 1
+                    emit(
+                        "turnover.bad_pass",
+                        actor_id=handler.hooper.id,
+                        target_id=stealer.hooper.id,
+                        outcome="stolen",
+                        detail="forced_pass",
+                    )
+                if "sim.turnover.post" in active_hooks:
+                    _fire_category_hook(
+                        "sim.turnover.post", game_state, rules, rng,
+                        _effects, meta_store, hooper=handler,
+                    )
                 log = PossessionLog(
                     quarter=game_state.quarter,
                     possession_number=game_state.possession_number,
-                    offense_team_id=team_id,
+                    offense_team_id=offense_team_id,
                     ball_handler_id=handler.hooper.id,
                     defender_id=stealer.hooper.id,
                     action="turnover",
@@ -602,6 +783,7 @@ def resolve_possession(
                     defensive_scheme=scheme,
                     home_score=game_state.home_score,
                     away_score=game_state.away_score,
+                    events=events,
                 )
                 return PossessionResult(
                     turnover=True,
@@ -622,7 +804,28 @@ def resolve_possession(
         ),
         crowd_pressure_modifier=crowd_pressure_mod,
     ):
-        stealer = rng.choice(defense)
+        if event_detail:
+            # Subtype split (gated new draw): passing-heavy handlers cough it
+            # up on passes, speed-heavy handlers lose their dribble. Steal
+            # attribution follows: bad_pass -> any interceptor (existing
+            # random draw), lost_ball -> the on-ball defender's strip.
+            h_attrs = handler.current_attributes
+            p_bad_pass = h_attrs.passing / max(1, h_attrs.passing + h_attrs.speed)
+            if rng.random() < p_bad_pass:
+                to_subtype = "bad_pass"
+                stealer = rng.choice(defense)
+                stealer.deflections += 1
+            else:
+                to_subtype = "lost_ball"
+                stealer = get_primary_defender(handler, matchups, defense)
+            emit(
+                f"turnover.{to_subtype}",
+                actor_id=handler.hooper.id,
+                target_id=stealer.hooper.id,
+                outcome="stolen",
+            )
+        else:
+            stealer = rng.choice(defense)
         stealer.steals += 1
         handler.turnovers += 1
         drain_stamina(
@@ -644,14 +847,16 @@ def resolve_possession(
         game_state.consecutive_makes = 0
         game_state.consecutive_misses += 1
 
+        if "sim.turnover.post" in active_hooks:
+            _fire_category_hook(
+                "sim.turnover.post", game_state, rules, rng,
+                _effects, meta_store, hooper=handler,
+            )
+
         log = PossessionLog(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
-            offense_team_id=(
-                game_state.home_agents[0].hooper.team_id
-                if game_state.home_has_ball
-                else game_state.away_agents[0].hooper.team_id
-            ),
+            offense_team_id=offense_team_id,
             ball_handler_id=handler.hooper.id,
             defender_id=stealer.hooper.id,
             action="turnover",
@@ -659,6 +864,7 @@ def resolve_possession(
             defensive_scheme=scheme,
             home_score=game_state.home_score,
             away_score=game_state.away_score,
+            events=events,
         )
         return PossessionResult(
             turnover=True,
@@ -668,6 +874,64 @@ def resolve_possession(
             log=log,
             extra_logs=extra_logs,
         )
+
+    # 3a. Dead-ball violations (travel / double dribble) --- Phase 1, gated.
+    # Base rate scales with rules.violation_strictness (0 = never called);
+    # high-IQ handlers travel less. At strictness 1.0 and league-average IQ
+    # this adds roughly 1% of possessions as dead-ball turnovers.
+    if event_detail and rules.violation_strictness > 0.0:
+        iq_factor = 1.0 - handler.current_attributes.iq / 200.0
+        p_violation = 0.012 * rules.violation_strictness * iq_factor
+        v_roll = rng.random()
+        if v_roll < p_violation:
+            violation = "travel" if v_roll < p_violation * 0.6 else "double_dribble"
+            handler.turnovers += 1
+            drain_stamina(
+                offense, scheme, is_defense=False, rules=rules,
+                pace_modifier=pace,
+                is_away=offense_is_away, altitude_ft=altitude,
+                surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
+            )
+            drain_stamina(
+                defense, scheme, is_defense=True, rules=rules,
+                defensive_intensity=def_intensity, pace_modifier=pace,
+                is_away=not offense_is_away, altitude_ft=altitude,
+                surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
+            )
+            game_state.last_action = violation
+            game_state.last_result = "turnover"
+            game_state.consecutive_makes = 0
+            game_state.consecutive_misses += 1
+            emit(
+                f"turnover.{violation}",
+                actor_id=handler.hooper.id,
+                outcome="dead_ball",
+            )
+            if "sim.turnover.post" in active_hooks:
+                _fire_category_hook(
+                    "sim.turnover.post", game_state, rules, rng,
+                    _effects, meta_store, hooper=handler,
+                )
+            log = PossessionLog(
+                quarter=game_state.quarter,
+                possession_number=game_state.possession_number,
+                offense_team_id=offense_team_id,
+                ball_handler_id=handler.hooper.id,
+                action=violation,
+                result="turnover",
+                defensive_scheme=scheme,
+                home_score=game_state.home_score,
+                away_score=game_state.away_score,
+                events=events,
+            )
+            return PossessionResult(
+                turnover=True,
+                scoring_team_home=game_state.home_has_ball,
+                defensive_scheme=scheme,
+                time_used=time_used,
+                log=log,
+                extra_logs=extra_logs,
+            )
 
     # 3b. Check shot clock violation (defense shuts down the offense)
     if check_shot_clock_violation(handler, scheme, rng):
@@ -691,20 +955,29 @@ def resolve_possession(
         game_state.consecutive_makes = 0
         game_state.consecutive_misses += 1
 
+        if event_detail:
+            emit(
+                "turnover.shot_clock",
+                actor_id=handler.hooper.id,
+                outcome="dead_ball",
+            )
+        if "sim.turnover.post" in active_hooks:
+            _fire_category_hook(
+                "sim.turnover.post", game_state, rules, rng,
+                _effects, meta_store, hooper=handler,
+            )
+
         log = PossessionLog(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
-            offense_team_id=(
-                game_state.home_agents[0].hooper.team_id
-                if game_state.home_has_ball
-                else game_state.away_agents[0].hooper.team_id
-            ),
+            offense_team_id=offense_team_id,
             ball_handler_id=handler.hooper.id,
             action="shot_clock_violation",
             result="turnover",
             defensive_scheme=scheme,
             home_score=game_state.home_score,
             away_score=game_state.away_score,
+            events=events,
         )
         return PossessionResult(
             turnover=True,
@@ -738,15 +1011,10 @@ def resolve_possession(
             is_away=not offense_is_away, altitude_ft=altitude,
             surface_stamina_multiplier=surface_mods.stamina_drain_multiplier,
         )
-        team_id = (
-            game_state.home_agents[0].hooper.team_id
-            if game_state.home_has_ball
-            else game_state.away_agents[0].hooper.team_id
-        )
         log = PossessionLog(
             quarter=game_state.quarter,
             possession_number=game_state.possession_number,
-            offense_team_id=team_id,
+            offense_team_id=offense_team_id,
             ball_handler_id=handler.hooper.id,
             action="blocked_by_effect",
             result="turnover",
@@ -768,6 +1036,40 @@ def resolve_possession(
         "three_point",
     ):
         shot_type = ctx.substitute_action  # type: ignore[assignment]
+
+    # 4c. Assist-before-shot (BBGM pattern, Phase 1, gated). Pick the
+    # potential assister BEFORE the shot, weighted by passing; credit the
+    # assist only on a make. Putbacks are unassisted. A live passing lane
+    # gives the shooter a small make-probability bonus.
+    potential_assister: HooperState | None = None
+    is_putback = bool(
+        second_chance_in
+        and last_rebounder_in
+        and handler.hooper.id == last_rebounder_in
+    )
+    if event_detail and len(offense) > 1 and not is_putback:
+        teammates = [a for a in offense if a.hooper.id != handler.hooper.id]
+        if teammates:
+            avg_passing = sum(
+                t.current_attributes.passing for t in teammates
+            ) / len(teammates)
+            # ~0.55 at league-average passing (50)
+            assist_chance = 0.35 + avg_passing / 250.0
+            if rng.random() < assist_chance:
+                pass_weights = [
+                    max(1, t.current_attributes.passing) for t in teammates
+                ]
+                potential_assister = rng.choices(
+                    teammates, weights=pass_weights, k=1,
+                )[0]
+                potential_assister.potential_assists += 1
+                potential_assister.passes_made += 1
+                emit(
+                    "pass.potential_assist",
+                    actor_id=potential_assister.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="success",
+                )
 
     # 5. Check offensive moves (ball handler)
     triggered = get_triggered_moves(
@@ -820,6 +1122,20 @@ def resolve_possession(
             handler, primary_defender, fallback_def, scheme_mod, rules,
             score_differential=score_diff,
         )
+    # sim.shot.pre --- category hook (Phase 2): effects can shape the
+    # imminent shot's probability and value. Skipped at ~zero cost when no
+    # effect subscribes (hook index).
+    hook_shot_prob_mod = 0.0
+    hook_shot_value_mod = 0
+    if "sim.shot.pre" in active_hooks:
+        hook_shot_prob_mod, hook_shot_value_mod = _fire_category_hook(
+            "sim.shot.pre", game_state, rules, rng,
+            _effects, meta_store, hooper=handler,
+        )
+
+    # Assist-before-shot bonus: a live passing lane makes the shot easier
+    assister_bonus = 0.03 if potential_assister is not None else 0.0
+
     # Apply effect-driven shot probability modifier + home crowd boost + surface
     prob = max(
         0.01,
@@ -828,7 +1144,9 @@ def resolve_possession(
             base_prob
             + ctx.shot_probability_modifier
             + home_crowd_shot_mod
-            + surface_mods.shot_probability_modifier,
+            + surface_mods.shot_probability_modifier
+            + hook_shot_prob_mod
+            + assister_bonus,
         ),
     )
 
@@ -849,8 +1167,10 @@ def resolve_possession(
         if not move_name:
             move_name = def_move.name
 
-    # 7c. Resolve the shot
-    made = rng.random() < prob
+    # 7c. Resolve the shot. The roll is captured so subtype derivation can
+    # reuse it (rescaled to a make/miss-independent uniform) --- no new draw.
+    shot_roll = rng.random()
+    made = shot_roll < prob
     if action_def is not None:
         pts = points_for_action(action_def, rules) if made else 0
     else:
@@ -858,11 +1178,49 @@ def resolve_possession(
 
         pts = points_for_shot(shot_type, rules) if made else 0
 
+    # Subtype derivation (Phase 1, no new draw)
+    shot_subtype = ""
+    shot_event: GameEvent | None = None
+    if event_detail:
+        if made:
+            u = shot_roll / prob if prob > 0 else 0.0
+        else:
+            u = (shot_roll - prob) / (1.0 - prob) if prob < 1.0 else 0.0
+        shot_subtype = derive_shot_subtype(
+            shot_type, handler, u,
+            is_putback=is_putback,
+            has_assister=potential_assister is not None,
+        )
+        # Hustle bookkeeping: rim attacks are drives; tight schemes and
+        # dialed-up intensity register as contested shots for the defender.
+        if shot_type == "at_rim" and not is_putback:
+            handler.drives += 1
+        if scheme_mod >= 0.06:
+            primary_defender.contested_shots += 1
+        emit(
+            f"shot.{shot_type}",
+            actor_id=handler.hooper.id,
+            target_id=primary_defender.hooper.id,
+            outcome="made" if made else "missed",
+            detail=shot_subtype,
+            zone=zone_for_action(shot_type),
+        )
+        shot_event = events[-1]
+
     # Apply effect-driven shot value modifier and pass bonus. Clamp at 0 so a
     # value-reducing governance effect can't push a made shot negative — the
     # shooter's box score and the team score must move by the same amount.
     if made:
-        pts = max(0, pts + ctx.shot_value_modifier + ctx.bonus_pass_count + move_value_bonus)
+        pts = max(
+            0,
+            pts
+            + ctx.shot_value_modifier
+            + ctx.bonus_pass_count
+            + move_value_bonus
+            + hook_shot_value_mod,
+        )
+        if shot_event is not None:
+            shot_event.points = pts
 
     # 8. Update shooter stats
     handler.field_goals_attempted += 1
@@ -898,6 +1256,20 @@ def resolve_possession(
         if primary_defender.fouls >= rules.personal_foul_limit:
             primary_defender.ejected = True
 
+        if event_detail:
+            emit(
+                "foul.shooting",
+                actor_id=primary_defender.hooper.id,
+                target_id=handler.hooper.id,
+                detail=shot_subtype,
+                tags=["and_one"] if made else [],
+            )
+        if "sim.foul.post" in active_hooks:
+            _fire_category_hook(
+                "sim.foul.post", game_state, rules, rng,
+                _effects, meta_store, hooper=primary_defender,
+            )
+
         # Free throws on foul — fully data-driven via ActionDefinition.
         # The fouled action's free_throw_attempts_on_foul determines the
         # count; the free throw ActionDefinition drives resolution.
@@ -926,6 +1298,14 @@ def resolve_possession(
                         handler.free_throws_made += 1
                         handler.points += ft_pts
                         pts += ft_pts
+                    if event_detail:
+                        emit(
+                            "shot.free_throw",
+                            actor_id=handler.hooper.id,
+                            outcome="made" if ft_made else "missed",
+                            points=ft_pts,
+                            zone="paint",
+                        )
             else:
                 # Fallback: no free throw action in registry
                 for _ in range(ft_attempts):
@@ -938,23 +1318,197 @@ def resolve_possession(
                         handler.free_throws_made += 1
                         handler.points += ft_pts
                         pts += ft_pts
+                    if event_detail:
+                        emit(
+                            "shot.free_throw",
+                            actor_id=handler.hooper.id,
+                            outcome="made" if ft_made else "missed",
+                            points=ft_pts,
+                            zone="paint",
+                        )
+        elif event_detail:
+            # And-one flow (Phase 1, gated): a foul on a MADE shot awards
+            # one bonus free throw. Pre-enrichment, made+foul awarded nothing.
+            if shot_event is not None and "and_one" not in shot_event.tags:
+                shot_event.tags.append("and_one")
+            ft_action_def = action_registry.get("free_throw")
+            if ft_action_def is not None:
+                from pinwheel.core.scoring import resolve_shot_v2
+
+                ft_made, ft_pts = resolve_shot_v2(
+                    handler, primary_defender, ft_action_def,
+                    0.0, rules, rng,
+                )
+            else:
+                ft_made, ft_pts = resolve_shot(
+                    handler, primary_defender, "free_throw",
+                    0.0, rules, rng,
+                )
+            handler.free_throws_attempted += 1
+            if ft_made:
+                handler.free_throws_made += 1
+                handler.points += ft_pts
+                pts += ft_pts
+            emit(
+                "shot.free_throw",
+                actor_id=handler.hooper.id,
+                outcome="made" if ft_made else "missed",
+                detail="and_one",
+                points=ft_pts,
+                zone="paint",
+            )
+
+    # 9b. Block conversion (Phase 1, gated): a missed at_rim/mid_range shot
+    # can be credited as a block to the primary defender --- defense + speed
+    # decide. Fixes the phantom `blocks` stat that existed on HooperState
+    # and HooperBoxScore but was never incremented.
+    if (
+        event_detail
+        and not made
+        and not foul_on_defender
+        and shot_type in ("at_rim", "mid_range")
+    ):
+        d_attrs = primary_defender.current_attributes
+        p_block = (d_attrs.defense + d_attrs.speed) / 1000.0
+        if rng.random() < p_block:
+            primary_defender.blocks += 1
+            if shot_event is not None:
+                shot_event.outcome = "blocked"
+            emit(
+                "block",
+                actor_id=primary_defender.hooper.id,
+                target_id=handler.hooper.id,
+                outcome="success",
+                zone=zone_for_action(shot_type),
+            )
 
     # 10. Rebound on miss
     rebound_id = ""
     is_offensive_rebound = False
     assist_id = ""
     if not made and not foul_on_defender:
-        rebounder, is_offensive_rebound = attempt_rebound(offense, defense, rng, rules=rules)
+        if "sim.rebound.pre" in active_hooks:
+            _fire_category_hook(
+                "sim.rebound.pre", game_state, rules, rng,
+                _effects, meta_store,
+            )
+
+        # Box-out pre-roll (Phase 2, gated): the defense's best rebounder
+        # tries to seal --- success shifts rebound weights toward the defense
+        # and counts as a hustle stat.
+        box_out_bonus = 0.0
+        if event_detail and defense:
+            boxer = max(defense, key=lambda d: d.current_attributes.defense)
+            p_box = 0.25 + boxer.current_attributes.defense / 400.0
+            if rng.random() < p_box:
+                boxer.box_outs += 1
+                box_out_bonus = 4.0
+                emit(
+                    "rebound.box_out",
+                    actor_id=boxer.hooper.id,
+                    outcome="success",
+                    zone="paint",
+                )
+
+        rebounder, is_offensive_rebound = attempt_rebound(
+            offense, defense, rng, rules=rules, defensive_bonus=box_out_bonus,
+        )
         rebounder.rebounds += 1
         rebound_id = rebounder.hooper.id
 
-    # 11. Assist credit (simplified: random teammate if made)
-    if made and len(offense) > 1:
-        teammates = [a for a in offense if a.hooper.id != handler.hooper.id]
-        if teammates:
-            assister = rng.choice(teammates)
-            assister.assists += 1
-            assist_id = assister.hooper.id
+        if event_detail:
+            # Contested/uncontested + tip derivation (one gated draw).
+            # Offensive boards are always contested; a slice of them are
+            # tips kept alive rather than clean grabs.
+            reb_roll = rng.random()
+            if is_offensive_rebound:
+                reb_contested = True
+                reb_detail = "tip" if reb_roll < 0.15 else ""
+            else:
+                reb_contested = reb_roll < 0.4
+                reb_detail = ""
+            emit(
+                "rebound.offensive" if is_offensive_rebound else "rebound.defensive",
+                actor_id=rebounder.hooper.id,
+                outcome="contested" if reb_contested else "uncontested",
+                detail=reb_detail,
+                zone="paint",
+            )
+
+            # Loose-ball foul on the scramble (gated, rare). Counts as a
+            # personal + team foul; possession outcome is unchanged.
+            p_loose = 0.015 * rules.foul_rate_modifier
+            if reb_contested and rng.random() < p_loose:
+                # Low-IQ defenders reach in on the scramble (deterministic pick)
+                lb_fouler = min(defense, key=lambda d: d.current_attributes.iq)
+                lb_fouler.fouls += 1
+                if game_state.home_has_ball:
+                    game_state.away_team_fouls += 1
+                else:
+                    game_state.home_team_fouls += 1
+                if lb_fouler.fouls >= rules.personal_foul_limit:
+                    lb_fouler.ejected = True
+                emit(
+                    "foul.loose_ball",
+                    actor_id=lb_fouler.hooper.id,
+                    target_id=rebounder.hooper.id,
+                    zone="paint",
+                )
+                if "sim.foul.post" in active_hooks:
+                    _fire_category_hook(
+                        "sim.foul.post", game_state, rules, rng,
+                        _effects, meta_store, hooper=lb_fouler,
+                    )
+
+        if "sim.rebound.post" in active_hooks:
+            _fire_category_hook(
+                "sim.rebound.post", game_state, rules, rng,
+                _effects, meta_store, hooper=rebounder,
+            )
+
+    # 11. Assist credit
+    if made:
+        if event_detail:
+            # Assist-before-shot (BBGM): credit the pre-selected passer
+            if potential_assister is not None:
+                potential_assister.assists += 1
+                assist_id = potential_assister.hooper.id
+                emit(
+                    "assist",
+                    actor_id=potential_assister.hooper.id,
+                    target_id=handler.hooper.id,
+                    outcome="success",
+                )
+                # Screen-assist bookkeeping stub (Phase 2, gated): sometimes
+                # the play was freed by the third hooper's screen.
+                others = [
+                    a for a in offense
+                    if a.hooper.id not in (handler.hooper.id, assist_id)
+                ]
+                if others and rng.random() < 0.15:
+                    screener = others[0]
+                    screener.screen_assists += 1
+                    emit(
+                        "screen.assist",
+                        actor_id=screener.hooper.id,
+                        target_id=handler.hooper.id,
+                        outcome="success",
+                    )
+        elif len(offense) > 1:
+            # Legacy path: random teammate assist (pre-enrichment RNG stream)
+            teammates = [a for a in offense if a.hooper.id != handler.hooper.id]
+            if teammates:
+                assister = rng.choice(teammates)
+                assister.assists += 1
+                assist_id = assister.hooper.id
+
+    # 11b. sim.shot.post --- category hook (Phase 2): effects react to the
+    # resolved shot (score/stamina/meta mutations apply immediately).
+    if "sim.shot.post" in active_hooks:
+        _fire_category_hook(
+            "sim.shot.post", game_state, rules, rng,
+            _effects, meta_store, hooper=handler,
+        )
 
     # 12. Update score
     if pts > 0:
@@ -993,16 +1547,16 @@ def resolve_possession(
         game_state.consecutive_makes = 0
         game_state.consecutive_misses += 1
 
+    # Re-arm second-chance context when the offense keeps its own miss
+    if is_offensive_rebound:
+        game_state.second_chance = True
+        game_state.last_rebound_hooper_id = rebound_id
+
     # Build log
-    team_id = (
-        game_state.home_agents[0].hooper.team_id
-        if game_state.home_has_ball
-        else game_state.away_agents[0].hooper.team_id
-    )
     log = PossessionLog(
         quarter=game_state.quarter,
         possession_number=game_state.possession_number,
-        offense_team_id=team_id,
+        offense_team_id=offense_team_id,
         ball_handler_id=handler.hooper.id,
         action=shot_type,
         result="made" if made else ("foul" if foul_on_defender else "missed"),
@@ -1015,6 +1569,7 @@ def resolve_possession(
         defensive_scheme=scheme,
         home_score=game_state.home_score,
         away_score=game_state.away_score,
+        events=events,
     )
 
     return PossessionResult(

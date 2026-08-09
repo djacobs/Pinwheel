@@ -30,7 +30,11 @@ from pinwheel.core.hooks import (
     fire_hooks,
 )
 from pinwheel.core.meta import MetaStore
-from pinwheel.core.possession import PossessionResult, resolve_possession
+from pinwheel.core.possession import (
+    CATEGORY_HOOKS,
+    PossessionResult,
+    resolve_possession,
+)
 from pinwheel.core.state import GameState, HooperState, PossessionContext
 from pinwheel.models.game import GameResult, HooperBoxScore, PossessionLog, QuarterScore
 from pinwheel.models.game_definition import (
@@ -238,6 +242,9 @@ def resolve_turn(
     poss_ctx: PossessionContext | None = None,
     action_registry: ActionRegistry | None = None,
     game_def: GameDefinition | None = None,
+    effect_registry: list[RegisteredEffect] | None = None,
+    meta_store: MetaStore | None = None,
+    active_hooks: frozenset[str] = frozenset(),
 ) -> PossessionResult:
     """Resolve one turn of the game.
 
@@ -257,8 +264,14 @@ def resolve_turn(
         last_three: Whether the previous possession ended with a made three.
         poss_ctx: Effect-derived modifiers for this possession.
         action_registry: Data-driven action definitions.
-        game_def: Game structure definition (currently unused but
-            threaded for future dispatch).
+        game_def: Game structure definition. ``game_def.event_detail``
+            controls Tier-1 event enrichment in the possession engine.
+        effect_registry: New-style effects for category hooks fired inside
+            the possession (sim.shot.*, sim.rebound.*, sim.foul.post,
+            sim.turnover.post).
+        meta_store: Meta store handed to category-hook effects.
+        active_hooks: Per-game index of category hooks with registered
+            effects (built once by simulate_game).
 
     Returns:
         A PossessionResult with the outcome of the turn.
@@ -266,6 +279,10 @@ def resolve_turn(
     return resolve_possession(
         game_state, rules, rng, last_three, poss_ctx,
         action_registry=action_registry,
+        event_detail=game_def.event_detail if game_def is not None else True,
+        effect_registry=effect_registry,
+        meta_store=meta_store,
+        active_hooks=active_hooks,
     )
 
 
@@ -279,6 +296,7 @@ def _run_quarter(
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
     game_def: GameDefinition | None = None,
+    active_hooks: frozenset[str] = frozenset(),
 ) -> None:
     """Run one quarter using the game clock.
 
@@ -321,6 +339,9 @@ def _run_quarter(
             game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
+            effect_registry=new_effects,
+            meta_store=meta_store,
+            active_hooks=active_hooks,
         )
 
         # Post-possession effects react to the resolved outcome (score/meta
@@ -380,6 +401,7 @@ def _run_elam(
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
     game_def: GameDefinition | None = None,
+    active_hooks: frozenset[str] = frozenset(),
 ) -> None:
     """Run the Elam Ending period.
 
@@ -416,6 +438,9 @@ def _run_elam(
             game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
+            effect_registry=new_effects,
+            meta_store=meta_store,
+            active_hooks=active_hooks,
         )
         _fire_sim_effects(
             "sim.possession.post", game_state, rules, rng, new_effects, meta_store,
@@ -469,6 +494,7 @@ def _run_sudden_death(
     meta_store: MetaStore | None = None,
     action_registry: ActionRegistry | None = None,
     game_def: GameDefinition | None = None,
+    active_hooks: frozenset[str] = frozenset(),
     max_possessions: int = 100,
 ) -> None:
     """Sudden death: alternate possessions until the tie breaks.
@@ -493,6 +519,9 @@ def _run_sudden_death(
             game_state, rules, rng, last_three_by_offense[offense_is_home], poss_ctx,
             action_registry=action_registry,
             game_def=game_def,
+            effect_registry=new_effects,
+            meta_store=meta_store,
+            active_hooks=active_hooks,
         )
         _fire_sim_effects(
             "sim.possession.post", game_state, rules, rng, new_effects, meta_store,
@@ -579,9 +608,17 @@ def _build_box_scores(game_state: GameState) -> list[HooperBoxScore]:
                 rebounds=hs.rebounds,
                 assists=hs.assists,
                 steals=hs.steals,
+                blocks=hs.blocks,
                 turnovers=hs.turnovers,
                 fouls=hs.fouls,
                 plus_minus=pm,
+                potential_assists=hs.potential_assists,
+                passes_made=hs.passes_made,
+                box_outs=hs.box_outs,
+                screen_assists=hs.screen_assists,
+                deflections=hs.deflections,
+                contested_shots=hs.contested_shots,
+                drives=hs.drives,
             )
         )
     return box_scores
@@ -654,6 +691,17 @@ def simulate_game(
     if action_registry is None:
         action_registry = game_def.build_registry()
 
+    # Category-hook index (Phase 2): built once per game. Possession-level
+    # hooks (sim.shot.*, sim.rebound.*, sim.foul.post, sim.turnover.post)
+    # only fire when a registered effect subscribes — games with no effects
+    # on these hooks pay ~zero cost.
+    if effect_registry:
+        active_hooks = frozenset(
+            h for e in effect_registry for h in e.hook_points
+        ) & CATEGORY_HOOKS
+    else:
+        active_hooks = frozenset()
+
     if not game_id:
         game_id = f"g-0-{seed}"
 
@@ -697,6 +745,7 @@ def simulate_game(
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
             game_def=game_def,
+            active_hooks=active_hooks,
         )
 
         fire_hooks(HookPoint.QUARTER_END, game_state, _effects)
@@ -737,6 +786,7 @@ def simulate_game(
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
             game_def=game_def,
+            active_hooks=active_hooks,
         )
 
         quarter_scores.append(
@@ -757,6 +807,7 @@ def simulate_game(
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
             game_def=game_def,
+            active_hooks=active_hooks,
         )
 
         quarter_scores.append(
@@ -777,6 +828,7 @@ def simulate_game(
             new_effects=effect_registry, meta_store=meta_store,
             action_registry=action_registry,
             game_def=game_def,
+            active_hooks=active_hooks,
         )
         # Fold sudden-death points into the final period's row so quarter
         # totals still sum to the final score.

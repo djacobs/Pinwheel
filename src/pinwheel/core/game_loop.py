@@ -1383,6 +1383,16 @@ async def _phase_simulate_and_govern(
                 assists=bs.assists,
                 steals=bs.steals,
                 turnovers=bs.turnovers,
+                rebounds=bs.rebounds,
+                blocks=bs.blocks,
+                fouls=bs.fouls,
+                potential_assists=bs.potential_assists,
+                passes_made=bs.passes_made,
+                box_outs=bs.box_outs,
+                screen_assists=bs.screen_assists,
+                deflections=bs.deflections,
+                contested_shots=bs.contested_shots,
+                drives=bs.drives,
             )
 
         game_results.append(result)
