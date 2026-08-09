@@ -580,28 +580,32 @@ class TestModifyActionIntegration:
     """Integration tests for action modification during simulation."""
 
     def test_higher_point_value_changes_scores(self) -> None:
-        """Making three-pointers worth 5 should increase average scores."""
+        """Making three-pointers worth 5 should increase average scores.
+
+        Seed-migration note (Phase 1 event enrichment): score-dependent
+        branching (Elam target, clutch bonus) means a single seed's paired
+        comparison is noisy — a 5-point-three game can diverge into a
+        lower-scoring line. Averaging over several seeds tests the actual
+        claim: 5-point threes raise scoring on average.
+        """
         home = _make_team("home")
         away = _make_team("away")
 
-        # Baseline
-        base_result = simulate_game(home, away, DEFAULT_RULESET, seed=42)
-
-        # Modified: three-pointers worth 5
         effect = _make_game_def_patch_effect(
             {"modify_actions": {"three_point": {"points_on_success": 5}}}
         )
-        mod_result = simulate_game(
-            home, away, DEFAULT_RULESET, seed=42,
-            effect_registry=[effect],
-        )
 
-        # Same possessions but potentially higher scores
-        # (deterministic with same seed — the selection weights don't change,
-        # only the points per three-pointer)
-        # With 5-point threes, total should be >= baseline
-        mod_total = mod_result.home_score + mod_result.away_score
-        base_total = base_result.home_score + base_result.away_score
+        base_total = 0
+        mod_total = 0
+        for seed in range(42, 50):
+            base_result = simulate_game(home, away, DEFAULT_RULESET, seed=seed)
+            mod_result = simulate_game(
+                home, away, DEFAULT_RULESET, seed=seed,
+                effect_registry=[effect],
+            )
+            base_total += base_result.home_score + base_result.away_score
+            mod_total += mod_result.home_score + mod_result.away_score
+
         assert mod_total >= base_total
 
     def test_game_completes_with_modified_structure(self) -> None:
