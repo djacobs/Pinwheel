@@ -679,15 +679,25 @@ class TestGameDefinitionTurnStructure:
         assert gd.safety_cap_possessions == 200
 
     def test_basketball_game_definition_preserves_actions(self) -> None:
-        """Turn structure fields don't interfere with existing action fields."""
+        """Turn structure fields don't interfere with existing action fields.
+
+        Since Phase 4 the definition carries the 4 shot/FT actions PLUS the
+        micro chain-node vocabulary (governable data) — but shot selection
+        still sees exactly the shot actions.
+        """
         gd = basketball_game_definition(DEFAULT_RULESET)
-        assert len(gd.actions) == 4
+        assert len(gd.actions) > 4
+        shot_names = {a.name for a in gd.actions if a.category == "shot"}
+        assert shot_names == {"at_rim", "mid_range", "three_point"}
+        assert any(a.is_free_throw for a in gd.actions)
         assert gd.participants_per_side == 3
         assert gd.bench_size == 1
         assert gd.name == "Basketball"
         registry = gd.build_registry()
         assert "at_rim" in registry
         assert "three_point" in registry
+        assert "initiate" in registry
+        assert {a.name for a in registry.shot_actions()} == shot_names
 
     def test_game_definition_serialization_round_trip(self) -> None:
         """GameDefinition with turn structure fields round-trips through JSON."""

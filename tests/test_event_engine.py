@@ -172,7 +172,10 @@ class TestShotSubtypes:
         h = HooperState(hooper=_hooper("x", "t", _attrs()))
         assert derive_shot_subtype("at_rim", h, 0.9, True, False) == "putback"
         assert derive_shot_subtype("at_rim", h, 0.1, True, False) == "tip"
-        # End-to-end: putback shots never carry an assist
+        # End-to-end: made putbacks never carry an assist. (Under the micro
+        # engine a possession row can hold several shots — a missed putback
+        # may be followed by a later assisted make — so the unassisted
+        # invariant is asserted on MADE putbacks, which end the possession.)
         found_putback = False
         for seed in range(20):
             result = simulate_game(_team("h"), _team("a"), DEFAULT_RULESET, seed=seed)
@@ -180,7 +183,8 @@ class TestShotSubtypes:
                 for e in log.events:
                     if e.event_type == "shot.at_rim" and e.detail in ("putback", "tip"):
                         found_putback = True
-                        assert log.assist_id == "", "putbacks are unassisted"
+                        if e.outcome == "made":
+                            assert log.assist_id == "", "putbacks are unassisted"
         assert found_putback, "putbacks should occur across 20 seeded games"
 
     def test_catch_and_shoot_requires_assister(self):
@@ -213,18 +217,32 @@ class TestTurnoverAttribution:
                     if e.event_type in ("turnover.bad_pass", "turnover.lost_ball"):
                         assert log.defender_id == e.target_id
 
-    def test_deflections_credited_on_bad_pass_only(self):
-        totals_bad_pass = 0
+    def test_deflections_credited_on_bad_pass_and_steal_gambles(self):
+        # Deflections come from exactly two sources: picked-off bad passes
+        # and Tier-2 steal-gamble deflections (defense.steal_attempt with
+        # outcome "deflection") — nothing else inflates the stat.
+        totals_expected = 0
         totals_deflections = 0
         for seed in range(10):
             result = simulate_game(_team("h"), _team("a"), DEFAULT_RULESET, seed=seed)
-            totals_bad_pass += sum(
+            totals_expected += sum(
                 1 for e in _all_events(result) if e.event_type == "turnover.bad_pass"
             )
+            totals_expected += sum(
+                1
+                for e in _all_events(result)
+                if e.event_type == "defense.steal_attempt"
+                and e.outcome == "deflection"
+            )
             totals_deflections += sum(b.deflections for b in result.box_scores)
-        assert totals_deflections == totals_bad_pass
+        assert totals_deflections == totals_expected
 
-    def test_passing_heavy_handlers_throw_bad_passes(self):
+    def test_turnover_subtype_mix_tracks_skill_deficits(self):
+        # Micro-engine semantics (Phase 4): turnover subtypes EMERGE from
+        # failed chain events rather than being attributed by usage — a
+        # low-passing team fails its passes (bad_pass), a slow team gets
+        # stripped on its dribble attempts (lost_ball). So the bad-pass
+        # SHARE of a team's live-ball turnovers tracks its passing deficit.
         passers = _team("p", attrs=_attrs(passing=90, speed=10))
         dribblers = _team("d", attrs=_attrs(passing=10, speed=90))
         counts = {"p": {"bad_pass": 0, "lost_ball": 0}, "d": {"bad_pass": 0, "lost_ball": 0}}
@@ -235,8 +253,12 @@ class TestTurnoverAttribution:
                     sub = e.event_type.split(".", 1)[1]
                     if sub in ("bad_pass", "lost_ball"):
                         counts[e.team_id][sub] += 1
-        assert counts["p"]["bad_pass"] > counts["p"]["lost_ball"]
-        assert counts["d"]["lost_ball"] > counts["d"]["bad_pass"]
+        p_total = counts["p"]["bad_pass"] + counts["p"]["lost_ball"]
+        d_total = counts["d"]["bad_pass"] + counts["d"]["lost_ball"]
+        assert p_total > 0 and d_total > 0
+        bad_pass_share_p = counts["p"]["bad_pass"] / p_total
+        bad_pass_share_d = counts["d"]["bad_pass"] / d_total
+        assert bad_pass_share_d > bad_pass_share_p
 
 
 # --- Violations ------------------------------------------------------------
@@ -309,19 +331,25 @@ class TestBlocks:
         assert total_blocks == total_block_events
 
     def test_blocked_shot_event_outcome(self):
+        # A block flips the outcome of the shot it rejected — the nearest
+        # shot event BEFORE the block. (Micro possessions can hold several
+        # shots, so "the first shot in the log" is no longer the target.)
         stoppers = _team("d", attrs=_attrs(defense=90, speed=80))
+        found_block = False
         for seed in range(10):
             result = simulate_game(_team("o"), stoppers, DEFAULT_RULESET, seed=seed)
             for log in result.possession_log:
-                block = next(
-                    (e for e in log.events if e.event_type == "block"), None
-                )
-                if block is not None:
+                for i, e in enumerate(log.events):
+                    if e.event_type != "block":
+                        continue
+                    found_block = True
                     shot = next(
-                        e for e in log.events if e.event_type.startswith("shot.")
+                        ev
+                        for ev in reversed(log.events[:i])
+                        if ev.event_type.startswith("shot.")
                     )
                     assert shot.outcome == "blocked"
-                    assert log.result == "missed"
+        assert found_block, "blocks should occur against elite stoppers"
 
 
 # --- Assist-before-shot ----------------------------------------------------
@@ -345,7 +373,11 @@ class TestAssistBeforeShot:
             for b in result.box_scores:
                 if b.team_id == "h":
                     assists[b.hooper_id] = assists.get(b.hooper_id, 0) + b.assists
-        assert assists.get("h-s0", 0) > 2 * assists.get("h-s1", 0)
+        # Under the micro engine, assist credit goes to the actual last
+        # passer in the chain, so the skew comes from passing-weighted
+        # ball-handling plus pass completion — real but softer than the
+        # macro engine's direct passing-weighted pick (was a 2x margin).
+        assert assists.get("h-s0", 0) > 1.2 * assists.get("h-s1", 0)
 
     def test_potential_assists_tracked(self):
         result = simulate_game(_team("h"), _team("a"), DEFAULT_RULESET, seed=42)

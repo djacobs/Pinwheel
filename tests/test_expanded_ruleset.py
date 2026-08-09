@@ -301,11 +301,14 @@ class TestSimulationUsesNewParams:
         high = [simulate_game(home, away, high_oreb, seed=s) for s in range(100)]
 
         def count_oreb(results: list) -> int:
+            # The micro engine (default since Phase 4) folds offensive
+            # rebounds into the possession chain, so count the events.
             total = 0
             for r in results:
                 for p in r.possession_log:
-                    if p.is_offensive_rebound:
-                        total += 1
+                    total += sum(
+                        1 for e in p.events if e.event_type == "rebound.offensive"
+                    )
             return total
 
         normal_oreb = count_oreb(normal)

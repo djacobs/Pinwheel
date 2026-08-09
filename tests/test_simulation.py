@@ -824,24 +824,26 @@ class TestRebounds:
         with_rebound = [p for p in missed if p.rebound_id]
         assert len(with_rebound) > 0, "Expected rebound_id on missed shots"
 
-    def test_is_offensive_rebound_in_possession_log(self) -> None:
-        """Some missed shots should have is_offensive_rebound set.
+    def test_offensive_and_defensive_rebounds_occur(self) -> None:
+        """Both rebound kinds should appear across many possessions.
 
-        Offensive rebounds are less frequent than defensive, but across
-        many possessions some should appear.
+        The micro engine (default since Phase 4) folds offensive rebounds
+        into the possession chain (``is_offensive_rebound`` stays False on
+        the summary row by design), so the rebound events are the source
+        of truth.
         """
         home = _make_team("home")
         away = _make_team("away")
-        # Run several games to find at least one offensive rebound
         found_offensive = False
         found_defensive = False
         for seed in range(20):
             result = simulate_game(home, away, DEFAULT_RULESET, seed=seed)
             for p in result.possession_log:
-                if p.rebound_id and p.is_offensive_rebound:
-                    found_offensive = True
-                if p.rebound_id and not p.is_offensive_rebound:
-                    found_defensive = True
+                for e in p.events:
+                    if e.event_type == "rebound.offensive":
+                        found_offensive = True
+                    elif e.event_type == "rebound.defensive":
+                        found_defensive = True
             if found_offensive and found_defensive:
                 break
         assert found_offensive, "Expected at least one offensive rebound across 20 games"
@@ -2001,9 +2003,27 @@ class TestOffensiveReboundPossession:
 
     def test_offensive_rebound_weight_rule_changes_outcomes(self):
         """The governable offensive_rebound_weight must actually matter:
-        cranking it changes game outcomes for the same seed."""
+        cranking it shifts the offensive-rebound share across seeds.
+
+        (Migrated from a single-seed exact-score inequality — the micro
+        engine's chain absorbs many single-possession divergences, so the
+        claim is asserted on the aggregate ORB count, which is what the
+        knob actually governs.)
+        """
         home = _make_team("home")
         away = _make_team("away")
-        low = simulate_game(home, away, RuleSet(offensive_rebound_weight=1.0), seed=11)
-        high = simulate_game(home, away, RuleSet(offensive_rebound_weight=15.0), seed=11)
-        assert (low.home_score, low.away_score) != (high.home_score, high.away_score)
+
+        def orb_count(weight: float) -> int:
+            rules = RuleSet(offensive_rebound_weight=weight)
+            total = 0
+            for seed in range(10):
+                r = simulate_game(home, away, rules, seed=seed)
+                total += sum(
+                    1
+                    for p in r.possession_log
+                    for e in p.events
+                    if e.event_type == "rebound.offensive"
+                )
+            return total
+
+        assert orb_count(15.0) > orb_count(1.0)

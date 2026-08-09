@@ -124,9 +124,10 @@ def _aggregate(engine: str) -> dict[str, float]:
     """Run N_CALIBRATION_GAMES fixed-seed games and aggregate distributions."""
     teams = generate_league(4, seed=7).teams
     game_def = basketball_game_definition(DEFAULT_RULESET)
-    if engine == "micro":
-        game_def.possession_engine = "micro"
-        game_def.actions = basketball_micro_actions(DEFAULT_RULESET)
+    # Explicit engine selection — the DEFAULT flipped to "micro" in Phase 4,
+    # so the macro baseline must be pinned here or the comparison would
+    # silently become micro-vs-micro.
+    game_def.possession_engine = engine  # type: ignore[assignment]
 
     games = 0
     points = 0
@@ -245,25 +246,24 @@ class TestSeedSnapshot:
     commits (plan invariant)."""
 
     PINNED_SEED = 42
-    PINNED_SCORE = (79, 32)
-    PINNED_POSSESSIONS = 93
-    PINNED_EVENT_COUNT = 538
+    PINNED_SCORE = (80, 44)
+    PINNED_POSSESSIONS = 99
+    PINNED_EVENT_COUNT = 687
     PINNED_STREAM_SHA256 = (
-        "3ec8441e3e8d44087598f1064a27439b57c4809d55039b05a5de6e8aff70aa87"
+        "fdbee13fd7d6e04665d71f1e4e070ab1f63f876810b274283dbf09f47ff1f1e6"
     )
     PINNED_FIRST_30 = [
-        "admin.initiate", "dribble.iso", "shot.mid_range",
-        "admin.initiate", "pass.swing", "shot.three_point",
-        "rebound.box_out", "rebound.defensive",
-        "admin.initiate", "shot.mid_range",
-        "admin.initiate", "pass.swing", "pass.swing", "pass.swing",
-        "pass.swing", "turnover.shot_clock",
-        "admin.initiate", "dribble.drive", "shot.three_point",
-        "rebound.box_out", "rebound.offensive", "rebound.second_chance",
-        "shot.at_rim",
-        "admin.initiate", "dribble.iso", "shot.mid_range",
-        "rebound.box_out", "rebound.offensive", "rebound.second_chance",
-        "pass.swing",
+        "admin.initiate", "dribble.iso", "defense.contest", "shot.mid_range",
+        "admin.initiate", "pass.swing", "dribble.crossover", "pass.swing",
+        "defense.contest", "shot.at_rim",
+        "rebound.offensive", "rebound.second_chance",
+        "defense.contest", "shot.mid_range",
+        "admin.initiate", "pass.swing", "defense.contest", "shot.mid_range",
+        "assist",
+        "admin.initiate", "defense.contest", "shot.at_rim",
+        "admin.initiate", "screen.off_ball", "cut.spot_up", "pass.swing",
+        "screen.on_ball", "dribble.drive", "turnover.shot_clock",
+        "admin.initiate",
     ]
 
     def _run(self) -> GameResult:
@@ -563,9 +563,13 @@ class TestMicroHooks:
             proposal_id="p-1",
             _hook_points=["sim.event.pre", "sim.event.post"],
         )
+        # The default engine is "micro" since Phase 4 — construct the
+        # macro engine explicitly to pin its zero-event-hook behavior.
+        game_def = basketball_game_definition(DEFAULT_RULESET)
+        game_def.possession_engine = "macro"
         simulate_game(
             _team("h"), _team("a"), DEFAULT_RULESET, seed=42,
-            effect_registry=[effect],
+            game_def=game_def, effect_registry=[effect],
         )
         assert effect.calls == []
 
@@ -697,10 +701,13 @@ class TestMicroSummaryShape:
 
 class TestChainNodeFallback:
     def test_micro_without_chain_nodes_uses_fallback(self):
-        # Governance can flip possession_engine via modify_structure without
-        # adding chain nodes — the engine must not brick the possession.
+        # Governance can strip the chain nodes from the registry (e.g. a
+        # patch that rebuilt actions from shots only) — the engine must
+        # not brick the possession.
+        from pinwheel.models.game_definition import basketball_actions
+
         game_def = basketball_game_definition(DEFAULT_RULESET)
-        game_def.possession_engine = "micro"
+        game_def.actions = basketball_actions(DEFAULT_RULESET)
         assert "initiate" not in {a.name for a in game_def.actions}
         r = simulate_game(
             _team("h"), _team("a"), DEFAULT_RULESET, seed=42, game_def=game_def,
@@ -772,12 +779,15 @@ class TestChainMechanics:
             for p in r.possession_log:
                 types = [e.event_type for e in p.events]
                 for i, e in enumerate(p.events):
-                    if (
-                        e.event_type == "dribble.drive"
-                        and e.outcome == "success"
-                        and i + 1 < len(p.events)
-                        and types[i + 1].startswith("shot.")
-                    ):
-                        seen_open = True
-                        assert "open" in p.events[i + 1].tags
+                    if e.event_type != "dribble.drive" or e.outcome != "success":
+                        continue
+                    # The next SHOT after the drive win (the Tier-2
+                    # defense.contest event sits between them) is open.
+                    for j in range(i + 1, len(p.events)):
+                        if types[j].startswith("shot."):
+                            seen_open = True
+                            assert "open" in p.events[j].tags
+                            break
+                        if types[j] not in ("defense.contest", "defense.help_rotation"):
+                            break
         assert seen_open, "successful drives followed by shots should be open looks"
