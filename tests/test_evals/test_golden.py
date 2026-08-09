@@ -96,3 +96,43 @@ def test_private_case_structural():
         "showing consistent engagement with the governance process.",
     )
     assert result.passed is True
+
+
+# --- Tier-2 interpreter golden cases (Phase 4) ------------------------------
+
+
+def test_tier2_interpreter_cases_pass_against_mock():
+    """The Tier-2 golden cases pin the interpreter's grounding in the micro
+    event-chain vocabulary — run against the mock interpreter (the same
+    structural expectations apply to live interpretations)."""
+    from pinwheel.ai.interpreter import interpret_proposal_v2_mock
+    from pinwheel.evals.golden import (
+        TIER2_INTERPRETER_CASES,
+        run_interpreter_golden_case,
+    )
+    from pinwheel.models.rules import DEFAULT_RULESET
+
+    assert len(TIER2_INTERPRETER_CASES) == 3
+    for case in TIER2_INTERPRETER_CASES:
+        interpretation = interpret_proposal_v2_mock(
+            case.proposal_text, DEFAULT_RULESET,
+        )
+        result = run_interpreter_golden_case(case, interpretation)
+        assert result.passed, f"{case.id}: {result.failures}"
+
+
+def test_tier2_interpreter_case_fails_on_wrong_interpretation():
+    from pinwheel.ai.interpreter import interpret_proposal_v2_mock
+    from pinwheel.evals.golden import (
+        TIER2_INTERPRETER_CASES,
+        run_interpreter_golden_case,
+    )
+    from pinwheel.models.rules import DEFAULT_RULESET
+
+    # A parameter-change interpretation does not satisfy the screens case.
+    wrong = interpret_proposal_v2_mock(
+        "Make three pointers worth 4", DEFAULT_RULESET,
+    )
+    result = run_interpreter_golden_case(TIER2_INTERPRETER_CASES[0], wrong)
+    assert result.passed is False
+    assert result.failures
